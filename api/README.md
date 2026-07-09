@@ -165,10 +165,10 @@ GitHub Actions:
 
 ## Deployment
 
-Deployed with `openmentor-infra` (docker-compose behind Traefik): the
+Deployed via [`infra/`](../infra/) (docker-compose behind Traefik): the
 `migrate` service runs first, then `backend` (API) and `worker` start from
 the same image. Only the frontend and the MCP route are publicly exposed;
-API and worker stay on the internal network. See that repo for compose
+API and worker stay on the internal network. See `infra/` for compose
 files, environment reference, and deploy scripts.
 
 ## License
