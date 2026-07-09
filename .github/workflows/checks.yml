@@ -1,0 +1,98 @@
+name: Checks
+
+# Branch-protection helper for the path-filtered CI workflows.
+#
+# "CI / Web" and "CI / API" only run when their subtree changes, so their job
+# names can't be marked as required checks (a docs-only PR would hang forever
+# waiting for checks that never start). This workflow runs on EVERY pull
+# request and exposes a single stable check — "required-checks" — that:
+#   - runs the quick web gates (lint + type check + tests) when web/ changed,
+#   - runs the quick api gates (vet + tests) when api/ changed,
+#   - succeeds trivially when neither changed.
+#
+# Mark only "required-checks" as required in branch protection. The deeper
+# coverage (production build, race+coverage floor, staticcheck, gosec, docker
+# smoke test) stays in ci-web.yml / ci-api.yml as non-required signal.
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  required-checks:
+    name: required-checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect changed areas
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            web:
+              - 'web/**'
+              - '.github/workflows/ci-web.yml'
+              - '.github/workflows/checks.yml'
+            api:
+              - 'api/**'
+              - '.github/workflows/ci-api.yml'
+              - '.github/workflows/checks.yml'
+
+      # --- Web quick gates -------------------------------------------------
+
+      - name: Setup Node.js
+        if: steps.filter.outputs.web == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'yarn'
+          cache-dependency-path: web/yarn.lock
+
+      - name: 'Web: install dependencies'
+        if: steps.filter.outputs.web == 'true'
+        working-directory: web
+        run: yarn install --frozen-lockfile
+
+      - name: 'Web: lint'
+        if: steps.filter.outputs.web == 'true'
+        working-directory: web
+        run: yarn lint
+
+      - name: 'Web: type check'
+        if: steps.filter.outputs.web == 'true'
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: 'Web: tests'
+        if: steps.filter.outputs.web == 'true'
+        working-directory: web
+        run: yarn test
+
+      # --- API quick gates -------------------------------------------------
+
+      - name: Set up Go
+        if: steps.filter.outputs.api == 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache-dependency-path: api/go.sum
+
+      - name: 'API: vet'
+        if: steps.filter.outputs.api == 'true'
+        working-directory: api
+        run: go vet ./...
+
+      - name: 'API: tests'
+        if: steps.filter.outputs.api == 'true'
+        working-directory: api
+        run: go test -timeout=5m ./...
+
+      - name: No web/api changes
+        if: steps.filter.outputs.web != 'true' && steps.filter.outputs.api != 'true'
+        run: echo "No web/ or api/ changes detected — nothing to gate."

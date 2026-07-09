@@ -1,0 +1,87 @@
+name: CI / Web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/ci-web.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/ci-web.yml'
+
+  # Allows manual trigger from Actions tab
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  # Lint, type check, and test
+  test:
+    name: Lint, Type Check & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'yarn'
+          cache-dependency-path: web/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Run ESLint
+        run: yarn lint
+
+      - name: Run TypeScript type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: yarn test
+
+  # Build the application
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: test
+
+    # Plain CI values, not secrets: every NEXT_PUBLIC_* var is public by
+    # definition (baked into the client bundle), and literals keep the build
+    # reproducible and working on fork PRs where secrets are unavailable.
+    # Real values are injected by the deploy pipeline (deploy.yml).
+    env:
+      NEXT_PUBLIC_GO_API_URL: http://localhost:8081
+      NEXT_PUBLIC_S3_STORAGE_ENDPOINT: s3.eu-central-1.amazonaws.com
+      NEXT_PUBLIC_S3_STORAGE_BUCKET: mentor-images
+      NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY: ci-placeholder
+      NEXT_PUBLIC_ANALYTICS_PROVIDER: none
+      NEXT_PUBLIC_APP_ENV: development
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'yarn'
+          cache-dependency-path: web/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build application
+        run: yarn build
