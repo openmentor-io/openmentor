@@ -38,8 +38,6 @@ binaries; the compose service picks the command:
   (`MENTORS_API_LIST_AUTH_TOKEN`).
 - **Internal endpoints** — `x-internal-mentors-api-auth-token` header
   (`INTERNAL_MENTORS_API`).
-- **MCP endpoint** — `x-mcp-auth-token` header (`MCP_AUTH_TOKEN`;
-  `MCP_ALLOW_ALL=true` disables the check).
 - **Mentor portal / admin moderation** — passwordless email login: a
   single-use login token (expires in `LOGIN_TOKEN_TTL_MINUTES`, default 15)
   is emailed via the worker, then exchanged for a JWT session in an HttpOnly
@@ -69,7 +67,6 @@ Admin moderation (`/api/v1/auth/admin/*` + session cookie):
 
 Internal / utility:
 - `POST /api/internal/mentors` — cached mentor API for the frontend
-- `POST /api/internal/mcp` — MCP server (exposed as `mcp.<domain>` via Traefik)
 - `GET /api/healthcheck`, `GET /api/metrics` (Prometheus)
 
 ## Background worker
@@ -169,7 +166,7 @@ GitHub Actions:
 
 Deployed via [`infra/`](../infra/) (docker-compose behind Traefik): the
 `migrate` service runs first, then `backend` (API) and `worker` start from
-the same image. Only the frontend and the MCP route are publicly exposed;
+the same image. Only the frontend is publicly exposed;
 API and worker stay on the internal network. See `infra/` for compose
 files, environment reference, and deploy scripts.
 

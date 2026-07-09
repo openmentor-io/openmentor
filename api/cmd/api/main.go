@@ -306,7 +306,6 @@ func main() { //nolint:gocyclo
 	contactService := services.NewContactService(clientRequestRepo, mentorRepo, cfg, httpClient, analyticsTracker)
 	profileService := services.NewProfileService(mentorRepo, storageClient, cfg, httpClient, analyticsTracker)
 	registrationService := services.NewRegistrationService(mentorRepo, storageClient, cfg, httpClient, analyticsTracker)
-	mcpService := services.NewMCPService(mentorRepo, cfg.Server.BaseURL)
 	mentorAuthService := services.NewMentorAuthService(mentorRepo, cfg, httpClient, analyticsTracker)
 	adminAuthService := services.NewAdminAuthService(moderatorRepo, cfg, httpClient, analyticsTracker)
 	mentorRequestsService := services.NewMentorRequestsService(clientRequestRepo, cfg, httpClient, analyticsTracker)
@@ -318,7 +317,6 @@ func main() { //nolint:gocyclo
 	contactHandler := handlers.NewContactHandler(contactService)
 	registrationHandler := handlers.NewRegistrationHandler(registrationService)
 	reviewHandler := handlers.NewReviewHandler(reviewService)
-	mcpHandler := handlers.NewMCPHandler(mcpService)
 	// Health check: If cache is disabled, always return true for cache readiness
 	cacheReadyFunc := mentorCache.IsReady
 	if cfg.Cache.DisableMentorsCache {
@@ -364,7 +362,6 @@ func main() { //nolint:gocyclo
 	contactRateLimiter := middleware.NewRateLimiter(5, 10)           // 5 req/sec, burst of 10 (prevent spam)
 	profileRateLimiter := middleware.NewRateLimiter(10, 20)          // 10 req/sec, burst of 20
 	registrationRateLimiter := middleware.NewRateLimiter(0.00667, 3) // 2 req/5min (0.00667 req/sec), burst of 3
-	mcpRateLimiter := middleware.NewRateLimiter(20, 40)              // 20 req/sec, burst of 40 (for AI tool usage)
 	mentorAuthRateLimiter := middleware.NewRateLimiter(0.00667, 2)   // 2 req/5min (0.00667 req/sec), burst of 2 (login abuse prevention)
 	adminAuthRateLimiter := middleware.NewRateLimiter(0.00667, 2)    // 2 req/5min (0.00667 req/sec), burst of 2 (login abuse prevention)
 
@@ -373,8 +370,6 @@ func main() { //nolint:gocyclo
 	// Utility endpoints (not versioned - operational endpoints)
 	api.GET("/healthcheck", generalRateLimiter.Middleware(), healthHandler.Healthcheck)
 	api.GET("/metrics", generalRateLimiter.Middleware(), gin.WrapH(promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{})))
-	// MCP endpoint (for AI tools to search mentors)
-	api.POST("/internal/mcp", mcpRateLimiter.Middleware(), middleware.MCPServerAuthMiddleware(cfg.Auth.MCPAuthToken, cfg.Auth.MCPAllowAll), mcpHandler.HandleMCPRequest)
 
 	// API v1 routes
 	// SECURITY: Apply body size limits to prevent DoS attacks

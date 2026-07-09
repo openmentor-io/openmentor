@@ -230,20 +230,6 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
-    labels:
-      - "traefik.enable=true"
-      # MCP endpoint - expose mcp.${DOMAIN} -> backend:8081/api/internal/mcp
-      # HTTPS router for MCP endpoint (POST only)
-      - "traefik.http.routers.backend-mcp.rule=Host(`mcp.${DOMAIN}`) && Method(`POST`)"
-      - "traefik.http.routers.backend-mcp.entrypoints=websecure"
-      - "traefik.http.routers.backend-mcp.tls=true"
-      - "traefik.http.routers.backend-mcp.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.backend-mcp.middlewares=mcp-addprefix"
-      - "traefik.http.routers.backend-mcp.service=backend-mcp"
-      # Middleware to add /api/internal/mcp prefix to requests
-      - "traefik.http.middlewares.mcp-addprefix.replacepath.path=/api/internal/mcp"
-      # Service definition
-      - "traefik.http.services.backend-mcp.loadbalancer.server.port=8081"
 
   # Go Background Worker (internal only, no public access)
   # Same image as the backend; runs /app/worker (async event triggers from

@@ -97,8 +97,7 @@ Compose resolution order (highest priority first): shell env →
 
 - `DATABASE_URL`, `S3_STORAGE_*`
 - Required by config validation: `INTERNAL_MENTORS_API`,
-  `MENTORS_API_LIST_AUTH_TOKEN`,
-  `MCP_AUTH_TOKEN`, `RECAPTCHA_V2_SECRET_KEY`
+  `MENTORS_API_LIST_AUTH_TOKEN`, `RECAPTCHA_V2_SECRET_KEY`
 - `JWT_SECRET` (mentor/admin passwordless-login sessions)
 - Worker triggers: `WORKER_AUTH_TOKEN` + `*_TRIGGER_URL` pointing at
   `http://worker:8090/jobs/...`

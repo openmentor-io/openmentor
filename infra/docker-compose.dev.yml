@@ -109,10 +109,6 @@ services:
       - APP_ENV=development
       - LOG_LEVEL=debug
       - DATABASE_URL=postgresql://openmentor:password@postgres:5432/openmentor?sslmode=disable
-    labels:
-      # Disable the mcp.${DOMAIN} router: it needs the websecure entrypoint
-      # and the letsencrypt resolver, neither of which exists in dev
-      - "traefik.enable=false"
 
   worker:
     image: openmentor-backend:${BACKEND_IMAGE_TAG:-dev}

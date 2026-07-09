@@ -36,7 +36,7 @@ sections):
   vars), baked into the frontend image during `docker build`
 - **Runtime secrets** — everything the containers read from
   `/opt/openmentor/infra/.env` on the VM (`DATABASE_URL`, `S3_STORAGE_*`,
-  `SES_*`, `WORKER_AUTH_TOKEN`, trigger URLs, `JWT_SECRET`, `MCP_AUTH_TOKEN`,
+  `SES_*`, `WORKER_AUTH_TOKEN`, trigger URLs, `JWT_SECRET`,
   Grafana Cloud credentials, ...)
 
 **Security**: never commit `.env.production` (it is gitignored).

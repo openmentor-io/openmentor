@@ -63,8 +63,6 @@ type S3StorageConfig struct {
 type AuthConfig struct {
 	MentorsAPIToken    string
 	InternalMentorsAPI string
-	MCPAuthToken       string
-	MCPAllowAll        bool
 }
 
 type AnalyticsConfig struct {
@@ -182,7 +180,6 @@ func Load() (*Config, error) {
 	v.SetDefault("O11Y_PROFILING_UPLOAD_INTERVAL_SECONDS", 15)
 	v.SetDefault("MENTOR_CACHE_TTL", 600)        // 10 minutes in seconds
 	v.SetDefault("DISABLE_MENTORS_CACHE", false) // Experimental: disable cache
-	v.SetDefault("MCP_ALLOW_ALL", false)
 	v.SetDefault("ANALYTICS_PROVIDER", "")
 	v.SetDefault("ANALYTICS_EVENT_VERSION", defaultEventVersion)
 	v.SetDefault("POSTHOG_ENABLED", false)
@@ -255,8 +252,6 @@ func Load() (*Config, error) {
 		Auth: AuthConfig{
 			MentorsAPIToken:    v.GetString("MENTORS_API_LIST_AUTH_TOKEN"),
 			InternalMentorsAPI: v.GetString("INTERNAL_MENTORS_API"),
-			MCPAuthToken:       v.GetString("MCP_AUTH_TOKEN"),
-			MCPAllowAll:        v.GetBool("MCP_ALLOW_ALL"),
 		},
 		Analytics: AnalyticsConfig{
 			Provider:     analyticsProvider,
@@ -372,9 +367,6 @@ func (c *Config) validateAuthConfig() error {
 	}
 	if c.Auth.MentorsAPIToken == "" {
 		return fmt.Errorf("MENTORS_API_LIST_AUTH_TOKEN is required")
-	}
-	if c.Auth.MCPAuthToken == "" && !c.Auth.MCPAllowAll {
-		return fmt.Errorf("MCP_AUTH_TOKEN is required")
 	}
 	return nil
 }

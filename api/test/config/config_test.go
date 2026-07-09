@@ -144,7 +144,6 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Auth: config.AuthConfig{
 					InternalMentorsAPI: "test-token",
-					MCPAuthToken:       "test-mcp-token",
 					MentorsAPIToken:    "public-token",
 				},
 				ReCAPTCHA: config.ReCAPTCHAConfig{
@@ -168,7 +167,6 @@ func TestConfig_Validate(t *testing.T) {
 				Auth: config.AuthConfig{
 					InternalMentorsAPI: "test-token",
 					MentorsAPIToken:    "public-token",
-					MCPAuthToken:       "test-mcp-token",
 				},
 				ReCAPTCHA: config.ReCAPTCHAConfig{
 					SecretKey: "recaptcha-secret",
@@ -189,7 +187,6 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Auth: config.AuthConfig{
 					InternalMentorsAPI: "test-token",
-					MCPAuthToken:       "test-mcp-token",
 					MentorsAPIToken:    "public-token",
 				},
 				Analytics: config.AnalyticsConfig{
@@ -215,7 +212,6 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Auth: config.AuthConfig{
 					InternalMentorsAPI: "test-token",
-					MCPAuthToken:       "test-mcp-token",
 					MentorsAPIToken:    "public-token",
 				},
 				Analytics: config.AnalyticsConfig{
@@ -244,7 +240,6 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Auth: config.AuthConfig{
 					InternalMentorsAPI: "test-token",
-					MCPAuthToken:       "test-mcp-token",
 					MentorsAPIToken:    "public-token",
 				},
 				Analytics: config.AnalyticsConfig{
@@ -268,7 +263,6 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Auth: config.AuthConfig{
 					InternalMentorsAPI: "test-token",
-					MCPAuthToken:       "test-mcp-token",
 				},
 			},
 			expectError: true,
@@ -280,26 +274,10 @@ func TestConfig_Validate(t *testing.T) {
 				Database: config.DatabaseConfig{
 					WorkOffline: true,
 				},
-				Auth: config.AuthConfig{
-					MCPAuthToken: "test-mcp-token",
-				},
+				Auth: config.AuthConfig{},
 			},
 			expectError: true,
 			errorMsg:    "INTERNAL_MENTORS_API is required",
-		},
-		{
-			name: "missing MCP auth token",
-			cfg: &config.Config{
-				Database: config.DatabaseConfig{
-					WorkOffline: true,
-				},
-				Auth: config.AuthConfig{
-					InternalMentorsAPI: "test-token",
-					MentorsAPIToken:    "public-token",
-				},
-			},
-			expectError: true,
-			errorMsg:    "MCP_AUTH_TOKEN is required",
 		},
 		{
 			name: "profiling enabled without endpoint",
@@ -314,7 +292,6 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Auth: config.AuthConfig{
 					InternalMentorsAPI: "test-token",
-					MCPAuthToken:       "test-mcp-token",
 					MentorsAPIToken:    "public-token",
 				},
 				ReCAPTCHA: config.ReCAPTCHAConfig{
@@ -340,7 +317,6 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Auth: config.AuthConfig{
 					InternalMentorsAPI: "test-token",
-					MCPAuthToken:       "test-mcp-token",
 					MentorsAPIToken:    "public-token",
 				},
 				ReCAPTCHA: config.ReCAPTCHAConfig{
@@ -376,9 +352,7 @@ func TestLoad_WithDefaults(t *testing.T) {
 	os.Setenv("DB_WORK_OFFLINE", "true")
 	os.Setenv("INTERNAL_MENTORS_API", "test-token")
 	os.Setenv("MENTORS_API_LIST_AUTH_TOKEN", "public-token")
-	os.Setenv("MCP_AUTH_TOKEN", "mcp-token")
 	os.Setenv("RECAPTCHA_V2_SECRET_KEY", "recaptcha-secret")
-	os.Setenv("MCP_AUTH_TOKEN", "test-mcp-token")
 
 	cfg, err := config.Load()
 
@@ -409,7 +383,6 @@ func TestLoad_WithEnvironmentVariables(t *testing.T) {
 	os.Setenv("DB_WORK_OFFLINE", "false")
 	os.Setenv("DATABASE_URL", "pg://test.db")
 	os.Setenv("INTERNAL_MENTORS_API", "internal-token-789")
-	os.Setenv("MCP_AUTH_TOKEN", "mcp-token-xyz")
 	os.Setenv("MENTORS_API_LIST_AUTH_TOKEN", "token1")
 	os.Setenv("RECAPTCHA_V2_SECRET_KEY", "recaptcha-secret")
 	os.Setenv("O11Y_PROFILING_ENABLED", "true")
@@ -429,7 +402,6 @@ func TestLoad_WithEnvironmentVariables(t *testing.T) {
 	assert.Equal(t, "development", cfg.Server.AppEnv)
 	assert.Equal(t, "debug", cfg.Logging.Level)
 	assert.Equal(t, "internal-token-789", cfg.Auth.InternalMentorsAPI)
-	assert.Equal(t, "mcp-token-xyz", cfg.Auth.MCPAuthToken)
 	assert.Equal(t, "token1", cfg.Auth.MentorsAPIToken)
 	assert.Equal(t, "recaptcha-secret", cfg.ReCAPTCHA.SecretKey)
 	assert.True(t, cfg.Profiling.Enabled)

@@ -52,13 +52,6 @@ var (
 	ReviewChecks      *prometheus.CounterVec
 	ReviewDuration    prometheus.Histogram
 
-	// MCP Metrics
-	MCPRequestTotal    *prometheus.CounterVec
-	MCPRequestDuration *prometheus.HistogramVec
-	MCPToolInvocations *prometheus.CounterVec
-	MCPSearchKeywords  *prometheus.CounterVec
-	MCPResultsReturned *prometheus.HistogramVec
-
 	// Worker Metrics (background worker binary, cmd/worker)
 	WorkerCronRunsTotal   *prometheus.CounterVec
 	WorkerCronRunDuration *prometheus.HistogramVec
@@ -302,49 +295,6 @@ func Init(serviceName string) {
 			Help:    "Review submission duration in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
-	)
-
-	// MCP Metrics
-	MCPRequestTotal = factory.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "openmentor_mcp_request_total",
-			Help: "Total number of MCP requests",
-		},
-		[]string{"http_request_method", "http_response_status_code"},
-	)
-
-	MCPRequestDuration = factory.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "openmentor_mcp_request_duration_seconds",
-			Help:    "MCP request duration in seconds",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"http_request_method"},
-	)
-
-	MCPToolInvocations = factory.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "openmentor_mcp_tool_invocations_total",
-			Help: "Total number of MCP tool invocations",
-		},
-		[]string{"tool", "status"},
-	)
-
-	MCPSearchKeywords = factory.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "openmentor_mcp_search_keywords_total",
-			Help: "Total number of MCP search queries (tracks keyword usage)",
-		},
-		[]string{"keyword_count_range"}, // "1-2", "3-5", "6-10", "10+"
-	)
-
-	MCPResultsReturned = factory.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "openmentor_mcp_results_returned",
-			Help:    "Number of results returned by MCP tools",
-			Buckets: []float64{0, 1, 5, 10, 20, 50, 100, 200},
-		},
-		[]string{"tool"},
 	)
 
 	// Worker Metrics (background worker binary, cmd/worker)

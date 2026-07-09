@@ -42,8 +42,7 @@ Internet (HTTPS)
    │
 Traefik :80/:443  ── Let's Encrypt (Cloudflare DNS-01), HTTP→HTTPS redirect
    │
-   ├── ${DOMAIN}, www.${DOMAIN}  → frontend :3000 (Next.js)
-   └── mcp.${DOMAIN} (POST)      → backend :8081 /api/internal/mcp
+   └── ${DOMAIN}, www.${DOMAIN}  → frontend :3000 (Next.js)
                                         │
 frontend ── internal Docker network ──> backend (Go API)
                                         │            │
@@ -65,7 +64,7 @@ scales/deploys independently of the API; S3/SES scale on their own.
 |---|---|---|---|
 | `traefik` | traefik:v2.11 | :80/:443 public | TLS termination (Let's Encrypt via Cloudflare DNS-01), routing. Dev overlay: HTTP-only on :80 |
 | `frontend` | openmentor-frontend | via Traefik | Next.js web app |
-| `backend` | openmentor-backend | internal (+ `mcp.${DOMAIN}` POST via Traefik) | Go REST API (`/app/main`) |
+| `backend` | openmentor-backend | internal only | Go REST API (`/app/main`) |
 | `worker` | openmentor-backend (same image, `/app/worker`) | internal :8090 | Async event triggers from the API (`/jobs/*`, `X-Worker-Token` auth) + daily cron jobs. Replaces the deprecated `openmentor-func` Azure Functions app (D6) |
 | `migrate` | openmentor-backend (`/app/migrate`) | — | Runs DB migrations once before backend/worker start |
 | `postgres` | postgres:16.14-alpine | internal only (no published ports) | Production database (DECISIONS D2). Data in the **external** volume `openmentor-postgres-data` (survives `compose down -v`; created by deploy scripts). Admin access via `docker exec -it openmentor-postgres psql`. Dev overlay overrides it with dev creds + host :5433 |
@@ -191,7 +190,7 @@ Highlights:
 - `S3_STORAGE_*` / `NEXT_PUBLIC_S3_STORAGE_*` — AWS S3 profile images (D15)
 - `SES_*`, `MODERATORS_EMAIL`, `DEV_EMAIL_OVERRIDE` — AWS SES email via the worker (D1)
 - `WORKER_AUTH_TOKEN`, `WORKER_CRON_ENABLED`, `*_TRIGGER_URL` — API→worker wiring
-- `JWT_SECRET`, `MCP_AUTH_TOKEN`, `INTERNAL_MENTORS_API`/`GO_API_INTERNAL_TOKEN` — auth
+- `JWT_SECRET`, `INTERNAL_MENTORS_API`/`GO_API_INTERNAL_TOKEN` — auth
 - `GCLOUD_*`, `O11Y_*` — Grafana Cloud observability
 - `ANALYTICS_PROVIDER`, `POSTHOG_*`, `NEXT_PUBLIC_POSTHOG_*` — product analytics
 
@@ -348,7 +347,7 @@ Also back up:
 
 - Only Traefik has public ports; backend/worker/alloy/cadvisor are internal.
 - The worker requires `X-Worker-Token` (`WORKER_AUTH_TOKEN`) on all `/jobs/*`
-  calls; the MCP endpoint requires `MCP_AUTH_TOKEN`.
+  calls.
 - Never commit `.env` / `.env.production`; both are gitignored. Rotate tokens
   regularly and use different values per environment.
 - On the VM: key-only SSH, UFW allowing 22/80/443, fail2ban recommended.

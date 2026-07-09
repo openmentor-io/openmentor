@@ -47,34 +47,6 @@ func TokenAuthMiddleware(validTokens ...string) gin.HandlerFunc {
 }
 
 // InternalAPIAuthMiddleware validates internal API token
-func MCPServerAuthMiddleware(validToken string, allowAll bool) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if allowAll {
-			logger.Info("MCP server access allowed for all",
-				zap.String("path", c.Request.URL.Path),
-				zap.String("client_ip", c.ClientIP()),
-			)
-			c.Next()
-			return
-		}
-
-		token := c.GetHeader("x-mcp-auth-token")
-
-		if token == "" || !jwt.TimingSafeCompare(token, validToken) {
-			logger.Warn("Invalid MCP server token",
-				zap.String("path", c.Request.URL.Path),
-				zap.String("client_ip", c.ClientIP()),
-			)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or missing MCP server token"})
-			c.Abort()
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// InternalAPIAuthMiddleware validates internal API token
 func InternalAPIAuthMiddleware(validToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.GetHeader("x-internal-mentors-api-auth-token")

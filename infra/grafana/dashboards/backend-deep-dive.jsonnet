@@ -305,45 +305,6 @@ g.dashboard.new('OpenMentor Backend Deep Dive')
   + tsDefaults
   + pos(8, 8, 16, 63),
 
-  // ===== ROW: MCP Integration =====
-  g.panel.row.new('MCP Integration')
-  + g.panel.row.withCollapsed(true)
-  + g.panel.row.gridPos.withY(71)
-  + g.panel.row.withPanels([
-    // MCP Request Rate
-    g.panel.timeSeries.new('MCP Requests')
-    + g.panel.timeSeries.queryOptions.withDatasource('prometheus', config.datasources.prometheus)
-    + g.panel.timeSeries.queryOptions.withTargets([
-      g.query.prometheus.new(config.datasources.prometheus, 'rate(openmentor_mcp_request_total{%s}[5m])' % svc)
-      + g.query.prometheus.withLegendFormat('Requests'),
-    ])
-    + g.panel.timeSeries.standardOptions.withUnit('reqps')
-    + tsDefaults
-    + pos(8, 8, 0, 72),
-
-    // MCP Tool Invocations
-    g.panel.timeSeries.new('MCP Tool Invocations')
-    + g.panel.timeSeries.queryOptions.withDatasource('prometheus', config.datasources.prometheus)
-    + g.panel.timeSeries.queryOptions.withTargets([
-      g.query.prometheus.new(config.datasources.prometheus, 'sum by (tool) (rate(openmentor_mcp_tool_invocations_total{%s}[5m]))' % svc)
-      + g.query.prometheus.withLegendFormat('{{tool}}'),
-    ])
-    + g.panel.timeSeries.standardOptions.withUnit('reqps')
-    + tsDefaults
-    + pos(8, 8, 8, 72),
-
-    // MCP Latency
-    g.panel.timeSeries.new('MCP Latency (p95)')
-    + g.panel.timeSeries.queryOptions.withDatasource('prometheus', config.datasources.prometheus)
-    + g.panel.timeSeries.queryOptions.withTargets([
-      g.query.prometheus.new(config.datasources.prometheus, 'histogram_quantile(0.95, sum by (le) (rate(openmentor_mcp_request_duration_seconds_bucket{%s}[5m])))' % svc)
-      + g.query.prometheus.withLegendFormat('p95'),
-    ])
-    + g.panel.timeSeries.standardOptions.withUnit('s')
-    + tsDefaults
-    + pos(8, 8, 16, 72),
-  ]),
-
   // ===== ROW: Go Runtime =====
   g.panel.row.new('Go Runtime') + g.panel.row.gridPos.withY(72),
 
