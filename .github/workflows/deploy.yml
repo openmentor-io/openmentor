@@ -1,4 +1,4 @@
-name: Deploy to Yandex Cloud
+name: Deploy
 
 # Monorepo deploy: both images build from local subdirectories (web/ and
 # api/), and the infra/ subdirectory is synced to the VM in place of the old
@@ -26,7 +26,7 @@ on:
         type: string
 
 env:
-  # TODO(P6): move to ghcr.io (GitHub Container Registry) — Yandex registry kept temporarily
+  # TODO(P6.4): move to ghcr.io (GitHub Container Registry) — Yandex registry kept temporarily
   REGISTRY: cr.yandex
   FRONTEND_IMAGE: openmentor-frontend
   BACKEND_IMAGE: openmentor-backend

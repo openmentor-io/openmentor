@@ -361,18 +361,18 @@ otelcol.auth.basic "grafana_cloud" {
 }
 
 // ============================================================================
-// Database Observability - PostgreSQL (Yandex Managed PostgreSQL)
+// Database Observability - PostgreSQL (local `postgres` compose container)
 //
 // Collects query details, query samples, explain plans, and schema information
 // via direct SQL connection. Forwards structured logs to Grafana Cloud Loki and
 // exports Prometheus metrics to Grafana Cloud.
 //
-// The "logs" collector is disabled: Yandex Managed PostgreSQL does not expose
-// log files on disk, so file-based log collection is not possible.
+// The "logs" collector is disabled: the containerized PostgreSQL logs to
+// stdout (shipped via the Docker log driver), not to files Alloy could tail.
 //
-// Prerequisites (manual, one-time setup on the PostgreSQL cluster):
-//   1. Enable pg_stat_statements in cluster settings → shared_preload_libraries
-//      (requires cluster restart)
+// Prerequisites (manual, one-time setup on the PostgreSQL instance):
+//   1. Enable pg_stat_statements via shared_preload_libraries
+//      (requires restart)
 //   2. Create a monitoring user:
 //        CREATE USER grafana_monitoring WITH PASSWORD '...';
 //        GRANT pg_monitor TO grafana_monitoring;
@@ -381,12 +381,10 @@ otelcol.auth.basic "grafana_cloud" {
 // Required files on VM (created by deploy.sh):
 //   /opt/openmentor-infra/alloy-secrets/postgres_secret_openmentor
 //     → one-line DSN, e.g.:
-//       postgres://grafana_monitoring:pass@host:6432/openmentor?sslmode=verify-full&sslrootcert=/var/lib/alloy/secrets/CA.pem
-//   /opt/openmentor-infra/alloy-secrets/CA.pem
-//     → Yandex Cloud CA certificate (downloaded automatically by deploy.sh)
+//       postgres://grafana_monitoring:pass@postgres:5432/openmentor?sslmode=disable
 //
 // Required env var in .env.production:
-//   POSTGRES_OBS_DSN=postgres://grafana_monitoring:pass@host:6432/openmentor?sslmode=verify-full&sslrootcert=/var/lib/alloy/secrets/CA.pem
+//   POSTGRES_OBS_DSN=postgres://grafana_monitoring:pass@postgres:5432/openmentor?sslmode=disable
 // ============================================================================
 
 local.file "postgres_secret_openmentor" {

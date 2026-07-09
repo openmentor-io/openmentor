@@ -557,14 +557,6 @@ grep "^POSTGRES_OBS_DSN=" /opt/openmentor/infra/.env | cut -d'=' -f2- | tr -d '\
     > "$SECRETS_DIR/postgres_secret_openmentor"
 chmod 600 "$SECRETS_DIR/postgres_secret_openmentor"
 
-# Download the Yandex Cloud CA certificate (only if not already present)
-if [ ! -f "$SECRETS_DIR/CA.pem" ]; then
-    wget -q "https://storage.yandexcloud.net/cloud-certs/CA.pem" \
-        -O "$SECRETS_DIR/CA.pem"
-    chmod 644 "$SECRETS_DIR/CA.pem"
-    echo "Downloaded Yandex Cloud CA certificate"
-fi
-
 echo "Database observability secrets ready in $SECRETS_DIR"
 SECRETS_SCRIPT_EOF
 )

@@ -58,6 +58,7 @@ services:
 
 
   # Next.js Frontend
+  # TODO(P6.4): registry swap cr.yandex -> ghcr.io (applies to all image: lines below)
   frontend:
     image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-frontend:${FRONTEND_IMAGE_TAG:-${IMAGE_TAG}}
     container_name: openmentor-frontend
@@ -301,7 +302,7 @@ services:
       - backend-logs:/var/log/backend:ro
       - worker-logs:/var/log/worker:ro
       # Database observability secrets (created by deploy.sh, never committed)
-      # Contains: postgres_secret_openmentor (DSN) and CA.pem (Yandex Cloud CA cert)
+      # Contains: postgres_secret_openmentor (DSN)
       - ./alloy-secrets:/var/lib/alloy/secrets:ro
     environment:
       - APP_ENV=${APP_ENV:-production}

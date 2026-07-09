@@ -45,7 +45,7 @@ Full-stack via Compose: see [`infra/README.md`](infra/README.md).
 | `Checks` | every PR | The one **required** branch-protection check (`Checks / required-checks`) — runs quick gates for whatever changed, passes trivially otherwise |
 | `CI / Web` | changes under `web/` | lint, typecheck, tests, production build |
 | `CI / API` | changes under `api/` | race tests + coverage floor, gofmt/staticcheck, gosec, full Docker smoke test (postgres → migrate → api → worker) |
-| `Deploy to Yandex Cloud` | manual dispatch | builds both images from one SHA, ships the stack to the VM with health-checked rollback |
+| `Deploy` | manual dispatch | builds both images from one SHA, ships the stack to the VM with health-checked rollback |
 
 ## History
 

@@ -4,7 +4,8 @@
 bucket (via its S3 API at `storage.yandexcloud.net`) to an AWS S3 bucket,
 preserving object keys exactly (the `mentor-images/<slug>/<size>` structure).
 This is the openmentor.io image migration per DECISIONS D15 (AWS S3 for
-profile pictures).
+profile pictures). TODO(P6.4): this tooling (and the Yandex account) can be
+retired once the image copy has run and the registry moves to ghcr.io.
 
 > Historical note: earlier one-off scripts that lived here
 > (`azure-to-yandex-migration.js` for the Azure Blob → Yandex image copy and

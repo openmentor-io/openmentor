@@ -321,7 +321,8 @@ procedures + quarterly drill: `../docs/runbooks/postgres-backup-restore.md`):
 RPO ≤ 24 h, RTO ≈ 30 min with dumps. Documented next step (not implemented):
 **wal-g** continuous WAL archiving to S3 for ~minutes RPO / PITR. Scale path:
 managed Postgres (Neon/RDS) — a `DATABASE_URL` swap to
-`sslmode=verify-full` (the API image ships the CA in `certs/`).
+`sslmode=verify-full` with the provider CA passed via `sslrootcert=<path>`
+in the DSN (standard pgx/libpq behavior).
 
 Also back up:
 
