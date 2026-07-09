@@ -21,5 +21,6 @@ Status: `OPEN` = needs product-owner answer; `DECIDED` = answer recorded, plan u
 | D15 | Object storage for profile pictures | **AWS S3** (`S3_STORAGE_*` / `NEXT_PUBLIC_S3_STORAGE_*`); Yandex→S3 copy script in `openmentor-infra/migration/yandex-to-s3-migration.js` | DECIDED (2026-07-07) |
 | D16 | Repository layout | Monorepo github.com/openmentor-io/openmentor (web/, api/, infra/, docs/, brand/); fresh git history; component repos archived; everything AGPL-3.0 | DECIDED (2026-07-09) |
 | D17 | Licensing | **AGPL-3.0 for the whole monorepo** (single root LICENSE) — supersedes any split-licensing idea. Rationale: `web/` is forked from getmentor.dev, whose contributors licensed their work AGPL-3.0, so the frontend must stay AGPL-3.0; licensing everything the same keeps the repo simple and avoids per-directory license boundaries | DECIDED (2026-07-09) |
+| D18 | Analytics provider | PostHog only — Mixpanel removed across web/api/worker (Mixpanel GTM tag removal in the GTM console is a manual owner task) | DECIDED (2026-07-09) |
 
 When a decision is made: update the row to DECIDED with the choice, and update the referencing plan docs (01/03/04/05/06).

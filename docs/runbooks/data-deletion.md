@@ -10,7 +10,7 @@
 | Mentor | blob storage (S3 bucket) | profile photo(s) keyed by slug/id |
 | Mentee | `client_requests` table | name, email, telegram handle, request description, level |
 | Mentee | `reviews` table | review text (linked to a request) |
-| Both | analytics (PostHog/Mixpanel) | events keyed by distinct_id |
+| Both | analytics (PostHog) | events keyed by distinct_id |
 | Both | email provider logs (SES) | delivery metadata (auto-expires) |
 | Both | server logs (Grafana Loki) | IPs/emails may appear in logs (retention-limited) |
 
@@ -33,7 +33,7 @@
    DELETE FROM client_requests WHERE email = $1;
    ```
    If the mentor should retain evidence a session happened, replace PII with placeholders instead of row deletion (`UPDATE client_requests SET name='[deleted]', email=NULL, telegram=NULL, description='[deleted]' ...`) — prefer full deletion unless there's an active dispute.
-4. **Analytics**: delete the person in PostHog (Persons → delete, incl. events) and Mixpanel (GDPR deletion API) using their distinct_id/email.
+4. **Analytics**: delete the person in PostHog (Persons → delete, incl. events) using their distinct_id/email.
 5. **Confirm** to the requester in writing; note the date. Keep a minimal log (date, subject hash, operator) in the ops tracker — not the deleted data itself.
 
 ## Notes
