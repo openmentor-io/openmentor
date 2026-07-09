@@ -1,5 +1,5 @@
 import { useForm } from 'react-hook-form'
-import ReCAPTCHA from 'react-google-recaptcha'
+import { Turnstile } from '@marsidev/react-turnstile'
 import TextareaAutosize from 'react-textarea-autosize'
 
 interface ContactFormData {
@@ -8,7 +8,7 @@ interface ContactFormData {
   intro: string
   experience?: string
   telegramUsername: string
-  recaptchaToken: string
+  captchaToken: string
 }
 
 interface ContactMentorFormProps {
@@ -31,8 +31,12 @@ export default function ContactMentorForm({
 
   const requiredText = 'This field is required.'
 
-  const handleCaptchaOnChange = (token: string | null): void => {
-    setValue('recaptchaToken', token || '')
+  const handleCaptchaOnSuccess = (token: string): void => {
+    setValue('captchaToken', token)
+  }
+
+  const handleCaptchaOnExpire = (): void => {
+    setValue('captchaToken', '')
   }
 
   return (
@@ -154,16 +158,13 @@ export default function ContactMentorForm({
         </p>
       </div>
 
-      <input
-        type="hidden"
-        {...register('recaptchaToken', { required: true })}
-        id="recaptchaToken"
-      />
+      <input type="hidden" {...register('captchaToken', { required: true })} id="captchaToken" />
 
-      <ReCAPTCHA
-        sitekey={process.env.NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY || ''}
-        onChange={handleCaptchaOnChange}
-        hl="en"
+      <Turnstile
+        siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
+        onSuccess={handleCaptchaOnSuccess}
+        onExpire={handleCaptchaOnExpire}
+        options={{ language: 'en' }}
       />
 
       {isError && (

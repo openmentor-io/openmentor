@@ -187,7 +187,7 @@ jobs:
             "DATABASE_URL=$DBURL" \
             'INTERNAL_MENTORS_API=test-token' \
             'MENTORS_API_LIST_AUTH_TOKEN=test-token-1' \
-            'RECAPTCHA_V2_SECRET_KEY=test' \
+            'TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA' \
             > ci.env
 
           docker run -d --name pg --network ci-net \

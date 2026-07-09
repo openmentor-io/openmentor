@@ -1,7 +1,7 @@
 import Select, { type MultiValue, type StylesConfig } from 'react-select'
 import Image from 'next/image'
 import { useForm, Controller } from 'react-hook-form'
-import ReCAPTCHA from 'react-google-recaptcha'
+import { Turnstile } from '@marsidev/react-turnstile'
 import Wysiwyg from './Wysiwyg'
 import filters from '@/config/filters'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -122,7 +122,7 @@ export default function RegisterMentorForm({
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [imageError, setImageError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [recaptchaToken, setRecaptchaToken] = useState<string>('')
+  const [captchaToken, setCaptchaToken] = useState<string>('')
 
   const handleImageChange = (e: ChangeEvent<HTMLInputElement>): void => {
     const file = e.target.files?.[0]
@@ -163,8 +163,12 @@ export default function RegisterMentorForm({
     }
   }
 
-  const handleCaptchaOnChange = (token: string | null): void => {
-    setRecaptchaToken(token || '')
+  const handleCaptchaOnSuccess = (token: string): void => {
+    setCaptchaToken(token)
+  }
+
+  const handleCaptchaOnExpire = (): void => {
+    setCaptchaToken('')
   }
 
   const handleFormSubmit = (data: RegisterFormData): void => {
@@ -173,7 +177,7 @@ export default function RegisterMentorForm({
       return
     }
 
-    if (!recaptchaToken) {
+    if (!captchaToken) {
       return
     }
 
@@ -183,7 +187,7 @@ export default function RegisterMentorForm({
       contentType: selectedImage.type,
     }
 
-    onSubmit({ ...data, profilePicture, recaptchaToken })
+    onSubmit({ ...data, profilePicture, captchaToken })
   }
 
   const requiredText = 'This field is required.'
@@ -652,13 +656,14 @@ export default function RegisterMentorForm({
       </section>
 
       <div>
-        <ReCAPTCHA
-          sitekey={process.env.NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY || ''}
-          onChange={handleCaptchaOnChange}
-          hl="en"
+        <Turnstile
+          siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
+          onSuccess={handleCaptchaOnSuccess}
+          onExpire={handleCaptchaOnExpire}
+          options={{ language: 'en' }}
         />
 
-        {!recaptchaToken && errors.name && (
+        {!captchaToken && errors.name && (
           <div className="text-sm text-red-700 mt-2">Please confirm that you are not a robot.</div>
         )}
       </div>
@@ -669,7 +674,7 @@ export default function RegisterMentorForm({
         </div>
       )}
 
-      <button type="submit" className="button" disabled={isLoading || !recaptchaToken}>
+      <button type="submit" className="button" disabled={isLoading || !captchaToken}>
         {isLoading ? (
           <>
             <FontAwesomeIcon className="animate-spin" icon={faCircleNotch} />

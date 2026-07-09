@@ -12,9 +12,9 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
-	"github.com/openmentor-io/openmentor/api/pkg/recaptcha"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
+	"github.com/openmentor-io/openmentor/api/pkg/turnstile"
 	"go.uber.org/zap"
 )
 
@@ -25,12 +25,12 @@ const (
 
 // RegistrationService handles mentor registration
 type RegistrationService struct {
-	mentorRepo        *repository.MentorRepository
-	storageClient     *s3storage.StorageClient
-	config            *config.Config
-	httpClient        httpclient.Client
-	recaptchaVerifier *recaptcha.Verifier
-	tracker           analytics.Tracker
+	mentorRepo      *repository.MentorRepository
+	storageClient   *s3storage.StorageClient
+	config          *config.Config
+	httpClient      httpclient.Client
+	captchaVerifier *turnstile.Verifier
+	tracker         analytics.Tracker
 }
 
 // NewRegistrationService creates a new registration service instance
@@ -47,12 +47,12 @@ func NewRegistrationService(
 	}
 
 	return &RegistrationService{
-		mentorRepo:        mentorRepo,
-		storageClient:     storageClient,
-		config:            cfg,
-		httpClient:        httpClient,
-		recaptchaVerifier: recaptcha.NewVerifier(cfg.ReCAPTCHA.SecretKey, httpClient),
-		tracker:           tracker,
+		mentorRepo:      mentorRepo,
+		storageClient:   storageClient,
+		config:          cfg,
+		httpClient:      httpClient,
+		captchaVerifier: turnstile.NewVerifier(cfg.Turnstile.SecretKey, httpClient),
+		tracker:         tracker,
 	}
 }
 
@@ -64,8 +64,8 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		"has_profile_picture": req.ProfilePicture.Image != "",
 	}
 
-	// 1. Verify ReCAPTCHA
-	if err := s.recaptchaVerifier.Verify(req.RecaptchaToken); err != nil {
+	// 1. Verify captcha (Cloudflare Turnstile)
+	if err := s.captchaVerifier.Verify(req.CaptchaToken); err != nil {
 		metrics.MentorRegistrations.WithLabelValues("captcha_failed").Inc()
 		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"), map[string]interface{}{
 			"tags_count":          len(req.Tags),
@@ -73,7 +73,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 			"has_profile_picture": req.ProfilePicture.Image != "",
 			"outcome":             "captcha_failed",
 		})
-		logger.Warn("ReCAPTCHA verification failed", zap.Error(err))
+		logger.Warn("Turnstile verification failed", zap.Error(err))
 		return &models.RegisterMentorResponse{
 			Success: false,
 			Error:   "Captcha verification failed",

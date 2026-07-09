@@ -8,7 +8,7 @@ type ContactMentorRequest struct {
 	MentorID         string `json:"mentorId" binding:"required,uuid"`
 	Intro            string `json:"intro" binding:"required,min=10,max=4000"`
 	TelegramUsername string `json:"telegramUsername" binding:"omitempty,max=50"` // Optional contact handle
-	RecaptchaToken   string `json:"recaptchaToken" binding:"required,min=20"`
+	CaptchaToken     string `json:"captchaToken" binding:"required,min=20"`
 }
 
 // ContactMentorResponse represents the response after submitting a contact form
@@ -27,12 +27,4 @@ type ClientRequest struct {
 	MentorID    string // Mentor UUID
 	Description string
 	Telegram    string
-}
-
-// ReCAPTCHAResponse represents Google's ReCAPTCHA verification response
-type ReCAPTCHAResponse struct {
-	Success     bool     `json:"success"`
-	ChallengeTS string   `json:"challenge_ts"`
-	Hostname    string   `json:"hostname"`
-	ErrorCodes  []string `json:"error-codes"`
 }

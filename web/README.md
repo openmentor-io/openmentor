@@ -2,7 +2,7 @@
 
 [OpenMentor](https://openmentor.io) is an open community mentorship marketplace: mentees browse a catalog of tech mentors, filter by expertise, price, and experience, and book one-on-one sessions directly. Mentors manage their profile, visibility, and incoming requests through a web portal.
 
-This directory is the web frontend of the openmentor monorepo. It is a **thin client**: all data operations (PostgreSQL, object storage, email, auth tokens, ReCAPTCHA verification) are handled by the Go backend in [`../api`](../api). Next.js API routes only proxy to it.
+This directory is the web frontend of the openmentor monorepo. It is a **thin client**: all data operations (PostgreSQL, object storage, email, auth tokens, Turnstile verification) are handled by the Go backend in [`../api`](../api). Next.js API routes only proxy to it.
 
 ## Stack
 

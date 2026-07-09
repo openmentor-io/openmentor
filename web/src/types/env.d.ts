@@ -15,8 +15,8 @@ declare namespace NodeJS {
     // Optional CDN in front of the storage bucket
     NEXT_PUBLIC_CDN_ENDPOINT?: string
 
-    // ReCAPTCHA (verification happens in the Go API)
-    NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY?: string
+    // Cloudflare Turnstile (verification happens in the Go API)
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY?: string
 
     // Auth tokens
     METRICS_AUTH_TOKEN?: string

@@ -41,5 +41,5 @@ npx tsc --noEmit            # TypeScript type check
 - PR descriptions should include a brief summary and the tests run.
 
 ## Configuration & Architecture Notes
-- Required environment variables live in `.env.example` (Go API URL/token, Azure domain, reCAPTCHA, metrics, log level).
+- Required environment variables live in `.env.example` (Go API URL/token, Azure domain, Turnstile, metrics, log level).
 - All data operations are delegated to the Go API backend (`../api` in the monorepo); Next.js acts as a thin client. Full-stack local deployment lives in `../infra`.

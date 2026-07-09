@@ -10,7 +10,7 @@ import Head from 'next/head'
 import Image from 'next/image'
 import { useRouter } from 'next/router'
 import { useForm } from 'react-hook-form'
-import ReCAPTCHA from 'react-google-recaptcha'
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faCircleNotch,
@@ -22,7 +22,7 @@ interface ReviewFormData {
   mentorReview: string
   platformReview: string
   improvements: string
-  recaptchaToken: string
+  captchaToken: string
 }
 
 interface ReviewCheckResponse {
@@ -40,7 +40,7 @@ export default function NewReviewPage(): JSX.Element {
   const [checkError, setCheckError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [mentorName, setMentorName] = useState<string>('')
-  const recaptchaRef = useRef<ReCAPTCHA>(null)
+  const turnstileRef = useRef<TurnstileInstance>(null)
 
   const {
     register,
@@ -85,8 +85,12 @@ export default function NewReviewPage(): JSX.Element {
     checkReview()
   }, [router.isReady, request_id])
 
-  const handleCaptchaOnChange = (token: string | null): void => {
-    setValue('recaptchaToken', token || '')
+  const handleCaptchaOnSuccess = (token: string): void => {
+    setValue('captchaToken', token)
+  }
+
+  const handleCaptchaOnExpire = (): void => {
+    setValue('captchaToken', '')
   }
 
   const onSubmit = async (data: ReviewFormData): Promise<void> => {
@@ -104,7 +108,7 @@ export default function NewReviewPage(): JSX.Element {
           mentorReview: data.mentorReview,
           platformReview: data.platformReview || '',
           improvements: data.improvements || '',
-          recaptchaToken: data.recaptchaToken,
+          captchaToken: data.captchaToken,
         }),
       })
 
@@ -116,8 +120,8 @@ export default function NewReviewPage(): JSX.Element {
       setIsSuccess(true)
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Something went wrong')
-      recaptchaRef.current?.reset()
-      setValue('recaptchaToken', '')
+      turnstileRef.current?.reset()
+      setValue('captchaToken', '')
     } finally {
       setIsLoading(false)
     }
@@ -303,18 +307,19 @@ export default function NewReviewPage(): JSX.Element {
                   />
                 </div>
 
-                {/* ReCAPTCHA */}
-                <input type="hidden" {...register('recaptchaToken', { required: true })} />
+                {/* Captcha (Cloudflare Turnstile) */}
+                <input type="hidden" {...register('captchaToken', { required: true })} />
 
-                {errors.recaptchaToken?.type === 'required' && (
+                {errors.captchaToken?.type === 'required' && (
                   <div className="text-sm text-red-700">Please confirm you are not a robot.</div>
                 )}
 
-                <ReCAPTCHA
-                  ref={recaptchaRef}
-                  sitekey={process.env.NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY || ''}
-                  onChange={handleCaptchaOnChange}
-                  hl="en"
+                <Turnstile
+                  ref={turnstileRef}
+                  siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
+                  onSuccess={handleCaptchaOnSuccess}
+                  onExpire={handleCaptchaOnExpire}
+                  options={{ language: 'en' }}
                 />
 
                 {/* Submit Error */}

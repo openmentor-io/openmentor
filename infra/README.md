@@ -281,7 +281,7 @@ with the same health-check + rollback logic. It is currently
 out. Required repo secrets: `YANDEX_REGISTRY_ID`, `YANDEX_SA_KEY` (until
 P6.4), `VM_SSH_HOST`, `VM_SSH_USER`, `VM_SSH_KEY`, `DOMAIN`,
 `NEXT_PUBLIC_S3_STORAGE_ENDPOINT`, `NEXT_PUBLIC_S3_STORAGE_BUCKET`,
-`RECAPTCHA_V2_SITE_KEY`.
+`TURNSTILE_SITE_KEY`.
 
 ## Monitoring & Observability
 

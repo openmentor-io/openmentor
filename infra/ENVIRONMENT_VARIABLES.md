@@ -87,7 +87,7 @@ Compose resolution order (highest priority first): shell env →
 ### Frontend container
 
 - Build-time: `NEXT_PUBLIC_GO_API_URL`, `NEXT_PUBLIC_S3_STORAGE_*`,
-  `NEXT_PUBLIC_CDN_ENDPOINT`, `NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY`,
+  `NEXT_PUBLIC_CDN_ENDPOINT`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`,
   `NEXT_PUBLIC_ANALYTICS_*`, `NEXT_PUBLIC_POSTHOG_*`, `NEXT_PUBLIC_O11Y_*`,
   optional `NEXT_PUBLIC_FARO_*`
 - Runtime: `GO_API_INTERNAL_TOKEN` (internal API calls),
@@ -97,7 +97,7 @@ Compose resolution order (highest priority first): shell env →
 
 - `DATABASE_URL`, `S3_STORAGE_*`
 - Required by config validation: `INTERNAL_MENTORS_API`,
-  `MENTORS_API_LIST_AUTH_TOKEN`, `RECAPTCHA_V2_SECRET_KEY`
+  `MENTORS_API_LIST_AUTH_TOKEN`, `TURNSTILE_SECRET_KEY`
 - `JWT_SECRET` (mentor/admin passwordless-login sessions)
 - Worker triggers: `WORKER_AUTH_TOKEN` + `*_TRIGGER_URL` pointing at
   `http://worker:8090/jobs/...`

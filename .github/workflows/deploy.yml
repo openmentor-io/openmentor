@@ -79,7 +79,7 @@ jobs:
             NEXT_PUBLIC_GO_API_URL=http://backend:8081
             NEXT_PUBLIC_S3_STORAGE_ENDPOINT=${{ secrets.NEXT_PUBLIC_S3_STORAGE_ENDPOINT }}
             NEXT_PUBLIC_S3_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_S3_STORAGE_BUCKET }}
-            NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY=${{ secrets.RECAPTCHA_V2_SITE_KEY }}
+            NEXT_PUBLIC_TURNSTILE_SITE_KEY=${{ secrets.TURNSTILE_SITE_KEY }}
 
       - name: Image build summary
         run: |

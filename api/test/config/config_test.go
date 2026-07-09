@@ -146,8 +146,8 @@ func TestConfig_Validate(t *testing.T) {
 					InternalMentorsAPI: "test-token",
 					MentorsAPIToken:    "public-token",
 				},
-				ReCAPTCHA: config.ReCAPTCHAConfig{
-					SecretKey: "recaptcha-secret",
+				Turnstile: config.TurnstileConfig{
+					SecretKey: "turnstile-secret",
 				},
 			},
 			expectError: false,
@@ -168,8 +168,8 @@ func TestConfig_Validate(t *testing.T) {
 					InternalMentorsAPI: "test-token",
 					MentorsAPIToken:    "public-token",
 				},
-				ReCAPTCHA: config.ReCAPTCHAConfig{
-					SecretKey: "recaptcha-secret",
+				Turnstile: config.TurnstileConfig{
+					SecretKey: "turnstile-secret",
 				},
 			},
 			expectError: false,
@@ -192,8 +192,8 @@ func TestConfig_Validate(t *testing.T) {
 				Analytics: config.AnalyticsConfig{
 					Provider: "invalid-provider",
 				},
-				ReCAPTCHA: config.ReCAPTCHAConfig{
-					SecretKey: "recaptcha-secret",
+				Turnstile: config.TurnstileConfig{
+					SecretKey: "turnstile-secret",
 				},
 			},
 			expectError: true,
@@ -220,8 +220,8 @@ func TestConfig_Validate(t *testing.T) {
 				PostHog: config.PostHogConfig{
 					Host: "https://us.i.posthog.com",
 				},
-				ReCAPTCHA: config.ReCAPTCHAConfig{
-					SecretKey: "recaptcha-secret",
+				Turnstile: config.TurnstileConfig{
+					SecretKey: "turnstile-secret",
 				},
 			},
 			expectError: true,
@@ -249,8 +249,8 @@ func TestConfig_Validate(t *testing.T) {
 					APIKey: "ph-key",
 					Host:   "https://us.i.posthog.com",
 				},
-				ReCAPTCHA: config.ReCAPTCHAConfig{
-					SecretKey: "recaptcha-secret",
+				Turnstile: config.TurnstileConfig{
+					SecretKey: "turnstile-secret",
 				},
 			},
 			expectError: false,
@@ -294,8 +294,8 @@ func TestConfig_Validate(t *testing.T) {
 					InternalMentorsAPI: "test-token",
 					MentorsAPIToken:    "public-token",
 				},
-				ReCAPTCHA: config.ReCAPTCHAConfig{
-					SecretKey: "recaptcha-secret",
+				Turnstile: config.TurnstileConfig{
+					SecretKey: "turnstile-secret",
 				},
 				Profiling: config.ProfilingConfig{
 					Enabled: true,
@@ -319,8 +319,8 @@ func TestConfig_Validate(t *testing.T) {
 					InternalMentorsAPI: "test-token",
 					MentorsAPIToken:    "public-token",
 				},
-				ReCAPTCHA: config.ReCAPTCHAConfig{
-					SecretKey: "recaptcha-secret",
+				Turnstile: config.TurnstileConfig{
+					SecretKey: "turnstile-secret",
 				},
 				Profiling: config.ProfilingConfig{
 					Enabled:  true,
@@ -352,7 +352,7 @@ func TestLoad_WithDefaults(t *testing.T) {
 	os.Setenv("DB_WORK_OFFLINE", "true")
 	os.Setenv("INTERNAL_MENTORS_API", "test-token")
 	os.Setenv("MENTORS_API_LIST_AUTH_TOKEN", "public-token")
-	os.Setenv("RECAPTCHA_V2_SECRET_KEY", "recaptcha-secret")
+	os.Setenv("TURNSTILE_SECRET_KEY", "turnstile-secret")
 
 	cfg, err := config.Load()
 
@@ -384,7 +384,7 @@ func TestLoad_WithEnvironmentVariables(t *testing.T) {
 	os.Setenv("DATABASE_URL", "pg://test.db")
 	os.Setenv("INTERNAL_MENTORS_API", "internal-token-789")
 	os.Setenv("MENTORS_API_LIST_AUTH_TOKEN", "token1")
-	os.Setenv("RECAPTCHA_V2_SECRET_KEY", "recaptcha-secret")
+	os.Setenv("TURNSTILE_SECRET_KEY", "turnstile-secret")
 	os.Setenv("O11Y_PROFILING_ENABLED", "true")
 	os.Setenv("O11Y_PROFILING_ENDPOINT", "http://alloy:4040")
 	os.Setenv("O11Y_PROFILING_APP_NAME", "openmentor-api")
@@ -403,7 +403,7 @@ func TestLoad_WithEnvironmentVariables(t *testing.T) {
 	assert.Equal(t, "debug", cfg.Logging.Level)
 	assert.Equal(t, "internal-token-789", cfg.Auth.InternalMentorsAPI)
 	assert.Equal(t, "token1", cfg.Auth.MentorsAPIToken)
-	assert.Equal(t, "recaptcha-secret", cfg.ReCAPTCHA.SecretKey)
+	assert.Equal(t, "turnstile-secret", cfg.Turnstile.SecretKey)
 	assert.True(t, cfg.Profiling.Enabled)
 	assert.Equal(t, "http://alloy:4040", cfg.Profiling.Endpoint)
 	assert.Equal(t, "openmentor-api", cfg.Profiling.AppName)

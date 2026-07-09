@@ -37,7 +37,7 @@ interface ContactFormData {
   intro: string
   experience?: string
   telegramUsername: string
-  recaptchaToken: string
+  captchaToken: string
 }
 
 const _getServerSideProps: GetServerSideProps<{ mentor: MentorContact }> = async (context) => {

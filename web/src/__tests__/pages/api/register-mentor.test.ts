@@ -56,7 +56,7 @@ describe('api/register-mentor', () => {
         fileName: 'profile.jpg',
         contentType: 'image/jpeg',
       },
-      recaptchaToken: 'valid-token',
+      captchaToken: 'valid-token',
     }
 
     const mockResponse = { success: true, message: 'Registration successful', mentorId: 123 }
@@ -94,7 +94,7 @@ describe('api/register-mentor', () => {
         fileName: 'profile.jpg',
         contentType: 'image/jpeg',
       },
-      recaptchaToken: 'token',
+      captchaToken: 'token',
     }
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
@@ -108,7 +108,7 @@ describe('api/register-mentor', () => {
     expect(res._getJSONData()).toEqual({ error: 'Internal server error' })
   })
 
-  it('handles ReCAPTCHA failure response from Go API', async () => {
+  it('handles captcha failure response from Go API', async () => {
     const registrationData = {
       name: 'John Doe',
       email: 'john@example.com',
@@ -126,7 +126,7 @@ describe('api/register-mentor', () => {
         fileName: 'profile.jpg',
         contentType: 'image/jpeg',
       },
-      recaptchaToken: 'invalid-token',
+      captchaToken: 'invalid-token',
     }
 
     const mockResponse = { success: false, error: 'Captcha verification failed' }

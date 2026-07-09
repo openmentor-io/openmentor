@@ -2,17 +2,13 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ContactMentorForm from '@/components/forms/ContactMentorForm'
 
-// Mock ReCAPTCHA component
-jest.mock('react-google-recaptcha', () => ({
+// Mock Turnstile component
+jest.mock('@marsidev/react-turnstile', () => ({
   __esModule: true,
-  default: function MockReCAPTCHA({ onChange }: { onChange: (token: string | null) => void }) {
+  Turnstile: function MockTurnstile({ onSuccess }: { onSuccess?: (token: string) => void }) {
     return (
-      <button
-        type="button"
-        data-testid="recaptcha"
-        onClick={() => onChange('mock-recaptcha-token')}
-      >
-        Complete ReCAPTCHA
+      <button type="button" data-testid="turnstile" onClick={() => onSuccess?.('mock-turnstile-token')}>
+        Complete Turnstile
       </button>
     )
   },
@@ -85,10 +81,10 @@ describe('ContactMentorForm', () => {
     expect(screen.getByRole('option', { name: 'C-level' })).toBeInTheDocument()
   })
 
-  it('renders recaptcha component', () => {
+  it('renders the turnstile captcha component', () => {
     render(<ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
-    expect(screen.getByTestId('recaptcha')).toBeInTheDocument()
+    expect(screen.getByTestId('turnstile')).toBeInTheDocument()
   })
 
   it('allows selecting experience level', async () => {
@@ -114,9 +110,9 @@ describe('ContactMentorForm', () => {
     )
     await user.type(screen.getByLabelText(/Telegram \(optional\)/i), '@johndoe')
 
-    // Complete recaptcha
+    // Complete the captcha
     await act(async () => {
-      fireEvent.click(screen.getByTestId('recaptcha'))
+      fireEvent.click(screen.getByTestId('turnstile'))
     })
 
     // Submit form
@@ -136,7 +132,7 @@ describe('ContactMentorForm', () => {
         name: 'John Doe',
         intro: 'I need help with my career development in tech industry.',
         telegramUsername: '@johndoe',
-        recaptchaToken: 'mock-recaptcha-token',
+        captchaToken: 'mock-turnstile-token',
       }),
       expect.anything() // react-hook-form passes event as second arg
     )
@@ -154,9 +150,9 @@ describe('ContactMentorForm', () => {
       'I need help with my career development in tech industry.'
     )
 
-    // Complete recaptcha
+    // Complete the captcha
     await act(async () => {
-      fireEvent.click(screen.getByTestId('recaptcha'))
+      fireEvent.click(screen.getByTestId('turnstile'))
     })
 
     // Submit form
@@ -179,11 +175,11 @@ describe('ContactMentorForm', () => {
     )
   })
 
-  it('does not submit without recaptcha token', async () => {
+  it('does not submit without a captcha token', async () => {
     const user = userEvent.setup()
     render(<ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
-    // Fill all required fields except recaptcha
+    // Fill all required fields except the captcha
     await user.type(screen.getByLabelText(/Your email/i), 'test@example.com')
     await user.type(screen.getByLabelText(/Your full name/i), 'John Doe')
     await user.type(
@@ -192,7 +188,7 @@ describe('ContactMentorForm', () => {
     )
     await user.type(screen.getByLabelText(/Telegram \(optional\)/i), '@johndoe')
 
-    // Don't complete recaptcha - submit form
+    // Don't complete the captcha - submit form
     const submitButton = screen.getByRole('button', { name: /Send request/i })
 
     await act(async () => {
@@ -201,7 +197,7 @@ describe('ContactMentorForm', () => {
 
     // Wait for validation to complete
     await waitFor(() => {
-      // Form should not be submitted without recaptcha
+      // Form should not be submitted without a captcha token
       expect(mockOnSubmit).not.toHaveBeenCalled()
     })
   })

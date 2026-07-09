@@ -51,10 +51,10 @@ binaries; the compose service picks the command:
 Public (token header):
 - `GET /api/mentors` — all visible mentors
 - `GET /api/mentor/:id` — single mentor
-- `POST /api/contact-mentor` — contact form (ReCAPTCHA verified)
-- `POST /api/register-mentor` — mentor registration (ReCAPTCHA verified)
+- `POST /api/contact-mentor` — contact form (Turnstile verified)
+- `POST /api/register-mentor` — mentor registration (Turnstile verified)
 - `POST /api/logs` — frontend log ingestion
-- `GET /api/reviews/:requestId/check`, `POST /api/reviews/:requestId` — mentee reviews (ReCAPTCHA verified)
+- `GET /api/reviews/:requestId/check`, `POST /api/reviews/:requestId` — mentee reviews (Turnstile verified)
 
 Mentor portal (`/api/v1/auth/mentor/*` + session cookie):
 - `request-login`, `verify`, `logout`, `session`

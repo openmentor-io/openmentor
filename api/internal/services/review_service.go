@@ -14,8 +14,8 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
-	"github.com/openmentor-io/openmentor/api/pkg/recaptcha"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
+	"github.com/openmentor-io/openmentor/api/pkg/turnstile"
 	"go.uber.org/zap"
 )
 
@@ -28,11 +28,11 @@ var (
 
 // ReviewService handles review submissions
 type ReviewService struct {
-	reviewRepo        *repository.ReviewRepository
-	config            *config.Config
-	httpClient        httpclient.Client
-	recaptchaVerifier *recaptcha.Verifier
-	tracker           analytics.Tracker
+	reviewRepo      *repository.ReviewRepository
+	config          *config.Config
+	httpClient      httpclient.Client
+	captchaVerifier *turnstile.Verifier
+	tracker         analytics.Tracker
 }
 
 // NewReviewService creates a new review service instance
@@ -48,11 +48,11 @@ func NewReviewService(
 	}
 
 	return &ReviewService{
-		reviewRepo:        reviewRepo,
-		config:            cfg,
-		httpClient:        httpClient,
-		recaptchaVerifier: recaptcha.NewVerifier(cfg.ReCAPTCHA.SecretKey, httpClient),
-		tracker:           tracker,
+		reviewRepo:      reviewRepo,
+		config:          cfg,
+		httpClient:      httpClient,
+		captchaVerifier: turnstile.NewVerifier(cfg.Turnstile.SecretKey, httpClient),
+		tracker:         tracker,
 	}
 }
 
@@ -133,11 +133,11 @@ func (s *ReviewService) SubmitReview(ctx context.Context, requestID string, req 
 		s.tracker.Track(ctx, analytics.EventReviewSubmitted, analytics.RequestDistinctID(requestID), properties)
 	}
 
-	// Verify ReCAPTCHA
-	if err := s.recaptchaVerifier.Verify(req.RecaptchaToken); err != nil {
+	// Verify captcha (Cloudflare Turnstile)
+	if err := s.captchaVerifier.Verify(req.CaptchaToken); err != nil {
 		metrics.ReviewSubmissions.WithLabelValues("captcha_failed").Inc()
 		trackSubmissionOutcome("captcha_failed")
-		logger.Warn("ReCAPTCHA verification failed for review",
+		logger.Warn("Turnstile verification failed for review",
 			zap.String("request_id", requestID),
 			zap.Error(err))
 		return &models.SubmitReviewResponse{
@@ -224,6 +224,6 @@ func reviewSubmissionProperties(requestID string, req *models.SubmitReviewReques
 		"has_improvements":     strings.TrimSpace(req.Improvements) != "",
 		"has_mentor_review":    strings.TrimSpace(req.MentorReview) != "",
 		"review_payload_size":  len(req.MentorReview) + len(req.PlatformReview) + len(req.Improvements),
-		"captcha_token_length": len(req.RecaptchaToken),
+		"captcha_token_length": len(req.CaptchaToken),
 	}
 }

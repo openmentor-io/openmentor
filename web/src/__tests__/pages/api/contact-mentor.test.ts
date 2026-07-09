@@ -43,7 +43,7 @@ describe('api/contact-mentor', () => {
       name: 'John Doe',
       email: 'john@example.com',
       message: 'Hello mentor!',
-      recaptchaToken: 'valid-token',
+      captchaToken: 'valid-token',
     }
 
     const mockResponse = { success: true, message: 'Email sent' }

@@ -8,7 +8,7 @@ interface SubmitReviewRequest {
   mentorReview: string
   platformReview?: string
   improvements?: string
-  recaptchaToken: string
+  captchaToken: string
 }
 
 interface SubmitReviewResponse {
@@ -36,7 +36,7 @@ async function handler(
   }
 
   try {
-    const { requestId, mentorReview, platformReview, improvements, recaptchaToken } =
+    const { requestId, mentorReview, platformReview, improvements, captchaToken } =
       req.body as SubmitReviewRequest
 
     // Validation
@@ -55,7 +55,7 @@ async function handler(
       return
     }
 
-    if (!recaptchaToken || typeof recaptchaToken !== 'string') {
+    if (!captchaToken || typeof captchaToken !== 'string') {
       res.status(400).json({ error: 'Captcha token is required' })
       return
     }
@@ -70,7 +70,7 @@ async function handler(
           mentorReview: mentorReview.trim(),
           platformReview: (platformReview || '').trim(),
           improvements: (improvements || '').trim(),
-          recaptchaToken,
+          captchaToken,
         },
       }
     )

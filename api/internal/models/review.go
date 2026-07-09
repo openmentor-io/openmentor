@@ -5,7 +5,7 @@ type SubmitReviewRequest struct {
 	MentorReview   string `json:"mentorReview" binding:"required,min=10,max=5000"`
 	PlatformReview string `json:"platformReview" binding:"max=5000"`
 	Improvements   string `json:"improvements" binding:"max=5000"`
-	RecaptchaToken string `json:"recaptchaToken" binding:"required"`
+	CaptchaToken   string `json:"captchaToken" binding:"required"`
 }
 
 // SubmitReviewResponse represents the response after submitting a review

@@ -23,7 +23,7 @@ type Config struct {
 	Auth          AuthConfig
 	Analytics     AnalyticsConfig
 	PostHog       PostHogConfig
-	ReCAPTCHA     ReCAPTCHAConfig
+	Turnstile     TurnstileConfig
 	EventTriggers EventTriggerFunctionsConfig
 	Logging       LoggingConfig
 	Observability ObservabilityConfig
@@ -78,7 +78,7 @@ type PostHogConfig struct {
 	DisableGeoIP    bool
 }
 
-type ReCAPTCHAConfig struct {
+type TurnstileConfig struct {
 	SecretKey string
 }
 
@@ -264,8 +264,8 @@ func Load() (*Config, error) {
 			CaptureEndpoint: v.GetString("POSTHOG_CAPTURE_ENDPOINT"),
 			DisableGeoIP:    v.GetBool("POSTHOG_DISABLE_GEOIP"),
 		},
-		ReCAPTCHA: ReCAPTCHAConfig{
-			SecretKey: v.GetString("RECAPTCHA_V2_SECRET_KEY"),
+		Turnstile: TurnstileConfig{
+			SecretKey: v.GetString("TURNSTILE_SECRET_KEY"),
 		},
 		EventTriggers: EventTriggerFunctionsConfig{
 			MentorCreatedTriggerURL:          v.GetString("MENTOR_CREATED_TRIGGER_URL"),
@@ -345,7 +345,7 @@ func (c *Config) Validate() error {
 	if err := c.validateAnalyticsConfig(); err != nil {
 		return err
 	}
-	if err := c.validateReCAPTCHAConfig(); err != nil {
+	if err := c.validateTurnstileConfig(); err != nil {
 		return err
 	}
 	if err := c.validateServerConfig(); err != nil {
@@ -393,9 +393,9 @@ func (c *Config) validateAnalyticsConfig() error {
 	return nil
 }
 
-func (c *Config) validateReCAPTCHAConfig() error {
-	if c.ReCAPTCHA.SecretKey == "" {
-		return fmt.Errorf("RECAPTCHA_V2_SECRET_KEY is required")
+func (c *Config) validateTurnstileConfig() error {
+	if c.Turnstile.SecretKey == "" {
+		return fmt.Errorf("TURNSTILE_SECRET_KEY is required")
 	}
 	return nil
 }

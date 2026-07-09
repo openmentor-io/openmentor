@@ -2,17 +2,13 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import RegisterMentorForm from '@/components/forms/RegisterMentorForm'
 
-// Mock ReCAPTCHA component
-jest.mock('react-google-recaptcha', () => ({
+// Mock Turnstile component
+jest.mock('@marsidev/react-turnstile', () => ({
   __esModule: true,
-  default: function MockReCAPTCHA({ onChange }: { onChange: (token: string | null) => void }) {
+  Turnstile: function MockTurnstile({ onSuccess }: { onSuccess?: (token: string) => void }) {
     return (
-      <button
-        type="button"
-        data-testid="recaptcha"
-        onClick={() => onChange('mock-recaptcha-token')}
-      >
-        Complete ReCAPTCHA
+      <button type="button" data-testid="turnstile" onClick={() => onSuccess?.('mock-turnstile-token')}>
+        Complete Turnstile
       </button>
     )
   },
@@ -126,9 +122,9 @@ describe('RegisterMentorForm', () => {
   it('shows validation error for empty required fields on submit', async () => {
     render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
-    // Complete ReCAPTCHA to enable submit button
+    // Complete the captcha to enable submit button
     await act(async () => {
-      fireEvent.click(screen.getByTestId('recaptcha'))
+      fireEvent.click(screen.getByTestId('turnstile'))
     })
 
     const submitButton = screen.getByRole('button', { name: /Submit application/i })
@@ -156,9 +152,9 @@ describe('RegisterMentorForm', () => {
     await user.selectOptions(screen.getByLabelText(/Experience/i), '10+')
     await user.selectOptions(screen.getByLabelText(/Price per one-hour session/i), '$100')
 
-    // Complete recaptcha
+    // Complete the captcha
     await act(async () => {
-      fireEvent.click(screen.getByTestId('recaptcha'))
+      fireEvent.click(screen.getByTestId('turnstile'))
     })
 
     // Submit form
@@ -183,22 +179,22 @@ describe('RegisterMentorForm', () => {
     expect(screen.getByRole('option', { name: /10\+ years/i })).toBeInTheDocument()
   })
 
-  it('renders recaptcha component', () => {
+  it('renders the turnstile captcha component', () => {
     render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
-    expect(screen.getByTestId('recaptcha')).toBeInTheDocument()
+    expect(screen.getByTestId('turnstile')).toBeInTheDocument()
   })
 
-  it('disables submit button without recaptcha token', async () => {
+  it('disables submit button without a captcha token', async () => {
     render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
     const submitButton = screen.getByRole('button', { name: /Submit application/i })
 
-    // Submit button should be disabled without recaptcha
+    // Submit button should be disabled without a captcha token
     expect(submitButton).toBeDisabled()
   })
 
-  it('enables submit button after recaptcha completion', async () => {
+  it('enables submit button after captcha completion', async () => {
     render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
     const submitButton = screen.getByRole('button', { name: /Submit application/i })
@@ -206,13 +202,13 @@ describe('RegisterMentorForm', () => {
     // Initially disabled
     expect(submitButton).toBeDisabled()
 
-    // Complete recaptcha
+    // Complete the captcha
     await act(async () => {
-      fireEvent.click(screen.getByTestId('recaptcha'))
+      fireEvent.click(screen.getByTestId('turnstile'))
     })
 
     await waitFor(() => {
-      // Should be enabled after recaptcha
+      // Should be enabled after the captcha
       expect(submitButton).not.toBeDisabled()
     })
   })
@@ -259,7 +255,7 @@ describe('RegisterMentorForm', () => {
     await user.type(screen.getByLabelText(/Your email/i), 'invalid-email')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('recaptcha'))
+      fireEvent.click(screen.getByTestId('turnstile'))
     })
 
     const submitButton = screen.getByRole('button', { name: /Submit application/i })

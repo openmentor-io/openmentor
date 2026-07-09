@@ -12,8 +12,8 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
-	"github.com/openmentor-io/openmentor/api/pkg/recaptcha"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
+	"github.com/openmentor-io/openmentor/api/pkg/turnstile"
 	"go.uber.org/zap"
 )
 
@@ -23,7 +23,7 @@ type ContactService struct {
 	mentorRepo        *repository.MentorRepository
 	config            *config.Config
 	httpClient        httpclient.Client
-	recaptchaVerifier *recaptcha.Verifier
+	captchaVerifier   *turnstile.Verifier
 	tracker           analytics.Tracker
 }
 
@@ -45,7 +45,7 @@ func NewContactService(
 		mentorRepo:        mentorRepo,
 		config:            cfg,
 		httpClient:        httpClient,
-		recaptchaVerifier: recaptcha.NewVerifier(cfg.ReCAPTCHA.SecretKey, httpClient),
+		captchaVerifier:   turnstile.NewVerifier(cfg.Turnstile.SecretKey, httpClient),
 		tracker:           tracker,
 	}
 }
@@ -58,8 +58,8 @@ func (s *ContactService) SubmitContactForm(ctx context.Context, req *models.Cont
 		"calendar_url_requested": true,
 	}
 
-	// Verify ReCAPTCHA
-	if err := s.recaptchaVerifier.Verify(req.RecaptchaToken); err != nil {
+	// Verify captcha (Cloudflare Turnstile)
+	if err := s.captchaVerifier.Verify(req.CaptchaToken); err != nil {
 		metrics.ContactFormSubmissions.WithLabelValues("captcha_failed").Inc()
 		s.tracker.Track(ctx, analytics.EventMenteeContactSubmitted, analytics.MentorDistinctID(req.MentorID), map[string]interface{}{
 			"mentor_id":              req.MentorID,
@@ -68,7 +68,7 @@ func (s *ContactService) SubmitContactForm(ctx context.Context, req *models.Cont
 			"calendar_url_requested": true,
 			"outcome":                "captcha_failed",
 		})
-		logger.Warn("ReCAPTCHA verification failed", zap.Error(err))
+		logger.Warn("Turnstile verification failed", zap.Error(err))
 		return &models.ContactMentorResponse{
 			Success: false,
 			Error:   "Captcha verification failed",

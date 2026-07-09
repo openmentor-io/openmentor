@@ -4,6 +4,10 @@ const nextConfig = {
   // Enable standalone output for Docker deployments
   output: 'standalone',
 
+  // @marsidev/react-turnstile ships ESM-only; transpile it so Jest
+  // (via next/jest) and the server build can consume it.
+  transpilePackages: ['@marsidev/react-turnstile'],
+
   images: {
     // Entries with an unset/empty hostname are dropped: Next.js rejects
     // empty remotePattern hostnames at build time.
@@ -91,14 +95,14 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value:
               "default-src 'self'; " +
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://openmentor.io https://www.google.com https://www.gstatic.com https://www.googletagmanager.com https://www.google-analytics.com https://a.openmentor.io https://us.i.posthog.com https://eu.i.posthog.com https://us-assets.i.posthog.com https://eu-assets.i.posthog.com https://faro-collector-prod-eu-west-3.grafana.net; " +
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://openmentor.io https://challenges.cloudflare.com https://www.googletagmanager.com https://www.google-analytics.com https://a.openmentor.io https://us.i.posthog.com https://eu.i.posthog.com https://us-assets.i.posthog.com https://eu-assets.i.posthog.com https://faro-collector-prod-eu-west-3.grafana.net; " +
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
               "img-src 'self' https: data:; " +
               "font-src 'self' data: https://fonts.gstatic.com https://at.alicdn.com; " +
               "connect-src 'self' https://a.openmentor.io https://us.i.posthog.com https://eu.i.posthog.com https://eu.posthog.com https://openmentor.io https://www.google-analytics.com https://region1.analytics.google.com https://stats.g.doubleclick.net https://google.com https://www.google.com https://faro-collector-prod-eu-west-3.grafana.net; " +
               // calendlab.ru kept in frame-src: CalendlabWidget still embeds
               // mentor calendars (CalendarType 'calendlab')
-              'frame-src https://www.google.com https://calendly.com https://koalendar.com https://calendlab.ru https://docs.google.com; ' +
+              'frame-src https://challenges.cloudflare.com https://calendly.com https://koalendar.com https://calendlab.ru https://docs.google.com; ' +
               "object-src 'none'; " +
               "base-uri 'self'; " +
               "form-action 'self'; " +

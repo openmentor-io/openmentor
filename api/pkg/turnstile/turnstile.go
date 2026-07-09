@@ -1,4 +1,4 @@
-package recaptcha
+package turnstile
 
 import (
 	"encoding/json"
@@ -9,7 +9,10 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 )
 
-// Response represents the response from Google's reCAPTCHA verification API
+// VerifyURL is Cloudflare's Turnstile siteverify endpoint.
+const VerifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+// Response represents the response from Cloudflare's Turnstile siteverify API
 type Response struct {
 	Success     bool     `json:"success"`
 	ChallengeTS string   `json:"challenge_ts"`
@@ -17,13 +20,13 @@ type Response struct {
 	ErrorCodes  []string `json:"error-codes"`
 }
 
-// Verifier handles reCAPTCHA verification
+// Verifier handles Turnstile verification
 type Verifier struct {
 	secretKey  string
 	httpClient httpclient.Client
 }
 
-// NewVerifier creates a new reCAPTCHA verifier
+// NewVerifier creates a new Turnstile verifier
 func NewVerifier(secretKey string, httpClient httpclient.Client) *Verifier {
 	return &Verifier{
 		secretKey:  secretKey,
@@ -31,32 +34,32 @@ func NewVerifier(secretKey string, httpClient httpclient.Client) *Verifier {
 	}
 }
 
-// Verify verifies a reCAPTCHA token with Google's API
+// Verify verifies a Turnstile token with Cloudflare's siteverify API
 func (v *Verifier) Verify(token string) error {
 	// Prepare form data
 	data := url.Values{}
 	data.Set("secret", v.secretKey)
 	data.Set("response", token)
 
-	// Send POST request to Google's verification endpoint
+	// Send POST request to Cloudflare's verification endpoint
 	resp, err := v.httpClient.Post(
-		"https://www.google.com/recaptcha/api/siteverify",
+		VerifyURL,
 		"application/x-www-form-urlencoded",
 		strings.NewReader(data.Encode()),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to verify recaptcha: %w", err)
+		return fmt.Errorf("failed to verify turnstile token: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Parse response
 	var result Response
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("failed to decode recaptcha response: %w", err)
+		return fmt.Errorf("failed to decode turnstile response: %w", err)
 	}
 
 	if !result.Success {
-		return fmt.Errorf("recaptcha verification failed")
+		return fmt.Errorf("turnstile verification failed")
 	}
 
 	return nil

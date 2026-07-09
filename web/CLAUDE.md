@@ -131,7 +131,7 @@ Required environment variables (see `.env.example`):
 - `NEXT_PUBLIC_GO_API_URL` - Go API backend URL (default: http://localhost:8081)
 - `GO_API_INTERNAL_TOKEN` - Internal API authentication token
 - `NEXT_PUBLIC_S3_STORAGE_ENDPOINT` / `NEXT_PUBLIC_S3_STORAGE_BUCKET` - S3 storage for image URLs
-- `NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY` - ReCAPTCHA site key
+- `NEXT_PUBLIC_TURNSTILE_SITE_KEY` - Cloudflare Turnstile site key
 - `METRICS_AUTH_TOKEN` - Bearer token for /api/metrics endpoint
 - `LOG_LEVEL` - Logging level (debug/info/warn/error, default: info)
 
@@ -249,7 +249,7 @@ src/
 ### Writing Tests
 - Use `@testing-library/react` for component tests
 - Use `node-mocks-http` for API route tests
-- Mock external dependencies (Go API client, ReCAPTCHA, etc.)
+- Mock external dependencies (Go API client, Turnstile, etc.)
 - Wrap state updates in `act()` for async operations
 
 ### CI/CD

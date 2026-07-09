@@ -29,7 +29,7 @@ export interface ContactMentorRequest {
   telegramUsername: string
   experience?: string
   intro: string
-  recaptchaToken: string
+  captchaToken: string
 }
 
 /**
@@ -126,7 +126,7 @@ export interface RegisterMentorRequest {
   competencies: string
   calendarUrl?: string
   profilePicture: ProfilePictureData
-  recaptchaToken: string
+  captchaToken: string
 }
 
 /**

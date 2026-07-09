@@ -58,7 +58,7 @@ func TestRegistrationHandler_RegisterMentor_Success(t *testing.T) {
 			FileName:    "profile.jpg",
 			ContentType: "image/jpeg",
 		},
-		RecaptchaToken: "valid-recaptcha-token-12345",
+		CaptchaToken: "valid-captcha-token-123456",
 	}
 
 	// Mock successful response
@@ -144,7 +144,7 @@ func TestRegistrationHandler_RegisterMentor_MissingRequiredFields(t *testing.T) 
 					FileName:    "profile.jpg",
 					ContentType: "image/jpeg",
 				},
-				RecaptchaToken: "token",
+				CaptchaToken: "token",
 			},
 			expectError: "Name",
 		},
@@ -166,7 +166,7 @@ func TestRegistrationHandler_RegisterMentor_MissingRequiredFields(t *testing.T) 
 					FileName:    "profile.jpg",
 					ContentType: "image/jpeg",
 				},
-				RecaptchaToken: "token",
+				CaptchaToken: "token",
 			},
 			expectError: "Email",
 		},
@@ -189,7 +189,7 @@ func TestRegistrationHandler_RegisterMentor_MissingRequiredFields(t *testing.T) 
 					FileName:    "profile.jpg",
 					ContentType: "image/jpeg",
 				},
-				RecaptchaToken: "token",
+				CaptchaToken: "token",
 			},
 			expectError: "Tags",
 		},
@@ -213,12 +213,12 @@ func TestRegistrationHandler_RegisterMentor_MissingRequiredFields(t *testing.T) 
 					FileName:    "",
 					ContentType: "",
 				},
-				RecaptchaToken: "token",
+				CaptchaToken: "token",
 			},
 			expectError: "Image",
 		},
 		{
-			name: "missing_recaptcha_token",
+			name: "missing_captcha_token",
 			requestBody: models.RegisterMentorRequest{
 				Name:         "John Doe",
 				Email:        "john@example.com",
@@ -237,7 +237,7 @@ func TestRegistrationHandler_RegisterMentor_MissingRequiredFields(t *testing.T) 
 					ContentType: "image/jpeg",
 				},
 			},
-			expectError: "RecaptchaToken",
+			expectError: "CaptchaToken",
 		},
 	}
 
@@ -298,7 +298,7 @@ func TestRegistrationHandler_RegisterMentor_InvalidEmail(t *testing.T) {
 			FileName:    "profile.jpg",
 			ContentType: "image/jpeg",
 		},
-		RecaptchaToken: "token123456789012345",
+		CaptchaToken: "token123456789012345",
 	}
 
 	body, _ := json.Marshal(reqBody)
@@ -340,7 +340,7 @@ func TestRegistrationHandler_RegisterMentor_InvalidExperience(t *testing.T) {
 			FileName:    "profile.jpg",
 			ContentType: "image/jpeg",
 		},
-		RecaptchaToken: "token123456789012345",
+		CaptchaToken: "token123456789012345",
 	}
 
 	body, _ := json.Marshal(reqBody)
@@ -382,7 +382,7 @@ func TestRegistrationHandler_RegisterMentor_TooManyTags(t *testing.T) {
 			FileName:    "profile.jpg",
 			ContentType: "image/jpeg",
 		},
-		RecaptchaToken: "token123456789012345",
+		CaptchaToken: "token123456789012345",
 	}
 
 	body, _ := json.Marshal(reqBody)
@@ -425,7 +425,7 @@ func TestRegistrationHandler_RegisterMentor_TooLongFields(t *testing.T) {
 			FileName:    "profile.jpg",
 			ContentType: "image/jpeg",
 		},
-		RecaptchaToken: "token123456789012345",
+		CaptchaToken: "token123456789012345",
 	}
 
 	body, _ := json.Marshal(reqBody)
@@ -463,7 +463,7 @@ func TestRegistrationHandler_RegisterMentor_InvalidContentType(t *testing.T) {
 			FileName:    "profile.jpg",
 			ContentType: "image/gif", // Invalid content type
 		},
-		RecaptchaToken: "token123456789012345",
+		CaptchaToken: "token123456789012345",
 	}
 
 	body, _ := json.Marshal(reqBody)
@@ -480,7 +480,7 @@ func TestRegistrationHandler_RegisterMentor_InvalidContentType(t *testing.T) {
 	assert.Equal(t, "Validation failed", resp["error"])
 }
 
-// TestRegistrationHandler_RegisterMentor_CaptchaFailed tests ReCAPTCHA failure
+// TestRegistrationHandler_RegisterMentor_CaptchaFailed tests Turnstile failure
 func TestRegistrationHandler_RegisterMentor_CaptchaFailed(t *testing.T) {
 	mockService := new(MockRegistrationService)
 	handler := handlers.NewRegistrationHandler(mockService)
@@ -505,7 +505,7 @@ func TestRegistrationHandler_RegisterMentor_CaptchaFailed(t *testing.T) {
 			FileName:    "profile.jpg",
 			ContentType: "image/jpeg",
 		},
-		RecaptchaToken: "invalid-token-12345678901234",
+		CaptchaToken: "invalid-token-12345678901234",
 	}
 
 	// Mock captcha failure
@@ -559,7 +559,7 @@ func TestRegistrationHandler_RegisterMentor_ServiceError(t *testing.T) {
 			FileName:    "profile.jpg",
 			ContentType: "image/jpeg",
 		},
-		RecaptchaToken: "valid-token-12345678901234",
+		CaptchaToken: "valid-token-12345678901234",
 	}
 
 	// Mock service returning error
@@ -611,7 +611,7 @@ func TestRegistrationHandler_RegisterMentor_InvalidCalendarURL(t *testing.T) {
 			FileName:    "profile.jpg",
 			ContentType: "image/jpeg",
 		},
-		RecaptchaToken: "token123456789012345",
+		CaptchaToken: "token123456789012345",
 	}
 
 	body, _ := json.Marshal(reqBody)

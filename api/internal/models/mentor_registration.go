@@ -24,7 +24,7 @@ type RegisterMentorRequest struct {
 	ProfilePicture ProfilePictureData `json:"profilePicture" binding:"required"`
 
 	// Security
-	RecaptchaToken string `json:"recaptchaToken" binding:"required,min=20"`
+	CaptchaToken string `json:"captchaToken" binding:"required,min=20"`
 }
 
 // ProfilePictureData represents the profile picture upload data

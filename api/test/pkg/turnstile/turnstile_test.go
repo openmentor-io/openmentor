@@ -1,4 +1,4 @@
-package recaptcha_test
+package turnstile_test
 
 import (
 	"bytes"
@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/openmentor-io/openmentor/api/pkg/recaptcha"
+	"github.com/openmentor-io/openmentor/api/pkg/turnstile"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -43,16 +43,16 @@ func (m *MockHTTPClient) Do(req *http.Request) (*http.Response, error) {
 // TestVerifier_Verify_Success tests successful verification
 func TestVerifier_Verify_Success(t *testing.T) {
 	mockClient := new(MockHTTPClient)
-	verifier := recaptcha.NewVerifier("test-secret-key", mockClient)
+	verifier := turnstile.NewVerifier("test-secret-key", mockClient)
 
-	// Mock successful response from Google
+	// Mock successful response from Cloudflare
 	responseBody := `{"success": true, "challenge_ts": "2024-01-01T00:00:00Z", "hostname": "example.com"}`
 	mockResponse := &http.Response{
 		StatusCode: 200,
 		Body:       io.NopCloser(bytes.NewBufferString(responseBody)),
 	}
 
-	mockClient.On("Post", "https://www.google.com/recaptcha/api/siteverify", "application/x-www-form-urlencoded", mock.Anything).Return(mockResponse, nil)
+	mockClient.On("Post", "https://challenges.cloudflare.com/turnstile/v0/siteverify", "application/x-www-form-urlencoded", mock.Anything).Return(mockResponse, nil)
 
 	// Test verification
 	err := verifier.Verify("valid-token")
@@ -64,45 +64,45 @@ func TestVerifier_Verify_Success(t *testing.T) {
 // TestVerifier_Verify_Failed tests failed verification
 func TestVerifier_Verify_Failed(t *testing.T) {
 	mockClient := new(MockHTTPClient)
-	verifier := recaptcha.NewVerifier("test-secret-key", mockClient)
+	verifier := turnstile.NewVerifier("test-secret-key", mockClient)
 
-	// Mock failed response from Google
+	// Mock failed response from Cloudflare
 	responseBody := `{"success": false, "error-codes": ["invalid-input-response"]}`
 	mockResponse := &http.Response{
 		StatusCode: 200,
 		Body:       io.NopCloser(bytes.NewBufferString(responseBody)),
 	}
 
-	mockClient.On("Post", "https://www.google.com/recaptcha/api/siteverify", "application/x-www-form-urlencoded", mock.Anything).Return(mockResponse, nil)
+	mockClient.On("Post", "https://challenges.cloudflare.com/turnstile/v0/siteverify", "application/x-www-form-urlencoded", mock.Anything).Return(mockResponse, nil)
 
 	// Test verification
 	err := verifier.Verify("invalid-token")
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "recaptcha verification failed")
+	assert.Contains(t, err.Error(), "turnstile verification failed")
 	mockClient.AssertExpectations(t)
 }
 
 // TestVerifier_Verify_NetworkError tests network error handling
 func TestVerifier_Verify_NetworkError(t *testing.T) {
 	mockClient := new(MockHTTPClient)
-	verifier := recaptcha.NewVerifier("test-secret-key", mockClient)
+	verifier := turnstile.NewVerifier("test-secret-key", mockClient)
 
 	// Mock network error
-	mockClient.On("Post", "https://www.google.com/recaptcha/api/siteverify", "application/x-www-form-urlencoded", mock.Anything).Return(nil, assert.AnError)
+	mockClient.On("Post", "https://challenges.cloudflare.com/turnstile/v0/siteverify", "application/x-www-form-urlencoded", mock.Anything).Return(nil, assert.AnError)
 
 	// Test verification
 	err := verifier.Verify("token")
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to verify recaptcha")
+	assert.Contains(t, err.Error(), "failed to verify turnstile token")
 	mockClient.AssertExpectations(t)
 }
 
 // TestVerifier_Verify_InvalidJSON tests invalid JSON response
 func TestVerifier_Verify_InvalidJSON(t *testing.T) {
 	mockClient := new(MockHTTPClient)
-	verifier := recaptcha.NewVerifier("test-secret-key", mockClient)
+	verifier := turnstile.NewVerifier("test-secret-key", mockClient)
 
 	// Mock invalid JSON response
 	responseBody := `{invalid-json`
@@ -111,20 +111,20 @@ func TestVerifier_Verify_InvalidJSON(t *testing.T) {
 		Body:       io.NopCloser(bytes.NewBufferString(responseBody)),
 	}
 
-	mockClient.On("Post", "https://www.google.com/recaptcha/api/siteverify", "application/x-www-form-urlencoded", mock.Anything).Return(mockResponse, nil)
+	mockClient.On("Post", "https://challenges.cloudflare.com/turnstile/v0/siteverify", "application/x-www-form-urlencoded", mock.Anything).Return(mockResponse, nil)
 
 	// Test verification
 	err := verifier.Verify("token")
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to decode recaptcha response")
+	assert.Contains(t, err.Error(), "failed to decode turnstile response")
 	mockClient.AssertExpectations(t)
 }
 
 // TestVerifier_Verify_EmptyToken tests with empty token
 func TestVerifier_Verify_EmptyToken(t *testing.T) {
 	mockClient := new(MockHTTPClient)
-	verifier := recaptcha.NewVerifier("test-secret-key", mockClient)
+	verifier := turnstile.NewVerifier("test-secret-key", mockClient)
 
 	// Mock failed response for empty token
 	responseBody := `{"success": false, "error-codes": ["missing-input-response"]}`
@@ -133,12 +133,12 @@ func TestVerifier_Verify_EmptyToken(t *testing.T) {
 		Body:       io.NopCloser(bytes.NewBufferString(responseBody)),
 	}
 
-	mockClient.On("Post", "https://www.google.com/recaptcha/api/siteverify", "application/x-www-form-urlencoded", mock.Anything).Return(mockResponse, nil)
+	mockClient.On("Post", "https://challenges.cloudflare.com/turnstile/v0/siteverify", "application/x-www-form-urlencoded", mock.Anything).Return(mockResponse, nil)
 
 	// Test verification with empty token
 	err := verifier.Verify("")
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "recaptcha verification failed")
+	assert.Contains(t, err.Error(), "turnstile verification failed")
 	mockClient.AssertExpectations(t)
 }
