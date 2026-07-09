@@ -1,6 +1,6 @@
 # Runbook: Postgres Backup & Restore
 
-**Trigger:** database loss/corruption, VM loss, a botched migration, or the quarterly restore drill. Production Postgres runs as the `postgres` container on the Hetzner VM (DECISIONS D2), defined in `openmentor-infra/docker-compose.yml`.
+**Trigger:** database loss/corruption, VM loss, a botched migration, or the quarterly restore drill. Production Postgres runs as the `postgres` container on the Hetzner VM (DECISIONS D2), defined in `infra/docker-compose.yml`.
 
 ## Architecture: three protection layers
 
@@ -21,7 +21,7 @@ docker logs openmentor-postgres-backup --tail 5   # expect a SUCCESS summary lin
 
 ## (a) Restore the latest dump into a fresh container/volume
 
-Use this for logical corruption or to rebuild the DB from S3 on a new VM. On the VM, in `/opt/openmentor-infra`:
+Use this for logical corruption or to rebuild the DB from S3 on a new VM. On the VM, in `/opt/openmentor/infra`:
 
 ```bash
 # 1. Stop writers (keep traefik up so LE certs don't churn)
@@ -69,7 +69,7 @@ Notes:
 
 1. Hetzner Cloud Console → server → Backups/Snapshots → restore to the server, or create a new server from the snapshot (new IP → update the Cloudflare A record).
 2. The snapshot is **crash-consistent**: it captures the volume as if the machine lost power. Postgres handles this by design — on first start it replays WAL automatically. Watch `docker logs openmentor-postgres` for `redo done` / `database system is ready`.
-3. `cd /opt/openmentor-infra && docker compose up -d`, then run the deploy health checks (or just `./deploy.sh --skip-frontend --skip-backend` from a workstation to re-push `.env` and verify).
+3. `cd /opt/openmentor/infra && docker compose up -d`, then run the deploy health checks (or just `./deploy.sh --skip-frontend --skip-backend` from a workstation to re-push `.env` and verify).
 4. Anything written between the snapshot and the failure is lost — if the nightly dump is newer than the snapshot, follow (a) on top to close the gap.
 
 ## (c) Quarterly restore-test procedure
@@ -106,7 +106,7 @@ Record date, dump filename, row counts and time-to-restore in the ops tracker. A
   3. Nightly `wal-g backup-push $PGDATA` base backups replace/augment the pg_dump job; `wal-g delete retain FULL 7` for retention.
   4. Restore: `wal-g backup-fetch` into an empty volume + `recovery_target_time` in `postgresql.conf` for PITR, then start the container and let it replay WAL.
   5. Keep the nightly `pg_dump` anyway — logical dumps survive cross-version moves and are the managed-PG import format.
-- **Scale path (D2):** managed Postgres (Neon/RDS) — import the latest dump, then swap `DATABASE_URL` to the managed host with `sslmode=verify-full` (openmentor-api verifies against the CA in its `certs/` directory; see `pkg/db/pool.go`). Backup ownership then moves to the provider.
+- **Scale path (D2):** managed Postgres (Neon/RDS) — import the latest dump, then swap `DATABASE_URL` to the managed host with `sslmode=verify-full` (the Go API verifies against the CA in its `certs/` directory; see `api/pkg/db/pool.go`). Backup ownership then moves to the provider.
 
 ## (e) Common failures
 
@@ -124,4 +124,4 @@ Record date, dump filename, row counts and time-to-restore in the ops tracker. A
 
 - Backups contain personal data: the S3 backup bucket must be private, encrypted (SSE-S3 is fine) and in the EU region; deletion requests age out of dumps with `BACKUP_RETENTION_DAYS` — this is stated in the privacy policy (see `data-deletion.md`).
 - The `postgres` container publishes no ports; all admin access is `docker exec -it openmentor-postgres psql -U openmentor` on the VM.
-- Config source of truth: `openmentor-infra/docker-compose.yml`, `openmentor-infra/postgres-backup/backup.sh`, and the `BACKUP_*`/`POSTGRES_*` sections of the env templates.
+- Config source of truth: `infra/docker-compose.yml`, `infra/postgres-backup/backup.sh`, and the `BACKUP_*`/`POSTGRES_*` sections of the env templates.

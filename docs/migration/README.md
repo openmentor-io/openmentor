@@ -1,5 +1,7 @@
 # OpenMentor.io Migration Plan — Master Document
 
+> Note (2026-07-09): the component repos described here were consolidated into the openmentor monorepo (web/, api/, infra/); paths below reflect the pre-monorepo layout.
+
 **Source project:** getmentor.dev (`../getmentor/`) — Russian-language IT mentorship marketplace.
 **Target project:** openmentor.io (this folder, `openmentor-io/`) — English-first, global-market fork.
 **Constraint:** getmentor.dev keeps running unchanged. openmentor.io is a separate fork with its own repos, domain, and infrastructure. Never edit files under `../getmentor/`.
