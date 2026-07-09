@@ -1,0 +1,24 @@
+# dependencies & build artifacts
+node_modules/
+.next/
+out/
+dist/
+bin/
+coverage/
+coverage.out
+*.tsbuildinfo
+
+# secrets — never commit real env files (templates are *.example)
+.env
+.env.*
+!.env.example
+!.env.*.example
+local.settings.json
+
+# logs & runtime
+logs/
+*.log
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
