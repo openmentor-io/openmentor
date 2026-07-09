@@ -43,11 +43,16 @@ Example:
 ### Local Deployment (`deploy.sh`)
 
 ```bash
-# Automatically uses git commit SHA
-IMAGE_TAG=$(git rev-parse --short HEAD)
+# Automatically uses the monorepo's git commit SHA, per service:
+FRONTEND_IMAGE_TAG=$(git rev-parse --short HEAD)   # example: abc123f
+BACKEND_IMAGE_TAG=$(git rev-parse --short HEAD)
 
-# Example: abc123f
+# deploy-dev.sh uses the same scheme with a dev- prefix (local images,
+# never pushed): openmentor-frontend:dev-abc123f
 ```
+
+Services not being deployed keep their currently deployed tag (fetched from
+the VM's `.env`), so a `./deploy.sh frontend` never disturbs the backend.
 
 ### GitHub Actions Workflow
 
@@ -63,8 +68,9 @@ IMAGE_TAG: ${{ github.sha }}
 ```yaml
 services:
   frontend:
-    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-frontend:${IMAGE_TAG}
-    # No fallback to 'latest' - IMAGE_TAG must be explicitly set
+    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-frontend:${FRONTEND_IMAGE_TAG:-${IMAGE_TAG}}
+    # No fallback to 'latest' — per-service tags, written to .env by the
+    # deploy scripts (IMAGE_TAG is only a legacy fallback)
 ```
 
 ## Deployment Process
@@ -133,8 +139,8 @@ git log --oneline -10
 # Check container image history
 docker images | grep openmentor
 
-# Check previous tag saved during deployment
-cat /tmp/previous_tag  # On VM
+# Check the previous tags saved during deployment
+grep IMAGE_TAG /opt/openmentor/infra/.env.backup  # On VM
 ```
 
 ## Migration Notes

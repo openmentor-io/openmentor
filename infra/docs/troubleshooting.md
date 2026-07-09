@@ -103,8 +103,9 @@ docker inspect <container> | grep -A 5 RestartCount
    docker-compose logs backend | grep -i "panic\|error\|fatal"
 
    # Solution: Fix configuration or code issue
-   # Rollback to previous version if needed
-   export IMAGE_TAG=<previous-sha>
+   # Rollback to previous version if needed (./rollback.sh <previous-sha>
+   # from a workstation, or manually on the VM):
+   sed -i "s/^BACKEND_IMAGE_TAG=.*/BACKEND_IMAGE_TAG=<previous-sha>/" .env  # and/or FRONTEND_IMAGE_TAG
    docker-compose pull
    docker-compose up -d
    ```
@@ -756,7 +757,8 @@ docker-compose logs frontend
 
 5. **If still down, rollback**
    ```bash
-   export IMAGE_TAG=<last-known-good-sha>
+   # ./rollback.sh <last-known-good-sha> from a workstation, or on the VM:
+   sed -i "s/^BACKEND_IMAGE_TAG=.*/BACKEND_IMAGE_TAG=<last-known-good-sha>/" .env  # and/or FRONTEND_IMAGE_TAG
    docker-compose pull
    docker-compose up -d
    ```

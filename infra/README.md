@@ -63,7 +63,7 @@ scales/deploys independently of the API; S3/SES scale on their own.
 
 | Service | Image | Exposure | Purpose |
 |---|---|---|---|
-| `traefik` | traefik:v2.10 | :80/:443 public | TLS termination (Let's Encrypt via Cloudflare DNS-01), routing |
+| `traefik` | traefik:v2.11 | :80/:443 public | TLS termination (Let's Encrypt via Cloudflare DNS-01), routing. Dev overlay: HTTP-only on :80 |
 | `frontend` | openmentor-frontend | via Traefik | Next.js web app |
 | `backend` | openmentor-backend | internal (+ `mcp.${DOMAIN}` POST via Traefik) | Go REST API (`/app/main`) |
 | `worker` | openmentor-backend (same image, `/app/worker`) | internal :8090 | Async event triggers from the API (`/jobs/*`, `X-Worker-Token` auth) + daily cron jobs. Replaces the deprecated `openmentor-func` Azure Functions app (D6) |
@@ -78,14 +78,13 @@ scales/deploys independently of the API; S3/SES scale on their own.
 ```
 infra/
 ├── docker-compose.yml          # Production stack
-├── docker-compose.dev.yml      # Dev overlay (local builds, dev postgres creds, no traefik/alloy/cadvisor/backups)
+├── docker-compose.dev.yml      # Dev overlay (local image tags, HTTP-only traefik, dev postgres creds, opt-in observability)
 ├── postgres-backup/            # Backup sidecar image (pg_dump → S3, see Backups)
 ├── .env.example                # Local development env template
 ├── .env.production.example     # Production env template (deploy creds + build args + runtime secrets)
-├── deploy.sh                   # Build + push + deploy to the VM (health checks + auto-rollback)
-├── deploy-dev.sh               # Full local build + stack bring-up
-├── dev.sh                      # Day-to-day local stack helper (up/down/logs/health/db)
-├── rollback.sh                 # Roll production back to a previous image tag
+├── deploy.sh                   # Deploy [frontend|backend|infra|all] to the VM (health checks + auto-rollback)
+├── deploy-dev.sh               # Same CLI/flow against the local docker stack
+├── rollback.sh                 # Roll production back to previous image tags (per service)
 ├── alloy/config.alloy          # Grafana Alloy pipeline
 ├── grafana/                    # Dashboards & alerts as code (jsonnet → dist/)
 ├── posthog/dashboards/         # Product analytics dashboards as code
@@ -115,45 +114,65 @@ openmentor/
 └── infra/   # this directory
 ```
 
-### 1. Configure environment
+### 1. Start the stack
 
 ```bash
 cd openmentor/infra
-cp .env.example .env
-# fill in real values (tokens, S3/SES creds, PostHog keys, ...)
+./deploy-dev.sh all --yes
 ```
 
-### 2. Start the stack
+`deploy-dev.sh` has the same CLI and flow as the production `deploy.sh`
+(targets `frontend`/`backend`/`infra`/`all`, default `frontend backend`;
+options `--tag`, `--yes`, `--dry-run`), but targets the local docker daemon:
 
-```bash
-./dev.sh up-d          # build + start detached
-# or: ./deploy-dev.sh  # full rebuild with health-check verification
-# or raw compose:
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-```
+1. creates `.env` from `.env.example` on first run (dev defaults +
+   generated `JWT_SECRET`/`WORKER_AUTH_TOKEN`; fill in S3/SES/PostHog values
+   for full functionality — never commit it),
+2. builds `openmentor-frontend:dev-<sha>` / `openmentor-backend:dev-<sha>`
+   from `../web` and `../api` (real unique tags, so `docker compose up -d`
+   converges exactly like production: only services whose tag changed are
+   recreated),
+3. writes the tags to `.env` (`FRONTEND_IMAGE_TAG`/`BACKEND_IMAGE_TAG`),
+4. converges the stack and runs the same health checks as production
+   (frontend, backend, worker, postgres), rolling `.env` back to the
+   previous tags on failure.
 
-The dev overlay:
-- builds frontend/backend images from `../web` and `../api` instead of
-  pulling,
-- overrides the `postgres` service with dev credentials, a disposable
-  `openmentor-postgres-data-dev` volume and host port **5433** (only one
-  database runs in the merged stack),
-- disables `traefik`, `alloy`, `cadvisor` and `postgres-backup`
-  (via `profiles: [production-only]`) so nothing pollutes production
-  Grafana Cloud data or backup buckets.
+The dev overlay (`docker-compose.dev.yml`) keeps the **same service set as
+production** — traefik / frontend / backend / worker / migrate / postgres —
+with these differences:
 
-### 3. Access services
+- `traefik` runs HTTP-only on **:80** (no ACME/Cloudflare DNS-01, no :443)
+  and routes `Host(localhost)` to the frontend,
+- app ports (3000/8081/8090) are additionally published for debugging,
+- `postgres` gets dev credentials, a disposable
+  `openmentor-postgres-data-dev` volume and host port **5433**
+  (`POSTGRES_DEV_PORT` overrides it if taken; only one database runs in the
+  merged stack),
+- `alloy` and `cadvisor` are **opt-in** via `--profile observability`:
+  alloy cannot start without Grafana Cloud credentials and the
+  `alloy-secrets/postgres_secret_openmentor` file, so it is not part of the
+  default dev stack,
+- `postgres-backup` never runs in dev (`profiles: [production-only]`) — dev
+  data is disposable and the local stack must not touch backup buckets.
 
-- Frontend: http://localhost:3000
+### 2. Access services
+
+- Frontend via traefik: http://localhost/
+- Frontend direct: http://localhost:3000
 - Backend health: http://localhost:8081/api/healthcheck
 - Worker health: http://localhost:8090/healthz
 - Postgres: `psql postgresql://openmentor:password@localhost:5433/openmentor`
 
-### 4. Stop
+### 3. Day-to-day commands
 
 ```bash
-./dev.sh down          # stop
-./dev.sh clean         # stop + remove volumes
+COMPOSE="docker compose -f docker-compose.yml -f docker-compose.dev.yml"
+$COMPOSE ps                      # status
+$COMPOSE logs -f backend         # logs (any service)
+$COMPOSE down                    # stop
+$COMPOSE down && docker volume rm openmentor-postgres-data-dev   # reset dev DB
+./deploy-dev.sh backend          # rebuild + roll just the backend/worker
+./deploy-dev.sh all --dry-run    # print the plan without executing
 ```
 
 ## Environment Variables
@@ -188,31 +207,69 @@ monorepo checked out at `/opt/openmentor` (compose runs from
 
 ```bash
 cp .env.production.example .env.production   # once; fill in everything
-./deploy.sh                    # build + push + deploy frontend and backend/worker
-./deploy.sh --frontend-only    # or --backend-only / --skip-frontend / --skip-backend
+./deploy.sh                        # default targets: frontend backend
+./deploy.sh frontend               # roll only the frontend
+./deploy.sh backend                # roll backend + worker + migrate (one image)
+./deploy.sh infra                  # sync infra/ config and converge compose changes
+./deploy.sh all                    # frontend backend infra
+./deploy.sh backend --tag abc123f  # deploy an already-pushed tag
+./deploy.sh all --yes --dry-run    # print the plan / skip the prompt
+./deploy.sh --staging              # target the staging VM (VM_SSH_*_STAGING vars)
 ```
 
 `deploy.sh`:
 
-1. builds images tagged with the monorepo's short commit SHA
-   (see `DOCKER_TAG_POLICY.md` — never `latest`),
-2. pushes them to the container registry (currently `cr.yandex`; ghcr.io swap
-   tracked as **P6.4**),
-3. uploads `.env.production` to the VM as `/opt/openmentor/infra/.env`
-   (mode 600) and writes the Alloy DB-observability secret,
-4. ensures the external `openmentor-postgres-data` volume exists
+1. builds the targeted images tagged with the monorepo's short commit SHA
+   (see `DOCKER_TAG_POLICY.md` — never `latest`) and pushes them to the
+   container registry (currently `cr.yandex`; ghcr.io swap tracked as
+   **P6.4**),
+2. fetches the currently deployed tags from the VM for any service **not**
+   being deployed, so untouched services keep their tags,
+3. for the `infra` target: rsyncs `infra/` to `/opt/openmentor/infra`
+   (never `.env*`, `logs/`, `alloy-secrets/`; no `--delete`) with
+   `--checksum --itemize-changes`, so it knows which files actually changed,
+4. uploads `.env.production` to the VM as `/opt/openmentor/infra/.env`
+   (mode 600) with the resolved image tags, and writes the Alloy
+   DB-observability secret,
+5. ensures the external `openmentor-postgres-data` volume exists
    (idempotent `docker volume create`), then runs
-   `docker-compose pull && up -d` on the VM,
-5. health-checks frontend (`/api/healthcheck`), backend (`/api/healthcheck`),
+   `docker-compose pull && up -d` on the VM (`--remove-orphans` when the
+   `infra` target is included) — compose convergence recreates **only** the
+   services whose image tag or definition changed,
+6. handles the **bind-mount trap**: compose does not react to changes in
+   bind-mounted config files, so after `up` the script restarts/rebuilds
+   exactly the affected services (see inventory below),
+7. health-checks frontend (`/api/healthcheck`), backend (`/api/healthcheck`),
    worker (`/healthz`) and postgres (`pg_isready`) **inside** the containers
    plus the backup sidecar's running state, and
-6. **automatically rolls back** to the previous `.env` (previous image tags)
+8. **automatically rolls back** to the previous `.env` (previous image tags)
    if any health check fails, then verifies the rollback.
+
+`deploy-dev.sh` runs the identical CLI and flow against the local dev stack
+(no registry, no SSH — see Quick Start).
+
+#### Bind-mounted config inventory (what `infra` restarts/rebuilds)
+
+| Service | Config source | On change |
+|---|---|---|
+| `alloy` | `./alloy/config.alloy` (bind-mounted file) | `docker-compose restart alloy` |
+| `alloy` | `./alloy-secrets/` (runtime state written by deploy.sh) | never synced |
+| `postgres-backup` | built **on the VM** from `./postgres-backup/` | `docker-compose build postgres-backup` + up |
+| `traefik` | none — static config is command flags, dynamic config is docker labels | plain compose convergence |
+
+Compose-level changes (bumped `traefik`/`postgres`/`alloy` image pins,
+service definitions, env passthrough) converge through `up -d` itself.
+**Postgres pin bumps are safe**: the container is recreated but the data
+lives in the external `openmentor-postgres-data` volume. Minor/patch
+versions only — major upgrades follow
+`../docs/runbooks/postgres-backup-restore.md`.
 
 ### Rollback manually
 
 ```bash
-./rollback.sh <previous-commit-sha>
+./rollback.sh <previous-commit-sha>            # both images
+./rollback.sh --frontend <sha>                 # frontend only
+./rollback.sh --backend <sha>                  # backend/worker/migrate only
 ```
 
 See `DEPLOYMENT.md` for the full guide and troubleshooting.

@@ -69,7 +69,7 @@ Notes:
 
 1. Hetzner Cloud Console → server → Backups/Snapshots → restore to the server, or create a new server from the snapshot (new IP → update the Cloudflare A record).
 2. The snapshot is **crash-consistent**: it captures the volume as if the machine lost power. Postgres handles this by design — on first start it replays WAL automatically. Watch `docker logs openmentor-postgres` for `redo done` / `database system is ready`.
-3. `cd /opt/openmentor/infra && docker compose up -d`, then run the deploy health checks (or just `./deploy.sh --skip-frontend --skip-backend` from a workstation to re-push `.env` and verify).
+3. `cd /opt/openmentor/infra && docker compose up -d`, then run the deploy health checks (or just `./deploy.sh infra` from a workstation to re-push `.env` and verify).
 4. Anything written between the snapshot and the failure is lost — if the nightly dump is newer than the snapshot, follow (a) on top to close the gap.
 
 ## (c) Quarterly restore-test procedure
@@ -112,7 +112,7 @@ Record date, dump filename, row counts and time-to-restore in the ops tracker. A
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `external volume "openmentor-postgres-data" not found` on `up` | The volume is external so compose refuses to create it — first boot on a fresh VM/workstation, or someone deleted it | `docker volume create openmentor-postgres-data` (deploy.sh/rollback.sh/dev.sh do this automatically) — then check whether a restore per (a)/(b) is needed |
+| `external volume "openmentor-postgres-data" not found` on `up` | The volume is external so compose refuses to create it — first boot on a fresh VM/workstation, or someone deleted it | `docker volume create openmentor-postgres-data` (deploy.sh/deploy-dev.sh/rollback.sh do this automatically) — then check whether a restore per (a)/(b) is needed |
 | Volume exists but the DB is empty after `up` | Fresh volume: the container initialized a brand-new cluster | Restore the latest dump per (a) |
 | `password authentication failed for user "openmentor"` from backend/worker/migrate | `POSTGRES_PASSWORD` was rotated in `.env` — the container only applies it on **first initialization**; the running cluster keeps the old password, or `DATABASE_URL` wasn't updated to match | Either update the cluster to the new value: `docker exec -it openmentor-postgres psql -U openmentor -c "ALTER USER openmentor WITH PASSWORD '<new>';"` — or fix `DATABASE_URL`/`POSTGRES_PASSWORD` so they agree, then `docker compose up -d` |
 | Sidecar logs `FAILURE ... error=pg_dump_failed` | postgres down/unhealthy, or creds mismatch after rotation (sidecar uses `POSTGRES_*` from the same `.env`) | Check `docker compose ps` / postgres logs; re-run `backup.sh once` after fixing |

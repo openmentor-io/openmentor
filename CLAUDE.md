@@ -6,7 +6,7 @@ Guidance for Claude Code when working in the openmentor monorepo.
 
 - `web/` — Next.js 16 frontend. Own `CLAUDE.md` with conventions; work from `web/` (`yarn dev/test/lint`, `npx tsc --noEmit`).
 - `api/` — Go backend, module `github.com/openmentor-io/openmentor/api`. Three binaries: `cmd/api`, `cmd/worker`, `cmd/migrate`. Verify with `go build ./... && go vet ./... && go test ./...` and `gofmt -l .` from `api/`.
-- `infra/` — Compose/Traefik deployment + observability. Validate with `docker compose config -q` (needs a `.env`; copy from `.env.example`, delete after).
+- `infra/` — Compose/Traefik deployment + observability. Validate with `docker compose config -q` (needs `.env` + `.env.runtime`; copy both from `.env.example`, delete after).
 - `docs/` — decisions (`docs/migration/DECISIONS.md`), runbooks, design reference. `docs/migration/` is a historical record of the getmentor→openmentor fork; don't "fix" old paths there.
 - `brand/` — brand asset pack. Never redraw the logo; reference files verbatim (see `brand/README.md` rules). Served copies live in `web/public/brand`.
 

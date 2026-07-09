@@ -59,48 +59,81 @@ conflict on the first deploy from `/opt/openmentor/infra`.
 ## Deploying to Production
 
 ```bash
-./deploy.sh                    # build + deploy frontend AND backend/worker
-./deploy.sh --frontend-only    # only rebuild frontend, keep current backend
-./deploy.sh --backend-only     # only rebuild backend, keep current frontend
-./deploy.sh --staging          # deploy to the staging VM (VM_SSH_*_STAGING vars)
+./deploy.sh [targets...] [options]
+
+# Targets (default: frontend backend):
+./deploy.sh                        # frontend + backend
+./deploy.sh frontend               # only the frontend container
+./deploy.sh backend                # backend + worker + migrate (one image)
+./deploy.sh infra                  # sync infra/ config, converge compose changes
+./deploy.sh all                    # frontend backend infra
+
+# Options:
+#   --tag TAG     use TAG instead of the git commit SHA
+#   --yes, -y     skip the confirmation prompt
+#   --dry-run     print the deployment plan and exit
+#   --staging     deploy to the staging VM (VM_SSH_*_STAGING vars)
 ```
 
 The script will:
 
-1. Validate credentials and config
-2. Build Docker images locally (frontend and/or backend), tagged with the
-   monorepo's short commit SHA (`DOCKER_TAG_POLICY.md`)
-3. Push images to the registry
-4. Upload `.env.production` to the VM as `/opt/openmentor/infra/.env`
+1. Validate credentials and config, print the plan, confirm (unless `--yes`)
+2. Build the targeted Docker images locally, tagged with the monorepo's
+   short commit SHA (`DOCKER_TAG_POLICY.md`)
+3. Fetch the currently deployed tags from the VM for services **not** being
+   deployed (they keep their tags)
+4. Push the built images to the registry
+5. `infra` target only: rsync `infra/` to `/opt/openmentor/infra`
+   (excluding `.env*`, `logs/`, `alloy-secrets/`; no `--delete`) with
+   `--checksum --itemize-changes` to learn which files changed
+6. Upload `.env.production` to the VM as `/opt/openmentor/infra/.env`
    (mode 600) with `FRONTEND_IMAGE_TAG`/`BACKEND_IMAGE_TAG` appended
-5. Write the Alloy DB-observability secret (`POSTGRES_OBS_DSN`) to
+7. Write the Alloy DB-observability secret (`POSTGRES_OBS_DSN`) to
    `alloy-secrets/` on the VM
-6. Run `docker-compose pull && docker-compose up -d` on the VM
-7. Health-check all three apps inside their containers:
+8. Run `docker-compose pull && docker-compose up -d` on the VM
+   (`--remove-orphans` when `infra` is targeted). Compose recreates **only**
+   the services whose image tag or definition changed. Bind-mounted config
+   is handled explicitly: a changed `alloy/config.alloy` triggers
+   `docker-compose restart alloy`, a changed `postgres-backup/` triggers a
+   sidecar image rebuild (compose alone would miss both — see the
+   bind-mount inventory in `README.md`)
+9. Health-check the apps inside their containers:
    - frontend `http://localhost:3000/api/healthcheck`
    - backend `http://localhost:8081/api/healthcheck`
    - worker `http://localhost:8090/healthz`
-8. **Automatically roll back** (restore the previous `.env`, re-pull, re-up)
-   if any health check fails
-9. Verify the public endpoint `https://$DOMAIN/api/healthcheck`
+   - postgres `pg_isready` + backup sidecar running state
+10. **Automatically roll back** (restore the previous `.env`, re-pull,
+    re-up) if any health check fails
+11. Verify the public endpoint `https://$DOMAIN/api/healthcheck`
 
-Note: the `migrate` service runs database migrations before backend and
-worker start (`depends_on: service_completed_successfully`).
+Notes:
+
+- The `migrate` service runs database migrations before backend and worker
+  start (`depends_on: service_completed_successfully`) — this holds on every
+  `up -d`.
+- Postgres image pin bumps recreate the container **safely**: the data lives
+  in the external `openmentor-postgres-data` volume. Minor/patch versions
+  only — major upgrades follow `../docs/runbooks/postgres-backup-restore.md`.
 
 ## Rollback
 
 ```bash
-./rollback.sh <commit-sha>   # or run without args to be prompted
+./rollback.sh <commit-sha>                 # roll BOTH images to <sha>
+./rollback.sh --frontend <sha>             # frontend only
+./rollback.sh --backend <sha>              # backend/worker/migrate only
+./rollback.sh                              # prompt for a tag interactively
 ```
 
-Reads the same `.env.production`, SSHes to the VM, sets `IMAGE_TAG` to the
-given SHA, pulls, restarts, and verifies the three health checks.
+Reads the same `.env.production`, SSHes to the VM, updates
+`FRONTEND_IMAGE_TAG`/`BACKEND_IMAGE_TAG` in `/opt/openmentor/infra/.env`
+(keeping `.env.backup`), pulls, re-converges, and verifies the same health
+checks as `deploy.sh`.
 
 Manual fallback on the VM:
 
 ```bash
 cd /opt/openmentor/infra
-export IMAGE_TAG=<previous-working-sha>
+sed -i 's/^BACKEND_IMAGE_TAG=.*/BACKEND_IMAGE_TAG=<previous-working-sha>/' .env   # and/or FRONTEND_IMAGE_TAG
 docker-compose pull && docker-compose up -d
 ```
 
@@ -144,7 +177,8 @@ and redeploy. Common causes: missing/renamed env vars (compare against
 
 ## Best Practices
 
-- Test locally first: `./deploy-dev.sh` or `./dev.sh up-d`
+- Test locally first: `./deploy-dev.sh` (same CLI/flow against the local
+  dev stack)
 - Deploy from a clean, committed tree
 - Note the deployed SHAs (printed in the summary) for quick rollback
 - Watch Grafana for 5–10 minutes after deploying
