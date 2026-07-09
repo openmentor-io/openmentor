@@ -31,18 +31,19 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-# Check if parent directory has frontend and backend repos
-if [ ! -d "../openmentor" ]; then
-    echo -e "${YELLOW}⚠️  Frontend repository not found at ../openmentor${NC}"
-    echo "Please clone the frontend repository:"
-    echo "  cd .. && git clone <frontend-repo-url> openmentor"
+# Check that the monorepo's frontend and backend directories are present
+# (this script must run from infra/ of a full openmentor monorepo checkout)
+if [ ! -d "../web" ]; then
+    echo -e "${YELLOW}⚠️  Frontend directory not found at ../web${NC}"
+    echo "Run this script from infra/ of a full monorepo checkout:"
+    echo "  git clone https://github.com/openmentor-io/openmentor.git && cd openmentor/infra"
     exit 1
 fi
 
-if [ ! -d "../openmentor-api" ]; then
-    echo -e "${YELLOW}⚠️  Backend repository not found at ../openmentor-api${NC}"
-    echo "Please clone the backend repository:"
-    echo "  cd .. && git clone <backend-repo-url> openmentor-api"
+if [ ! -d "../api" ]; then
+    echo -e "${YELLOW}⚠️  Backend directory not found at ../api${NC}"
+    echo "Run this script from infra/ of a full monorepo checkout:"
+    echo "  git clone https://github.com/openmentor-io/openmentor.git && cd openmentor/infra"
     exit 1
 fi
 

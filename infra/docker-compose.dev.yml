@@ -10,7 +10,7 @@ services:
   frontend:
     # Build from local source instead of pulling from registry
     build:
-      context: ../openmentor
+      context: ../web
       dockerfile: Dockerfile
       target: deps  # Use deps stage for dependencies only
       args:
@@ -21,7 +21,7 @@ services:
 
     # Mount entire source code for hot-reloading
     volumes:
-      - ../openmentor:/app
+      - ../web:/app
       # Prevent overwriting node_modules from container
       - /app/node_modules
       - /app/.next
@@ -101,7 +101,7 @@ services:
   backend:
     # Build from local source instead of pulling from registry
     build:
-      context: ../openmentor-api
+      context: ../api
       dockerfile: Dockerfile
       target: runner  # Use production target (Go doesn't have hot-reload by default)
     image: openmentor-backend:dev

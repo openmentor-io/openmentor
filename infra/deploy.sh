@@ -72,10 +72,11 @@ if [ "$BUILD_FRONTEND" = false ] && [ "$BUILD_BACKEND" = false ]; then
     exit 1
 fi
 
-# Configuration
+# Configuration (frontend/backend are sibling directories of infra/ in the
+# openmentor monorepo)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FRONTEND_DIR="$SCRIPT_DIR/../openmentor"
-BACKEND_DIR="$SCRIPT_DIR/../openmentor-api"
+FRONTEND_DIR="$SCRIPT_DIR/../web"
+BACKEND_DIR="$SCRIPT_DIR/../api"
 
 # Load environment variables
 if [ ! -f "$SCRIPT_DIR/.env.production" ]; then
@@ -156,22 +157,16 @@ REGISTRY="cr.yandex"
 FRONTEND_IMAGE="$REGISTRY/$YANDEX_REGISTRY_ID/openmentor-frontend"
 BACKEND_IMAGE="$REGISTRY/$YANDEX_REGISTRY_ID/openmentor-backend"
 
-# Get frontend SHA if building
+# Get frontend SHA if building (web/ is part of the monorepo, so the .git
+# directory lives at the repo root — resolve HEAD via git -C, with a
+# timestamp fallback for non-git exports)
 if [ "$BUILD_FRONTEND" = true ]; then
-    if [ -d "$FRONTEND_DIR/.git" ]; then
-        FRONTEND_GIT_TAG=$(git -C "$FRONTEND_DIR" rev-parse --short HEAD)
-    else
-        FRONTEND_GIT_TAG=$(date +%Y%m%d-%H%M%S)
-    fi
+    FRONTEND_GIT_TAG=$(git -C "$FRONTEND_DIR" rev-parse --short HEAD 2>/dev/null || date +%Y%m%d-%H%M%S)
 fi
 
-# Get backend SHA if building
+# Get backend SHA if building (same monorepo commit)
 if [ "$BUILD_BACKEND" = true ]; then
-    if [ -d "$BACKEND_DIR/.git" ]; then
-        BACKEND_GIT_TAG=$(git -C "$BACKEND_DIR" rev-parse --short HEAD)
-    else
-        BACKEND_GIT_TAG=$(date +%Y%m%d-%H%M%S)
-    fi
+    BACKEND_GIT_TAG=$(git -C "$BACKEND_DIR" rev-parse --short HEAD 2>/dev/null || date +%Y%m%d-%H%M%S)
 fi
 
 echo -e "${GREEN}🚀 OpenMentor Production Deployment${NC}"
@@ -307,7 +302,7 @@ if [ "$BUILD_FRONTEND" = false ] || [ "$BUILD_BACKEND" = false ]; then
     REMOTE_ENV=$(ssh -i "$_VM_SSH_KEY_FILE" \
         -o StrictHostKeyChecking=no \
         "$_VM_SSH_USER@$_VM_SSH_HOST" \
-        "cat /opt/openmentor-infra/.env 2>/dev/null || echo ''")
+        "cat /opt/openmentor/infra/.env 2>/dev/null || echo ''")
 
     if [ -n "$REMOTE_ENV" ]; then
         CURRENT_FRONTEND_TAG=$(echo "$REMOTE_ENV" | grep "^FRONTEND_IMAGE_TAG=" | cut -d'=' -f2)
@@ -380,7 +375,7 @@ echo "Uploading .env file to production VM..."
 scp -i "$_VM_SSH_KEY_FILE" \
     -o StrictHostKeyChecking=no \
     "$TEMP_ENV_FILE" \
-    "$_VM_SSH_USER@$_VM_SSH_HOST:/opt/openmentor-infra/.env"
+    "$_VM_SSH_USER@$_VM_SSH_HOST:/opt/openmentor/infra/.env"
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Failed to upload environment file${NC}"
@@ -391,7 +386,7 @@ fi
 ssh -i "$_VM_SSH_KEY_FILE" \
     -o StrictHostKeyChecking=no \
     "$_VM_SSH_USER@$_VM_SSH_HOST" \
-    "chmod 600 /opt/openmentor-infra/.env"
+    "chmod 600 /opt/openmentor/infra/.env"
 
 echo -e "${GREEN}✅ Environment variables uploaded securely${NC}"
 echo ""
@@ -406,13 +401,13 @@ if [ -n "$POSTGRES_OBS_DSN_LOCAL" ]; then
     SECRETS_SCRIPT=$(cat <<'SECRETS_SCRIPT_EOF'
 #!/bin/bash
 set -e
-SECRETS_DIR=/opt/openmentor-infra/alloy-secrets
+SECRETS_DIR=/opt/openmentor/infra/alloy-secrets
 
 mkdir -p "$SECRETS_DIR"
 chmod 700 "$SECRETS_DIR"
 
 # Extract DSN from the uploaded .env and write it to the secrets file
-grep "^POSTGRES_OBS_DSN=" /opt/openmentor-infra/.env | cut -d'=' -f2- | tr -d '\n' \
+grep "^POSTGRES_OBS_DSN=" /opt/openmentor/infra/.env | cut -d'=' -f2- | tr -d '\n' \
     > "$SECRETS_DIR/postgres_secret_openmentor"
 chmod 600 "$SECRETS_DIR/postgres_secret_openmentor"
 
@@ -460,7 +455,8 @@ YANDEX_SA_KEY=$(echo "$ENCODED_SA_KEY" | base64 -d)
 
 echo "🚀 Starting deployment on production VM..."
 
-cd /opt/openmentor-infra
+# The monorepo is checked out at /opt/openmentor; compose files live in infra/
+cd /opt/openmentor/infra
 
 # Backup existing .env file for rollback
 if [ -f .env ]; then

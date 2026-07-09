@@ -13,8 +13,8 @@ NC='\033[0m' # No Color
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FRONTEND_DIR="$SCRIPT_DIR/../openmentor"
-BACKEND_DIR="$SCRIPT_DIR/../openmentor-api"
+FRONTEND_DIR="$SCRIPT_DIR/../web"
+BACKEND_DIR="$SCRIPT_DIR/../api"
 
 echo -e "${GREEN}🚀 OpenMentor Local Development Deployment${NC}"
 echo "============================================"
@@ -42,20 +42,20 @@ if [ ! -f "$SCRIPT_DIR/.env" ]; then
 fi
 echo -e "${GREEN}  • .env file exists${NC}"
 
-# Check if frontend directory exists
+# Check if frontend directory exists (web/ of the monorepo)
 if [ ! -d "$FRONTEND_DIR" ]; then
-    echo -e "${RED}❌ Frontend repository not found at $FRONTEND_DIR${NC}"
-    echo "Please clone the frontend repository:"
-    echo "  cd $(dirname $SCRIPT_DIR) && git clone <frontend-repo-url> openmentor"
+    echo -e "${RED}❌ Frontend directory not found at $FRONTEND_DIR${NC}"
+    echo "Run this script from infra/ of a full monorepo checkout:"
+    echo "  git clone https://github.com/openmentor-io/openmentor.git && cd openmentor/infra"
     exit 1
 fi
 echo -e "${GREEN}  • Frontend directory found${NC}"
 
-# Check if backend directory exists
+# Check if backend directory exists (api/ of the monorepo)
 if [ ! -d "$BACKEND_DIR" ]; then
-    echo -e "${RED}❌ Backend repository not found at $BACKEND_DIR${NC}"
-    echo "Please clone the backend repository:"
-    echo "  cd $(dirname $SCRIPT_DIR) && git clone <backend-repo-url> openmentor-api"
+    echo -e "${RED}❌ Backend directory not found at $BACKEND_DIR${NC}"
+    echo "Run this script from infra/ of a full monorepo checkout:"
+    echo "  git clone https://github.com/openmentor-io/openmentor.git && cd openmentor/infra"
     exit 1
 fi
 echo -e "${GREEN}  • Backend directory found${NC}"

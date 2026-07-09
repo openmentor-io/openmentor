@@ -67,7 +67,8 @@ YANDEX_SA_KEY="$(cat $YANDEX_SA_KEY_FILE)"
 
 echo "🔄 Rolling back to tag: \$TARGET_TAG"
 
-cd /opt/openmentor-infra
+# The monorepo is checked out at /opt/openmentor; compose files live in infra/
+cd /opt/openmentor/infra
 
 # Save current tag as backup
 CURRENT_TAG=\$(grep "IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")

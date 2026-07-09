@@ -1,3 +1,7 @@
+# Pin the compose project name so network/resource prefixes don't depend on
+# the checkout directory name ("infra" inside the openmentor monorepo).
+name: openmentor
+
 services:
   # Traefik reverse proxy for SSL/TLS termination
   traefik:
