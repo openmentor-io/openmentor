@@ -1,66 +1,67 @@
 # Development overrides for docker-compose.yml
-# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Dev/prod parity: the merged stack runs the SAME service set as production —
+# traefik / frontend / backend / worker / migrate / postgres — with local
+# image tags and dev credentials. Differences from production:
+#
+#   - traefik runs HTTP-only on :80 (no ACME/Cloudflare DNS, no :443) and
+#     routes Host(`localhost`) to the frontend
+#   - frontend/backend/worker/migrate run locally built images
+#     (openmentor-frontend:dev-<sha> / openmentor-backend:dev-<sha>, built and
+#     tagged by ./deploy-dev.sh — same SHA-tag convergence model as prod)
+#   - postgres uses dev credentials, a disposable non-external volume and
+#     publishes host port 5433 for local tooling
+#   - app ports (3000/8081/8090) are additionally published directly for
+#     debugging; in production only traefik is exposed
+#   - alloy and cadvisor are OPT-IN behind the `observability` profile:
+#     alloy cannot start without Grafana Cloud credentials AND the
+#     ./alloy-secrets/postgres_secret_openmentor file (its local.file
+#     component fails hard on a missing file), so it must not be part of the
+#     default dev stack. Enable with:
+#       docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+#         --profile observability up -d
+#   - postgres-backup stays production-only (dev data is disposable and the
+#     local stack must never touch backup buckets)
+#
+# Usage: ./deploy-dev.sh [targets...]   (recommended — builds images, sets
+#        FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG in .env, regenerates
+#        .env.runtime, converges, healthchecks)
+# Raw:   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#        (requires images already built/tagged AND .env/.env.runtime present,
+#        e.g. from a previous ./deploy-dev.sh run; after editing .env, rerun
+#        ./deploy-dev.sh infra or regenerate .env.runtime yourself:
+#        grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime)
 
 services:
-  # Disable Traefik in development - access services directly
+  # Traefik in HTTP-only mode: no Let's Encrypt / Cloudflare DNS-01, single
+  # :80 entrypoint, and no HTTP->HTTPS redirect (labels overridden below).
   traefik:
-    profiles:
-      - production-only
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports: !override
+      - "80:80"
+    environment: !override []
+    labels: !override []
 
   frontend:
-    # Build from local source instead of pulling from registry
-    build:
-      context: ../web
-      dockerfile: Dockerfile
-      target: deps  # Use deps stage for dependencies only
-      args:
-        NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV:-development}
-        NEXT_PUBLIC_ANALYTICS_PROVIDER: ${NEXT_PUBLIC_ANALYTICS_PROVIDER:-posthog}
-        NEXT_PUBLIC_ANALYTICS_EVENT_VERSION: ${NEXT_PUBLIC_ANALYTICS_EVENT_VERSION:-v1}
-    image: openmentor-frontend:dev
-
-    # Mount entire source code for hot-reloading
-    volumes:
-      - ../web:/app
-      # Prevent overwriting node_modules from container
-      - /app/node_modules
-      - /app/.next
-
-    # Working directory
-    working_dir: /app
-
-    # Override environment for development
+    # Locally built image (tagged by ./deploy-dev.sh); same runner target as
+    # production so convergence behaves identically.
+    image: openmentor-frontend:${FRONTEND_IMAGE_TAG:-dev}
     environment:
-      - NODE_ENV=development
+      - APP_ENV=development
       - NEXT_PUBLIC_APP_ENV=${NEXT_PUBLIC_APP_ENV:-development}
-      - NEXT_PUBLIC_ANALYTICS_PROVIDER=${NEXT_PUBLIC_ANALYTICS_PROVIDER:-posthog}
-      - NEXT_PUBLIC_ANALYTICS_EVENT_VERSION=${NEXT_PUBLIC_ANALYTICS_EVENT_VERSION:-v1}
-      - NEXT_PUBLIC_GO_API_URL=http://backend:8081
-      # Image host for next/image — path-style S3 endpoint host + bucket,
-      # matching S3_STORAGE_* in .env.example (AWS S3, DECISIONS D15)
-      - NEXT_PUBLIC_S3_STORAGE_ENDPOINT=${NEXT_PUBLIC_S3_STORAGE_ENDPOINT}
-      - NEXT_PUBLIC_S3_STORAGE_BUCKET=${NEXT_PUBLIC_S3_STORAGE_BUCKET}
-      - NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY=${NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY}
-      - GO_API_INTERNAL_TOKEN=${GO_API_INTERNAL_TOKEN}
-      - PORT=3000
-
-    # Expose port directly (no Traefik)
+    # Publish directly for debugging alongside the traefik route
     ports:
       - "3000:3000"
-
-    # Remove Traefik labels in dev
-    labels: []
-
-    # Disable healthcheck in dev (deps stage doesn't have curl)
-    healthcheck:
-      test: ["CMD-SHELL", "exit 0"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-    # Run in development mode
-    command: yarn dev
+    # HTTP-only localhost routing (base labels reference the websecure
+    # entrypoint and the letsencrypt resolver, which don't exist in dev)
+    labels: !override
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`localhost`) || Host(`www.localhost`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
 
   # PostgreSQL database for development.
   # Overrides the base `postgres` service (same image/limits) with dev
@@ -76,7 +77,9 @@ services:
       - POSTGRES_DB=openmentor
       - POSTGRES_HOST_AUTH_METHOD=md5
     ports:
-      - "5433:5432"
+      # Host port for local tooling; override with POSTGRES_DEV_PORT in .env
+      # if 5433 is taken on your machine
+      - "${POSTGRES_DEV_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -86,73 +89,41 @@ services:
       retries: 5
       start_period: 10s
 
+  # migrate/backend/worker share the locally built backend image. The base
+  # dependency ordering is kept untouched: migrate waits for postgres to be
+  # healthy, backend and worker wait for migrate to complete successfully.
   migrate:
-    # Use locally built backend image (same as backend service)
-    image: openmentor-backend:dev
+    image: openmentor-backend:${BACKEND_IMAGE_TAG:-dev}
     environment:
       - APP_ENV=development
       - LOG_LEVEL=debug
-      - LOG_DIR=/app/logs
       - DATABASE_URL=postgresql://openmentor:password@postgres:5432/openmentor?sslmode=disable
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   backend:
-    # Build from local source instead of pulling from registry
-    build:
-      context: ../api
-      dockerfile: Dockerfile
-      target: runner  # Use production target (Go doesn't have hot-reload by default)
-    image: openmentor-backend:dev
-
-    # Expose port directly for debugging
+    image: openmentor-backend:${BACKEND_IMAGE_TAG:-dev}
+    # Publish directly for debugging (in prod the API is internal-only)
     ports:
       - "8081:8081"
-
-    # Override environment for development
     environment:
       - GIN_MODE=debug
-      - PORT=8081
       - APP_ENV=development
       - LOG_LEVEL=debug
-      - LOG_DIR=/app/logs
       - DATABASE_URL=postgresql://openmentor:password@postgres:5432/openmentor?sslmode=disable
-
-    # Mount logs directory for easier access
-    volumes:
-      - ./logs/backend:/app/logs
-
-    # Depend on PostgreSQL
-    depends_on:
-      postgres:
-        condition: service_healthy
+    labels:
+      # Disable the mcp.${DOMAIN} router: it needs the websecure entrypoint
+      # and the letsencrypt resolver, neither of which exists in dev
+      - "traefik.enable=false"
 
   worker:
-    # Use locally built backend image (same as backend service)
-    image: openmentor-backend:dev
-
-    # Expose port directly for debugging (manual job/cron triggers)
+    image: openmentor-backend:${BACKEND_IMAGE_TAG:-dev}
+    # Publish directly for debugging (manual job/cron triggers)
     ports:
       - "8090:8090"
-
-    # Override environment for development
     environment:
       - GIN_MODE=debug
-      - WORKER_PORT=8090
       - APP_ENV=development
       - LOG_LEVEL=debug
-      - LOG_DIR=/app/logs
       - DATABASE_URL=postgresql://openmentor:password@postgres:5432/openmentor?sslmode=disable
-
-    # Mount logs directory for easier access
-    volumes:
-      - ./logs/worker:/app/logs
-
-    # Depend on PostgreSQL
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   # Disable the backup sidecar in development - dev data is disposable and
   # the local stack should not touch backup buckets
@@ -160,14 +131,17 @@ services:
     profiles:
       - production-only
 
-  # Disable Alloy and cAdvisor in development - prevents polluting production Grafana Cloud data
+  # Observability is OPT-IN in dev (`--profile observability`): running alloy
+  # without real Grafana Cloud credentials would only spam push errors, and it
+  # fails to start at all without ./alloy-secrets/postgres_secret_openmentor
+  # (see header comment). cadvisor is only useful when alloy scrapes it.
   alloy:
     profiles:
-      - production-only
+      - observability
 
   cadvisor:
     profiles:
-      - production-only
+      - observability
 
 volumes:
   pgdata:

@@ -4,8 +4,10 @@ name: openmentor
 
 services:
   # Traefik reverse proxy for SSL/TLS termination
+  # v2.11 (maintained v2 line): negotiates the Docker API version, required
+  # for Docker Engine >= 29 (v2.10 pins API 1.24 and cannot connect)
   traefik:
-    image: traefik:v2.10
+    image: traefik:v2.11
     container_name: traefik
     restart: always
     mem_limit: 256m
@@ -71,7 +73,11 @@ services:
       - PORT=3000
       - SERVICE_INSTANCE_ID=${HOSTNAME}
     env_file:
-      - .env
+      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
+      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
+      # container env means a tag-only deploy recreates ONLY the retagged
+      # service (.env itself still drives compose interpolation).
+      - .env.runtime
     networks:
       - openmentor-network
     depends_on:
@@ -151,7 +157,11 @@ services:
       - BACKUP_AWS_SECRET_ACCESS_KEY=${BACKUP_AWS_SECRET_ACCESS_KEY:-}
       - BACKUP_AWS_REGION=${BACKUP_AWS_REGION:-}
     env_file:
-      - .env
+      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
+      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
+      # container env means a tag-only deploy recreates ONLY the retagged
+      # service (.env itself still drives compose interpolation).
+      - .env.runtime
     volumes:
       - postgres-backups:/backups
     networks:
@@ -172,7 +182,11 @@ services:
       - LOG_DIR=/app/logs
       - DATABASE_URL=${DATABASE_URL}
     env_file:
-      - .env
+      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
+      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
+      # container env means a tag-only deploy recreates ONLY the retagged
+      # service (.env itself still drives compose interpolation).
+      - .env.runtime
     networks:
       - openmentor-network
     depends_on:
@@ -197,7 +211,11 @@ services:
       - SERVICE_INSTANCE_ID=${HOSTNAME}
       - DATABASE_URL=${DATABASE_URL}
     env_file:
-      - .env
+      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
+      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
+      # container env means a tag-only deploy recreates ONLY the retagged
+      # service (.env itself still drives compose interpolation).
+      - .env.runtime
     networks:
       - openmentor-network
     depends_on:
@@ -245,7 +263,11 @@ services:
       - SERVICE_INSTANCE_ID=${HOSTNAME}
       - DATABASE_URL=${DATABASE_URL}
     env_file:
-      - .env
+      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
+      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
+      # container env means a tag-only deploy recreates ONLY the retagged
+      # service (.env itself still drives compose interpolation).
+      - .env.runtime
     networks:
       - openmentor-network
     depends_on:
@@ -301,7 +323,11 @@ services:
       - METRICS_AUTH_TOKEN=${METRICS_AUTH_TOKEN}
       - POSTGRES_OBS_DSN=${POSTGRES_OBS_DSN}
     env_file:
-      - .env
+      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
+      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
+      # container env means a tag-only deploy recreates ONLY the retagged
+      # service (.env itself still drives compose interpolation).
+      - .env.runtime
     networks:
       - openmentor-network
     depends_on:
