@@ -2,7 +2,7 @@
 
 [OpenMentor](https://openmentor.io) is an open community mentorship marketplace: mentees browse a catalog of tech mentors, filter by expertise, price, and experience, and book one-on-one sessions directly. Mentors manage their profile, visibility, and incoming requests through a web portal.
 
-This repository is the web frontend. It is a **thin client**: all data operations (PostgreSQL, object storage, email, auth tokens, ReCAPTCHA verification) are handled by the Go backend in [`openmentor-api`](../openmentor-api). Next.js API routes only proxy to it.
+This directory is the web frontend of the openmentor monorepo. It is a **thin client**: all data operations (PostgreSQL, object storage, email, auth tokens, ReCAPTCHA verification) are handled by the Go backend in [`../api`](../api). Next.js API routes only proxy to it.
 
 ## Stack
 
@@ -14,7 +14,7 @@ This repository is the web frontend. It is a **thin client**: all data operation
 ## Architecture
 
 ```
-Browser → Next.js pages / API routes → Go API (openmentor-api) → PostgreSQL / S3 / email
+Browser → Next.js pages / API routes → Go API (../api) → PostgreSQL / S3 / email
 ```
 
 Key areas:
@@ -28,7 +28,7 @@ Key areas:
 
 ## Local development
 
-Prerequisites: Node 22.x, yarn, and a running [`openmentor-api`](../openmentor-api) instance (defaults to `http://localhost:8081`).
+Prerequisites: Node 22.x, yarn, and a running Go API instance from [`../api`](../api) (defaults to `http://localhost:8081`).
 
 ```bash
 # 1. Configure environment
@@ -37,7 +37,7 @@ cp .env.example .env    # then fill in values; see comments in the file
 # 2. Install dependencies
 yarn install
 
-# 3. Start the Go API (in ../openmentor-api), then the frontend
+# 3. Start the Go API (in ../api), then the frontend
 yarn dev                # http://localhost:3000
 ```
 
@@ -56,7 +56,7 @@ All four run in CI (`.github/workflows/main.yml`) on pushes and PRs to `main`.
 
 ## Deployment
 
-The app ships as a standalone-output Docker image (see `Dockerfile`; `./docker-build-test.sh` builds it locally from your `.env`). Deployment — Docker Compose + Traefik, environment injection, and the Go API — is managed in [`openmentor-infra`](../openmentor-infra).
+The app ships as a standalone-output Docker image (see `Dockerfile`; `./docker-build-test.sh` builds it locally from your `.env`). Deployment — Docker Compose + Traefik, environment injection, and the Go API — is managed in [`../infra`](../infra).
 
 ## License
 

@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this directory (`web/` of the openmentor monorepo).
 
 ## Project Overview
 
-OpenMentor.io is a **TypeScript** Next.js 16 frontend application for a mentor marketplace platform. The frontend delegates all data operations (PostgreSQL, object storage, email) to a separate Go API backend. Features include filtering, search, contact forms, and profile management.
+OpenMentor.io is a **TypeScript** Next.js 16 frontend application for a mentor marketplace platform. The frontend delegates all data operations (PostgreSQL, object storage, email) to the Go API backend in `../api`. Features include filtering, search, contact forms, and profile management. For running the full stack locally (frontend + Go API + Postgres), see `../infra`.
 
 ## Development Commands
 

@@ -5,7 +5,7 @@ export default class MyDocument extends Document {
     return (
       <Html lang="en">
         <Head>
-          {/* Favicons from the Fresh Signal brand pack (openmentor-brand-assets) */}
+          {/* Favicons from the Fresh Signal brand pack (../brand in the monorepo) */}
           <link rel="icon" href="/favicon.ico" sizes="any" />
           <link
             rel="icon"

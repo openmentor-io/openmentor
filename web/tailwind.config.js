@@ -20,8 +20,8 @@ module.exports = {
 
     extend: {
       // "Fresh Signal" brand palette. Hex values mirror the --om-* custom
-      // properties in src/styles/brand-tokens.css (copied from the
-      // openmentor-brand-assets pack, which is the source of truth).
+      // properties in src/styles/brand-tokens.css (copied from the brand
+      // asset pack in ../brand, which is the source of truth).
       // Hex literals (rather than var() references) keep Tailwind's
       // opacity modifiers (e.g. ring-ink/10, bg-brand-navy/90) working.
       colors: {
