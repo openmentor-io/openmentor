@@ -219,7 +219,7 @@ See `DEPLOYMENT.md` for the full guide and troubleshooting.
 
 ## CI/CD Pipeline
 
-`.github/workflows/deploy.yml` builds/pushes both images and deploys over SSH
+`../.github/workflows/deploy.yml` (repo root) builds/pushes both images and deploys over SSH
 with the same health-check + rollback logic. It is currently
 **manual-trigger only** (`workflow_dispatch`); the push trigger is commented
 out. Required repo secrets: `YANDEX_REGISTRY_ID`, `YANDEX_SA_KEY` (until

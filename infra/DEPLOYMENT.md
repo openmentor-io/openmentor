@@ -154,5 +154,5 @@ and redeploy. Common causes: missing/renamed env vars (compare against
 - [README.md](README.md) — architecture and stack overview
 - [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) — env file layering
 - [DOCKER_TAG_POLICY.md](DOCKER_TAG_POLICY.md) — image tagging strategy
-- [.github/workflows/deploy.yml](.github/workflows/deploy.yml) — CI deploy
+- [../.github/workflows/deploy.yml](../.github/workflows/deploy.yml) — CI deploy
   (manual `workflow_dispatch`)
