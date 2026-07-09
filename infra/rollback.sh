@@ -1,8 +1,25 @@
 #!/bin/bash
 set -e
 
+# ============================================================================
 # OpenMentor Production Rollback Script
-# Quickly rollback to a previous deployment
+# ============================================================================
+# Quickly roll production back to previously deployed image tags. Tags are
+# per-service (FRONTEND_IMAGE_TAG / BACKEND_IMAGE_TAG in the VM's .env);
+# the backend tag covers backend + worker + migrate (one image).
+#
+#   ./rollback.sh <tag>                          # roll BOTH images to <tag>
+#   ./rollback.sh --frontend <tag>               # roll only the frontend
+#   ./rollback.sh --backend <tag>                # roll only backend/worker/migrate
+#   ./rollback.sh --frontend <t1> --backend <t2> # independent tags
+#
+# Options:
+#   --yes, -y    skip the confirmation prompt
+#
+# The script edits the tags in /opt/openmentor/infra/.env on the VM (keeping
+# a .env.backup), pulls, re-converges with `docker-compose up -d` and runs
+# the same health checks as deploy.sh.
+# ============================================================================
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -11,6 +28,18 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REMOTE_INFRA_DIR="/opt/openmentor/infra"
+
+usage() {
+    echo "Usage: $0 [<tag>] [--frontend <tag>] [--backend <tag>] [--yes]"
+    echo ""
+    echo "  <tag>               Roll BOTH frontend and backend to <tag>"
+    echo "  --frontend <tag>    Roll only the frontend image"
+    echo "  --backend <tag>     Roll only the backend image (backend/worker/migrate)"
+    echo "  --yes, -y           Skip the confirmation prompt"
+    echo ""
+    echo "Services without a tag argument keep their current tag."
+}
 
 # Load production environment (same file deploy.sh uses)
 if [ ! -f "$SCRIPT_DIR/.env.production" ]; then
@@ -26,33 +55,65 @@ if [ -z "$VM_SSH_HOST" ] || [ -z "$VM_SSH_USER" ] || [ -z "$VM_SSH_KEY_FILE" ]; 
     exit 1
 fi
 
+# --------------------------------------------------------------------------
+# Parse arguments
+# --------------------------------------------------------------------------
+FRONTEND_TARGET_TAG=""
+BACKEND_TARGET_TAG=""
+SKIP_CONFIRM=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --frontend)
+            if [ -z "$2" ]; then echo -e "${RED}❌ --frontend requires a tag${NC}"; exit 1; fi
+            FRONTEND_TARGET_TAG="$2"; shift 2 ;;
+        --backend)
+            if [ -z "$2" ]; then echo -e "${RED}❌ --backend requires a tag${NC}"; exit 1; fi
+            BACKEND_TARGET_TAG="$2"; shift 2 ;;
+        --yes|-y)
+            SKIP_CONFIRM=true; shift ;;
+        -h|--help)
+            usage; exit 0 ;;
+        -*)
+            echo -e "${RED}Unknown option: $1${NC}"; usage; exit 1 ;;
+        *)
+            # Positional tag: applies to both services
+            FRONTEND_TARGET_TAG="$1"
+            BACKEND_TARGET_TAG="$1"
+            shift ;;
+    esac
+done
+
 echo -e "${YELLOW}🔄 OpenMentor Production Rollback${NC}"
 echo "================================"
 echo ""
 
-# Get target tag from argument or ask user
-if [ -n "$1" ]; then
-    TARGET_TAG="$1"
-else
-    read -p "$(echo -e ${BLUE}Enter image tag to rollback to \(commit SHA\):${NC} )" TARGET_TAG
+# Interactive fallback when no tag was given at all
+if [ -z "$FRONTEND_TARGET_TAG" ] && [ -z "$BACKEND_TARGET_TAG" ]; then
+    read -p "$(echo -e ${BLUE}Enter image tag to rollback BOTH services to \(commit SHA\):${NC} )" TARGET_TAG
     echo ""
+    if [ -z "$TARGET_TAG" ]; then
+        echo -e "${RED}❌ Error: No target tag specified${NC}"
+        exit 1
+    fi
+    FRONTEND_TARGET_TAG="$TARGET_TAG"
+    BACKEND_TARGET_TAG="$TARGET_TAG"
 fi
 
-if [ -z "$TARGET_TAG" ]; then
-    echo -e "${RED}❌ Error: No target tag specified${NC}"
-    exit 1
-fi
-
-echo "Target tag: $TARGET_TAG"
-echo "VM: $VM_SSH_USER@$VM_SSH_HOST"
+echo "Rollback plan:"
+echo "  • Frontend tag: ${FRONTEND_TARGET_TAG:-<keep current>}"
+echo "  • Backend tag:  ${BACKEND_TARGET_TAG:-<keep current>} (backend + worker + migrate)"
+echo "VM: $VM_SSH_USER@$VM_SSH_HOST ($REMOTE_INFRA_DIR)"
 echo ""
 
 # Confirmation
-read -p "$(echo -e ${RED}⚠️  Are you sure you want to rollback? \(yes/no\):${NC} )" -r
-echo
-if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
-    echo -e "${YELLOW}Rollback cancelled${NC}"
-    exit 0
+if [ "$SKIP_CONFIRM" = false ]; then
+    read -p "$(echo -e ${RED}⚠️  Are you sure you want to rollback? \(yes/no\):${NC} )" -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+        echo -e "${YELLOW}Rollback cancelled${NC}"
+        exit 0
+    fi
 fi
 
 echo -e "${BLUE}🔄 Executing rollback...${NC}"
@@ -62,24 +123,45 @@ ROLLBACK_SCRIPT=$(cat <<REMOTE_SCRIPT
 #!/bin/bash
 set -e
 
-TARGET_TAG="$TARGET_TAG"
+FRONTEND_TARGET_TAG="$FRONTEND_TARGET_TAG"
+BACKEND_TARGET_TAG="$BACKEND_TARGET_TAG"
 YANDEX_SA_KEY="$(cat $YANDEX_SA_KEY_FILE)"
 
-echo "🔄 Rolling back to tag: \$TARGET_TAG"
+# The monorepo's infra/ directory lives at $REMOTE_INFRA_DIR on the VM
+cd $REMOTE_INFRA_DIR
 
-# The monorepo is checked out at /opt/openmentor; compose files live in infra/
-cd /opt/openmentor/infra
+# Replace-or-append a KEY=value in .env
+set_env_tag() {
+    local key="\$1" value="\$2"
+    if grep -q "^\${key}=" .env; then
+        sed -i "s|^\${key}=.*|\${key}=\${value}|" .env
+    else
+        echo "\${key}=\${value}" >> .env
+    fi
+}
 
-# Save current tag as backup
-CURRENT_TAG=\$(grep "IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
-echo "Current tag: \$CURRENT_TAG"
-echo "\$CURRENT_TAG" > /tmp/rollback_from_tag
+# Save current state for reference
+CURRENT_FRONTEND_TAG=\$(grep "^FRONTEND_IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
+CURRENT_BACKEND_TAG=\$(grep "^BACKEND_IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
+echo "Current tags: frontend=\$CURRENT_FRONTEND_TAG backend=\$CURRENT_BACKEND_TAG"
+cp .env .env.backup
 
-# Update image tag
-export IMAGE_TAG="\$TARGET_TAG"
-echo "IMAGE_TAG=\$TARGET_TAG" > .env.image_tag
+# Update the per-service image tags in .env (compose reads them from there)
+if [ -n "\$FRONTEND_TARGET_TAG" ]; then
+    set_env_tag FRONTEND_IMAGE_TAG "\$FRONTEND_TARGET_TAG"
+    echo "🔄 Rolling frontend back to: \$FRONTEND_TARGET_TAG"
+fi
+if [ -n "\$BACKEND_TARGET_TAG" ]; then
+    set_env_tag BACKEND_IMAGE_TAG "\$BACKEND_TARGET_TAG"
+    echo "🔄 Rolling backend back to: \$BACKEND_TARGET_TAG"
+fi
 
-# Login to registry
+# Regenerate .env.runtime (container env WITHOUT the tag lines — tags only
+# affect compose interpolation, so only retagged services get recreated)
+grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime
+chmod 600 .env.runtime
+
+# Login to registry (TODO(P6.4): registry swap cr.yandex -> ghcr.io)
 echo "🔑 Logging in to registry..."
 echo "\$YANDEX_SA_KEY" | docker login \
     --username json_key \
@@ -91,11 +173,11 @@ echo "\$YANDEX_SA_KEY" | docker login \
 echo "🗄️  Ensuring Postgres data volume exists..."
 docker volume create openmentor-postgres-data
 
-# Pull images with target tag
-echo "📦 Pulling images with tag: \$TARGET_TAG..."
+# Pull images with target tags
+echo "📦 Pulling images..."
 docker-compose pull
 
-# Restart services
+# Converge: only services whose tag changed are recreated
 echo "🔄 Restarting services..."
 docker-compose up -d
 
@@ -139,23 +221,23 @@ if [ \$HEALTH_OK -eq 1 ]; then
     exit 0
 else
     echo "❌ Rollback health checks failed!"
+    echo "Previous .env preserved as .env.backup in $REMOTE_INFRA_DIR"
     exit 1
 fi
 REMOTE_SCRIPT
 )
 
 # Execute on remote
+ROLLBACK_EXIT_CODE=0
 ssh -i "$VM_SSH_KEY_FILE" \
     -o StrictHostKeyChecking=no \
     "$VM_SSH_USER@$VM_SSH_HOST" \
-    bash <<< "$ROLLBACK_SCRIPT"
-
-ROLLBACK_EXIT_CODE=$?
+    bash <<< "$ROLLBACK_SCRIPT" || ROLLBACK_EXIT_CODE=$?
 
 if [ $ROLLBACK_EXIT_CODE -eq 0 ]; then
     echo -e "${GREEN}✅ Rollback completed successfully!${NC}"
     echo ""
-    echo "Rolled back to: $TARGET_TAG"
+    echo "Rolled back to: frontend=${FRONTEND_TARGET_TAG:-<unchanged>} backend=${BACKEND_TARGET_TAG:-<unchanged>}"
     if [ -n "$DOMAIN" ]; then
         echo "Verify at: https://$DOMAIN"
     fi
