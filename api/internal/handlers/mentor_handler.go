@@ -6,9 +6,9 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/openmentor-io/openmentor-api/internal/models"
-	"github.com/openmentor-io/openmentor-api/internal/services"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/internal/services"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"go.uber.org/zap"
 )
 

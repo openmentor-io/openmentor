@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/openmentor-io/openmentor-api/internal/models"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
-	"github.com/openmentor-io/openmentor-api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 	gocache "github.com/patrickmn/go-cache"
 	"go.uber.org/zap"
 )

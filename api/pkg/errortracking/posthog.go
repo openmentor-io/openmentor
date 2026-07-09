@@ -8,7 +8,7 @@ import (
 	posthog "github.com/posthog/posthog-go"
 	"go.uber.org/zap"
 
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
 // zapPostHogLogger bridges the posthog-go SDK logger interface to Zap so that

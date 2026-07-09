@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/openmentor-io/openmentor-api/config"
-	"github.com/openmentor-io/openmentor-api/pkg/db"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/config"
+	"github.com/openmentor-io/openmentor/api/pkg/db"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"go.uber.org/zap"
 )
 

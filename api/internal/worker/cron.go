@@ -14,9 +14,9 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.uber.org/zap"
 
-	"github.com/openmentor-io/openmentor-api/pkg/errortracking"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
-	"github.com/openmentor-io/openmentor-api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/errortracking"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 )
 
 // Cron schedules the worker's recurring jobs (see Handlers.CronJobs for

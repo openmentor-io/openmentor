@@ -11,8 +11,8 @@ import (
 	"net/http/httptest"
 	"sync"
 
-	"github.com/openmentor-io/openmentor-api/config"
-	"github.com/openmentor-io/openmentor-api/pkg/email"
+	"github.com/openmentor-io/openmentor/api/config"
+	"github.com/openmentor-io/openmentor/api/pkg/email"
 )
 
 // fakeRepo is an in-memory JobsRepository with error injection.

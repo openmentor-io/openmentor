@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/internal/models"
+	"github.com/openmentor-io/openmentor/api/internal/models"
 )
 
 // MockStorageClient is a mock implementation of the S3-compatible storage client for testing

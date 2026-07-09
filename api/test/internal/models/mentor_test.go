@@ -3,7 +3,7 @@ package models_test
 import (
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/internal/models"
+	"github.com/openmentor-io/openmentor/api/internal/models"
 	"github.com/stretchr/testify/assert"
 )
 

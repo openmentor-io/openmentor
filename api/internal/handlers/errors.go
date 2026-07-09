@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/openmentor-io/openmentor-api/pkg/errortracking"
+	"github.com/openmentor-io/openmentor/api/pkg/errortracking"
 )
 
 // attachError attaches err to the gin context so the observability middleware

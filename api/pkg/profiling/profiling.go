@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/grafana/pyroscope-go"
-	"github.com/openmentor-io/openmentor-api/config"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/config"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"go.uber.org/zap"
 )
 

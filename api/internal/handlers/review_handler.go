@@ -6,8 +6,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/openmentor-io/openmentor-api/internal/models"
-	"github.com/openmentor-io/openmentor-api/internal/services"
+	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/internal/services"
 )
 
 // ReviewHandler handles review-related HTTP requests

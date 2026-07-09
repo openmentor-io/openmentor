@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	gocache "github.com/patrickmn/go-cache"
 	"go.uber.org/zap"
 )

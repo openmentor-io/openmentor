@@ -6,9 +6,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/openmentor-io/openmentor-api/pkg/analytics"
-	"github.com/openmentor-io/openmentor-api/pkg/email"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/email"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
 // requestStatusLabels mirrors STATUS_LABELS in the func's

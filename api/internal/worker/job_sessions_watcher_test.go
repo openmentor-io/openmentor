@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/config"
-	"github.com/openmentor-io/openmentor-api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/config"
+	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 )
 
 func TestSessionsWatcherSendsOneEmailPerMentor(t *testing.T) {

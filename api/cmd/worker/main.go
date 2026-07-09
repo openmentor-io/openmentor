@@ -17,16 +17,16 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/openmentor-io/openmentor-api/config"
-	"github.com/openmentor-io/openmentor-api/internal/worker"
-	"github.com/openmentor-io/openmentor-api/pkg/analytics"
-	"github.com/openmentor-io/openmentor-api/pkg/db"
-	"github.com/openmentor-io/openmentor-api/pkg/email"
-	"github.com/openmentor-io/openmentor-api/pkg/errortracking"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
-	"github.com/openmentor-io/openmentor-api/pkg/metrics"
-	"github.com/openmentor-io/openmentor-api/pkg/profiling"
-	"github.com/openmentor-io/openmentor-api/pkg/tracing"
+	"github.com/openmentor-io/openmentor/api/config"
+	"github.com/openmentor-io/openmentor/api/internal/worker"
+	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/db"
+	"github.com/openmentor-io/openmentor/api/pkg/email"
+	"github.com/openmentor-io/openmentor/api/pkg/errortracking"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/profiling"
+	"github.com/openmentor-io/openmentor/api/pkg/tracing"
 )
 
 func main() {

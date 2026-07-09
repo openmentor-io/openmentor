@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/openmentor-io/openmentor-api/internal/models"
+	"github.com/openmentor-io/openmentor/api/internal/models"
 )
 
 // mockRow implements pgx.Row interface for testing

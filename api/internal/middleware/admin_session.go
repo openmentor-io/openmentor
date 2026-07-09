@@ -6,8 +6,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/openmentor-io/openmentor-api/internal/models"
-	"github.com/openmentor-io/openmentor-api/pkg/jwt"
+	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/pkg/jwt"
 )
 
 const (

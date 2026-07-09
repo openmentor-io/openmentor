@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/pkg/recaptcha"
+	"github.com/openmentor-io/openmentor/api/pkg/recaptcha"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )

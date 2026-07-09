@@ -5,10 +5,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/internal/middleware"
+	"github.com/openmentor-io/openmentor/api/internal/middleware"
 
 	"github.com/gin-gonic/gin"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -1,4 +1,4 @@
-module github.com/openmentor-io/openmentor-api
+module github.com/openmentor-io/openmentor/api
 
 go 1.24.0
 

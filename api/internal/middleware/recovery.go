@@ -7,8 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"github.com/openmentor-io/openmentor-api/pkg/errortracking"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/errortracking"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
 // RecoveryMiddleware catches panics, reports them to PostHog error tracking,

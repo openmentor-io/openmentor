@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
 // RandomizeSortOrder ports openmentor-func/randomize-sort-order/index.ts

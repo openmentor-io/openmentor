@@ -1,5 +1,5 @@
-[![Build and Test](https://github.com/openmentor-io/openmentor-api/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/openmentor-io/openmentor-api/actions/workflows/build-and-test.yml)
-[![PR Checks](https://github.com/openmentor-io/openmentor-api/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/openmentor-io/openmentor-api/actions/workflows/pr-checks.yml)
+[![Build and Test](https://github.com/openmentor-io/openmentor/api/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/openmentor-io/openmentor/api/actions/workflows/build-and-test.yml)
+[![PR Checks](https://github.com/openmentor-io/openmentor/api/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/openmentor-io/openmentor/api/actions/workflows/pr-checks.yml)
 
 # OpenMentor API (Go)
 

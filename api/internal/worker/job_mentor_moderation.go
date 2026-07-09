@@ -6,10 +6,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"github.com/openmentor-io/openmentor-api/internal/models"
-	"github.com/openmentor-io/openmentor-api/pkg/analytics"
-	"github.com/openmentor-io/openmentor-api/pkg/email"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/email"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
 // MentorModerationAction ports openmentor-func/mentor-moderation-action/index.ts:

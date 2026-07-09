@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/openmentor-io/openmentor-api/pkg/jwt"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/jwt"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"go.uber.org/zap"
 )
 

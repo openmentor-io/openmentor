@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/pkg/slug"
+	"github.com/openmentor-io/openmentor/api/pkg/slug"
 )
 
 func TestRegistrationService_UploadLogic(t *testing.T) {

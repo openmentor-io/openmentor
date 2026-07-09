@@ -7,9 +7,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/openmentor-io/openmentor-api/pkg/analytics"
-	"github.com/openmentor-io/openmentor-api/pkg/email"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/email"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
 // descriptionPreviewLength mirrors DESCRIPTION_PREVIEW_LENGTH in the func's

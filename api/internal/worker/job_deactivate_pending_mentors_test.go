@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/config"
+	"github.com/openmentor-io/openmentor/api/config"
 )
 
 func TestDeactivatePendingMentorsDeactivatesAndNotifies(t *testing.T) {

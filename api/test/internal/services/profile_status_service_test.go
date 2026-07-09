@@ -6,11 +6,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/config"
-	"github.com/openmentor-io/openmentor-api/internal/models"
-	"github.com/openmentor-io/openmentor-api/internal/services"
-	apperrors "github.com/openmentor-io/openmentor-api/pkg/errors"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/config"
+	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/internal/services"
+	apperrors "github.com/openmentor-io/openmentor/api/pkg/errors"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
 func init() {

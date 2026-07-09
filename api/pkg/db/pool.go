@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/openmentor-io/openmentor-api/config"
+	"github.com/openmentor-io/openmentor/api/config"
 )
 
 // configureTLS sets up TLS configuration for Yandex Cloud Managed PostgreSQL.

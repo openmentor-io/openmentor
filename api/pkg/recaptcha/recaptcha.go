@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/openmentor-io/openmentor-api/pkg/httpclient"
+	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 )
 
 // Response represents the response from Google's reCAPTCHA verification API

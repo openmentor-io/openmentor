@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/openmentor-io/openmentor-api/config"
-	"github.com/openmentor-io/openmentor-api/internal/models"
-	"github.com/openmentor-io/openmentor-api/internal/repository"
-	"github.com/openmentor-io/openmentor-api/pkg/analytics"
-	"github.com/openmentor-io/openmentor-api/pkg/httpclient"
-	"github.com/openmentor-io/openmentor-api/pkg/trigger"
+	"github.com/openmentor-io/openmentor/api/config"
+	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/internal/repository"
+	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
+	"github.com/openmentor-io/openmentor/api/pkg/trigger"
 )
 
 const (

@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/config"
+	"github.com/openmentor-io/openmentor/api/config"
 	"github.com/stretchr/testify/assert"
 )
 

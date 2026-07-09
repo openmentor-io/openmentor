@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/config"
-	"github.com/openmentor-io/openmentor-api/pkg/db"
+	"github.com/openmentor-io/openmentor/api/config"
+	"github.com/openmentor-io/openmentor/api/pkg/db"
 )
 
 // TestNewPool_InvalidURL verifies that pool creation fails with an invalid database URL

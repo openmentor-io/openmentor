@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 
-	"github.com/openmentor-io/openmentor-api/internal/models"
-	"github.com/openmentor-io/openmentor-api/pkg/jwt"
+	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/pkg/jwt"
 )
 
 // ContactServiceInterface defines the interface for contact service operations

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/config"
+	"github.com/openmentor-io/openmentor/api/config"
 )
 
 // TestCronTriggerEndpointsRegistered verifies every cron job is manually

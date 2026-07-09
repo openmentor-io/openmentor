@@ -14,9 +14,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
-	"github.com/openmentor-io/openmentor-api/config"
-	"github.com/openmentor-io/openmentor-api/internal/middleware"
-	"github.com/openmentor-io/openmentor-api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/config"
+	"github.com/openmentor-io/openmentor/api/internal/middleware"
+	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 )
 
 // Server is the worker's internal HTTP server. It is NOT publicly exposed:

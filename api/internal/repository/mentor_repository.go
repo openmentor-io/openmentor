@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/openmentor-io/openmentor-api/internal/cache"
-	"github.com/openmentor-io/openmentor-api/internal/models"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
-	"github.com/openmentor-io/openmentor-api/pkg/slug"
+	"github.com/openmentor-io/openmentor/api/internal/cache"
+	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/slug"
 	"go.uber.org/zap"
 )
 

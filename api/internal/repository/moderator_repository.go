@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/openmentor-io/openmentor-api/internal/models"
+	"github.com/openmentor-io/openmentor/api/internal/models"
 )
 
 type ModeratorRepository struct {

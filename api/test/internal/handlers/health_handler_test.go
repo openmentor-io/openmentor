@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/openmentor-io/openmentor-api/internal/handlers"
+	"github.com/openmentor-io/openmentor/api/internal/handlers"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"

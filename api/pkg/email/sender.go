@@ -20,8 +20,8 @@ import (
 	sesv2types "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"go.uber.org/zap"
 
-	"github.com/openmentor-io/openmentor-api/pkg/email/templates"
-	"github.com/openmentor-io/openmentor-api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/email/templates"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
 const (

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/openmentor-io/openmentor-api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 )
 
 func finishedRequest(status string) *JobRequest {

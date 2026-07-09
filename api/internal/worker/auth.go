@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/openmentor-io/openmentor-api/pkg/trigger"
+	"github.com/openmentor-io/openmentor/api/pkg/trigger"
 )
 
 // WorkerTokenHeader is the shared-secret header checked on /jobs/* routes.
