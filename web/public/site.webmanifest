@@ -1,0 +1,21 @@
+{
+  "name": "openmentor.io",
+  "short_name": "openmentor.io",
+  "icons": [
+    {
+      "src": "/brand/logo/png/icon-app/icon-app-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/brand/logo/png/icon-app/icon-app-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "theme_color": "#132A52",
+  "background_color": "#FFFFFF",
+  "display": "browser"
+}

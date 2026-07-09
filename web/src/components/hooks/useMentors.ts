@@ -1,0 +1,205 @@
+import { useState, useEffect, useRef } from 'react'
+import filters from '@/config/filters'
+import analytics from '@/lib/analytics'
+import type { MentorListItem, AppliedFilters, UseMentorsReturn } from '@/types'
+
+// Pagination configuration
+const DEFAULT_PAGE_SIZE = 48
+
+export default function useMentors(
+  allMentors: MentorListItem[],
+  pageSize: number = DEFAULT_PAGE_SIZE
+): UseMentorsReturn {
+  const [searchInput, setSearchInput] = useState('')
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [selectedCategory, setSelectedCategory] = useState<string | undefined>(undefined)
+  const [mentorsCount, setMentorsCount] = useState(pageSize)
+
+  const [selectedPrice, setSelectedPrice] = useState<string | undefined>(undefined)
+  const [selectedExperience, setSelectedExperience] = useState<string[]>([])
+
+  const [selectedNoSessions, setSelectedNoSessions] = useState(false)
+
+  const [selectedNewMentor, setSelectedNewMentor] = useState(false)
+  const lastTrackedSearch = useRef<string>('')
+
+  // reset pagination on filters change
+  useEffect(() => {
+    setMentorsCount(pageSize)
+  }, [searchInput, selectedTags, selectedCategory, pageSize])
+
+  const showMoreMentors = (): void => {
+    setMentorsCount(mentorsCount + pageSize)
+  }
+
+  const hasAllTags = (mentorTags: string[], tagsToCheck: string[]): boolean => {
+    for (const selectedTag of tagsToCheck) {
+      if (!mentorTags.includes(selectedTag)) {
+        return false
+      }
+    }
+    return true
+  }
+
+  let filteredMentors = allMentors
+
+  if (searchInput.length >= 2) {
+    const tokens = searchInput
+      .toLowerCase()
+      .split(',')
+      .map((t) => t.trim())
+
+    filteredMentors = filteredMentors.filter((mentor) => {
+      const searchContent = (
+        mentor.name +
+        ' ' +
+        mentor.job +
+        ' ' +
+        mentor.workplace +
+        ' ' +
+        (mentor.description || '') +
+        ' ' +
+        (mentor.about || '') +
+        ' ' +
+        mentor.competencies
+      ).toLowerCase()
+
+      return hasAllInArray(tokens, searchContent)
+    })
+  }
+
+  // filter by tags
+  if (selectedTags.length) {
+    filteredMentors = filteredMentors.filter((mentor) => hasAllTags(mentor.tags, selectedTags))
+  }
+
+  // filter by topic tab (single-select category = OR over its tags)
+  if (selectedCategory) {
+    const categoryTags =
+      filters.categories.find((category) => category.label === selectedCategory)?.tags ?? []
+
+    filteredMentors = filteredMentors.filter((mentor) =>
+      mentor.tags.some((tag) => categoryTags.includes(tag))
+    )
+  }
+
+  // filter by experience
+  if (selectedExperience.length) {
+    const experienceValues = selectedExperience.map(
+      (e) => filters.experience[e as keyof typeof filters.experience]
+    )
+
+    filteredMentors = filteredMentors.filter((mentor) =>
+      experienceValues.includes(mentor.experience)
+    )
+  }
+
+  // filter by price bucket (mentor.price is free text — see DECISIONS D3)
+  if (selectedPrice) {
+    const priceFilter = filters.byPrice[selectedPrice as keyof typeof filters.byPrice]
+
+    filteredMentors = filteredMentors.filter((mentor) => priceFilter?.(mentor.price) ?? false)
+  }
+
+  // filter by no session
+  if (selectedNoSessions) {
+    filteredMentors = filteredMentors.filter((mentor) => mentor.menteeCount === 0)
+  }
+
+  // filter by new
+  if (selectedNewMentor) {
+    filteredMentors = filteredMentors.filter((mentor) => mentor.isNew)
+  }
+
+  const mentors = filteredMentors.slice(0, mentorsCount)
+  const hasMoreMentors = filteredMentors.length > mentorsCount
+
+  useEffect(() => {
+    const normalizedSearch = searchInput.trim().toLowerCase()
+    if (normalizedSearch.length < 2 || normalizedSearch === lastTrackedSearch.current) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      analytics.event(analytics.events.MENTORS_SEARCH_USED, {
+        query_length: normalizedSearch.length,
+        token_count: normalizedSearch
+          .split(',')
+          .map((token) => token.trim())
+          .filter(Boolean).length,
+        matched_results_count: filteredMentors.length,
+        active_filters_count:
+          selectedTags.length +
+          (selectedCategory ? 1 : 0) +
+          selectedExperience.length +
+          (selectedPrice ? 1 : 0) +
+          (selectedNoSessions ? 1 : 0) +
+          (selectedNewMentor ? 1 : 0),
+      })
+      lastTrackedSearch.current = normalizedSearch
+    }, 400)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    filteredMentors.length,
+    searchInput,
+    selectedCategory,
+    selectedExperience.length,
+    selectedNewMentor,
+    selectedNoSessions,
+    selectedPrice,
+    selectedTags.length,
+  ])
+
+  const appliedFilters: AppliedFilters = {
+    tags: { values: selectedTags, set: setSelectedTags, reset: () => setSelectedTags([]) },
+    category: {
+      values: selectedCategory,
+      set: setSelectedCategory,
+      reset: () => setSelectedCategory(undefined),
+    },
+    experience: {
+      values: selectedExperience,
+      set: setSelectedExperience,
+      reset: () => setSelectedExperience([]),
+    },
+    price: {
+      values: selectedPrice,
+      set: setSelectedPrice,
+      reset: () => setSelectedPrice(undefined),
+    },
+    noSessions: {
+      value: selectedNoSessions,
+      set: setSelectedNoSessions,
+      reset: () => setSelectedNoSessions(false),
+    },
+    newMentor: {
+      value: selectedNewMentor,
+      set: setSelectedNewMentor,
+      reset: () => setSelectedNewMentor(false),
+    },
+    count: () => {
+      return (
+        selectedTags.length +
+        (selectedCategory ? 1 : 0) +
+        selectedExperience.length +
+        (selectedPrice ? 1 : 0) +
+        (selectedNoSessions ? 1 : 0) +
+        (selectedNewMentor ? 1 : 0)
+      )
+    },
+  }
+
+  return [mentors, searchInput, hasMoreMentors, setSearchInput, showMoreMentors, appliedFilters]
+}
+
+function hasAllInArray(needles: string[], haystack: string): boolean {
+  for (const needle of needles) {
+    if (!haystack.includes(needle)) {
+      return false
+    }
+  }
+  return true
+}

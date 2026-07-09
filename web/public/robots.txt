@@ -1,0 +1,14 @@
+User-agent: DigitalOceanGenAICrawler/1.0
+Allow: /
+
+User-agent: *
+Disallow: /[slug]
+Disallow: /mentor/[slug]
+Disallow: /profile
+Disallow: /api/*
+Disallow: /mentor/*/contact
+
+User-agent: *
+Allow: /
+
+Sitemap: https://openmentor.io/sitemap.xml

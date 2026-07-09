@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Fallback for elements rendered outside the _app font wrapper (portals).
+     Inside the wrapper, next/font redefines --font-inter with the
+     self-hosted Inter family. */
+  :root {
+    --font-inter: 'Inter', system-ui, sans-serif;
+  }
+
+  html {
+    @apply text-ink antialiased;
+  }
+
+  h1 {
+    @apply text-5xl font-bold tracking-tight;
+  }
+
+  h2 {
+    @apply text-4xl font-bold tracking-tight mb-7;
+  }
+
+  p {
+    @apply my-4;
+  }
+
+  .link,
+  .prose a {
+    color: var(--om-bar); /* brand cobalt */
+    border-bottom: 2px solid;
+    text-decoration: none !important;
+  }
+}
+
+@layer components {
+  .button {
+    color: white;
+    padding: .87em 1.7em;
+    border-radius: 9999px;
+    background: var(--om-ring); /* brand navy #132A52 */
+    text-decoration: none;
+    box-sizing: border-box;
+    transition: transform .3s cubic-bezier(.374, .019, .035, 1.861), -webkit-transform .3s cubic-bezier(.374, .019, .035, 1.861), background-color .2s ease;
+    display: inline-block;
+    border: none;
+    cursor: pointer;
+    outline: 0
+  }
+  .button[disabled] {
+    opacity: .5;
+    pointer-events: none;
+  }
+  .button:not([disabled]):hover {
+    transform: scale(1.05);
+    background: #1c3b70; /* --om-ring lightened one step for hover */
+    opacity: 1
+  }
+
+  /* Shared form control styling (redesign Phase B): rounded fields on
+     white, cobalt focus ring, consistent across contact/registration. */
+  .field {
+    @apply block w-full rounded-xl border-line bg-white shadow-sm focus:border-brand-cobalt focus:ring-brand-cobalt sm:text-sm;
+  }
+
+  .multiSelectContainer .searchWrapper {
+    @apply border border-gray-300 shadow-sm rounded-md focus-within:border-opacity-0 focus-within:ring-2 focus-within:ring-brand-cobalt focus-within:border-brand-cobalt;
+  }
+  .multiSelectContainer input:focus {
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .multiSelectContainer .optionListContainer {
+    @apply shadow-lg mt-1 z-20;
+  }
+  .multiSelectContainer .optionListContainer li:hover {
+    @apply bg-gray-100 text-current;
+  }
+}
+
+@layer utilities {
+  /* Legacy "primary" utilities, remapped from the getmentor orange/cream
+     onto the Fresh Signal tokens (src/styles/brand-tokens.css). */
+  .text-primary {
+    color: var(--om-bar); /* brand cobalt */
+  }
+
+  .bg-primary-900 {
+    background-color: var(--om-ring); /* brand navy */
+  }
+  .bg-primary-100 {
+    background-color: var(--om-paper-dim);
+  }
+
+  .scroll-lock {
+    overflow: hidden;
+  }
+
+  /* Horizontal scrollers (e.g. the mobile category tab bar) without a
+     visible scrollbar. */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

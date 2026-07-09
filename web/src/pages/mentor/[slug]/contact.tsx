@@ -1,0 +1,369 @@
+import Head from 'next/head'
+import { useEffect, useState } from 'react'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import { faCheck, faExclamationTriangle } from '@fortawesome/free-solid-svg-icons'
+import Image from 'next/image'
+import { InlineWidget } from 'react-calendly'
+import type { GetServerSideProps, InferGetServerSidePropsType } from 'next'
+import {
+  CalendlabWidget,
+  ContactMentorForm,
+  Footer,
+  Koalendar,
+  NavHeader,
+  Section,
+} from '@/components'
+import seo from '@/config/seo'
+import { getOneMentorBySlug } from '@/server/mentors-data'
+import analytics from '@/lib/analytics'
+import { captureException } from '@/lib/posthog'
+import { imageLoader } from '@/lib/image-loader'
+import { withSSRObservability } from '@/lib/with-ssr-observability'
+import logger, { getTraceContext } from '@/lib/logger'
+import type { MentorBase } from '@/types'
+
+// Rate limiting configuration
+const RATE_LIMIT_CONFIG = {
+  MAX_REQUESTS_PER_DAY: 5,
+  STORAGE_KEY: 'requests_per_day',
+}
+
+type ReadyStatus = '' | 'loading' | 'success' | 'error' | 'limit'
+type MentorContact = MentorBase & { calendarUrl?: string | null }
+
+interface ContactFormData {
+  email: string
+  name: string
+  intro: string
+  experience?: string
+  telegramUsername: string
+  recaptchaToken: string
+}
+
+const _getServerSideProps: GetServerSideProps<{ mentor: MentorContact }> = async (context) => {
+  const slugParam = context.params?.slug
+  const slug = Array.isArray(slugParam) ? slugParam[0] : slugParam
+
+  if (!slug) {
+    logger.warn('Mentor slug missing on contact page', { ...getTraceContext() })
+    return { notFound: true }
+  }
+
+  const mentor = await getOneMentorBySlug(slug)
+
+  if (!mentor) {
+    logger.warn('Mentor not found for contact page', { slug, ...getTraceContext() })
+    return {
+      notFound: true,
+    }
+  }
+
+  logger.info('Mentor contact page rendered', {
+    mentorId: mentor.id,
+    mentorSlug: mentor.slug,
+    calendarType: mentor.calendarType,
+    ...getTraceContext(),
+  })
+
+  return {
+    props: {
+      mentor,
+    },
+  }
+}
+
+export const getServerSideProps = withSSRObservability(_getServerSideProps, 'mentor-contact')
+
+export default function OrderMentor({
+  mentor,
+}: InferGetServerSidePropsType<typeof getServerSideProps>): JSX.Element {
+  const [readyStatus, setReadyStatus] = useState<ReadyStatus>('')
+  const [formData, setFormData] = useState<ContactFormData | undefined>()
+  const [submissionRequestId, setSubmissionRequestId] = useState<string | undefined>()
+
+  const today = new Date().toISOString().slice(0, 10)
+  const title = 'Contact a mentor | ' + mentor.name + ' | ' + seo.title
+
+  // Helper function to get current request count from localStorage
+  const getRequestsToday = (): number => {
+    const storage = window.localStorage.getItem(RATE_LIMIT_CONFIG.STORAGE_KEY)
+    if (storage !== null) {
+      const nr_requests = JSON.parse(storage) as Record<string, number>
+      return nr_requests[today] || 0
+    }
+    return 0
+  }
+
+  const hasRequestPerDayLeft = (): boolean => {
+    const requestsToday = getRequestsToday()
+    return requestsToday < RATE_LIMIT_CONFIG.MAX_REQUESTS_PER_DAY
+  }
+
+  const incrementRequestsPerDay = (): void => {
+    const requestsToday = getRequestsToday()
+    const nr_requests: Record<string, number> = {}
+    nr_requests[today] = requestsToday + 1
+    window.localStorage.setItem(RATE_LIMIT_CONFIG.STORAGE_KEY, JSON.stringify(nr_requests))
+  }
+
+  useEffect(() => {
+    analytics.event(analytics.events.MENTOR_CONTACT_PAGE_VIEWED, {
+      mentor_id: mentor.mentorId,
+      mentor_slug: mentor.slug,
+      mentor_experience_years: mentor.experience,
+      mentor_price_tier: mentor.price,
+      is_visible: mentor.isVisible,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Intentionally run once on mount - analytics tracking
+
+  useEffect(() => {
+    if (!hasRequestPerDayLeft()) {
+      setReadyStatus('limit')
+      analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
+        mentor_id: mentor.mentorId,
+        mentor_slug: mentor.slug,
+        outcome: 'rate_limited',
+      })
+      return
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Intentionally run once on mount - check rate limit
+
+  const onSubmit = (data: ContactFormData): void => {
+    if (readyStatus === 'loading') {
+      return
+    }
+
+    if (!hasRequestPerDayLeft()) {
+      setReadyStatus('limit')
+      analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
+        mentor_id: mentor.mentorId,
+        mentor_slug: mentor.slug,
+        outcome: 'rate_limited',
+      })
+      return
+    }
+
+    setReadyStatus('loading')
+    analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
+      mentor_id: mentor.mentorId,
+      mentor_slug: mentor.slug,
+      experience: data.experience,
+      has_telegram_username: Boolean(data.telegramUsername),
+      outcome: 'submitted',
+    })
+
+    setFormData({ ...data })
+
+    // SECURITY: Call Next.js API route (proxy), which calls Go API on localhost
+    // This keeps Go API private (localhost only), not exposed to public internet
+    fetch('/api/contact-mentor', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...data,
+        mentorId: mentor.mentorId,
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+      .then((res) => {
+        if (!res.ok) {
+          analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
+            mentor_id: mentor.mentorId,
+            mentor_slug: mentor.slug,
+            outcome: 'error',
+            status_code: res.status,
+          })
+          throw new Error(`HTTP error! status: ${res.status}`)
+        }
+        return res.json() as Promise<{
+          success: boolean
+          requestId?: string
+          calendar_url?: string
+        }>
+      })
+      .then((responseData) => {
+        if (responseData.success) {
+          setSubmissionRequestId(responseData.requestId)
+          mentor.calendarUrl = responseData.calendar_url
+          setReadyStatus('success')
+          incrementRequestsPerDay()
+          analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
+            mentor_id: mentor.mentorId,
+            mentor_slug: mentor.slug,
+            request_id: responseData.requestId,
+            calendar_url_available: Boolean(responseData.calendar_url),
+            outcome: 'success',
+          })
+        } else {
+          setReadyStatus('error')
+          analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
+            mentor_id: mentor.mentorId,
+            mentor_slug: mentor.slug,
+            outcome: 'error',
+            error_type: 'api_error',
+          })
+        }
+      })
+      .catch((e) => {
+        setReadyStatus('error')
+        if (e instanceof Error) {
+          captureException(e, { page: 'contact-mentor', mentorSlug: mentor.slug })
+        }
+        analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
+          mentor_id: mentor.mentorId,
+          mentor_slug: mentor.slug,
+          outcome: 'error',
+          error_type: e instanceof Error ? e.name : 'network_error',
+        })
+        console.error('Contact mentor error:', e)
+      })
+  }
+
+  return (
+    <>
+      <Head>
+        <title>{title}</title>
+      </Head>
+
+      <NavHeader />
+
+      <Section>
+        <h1 className="text-center">Contact a mentor</h1>
+      </Section>
+
+      <Section>
+        <div className="mx-auto flex max-w-xl items-center gap-5">
+          <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl sm:h-28 sm:w-28">
+            <Image
+              src={imageLoader({ src: mentor.slug, quality: 'large' })}
+              alt={mentor.name}
+              fill
+              sizes="112px"
+              style={{
+                objectFit: 'cover',
+              }}
+            />
+          </div>
+
+          <div className="min-w-0" style={{ wordBreak: 'break-word' }}>
+            <h2 className="mb-0 text-2xl">{mentor.name}</h2>
+            <div className="mt-1 text-ink-soft">
+              {mentor.job} @ {mentor.workplace}
+            </div>
+            <div className="mt-1 text-sm text-ink-soft">
+              {mentor.experience} years · {mentor.price}
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {!mentor.isVisible && (
+        <Section>
+          <div className="flex justify-center">
+            <div className="text-gray-500 mb-6">
+              This mentor is temporarily not accepting new requests.
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {mentor.isVisible && readyStatus === 'success' && (
+        <Section>
+          <SuccessMessage mentor={mentor} formData={formData} requestId={submissionRequestId} />
+        </Section>
+      )}
+
+      {mentor.isVisible && readyStatus !== 'success' && readyStatus === 'limit' && (
+        <Section>
+          <LimitMessage />
+        </Section>
+      )}
+
+      {mentor.isVisible && readyStatus !== 'success' && readyStatus !== 'limit' && (
+        <Section>
+          <div className="mx-auto max-w-xl rounded-2xl bg-surface p-6 sm:p-8">
+            <ContactMentorForm
+              isLoading={readyStatus === 'loading'}
+              isError={readyStatus === 'error'}
+              onSubmit={onSubmit}
+            />
+          </div>
+        </Section>
+      )}
+      <Footer />
+    </>
+  )
+}
+
+interface SuccessMessageProps {
+  mentor: MentorContact
+  formData?: ContactFormData
+  requestId?: string
+}
+
+function SuccessMessage({ mentor, formData, requestId }: SuccessMessageProps) {
+  return (
+    <div className="text-center">
+      <div className="inline-flex justify-center items-center rounded-full h-24 w-24 bg-brand-mint/15 text-brand-mint">
+        <FontAwesomeIcon icon={faCheck} size="2x" />
+      </div>
+      <p className="text-xl mt-6">Your request has been received</p>
+      {requestId && <p className="mt-2 text-sm text-gray-500">Request ID: {requestId}</p>}
+
+      <div className="flex justify-center">
+        {mentor.calendarType !== 'none' ? (
+          <div className="max-w-screen-md justify-center space-y-7 flex-wrap sm:flex-nowrap sm:space-y-0 sm:space-x-5">
+            <p className="text-xl mt-6">
+              The mentor has received your request and will contact you soon. You can also pick a
+              convenient time for the session right now using the form below.
+            </p>
+            <br />
+            {mentor.calendarType === 'calendly' ? (
+              <InlineWidget
+                url={mentor.calendarUrl ?? ''}
+                prefill={{
+                  name: formData?.name,
+                  email: formData?.email,
+                  customAnswers: {
+                    a1: formData?.intro,
+                  },
+                }}
+              />
+            ) : mentor.calendarType === 'koalendar' ? (
+              <Koalendar url={mentor.calendarUrl ?? ''} />
+            ) : mentor.calendarType === 'calendlab' ? (
+              <CalendlabWidget url={mentor.calendarUrl ?? ''} />
+            ) : (
+              <a
+                className="button"
+                href={mentor.calendarUrl ?? ''}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Book a session
+              </a>
+            )}
+          </div>
+        ) : (
+          <p>The mentor will contact you soon.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function LimitMessage(): JSX.Element {
+  return (
+    <div className="text-center">
+      <div className="inline-flex justify-center items-center rounded-full h-24 w-24 bg-red-100 text-red-500">
+        <FontAwesomeIcon icon={faExclamationTriangle} size="2x" />
+      </div>
+      <p className="text-xl mt-6">
+        You&apos;ve reached the daily request limit. Come back tomorrow to contact another mentor.
+      </p>
+    </div>
+  )
+}
