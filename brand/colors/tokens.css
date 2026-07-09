@@ -1,0 +1,49 @@
+/*
+  openmentor.io — color tokens
+  Direction: "Fresh Signal" (shipped brand)
+  Use these custom properties for anything logo-adjacent: header, favicon
+  background, buttons that echo the brand, dark-mode surfaces.
+*/
+
+:root {
+  /* --- logomark colors --- */
+  --om-ring: #132A52;   /* deep navy — the open ring */
+  --om-bar: #2F5EFF;    /* cobalt — the directional stroke */
+  --om-dot: #17C3B2;    /* mint — the arrival node */
+
+  /* --- text / ink --- */
+  --om-ink: #161A20;        /* primary text on light backgrounds */
+  --om-ink-soft: #5B6270;   /* secondary text / .io, captions */
+
+  /* --- surfaces (light mode) --- */
+  --om-paper: #FFFFFF;
+  --om-paper-dim: #F7F6F2;
+  --om-line: #DEDBD1;
+
+  /* --- surfaces (dark mode) --- */
+  --om-dark-bg: #0A0F1E;
+  --om-dark-ring: #5B8CFF;  /* brightened navy for contrast on dark bg */
+  --om-dark-bar: #2BD9C9;   /* brightened mint-cobalt for contrast on dark bg */
+  --om-dark-dot: #FFC15E;   /* brightened amber for contrast on dark bg */
+  --om-dark-ink: #F5F4F1;
+  --om-dark-ink-soft: #9AA3B4;
+
+  /* --- app icon / avatar tile gradient --- */
+  --om-tile-from: #132A52;
+  --om-tile-to: #0A1A38;
+}
+
+/* Wordmark typography reference — see ../fonts/README.md */
+.om-wordmark {
+  font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+}
+.om-wordmark-primary {
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--om-ink);
+}
+.om-wordmark-secondary {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--om-ink-soft);
+}

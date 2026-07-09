@@ -1,0 +1,160 @@
+{
+  "brand": "openmentor.io",
+  "packVersion": "1.0",
+  "shippedDirection": "Fresh Signal",
+  "readThisFirst": "README.md",
+  "colorTokens": ["colors/tokens.css", "colors/tokens.json"],
+  "fontInfo": "fonts/README.md",
+
+  "logomarkConcept": "Three shapes only: an open ring (openness, no gatekeeping), a diagonal stroke exiting through the gap (mentor-guided momentum), and a small node where it lands (arrival). Never add a 4th shape or close the ring.",
+
+  "assets": [
+    {
+      "file": "logo/svg/logomark.svg",
+      "type": "svg",
+      "use": "Primary icon-only mark, full color, transparent background. Use anywhere the wordmark isn't needed: nav collapse state, loading spinner, mobile header, small UI badges.",
+      "background": "transparent",
+      "minRecommendedSize": "20px"
+    },
+    {
+      "file": "logo/svg/logomark-mono-black.svg",
+      "type": "svg",
+      "use": "Single-color black version. Use on light backgrounds where brand color isn't appropriate: invoices, legal docs, watermarks, print in one ink.",
+      "background": "transparent"
+    },
+    {
+      "file": "logo/svg/logomark-mono-white.svg",
+      "type": "svg",
+      "use": "Single-color white version. Use on dark or busy/photographic backgrounds.",
+      "background": "transparent"
+    },
+    {
+      "file": "logo/svg/logomark-tile-brand.svg",
+      "type": "svg",
+      "use": "Mark on a rounded-square brand-gradient tile. Source file for app icons, favicons, social avatars. Do not use inline in page content — it's for icon slots only.",
+      "background": "navy gradient (#132A52 -> #0A1A38)",
+      "cornerRadius": "26/120 of width (~21.7%), matches iOS/Android squircle convention closely enough to auto-mask"
+    },
+    {
+      "file": "logo/svg/wordmark.svg",
+      "type": "svg",
+      "use": "Text-only lockup, dark ink. Use where the mark is already shown elsewhere on the page (e.g. next to a favicon in a browser chrome) and you just need the name.",
+      "background": "transparent",
+      "requiresFont": "Inter (see fonts/README.md)"
+    },
+    {
+      "file": "logo/svg/wordmark-white.svg",
+      "type": "svg",
+      "use": "Text-only lockup, white. For dark backgrounds.",
+      "background": "transparent",
+      "requiresFont": "Inter"
+    },
+    {
+      "file": "logo/svg/logo-horizontal.svg",
+      "type": "svg",
+      "use": "PRIMARY LOGO. Mark + wordmark side by side, dark ink text. This is the default logo for the site header, footer, and any light-background placement.",
+      "background": "transparent",
+      "requiresFont": "Inter"
+    },
+    {
+      "file": "logo/svg/logo-horizontal-dark.svg",
+      "type": "svg",
+      "use": "Primary logo for dark backgrounds / dark mode. Brightened accent colors for contrast, white text.",
+      "background": "transparent (intended for dark surfaces, e.g. #0A0F1E)",
+      "requiresFont": "Inter"
+    },
+    {
+      "file": "logo/svg/logo-horizontal-mono-black.svg",
+      "type": "svg",
+      "use": "Full lockup, single-color black. Print, stamps, one-color merch.",
+      "background": "transparent"
+    },
+    {
+      "file": "logo/svg/logo-horizontal-mono-white.svg",
+      "type": "svg",
+      "use": "Full lockup, single-color white. Dark or photographic backgrounds where the two-tone version has too little contrast.",
+      "background": "transparent"
+    },
+    {
+      "file": "logo/ico/favicon.ico",
+      "type": "ico",
+      "use": "Drop into site root as /favicon.ico. Contains 16/32/48px sizes in one file.",
+      "sizesIncluded": [16, 32, 48]
+    },
+    {
+      "file": "logo/png/favicon/favicon-16.png",
+      "type": "png", "size": 16,
+      "use": "<link rel=\"icon\" sizes=\"16x16\">"
+    },
+    {
+      "file": "logo/png/favicon/favicon-32.png",
+      "type": "png", "size": 32,
+      "use": "<link rel=\"icon\" sizes=\"32x32\">"
+    },
+    {
+      "file": "logo/png/favicon/favicon-48.png",
+      "type": "png", "size": 48,
+      "use": "Windows taskbar / legacy favicon size."
+    },
+    {
+      "file": "logo/png/icon-app/icon-app-180.png",
+      "type": "png", "size": 180,
+      "use": "<link rel=\"apple-touch-icon\">"
+    },
+    {
+      "file": "logo/png/icon-app/icon-app-192.png",
+      "type": "png", "size": 192,
+      "use": "PWA manifest icon (192x192 entry in manifest.json 'icons')."
+    },
+    {
+      "file": "logo/png/icon-app/icon-app-512.png",
+      "type": "png", "size": 512,
+      "use": "PWA manifest icon (512x512 entry), maskable-safe padding included."
+    },
+    {
+      "file": "logo/png/icon-app/icon-app-1024.png",
+      "type": "png", "size": 1024,
+      "use": "App store / high-res source, or macOS/Windows desktop app icon source."
+    },
+    {
+      "file": "logo/png/icon-app/icon-app-128.png",
+      "type": "png", "size": 128,
+      "use": "Chrome extension icon / small desktop app icon."
+    },
+    {
+      "file": "logo/png/social/social-avatar-400.png",
+      "type": "png", "size": 400,
+      "use": "GitHub org avatar, LinkedIn/X/Twitter profile photo, Slack workspace icon. Square with brand tile background — safe for circular crop."
+    },
+    {
+      "file": "logo/png/logomark/logomark-{16,32,48,64,128,256,512,1024}.png",
+      "type": "png-series",
+      "use": "General-purpose transparent-background raster mark at common sizes, for anywhere an SVG can't be used (e.g. email signatures, some CMS image fields).",
+      "background": "transparent"
+    },
+    {
+      "file": "logo/png/logomark/logomark-mono-black-{128,256,512}.png",
+      "type": "png-series",
+      "use": "Transparent-background black mark, raster, for the same mono use cases as the SVG when a raster is required."
+    },
+    {
+      "file": "logo/png/logomark/logomark-mono-white-{128,256,512}.png",
+      "type": "png-series",
+      "use": "Transparent-background white mark, raster."
+    },
+    {
+      "file": "explorations/*/logomark.svg, explorations/*/logo-horizontal.svg",
+      "type": "svg-series",
+      "use": "NOT part of the shipped brand. Alternate color directions kept for reference in case the brand direction changes later: warm-momentum (charcoal/coral/amber), indigo-amber (indigo/amber/coral), midnight-native (the dark-mode palette, standalone). Do not use these on the live site unless explicitly asked to switch direction."
+    }
+  ],
+
+  "implementationChecklist": [
+    "Load Inter (see fonts/README.md) before rendering any wordmark or horizontal lockup SVG.",
+    "Site header/footer: use logo/svg/logo-horizontal.svg on light backgrounds, logo/svg/logo-horizontal-dark.svg on dark sections.",
+    "<head>: favicon.ico at /favicon.ico, plus favicon-16/32.png via <link rel=\"icon\">, plus apple-touch-icon at 180px.",
+    "PWA manifest.json 'icons' array: icon-app-192.png and icon-app-512.png (purpose: 'any maskable' is safe given the tile's padding).",
+    "Import colors/tokens.css globally and reference --om-* variables instead of hardcoding brand hex values anywhere in the codebase.",
+    "Never redraw, recolor per-instance, skew, rotate, or add a drop shadow to the mark outside of the provided mono/dark variants."
+  ]
+}
