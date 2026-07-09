@@ -60,9 +60,6 @@ RUN chmod +x /app/openmentor-api /app/migrate /app/worker
 # Copy migrations directory
 COPY --chown=appuser:appgroup migrations /app/migrations
 
-# Copy TLS certificates for production database connection
-COPY --chown=appuser:appgroup certs /app/certs
-
 # Set proper ownership
 RUN chown -R appuser:appgroup /app
 

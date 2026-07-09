@@ -18,19 +18,11 @@ import (
 //
 // Returns error if migrations fail, ignores ErrNoChange (already up to date)
 func RunMigrations(databaseURL, migrationsPath string) error {
-	// Parse connection config from URL
+	// Parse connection config from URL. TLS follows standard pgx/libpq DSN
+	// semantics (sslmode/sslrootcert in DATABASE_URL) — same as the main pool.
 	connConfig, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse database URL: %w", err)
-	}
-
-	// Configure TLS using the same CA cert as the main connection pool
-	tlsConfig, err := configureTLS(databaseURL)
-	if err != nil {
-		return fmt.Errorf("failed to configure TLS: %w", err)
-	}
-	if tlsConfig != nil {
-		connConfig.TLSConfig = tlsConfig
 	}
 
 	// Open database connection via pgx stdlib adapter

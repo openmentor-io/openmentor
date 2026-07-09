@@ -116,9 +116,11 @@ The worker serves `/healthz` and `/metrics`, keeps its own smaller DB pool
 
 ## Storage & integrations
 
-- **PostgreSQL** via `jackc/pgx` (`DATABASE_URL`). TLS with the bundled
-  `certs/yandex-ca.crt` is enabled only when the URL carries
-  `sslmode=require/verify-full` (Yandex Managed PostgreSQL).
+- **PostgreSQL** via `jackc/pgx` (`DATABASE_URL`). TLS follows standard
+  pgx/libpq DSN semantics: the self-hosted compose Postgres uses
+  `sslmode=disable`; managed-PG users set `sslmode=verify-full` and pass the
+  provider CA via `sslrootcert=<path>` in `DATABASE_URL` (or rely on the
+  system trust store).
 - **Profile pictures** on any S3-compatible storage (`pkg/s3storage`,
   `S3_STORAGE_*` — Cloudflare R2, AWS S3, Backblaze B2, ...).
 - **Email** via AWS SESv2 (`SES_*`, `MODERATORS_EMAIL`).
