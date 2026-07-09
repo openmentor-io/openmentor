@@ -32,10 +32,6 @@ export default function Terms(): JSX.Element {
 
       <NavHeader />
 
-      <div className="bg-yellow-100 border-b border-yellow-300 text-yellow-900 text-center text-sm py-2 px-4">
-        DRAFT — pending legal review.
-      </div>
-
       <Section className="bg-primary-100" id="header">
         <div className="text-center py-14 lg:w-3/4 mx-auto">
           <h1>Terms of Service</h1>
@@ -47,14 +43,15 @@ export default function Terms(): JSX.Element {
           <p className="text-center text-lg">for the OpenMentor.io service</p>
 
           <p>
-            <strong>Last updated:</strong> 7 July 2026 (draft)
+            <strong>Last updated:</strong> 9 July 2026
           </p>
 
           <p>
             These Terms of Service (&ldquo;Terms&rdquo;) govern your use of the OpenMentor.io
             website and service (&ldquo;OpenMentor&rdquo;, the &ldquo;Service&rdquo;,
-            &ldquo;we&rdquo;, &ldquo;us&rdquo;). By using the Service, you agree to these Terms. If
-            you do not agree, please do not use the Service.
+            &ldquo;we&rdquo;, &ldquo;us&rdquo;). The Service is operated by Georgiy Mogelashvili,
+            an individual based in the Netherlands. By using the Service, you agree to these
+            Terms. If you do not agree, please do not use the Service.
           </p>
 
           <hr />
@@ -136,6 +133,12 @@ export default function Terms(): JSX.Element {
             notice, though we will normally explain moderation decisions on request.
           </p>
 
+          <p>
+            You may stop using the Service at any time. Mentors can hide their profile from their
+            dashboard, and anyone can request deletion of their data as described in the{' '}
+            <Link href="/privacy">Privacy Policy</Link>.
+          </p>
+
           <h2>6. Not for medical or health information</h2>
 
           <p>
@@ -148,8 +151,9 @@ export default function Terms(): JSX.Element {
           <h2>7. Disclaimers</h2>
 
           <p>
-            The Service is provided &ldquo;as is&rdquo; and &ldquo;as available&rdquo;, without
-            warranties of any kind, express or implied. In particular:
+            The Service is provided free of charge, &ldquo;as is&rdquo; and &ldquo;as
+            available&rdquo;, without warranties of any kind, express or implied, to the extent
+            permitted by applicable law. In particular:
           </p>
 
           <ul>
@@ -179,7 +183,9 @@ export default function Terms(): JSX.Element {
             for any loss of profits, revenue, data, or reputation, arising out of or in connection
             with the use of the Service, including any consequences of actions or omissions of
             mentors or mentees during or following their interaction. Nothing in these Terms
-            excludes liability that cannot be excluded under applicable law.
+            excludes or limits any liability that cannot be excluded or limited under applicable
+            law, including liability for damage caused by intent or gross negligence, and nothing
+            in these Terms affects statutory rights you hold as a consumer.
           </p>
 
           <h2>9. Privacy</h2>
@@ -194,15 +200,22 @@ export default function Terms(): JSX.Element {
           <p>
             We may modify or discontinue parts of the Service, and we may update these Terms from
             time to time. The current version is always available at{' '}
-            <Link href="/terms">openmentor.io/terms</Link>. Continued use of the Service after
-            changes take effect constitutes acceptance of the updated Terms.
+            <Link href="/terms">openmentor.io/terms</Link>, together with its &ldquo;last
+            updated&rdquo; date. For material changes we will provide reasonable notice on the
+            site. Continued use of the Service after changes take effect constitutes acceptance of
+            the updated Terms; if you do not agree with a change, stop using the Service.
           </p>
 
-          <h2>11. Governing law</h2>
+          <h2>11. Governing law and jurisdiction</h2>
 
           <p>
-            [TBD — pending D7: governing law and jurisdiction will be determined together with the
-            controller/legal-entity decision.]
+            These Terms are governed by the laws of the Netherlands. Any dispute arising out of or
+            in connection with these Terms or the Service that cannot be resolved amicably shall
+            be submitted to the competent court in the Netherlands. If you use the Service as a
+            consumer resident in the EU/EEA, this does not deprive you of the protection of
+            mandatory consumer-protection provisions of the law of your country of residence, or
+            of your right to bring or defend proceedings in the courts of that country where
+            applicable law so provides.
           </p>
 
           <h2>12. Contact</h2>

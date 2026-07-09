@@ -32,10 +32,6 @@ export default function Privacy(): JSX.Element {
 
       <NavHeader />
 
-      <div className="bg-yellow-100 border-b border-yellow-300 text-yellow-900 text-center text-sm py-2 px-4">
-        DRAFT — pending legal review.
-      </div>
-
       <Section className="bg-primary-100" id="header">
         <div className="text-center py-14 lg:w-3/4 mx-auto">
           <h1>Privacy Policy</h1>
@@ -47,14 +43,14 @@ export default function Privacy(): JSX.Element {
           <p className="text-center text-lg">for the OpenMentor.io service</p>
 
           <p>
-            <strong>Last updated:</strong> 7 July 2026 (draft)
+            <strong>Last updated:</strong> 9 July 2026
           </p>
 
           <p>
             <strong>Data controller:</strong>
             <br />
-            [TBD — pending D7: legal entity or person operating openmentor.io, including contact
-            address]
+            Georgiy Mogelashvili, an individual (sole operator of OpenMentor.io), based in the
+            Netherlands.
           </p>
 
           <p>
@@ -62,13 +58,16 @@ export default function Privacy(): JSX.Element {
             <br />
             <strong>Privacy contact:</strong>{' '}
             <a href="mailto:privacy@openmentor.io">privacy@openmentor.io</a>
+            <br />
+            <strong>General contact:</strong>{' '}
+            <a href="mailto:hello@openmentor.io">hello@openmentor.io</a>
           </p>
 
           <p>
             This Policy explains what personal data OpenMentor.io (&ldquo;OpenMentor&rdquo;,
             &ldquo;we&rdquo;, &ldquo;us&rdquo;) collects, why we collect it, who we share it with,
             and what rights you have. We process personal data in accordance with the EU General
-            Data Protection Regulation (GDPR) and the UK GDPR.
+            Data Protection Regulation (GDPR).
           </p>
 
           <hr />
@@ -96,7 +95,10 @@ export default function Privacy(): JSX.Element {
             <li>photo (avatar);</li>
             <li>job title, workplace, experience, specialization, and profile description;</li>
             <li>session price information;</li>
-            <li>links to external resources and optional contact handles, if provided;</li>
+            <li>
+              links to external resources and an optional free-text &ldquo;preferred
+              contact&rdquo; (any contact detail you choose to share), if provided;
+            </li>
             <li>calendar booking link, if provided;</li>
             <li>any other information you voluntarily add to your profile.</li>
           </ul>
@@ -114,7 +116,10 @@ export default function Privacy(): JSX.Element {
           <ul>
             <li>name;</li>
             <li>email address;</li>
-            <li>optional contact handle, if provided;</li>
+            <li>
+              an optional free-text &ldquo;preferred contact&rdquo; (any contact detail you choose
+              to share), if provided;
+            </li>
             <li>the text of your message to the mentor;</li>
             <li>your self-assessed experience level, if provided.</li>
           </ul>
@@ -145,8 +150,9 @@ export default function Privacy(): JSX.Element {
 
           <p>
             To protect the service against spam, bots, and abuse, we process IP addresses,
-            rate-limiting counters, ReCAPTCHA signals on public forms, and standard server logs (IP
-            address, user agent, request metadata).
+            rate-limiting counters, Cloudflare Turnstile signals on public forms, and standard
+            server logs (IP address, user agent, request metadata). We also collect operational
+            error and performance telemetry to keep the service reliable.
           </p>
 
           <hr />
@@ -195,11 +201,14 @@ export default function Privacy(): JSX.Element {
           </p>
 
           <ul>
-            <li>Hetzner — hosting and infrastructure (EU);</li>
-            <li>Amazon Web Services (SES) — transactional email delivery;</li>
-            <li>An S3-compatible object storage provider — storage of profile images;</li>
-            <li>PostHog — product analytics (only with your consent);</li>
-            <li>Google ReCAPTCHA — spam and bot protection on public forms;</li>
+            <li>Hetzner — hosting and infrastructure (Germany, EU);</li>
+            <li>Amazon Web Services (SES) — transactional email delivery (EU region);</li>
+            <li>Amazon Web Services (S3) — storage of profile images (EU region);</li>
+            <li>PostHog — product analytics, EU cloud (only with your consent);</li>
+            <li>
+              Google (Tag Manager) — loading of analytics tags (only with your consent);
+            </li>
+            <li>Cloudflare (Turnstile) — spam and bot protection on public forms;</li>
             <li>Grafana Cloud — logging, monitoring, and error tracking;</li>
             <li>Cloudflare — DNS and content delivery.</li>
           </ul>
@@ -221,11 +230,14 @@ export default function Privacy(): JSX.Element {
           <h2>5. International transfers</h2>
 
           <p>
-            Our primary hosting is located in the EU. Some of our providers (for example Google)
-            may process data in the United States or other countries outside the EU/EEA.
-            Where that happens, transfers are safeguarded by the European Commission&rsquo;s
-            Standard Contractual Clauses (SCCs) or an applicable adequacy decision (such as the
-            EU-U.S. Data Privacy Framework).
+            Our primary hosting is located in the EU (Hetzner, Germany). Our AWS email and storage
+            services are configured to use EU regions, and our PostHog analytics instance is
+            configured to use PostHog&rsquo;s EU cloud. However, some of our providers (for example
+            Cloudflare, Google, Grafana Labs, and Amazon Web Services as US-headquartered
+            companies) may process limited data in the United States or other countries outside
+            the EU/EEA. Where that happens, transfers are safeguarded by the European
+            Commission&rsquo;s Standard Contractual Clauses (SCCs) or an applicable adequacy
+            decision (such as the EU-U.S. Data Privacy Framework).
           </p>
 
           <hr />
@@ -233,18 +245,20 @@ export default function Privacy(): JSX.Element {
           <h2>6. How long we keep data</h2>
 
           <p>
-            [TBD — pending D13: retention periods are proposed below and await final confirmation.]
+            We retain personal data for as long as it remains relevant to providing the service,
+            and we delete it on request (see section 7). We do not currently apply fixed automatic
+            expiry periods to service data; your erasure request is honoured at any time.
           </p>
 
           <ul>
             <li>
-              <strong>Mentor profiles</strong> — kept while the profile is active; deleted upon your
-              deletion request or account removal.
+              <strong>Mentor profiles</strong> — kept while the profile is active on the platform;
+              deleted upon your deletion request or account removal.
             </li>
             <li>
-              <strong>Mentee contact requests and reviews</strong> — proposed retention of{' '}
-              <strong>24 months</strong> from submission, after which they are deleted or
-              anonymized.
+              <strong>Mentee contact requests and reviews</strong> — kept while they remain
+              relevant to the service (for example, so the mentor can respond to an open request
+              and so reviews remain attributable); deleted or anonymized upon your request.
             </li>
             <li>
               <strong>Login tokens</strong> — expire within minutes of issuance; sessions expire per
@@ -254,8 +268,8 @@ export default function Privacy(): JSX.Element {
               <strong>Server logs and observability data</strong> — approximately 30 days.
             </li>
             <li>
-              <strong>Analytics data</strong> — per the retention defaults of the analytics
-              provider.
+              <strong>Analytics data</strong> — per the retention settings of the analytics
+              provider (PostHog).
             </li>
           </ul>
 
@@ -269,7 +283,7 @@ export default function Privacy(): JSX.Element {
 
           <h2>7. Your rights</h2>
 
-          <p>Under the GDPR / UK GDPR you have the right to:</p>
+          <p>Under the GDPR you have the right to:</p>
 
           <ul>
             <li>access the personal data we hold about you and receive a copy;</li>
@@ -279,8 +293,12 @@ export default function Privacy(): JSX.Element {
             <li>receive your data in a portable format;</li>
             <li>withdraw consent at any time (for consent-based processing such as analytics);</li>
             <li>
-              lodge a complaint with your local data-protection supervisory authority (in the EU) or
-              the ICO (in the UK).
+              lodge a complaint with a data-protection supervisory authority. Our supervisory
+              authority is the Dutch{' '}
+              <a href="https://www.autoriteitpersoonsgegevens.nl/en">
+                Autoriteit Persoonsgegevens
+              </a>
+              ; you may also complain to the supervisory authority of your own EU/EEA country.
             </li>
           </ul>
 
@@ -304,13 +322,13 @@ export default function Privacy(): JSX.Element {
           <ul>
             <li>
               <strong>Essential cookies</strong> — required for the service to work: session cookies
-              for signed-in mentors and moderators, security and anti-abuse mechanisms (including
-              Google ReCAPTCHA on public forms), and the cookie that remembers your consent choice.
-              These are always on.
+              for signed-in mentors and moderators, security and anti-abuse mechanisms (Cloudflare
+              Turnstile on public forms), and the cookie/local-storage entry that remembers your
+              consent choice (valid for 12 months). These are always on.
             </li>
             <li>
-              <strong>Analytics cookies</strong> — used by PostHog to help us
-              understand product usage. These are set{' '}
+              <strong>Analytics cookies</strong> — set by PostHog (product analytics) and by tags
+              loaded through Google Tag Manager, to help us understand product usage. These load{' '}
               <strong>only if you accept them in the consent banner</strong> shown on your first
               visit. You can decline them without losing any functionality, and you can withdraw
               your consent at any time by clearing the site&rsquo;s cookies and local storage in
@@ -340,7 +358,7 @@ export default function Privacy(): JSX.Element {
             <li>TLS encryption for all connections;</li>
             <li>passwordless magic-link authentication (no stored passwords);</li>
             <li>HttpOnly, Secure session cookies;</li>
-            <li>rate limiting and ReCAPTCHA on public forms;</li>
+            <li>rate limiting and Cloudflare Turnstile on public forms;</li>
             <li>restricted access to administrative interfaces and APIs;</li>
             <li>security monitoring and event logging;</li>
             <li>regular updates of software components and dependencies.</li>

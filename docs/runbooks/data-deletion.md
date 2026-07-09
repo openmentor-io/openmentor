@@ -38,5 +38,6 @@
 
 ## Notes
 
-- Backups: managed-Postgres backups age out on their retention schedule; deletion from backups is not immediate — state this in the privacy policy.
+- **Retention model (D13):** there is no scheduled/automatic expiry of service data — data is retained while relevant to the service and deleted on request. That makes this runbook the primary erasure mechanism; handle requests promptly and completely. (Exception: login tokens, sessions, and observability/log data expire on their own TTLs.)
+- Backups: managed-Postgres backups age out on their retention schedule; deletion from backups is not immediate — the privacy policy states this (section 6, Backups).
 - v2: self-service deletion from the mentor dashboard is tracked as a post-migration improvement.
