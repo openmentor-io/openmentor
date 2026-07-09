@@ -41,7 +41,7 @@ describe('api/register-mentor', () => {
     const registrationData = {
       name: 'John Doe',
       email: 'john@example.com',
-      telegram: 'johndoe',
+      contact: 'johndoe',
       job: 'Senior Engineer',
       workplace: 'Tech Company',
       experience: '10+',
@@ -80,7 +80,7 @@ describe('api/register-mentor', () => {
     const registrationData = {
       name: 'John Doe',
       email: 'john@example.com',
-      telegram: 'johndoe',
+      contact: 'johndoe',
       job: 'Engineer',
       workplace: 'Company',
       experience: '10+',
@@ -112,7 +112,7 @@ describe('api/register-mentor', () => {
     const registrationData = {
       name: 'John Doe',
       email: 'john@example.com',
-      telegram: 'johndoe',
+      contact: 'johndoe',
       job: 'Engineer',
       workplace: 'Company',
       experience: '10+',

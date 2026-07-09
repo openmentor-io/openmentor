@@ -36,7 +36,7 @@ interface ContactFormData {
   name: string
   intro: string
   experience?: string
-  telegramUsername: string
+  contact: string
   captchaToken: string
 }
 
@@ -150,7 +150,7 @@ export default function OrderMentor({
       mentor_id: mentor.mentorId,
       mentor_slug: mentor.slug,
       experience: data.experience,
-      has_telegram_username: Boolean(data.telegramUsername),
+      has_contact: Boolean(data.contact),
       outcome: 'submitted',
     })
 

@@ -15,7 +15,7 @@ var expectedTemplates = map[string][]string{
 	"new-mentor":                {"first_name"},
 	"new-mentor-duplicate":      {"first_name"},
 	"new-request-calendly":      {"calendly_url", "first_name", "mentor_name", "request_details", "request_price"},
-	"new-request-mentor":        {"mentee_email", "mentee_name", "mentee_request", "mentee_tg", "mentor_name"},
+	"new-request-mentor":        {"mentee_contact", "mentee_email", "mentee_name", "mentee_request", "mentor_name"},
 	"new-request":               {"first_name", "mentor_name", "request_details", "request_price"},
 	"mentor-login":              {"login_url", "mentor_name"},
 	"session-complete":          {"first_name", "mentor_name", "request_id"},

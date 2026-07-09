@@ -12,14 +12,14 @@ import (
 
 func testRequest(id, mentorID string) *JobRequest {
 	return &JobRequest{
-		ID:          id,
-		MentorID:    mentorID,
-		Name:        "Jane Mentee",
-		Email:       "jane@example.com",
-		Telegram:    "https://t.me/janementee",
-		Description: "I want to grow",
-		Level:       "Junior",
-		Status:      "new",
+		ID:               id,
+		MentorID:         mentorID,
+		Name:             "Jane Mentee",
+		Email:            "jane@example.com",
+		PreferredContact: " linkedin.com/in/janementee ", // free text, only whitespace is trimmed
+		Description:      "I want to grow",
+		Level:            "Junior",
+		Status:           "new",
 	}
 }
 
@@ -32,8 +32,8 @@ func TestNewRequestWatcherHappyPath(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	// DB write: trimmed telegram + pending status.
-	assert.Equal(t, map[string]string{"r1": "janementee"}, env.repo.requestUpdates)
+	// DB write: trimmed contact details + pending status.
+	assert.Equal(t, map[string]string{"r1": "linkedin.com/in/janementee"}, env.repo.requestUpdates)
 
 	// Emails: mentee confirmation (no calendar), mentor, moderator.
 	require.Equal(t, []string{"new-request", "new-request-mentor", "new-request-moderator"}, env.sender.templates())
@@ -48,7 +48,7 @@ func TestNewRequestWatcherHappyPath(t *testing.T) {
 
 	mentorMsg := env.sender.attempts[1]
 	assert.Equal(t, "john@example.com", mentorMsg.Recipient)
-	assert.Equal(t, "@janementee", mentorMsg.Props["mentee_tg"])
+	assert.Equal(t, "linkedin.com/in/janementee", mentorMsg.Props["mentee_contact"])
 	assert.Equal(t, "jane@example.com", mentorMsg.Props["mentee_email"])
 	assert.Equal(t, "I want to grow", mentorMsg.Props["mentee_request"])
 
@@ -71,7 +71,7 @@ func TestNewRequestWatcherCalendlyMentor(t *testing.T) {
 	mentor.CalendarURL = "https://calendly.com/john"
 	env.repo.mentors["m1"] = mentor
 	request := testRequest("r1", "m1")
-	request.Telegram = "" // optional handle not provided
+	request.PreferredContact = "" // optional contact details not provided
 	env.repo.requests["r1"] = request
 
 	w := env.do(http.MethodGet, "/jobs/new-request-watcher?requestId=r1", nil)
@@ -79,7 +79,7 @@ func TestNewRequestWatcherCalendlyMentor(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, []string{"new-request-calendly", "new-request-mentor", "new-request-moderator"}, env.sender.templates())
 	assert.Equal(t, "https://calendly.com/john", env.sender.attempts[0].Props["calendly_url"])
-	assert.Equal(t, "not provided", env.sender.attempts[1].Props["mentee_tg"])
+	assert.Equal(t, "not provided", env.sender.attempts[1].Props["mentee_contact"])
 
 	event := env.tracker.last()
 	require.NotNil(t, event)

@@ -36,7 +36,7 @@ type fakeRepo struct {
 
 	finalized      []FinalizeNewMentorParams
 	statusUpdates  map[string]string // mentorID -> status
-	requestUpdates map[string]string // requestID -> telegram
+	requestUpdates map[string]string // requestID -> contact
 
 	// Cron job fixtures (stage 3).
 	stalePendingMentors   []JobMentor
@@ -126,11 +126,11 @@ func (f *fakeRepo) GetJobRequestWithMentorName(_ context.Context, requestID stri
 	return nil, nil
 }
 
-func (f *fakeRepo) SetRequestTelegramPending(_ context.Context, requestID, telegram string) error {
+func (f *fakeRepo) SetRequestContactPending(_ context.Context, requestID, contact string) error {
 	if f.setRequestErr != nil {
 		return f.setRequestErr
 	}
-	f.requestUpdates[requestID] = telegram
+	f.requestUpdates[requestID] = contact
 	return nil
 }
 
@@ -341,15 +341,15 @@ func (e *jobsTestEnv) do(method, path string, body []byte) *httptest.ResponseRec
 // testMentor returns a mentor fixture keyed under the given id.
 func testMentor(id string) *JobMentor {
 	return &JobMentor{
-		ID:        id,
-		LegacyID:  42,
-		Name:      "John Doe",
-		Email:     "john@example.com",
-		Status:    "on_moderation",
-		Telegram:  "@johndoe",
-		Slug:      "john-doe-42",
-		JobTitle:  "Engineer",
-		Workplace: "Acme",
-		Price:     "$50",
+		ID:               id,
+		LegacyID:         42,
+		Name:             "John Doe",
+		Email:            "john@example.com",
+		Status:           "on_moderation",
+		PreferredContact: "@johndoe",
+		Slug:             "john-doe-42",
+		JobTitle:         "Engineer",
+		Workplace:        "Acme",
+		Price:            "$50",
 	}
 }

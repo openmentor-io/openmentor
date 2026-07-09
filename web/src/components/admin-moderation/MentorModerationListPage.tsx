@@ -86,8 +86,8 @@ export function MentorModerationListPage({
     return sorted.filter((mentor) => {
       const name = mentor.name.toLowerCase()
       const email = mentor.email.toLowerCase()
-      const telegram = mentor.telegram.toLowerCase()
-      return name.includes(query) || email.includes(query) || telegram.includes(query)
+      const contact = mentor.contact.toLowerCase()
+      return name.includes(query) || email.includes(query) || contact.includes(query)
     })
   }, [mentors, searchQuery])
 
@@ -114,7 +114,7 @@ export function MentorModerationListPage({
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search by name, email, telegram"
+          placeholder="Search by name, email, contact"
           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand-cobalt focus:outline-none"
         />
       </div>
@@ -156,7 +156,7 @@ export function MentorModerationListPage({
                 <div>
                   <p className="text-base font-semibold text-gray-900">{mentor.name}</p>
                   <p className="text-sm text-gray-600">{mentor.email}</p>
-                  <p className="text-sm text-gray-500">@{mentor.telegram}</p>
+                  <p className="text-sm text-gray-500">{mentor.contact}</p>
                 </div>
                 <span
                   className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${getStatusBadge(

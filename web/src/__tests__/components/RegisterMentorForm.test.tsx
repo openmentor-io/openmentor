@@ -81,7 +81,7 @@ describe('RegisterMentorForm', () => {
 
     expect(screen.getByLabelText(/Your full name/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Your email/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/Telegram \(optional\)/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/How can we reach you/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Job title/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Company/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Experience/i)).toBeInTheDocument()
@@ -146,7 +146,7 @@ describe('RegisterMentorForm', () => {
     // Fill all fields except profile picture
     await user.type(screen.getByLabelText(/Your full name/i), 'John Doe')
     await user.type(screen.getByLabelText(/Your email/i), 'john@example.com')
-    await user.type(screen.getByLabelText(/Telegram \(optional\)/i), 'johndoe')
+    await user.type(screen.getByLabelText(/How can we reach you/i), 'johndoe')
     await user.type(screen.getByLabelText(/Job title/i), 'Engineer')
     await user.type(screen.getByLabelText(/Company/i), 'Tech Company')
     await user.selectOptions(screen.getByLabelText(/Experience/i), '10+')

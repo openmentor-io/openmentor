@@ -256,8 +256,8 @@ function RequestDetailsContent(): JSX.Element {
                     value={request.email}
                     href={`mailto:${request.email}`}
                   />
-                  {request.telegram && (
-                    <InfoRow icon={faPaperPlane} label="Telegram" value={request.telegram} />
+                  {request.contact && (
+                    <InfoRow icon={faPaperPlane} label="Contact" value={request.contact} />
                   )}
                 </div>
               </div>

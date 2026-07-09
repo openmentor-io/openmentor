@@ -3,6 +3,7 @@ package worker
 import (
 	"math/rand/v2"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,7 +27,7 @@ const loginTokenTTLDays = 100
 //
 // Division of labor with the API (documented per stage-2 spec):
 //   - The API's registration flow (internal/services/registration_service.go)
-//     already trims the name, normalizes telegram, sets status=pending and
+//     already trims the name and contact details, sets status=pending and
 //     ALWAYS generates the slug at INSERT time (repository.CreateMentor via
 //     pkg/slug). The func app generated a slug only when the record had none.
 //   - This handler therefore keeps the existing slug and only generates one
@@ -87,7 +88,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		newStatus = "declined"
 	}
 
-	mentor.Telegram = trimTelegramHandle(mentor.Telegram)
+	mentor.PreferredContact = strings.TrimSpace(mentor.PreferredContact)
 	mentor.Name = trimMentorName(mentor.Name)
 
 	// The slug is normally already set at registration; generate only as a
@@ -99,7 +100,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 	err = h.repo.FinalizeNewMentor(ctx, FinalizeNewMentorParams{
 		MentorID:            mentor.ID,
 		Name:                mentor.Name,
-		Telegram:            mentor.Telegram,
+		PreferredContact:    mentor.PreferredContact,
 		LoginToken:          uuid.NewString(),
 		LoginTokenExpiresAt: time.Now().AddDate(0, 0, loginTokenTTLDays),
 		Slug:                mentor.Slug,

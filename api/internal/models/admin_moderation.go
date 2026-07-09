@@ -71,38 +71,38 @@ func (f MentorModerationFilter) IsValid() bool {
 }
 
 type AdminMentorListItem struct {
-	MentorID  string    `json:"mentorId"`
-	LegacyID  int       `json:"id"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
-	Telegram  string    `json:"telegram"`
-	Job       string    `json:"job"`
-	Workplace string    `json:"workplace"`
-	Price     string    `json:"price"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"createdAt"`
+	MentorID         string    `json:"mentorId"`
+	LegacyID         int       `json:"id"`
+	Name             string    `json:"name"`
+	Email            string    `json:"email"`
+	PreferredContact string    `json:"contact"`
+	Job              string    `json:"job"`
+	Workplace        string    `json:"workplace"`
+	Price            string    `json:"price"`
+	Status           string    `json:"status"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 type AdminMentorDetails struct {
-	MentorID     string    `json:"mentorId"`
-	LegacyID     int       `json:"id"`
-	Slug         string    `json:"slug"`
-	Name         string    `json:"name"`
-	Email        string    `json:"email"`
-	Telegram     string    `json:"telegram"`
-	Job          string    `json:"job"`
-	Workplace    string    `json:"workplace"`
-	Experience   string    `json:"experience"`
-	Price        string    `json:"price"`
-	Tags         []string  `json:"tags"`
-	About        string    `json:"about"`
-	Description  string    `json:"description"`
-	Competencies string    `json:"competencies"`
-	CalendarURL  string    `json:"calendarUrl"`
-	Status       string    `json:"status"`
-	SortOrder    int       `json:"sortOrder"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	MentorID         string    `json:"mentorId"`
+	LegacyID         int       `json:"id"`
+	Slug             string    `json:"slug"`
+	Name             string    `json:"name"`
+	Email            string    `json:"email"`
+	PreferredContact string    `json:"contact"`
+	Job              string    `json:"job"`
+	Workplace        string    `json:"workplace"`
+	Experience       string    `json:"experience"`
+	Price            string    `json:"price"`
+	Tags             []string  `json:"tags"`
+	About            string    `json:"about"`
+	Description      string    `json:"description"`
+	Competencies     string    `json:"competencies"`
+	CalendarURL      string    `json:"calendarUrl"`
+	Status           string    `json:"status"`
+	SortOrder        int       `json:"sortOrder"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 type AdminMentorsListResponse struct {
@@ -117,19 +117,19 @@ type AdminMentorResponse struct {
 // AdminMentorProfileUpdateRequest intentionally contains only business/profile
 // fields (no secrets/login tokens).
 type AdminMentorProfileUpdateRequest struct {
-	Name         string   `json:"name" binding:"required,max=100"`
-	Email        string   `json:"email" binding:"required,email,max=255"`
-	Telegram     string   `json:"telegram" binding:"omitempty,max=50"`
-	Job          string   `json:"job" binding:"required,max=200"`
-	Workplace    string   `json:"workplace" binding:"required,max=200"`
-	Experience   string   `json:"experience" binding:"required,max=50"`
-	Price        string   `json:"price" binding:"required,max=100"`
-	Tags         []string `json:"tags" binding:"required,min=1,max=20,dive,max=50"`
-	Description  string   `json:"description" binding:"required,max=5000"`
-	About        string   `json:"about" binding:"required,max=10000"`
-	Competencies string   `json:"competencies" binding:"required,max=5000"`
-	CalendarURL  string   `json:"calendarUrl" binding:"omitempty,url,max=500"`
-	Slug         *string  `json:"slug,omitempty" binding:"omitempty,max=200"`
+	Name             string   `json:"name" binding:"required,max=100"`
+	Email            string   `json:"email" binding:"required,email,max=255"`
+	PreferredContact string   `json:"contact" binding:"omitempty,max=100"`
+	Job              string   `json:"job" binding:"required,max=200"`
+	Workplace        string   `json:"workplace" binding:"required,max=200"`
+	Experience       string   `json:"experience" binding:"required,max=50"`
+	Price            string   `json:"price" binding:"required,max=100"`
+	Tags             []string `json:"tags" binding:"required,min=1,max=20,dive,max=50"`
+	Description      string   `json:"description" binding:"required,max=5000"`
+	About            string   `json:"about" binding:"required,max=10000"`
+	Competencies     string   `json:"competencies" binding:"required,max=5000"`
+	CalendarURL      string   `json:"calendarUrl" binding:"omitempty,url,max=500"`
+	Slug             *string  `json:"slug,omitempty" binding:"omitempty,max=200"`
 }
 
 type AdminMentorStatusUpdateRequest struct {

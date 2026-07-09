@@ -45,7 +45,7 @@ func TestContactHandler_ContactMentor_Success(t *testing.T) {
 		Name:             "Test User",
 		Experience:       "Middle",
 		Intro:            "I want to learn Go programming",
-		TelegramUsername: "testuser",
+		PreferredContact: "testuser",
 		MentorID:         "4821fee2-7601-41ad-8798-70d57f0b2acc",
 		CaptchaToken:     "valid-captcha-token-123456",
 	}
@@ -333,7 +333,7 @@ func TestContactHandler_ContactMentor_CaptchaFailed(t *testing.T) {
 		Name:             "Test User",
 		Experience:       "Middle",
 		Intro:            "I want to learn Go programming",
-		TelegramUsername: "testuser",
+		PreferredContact: "testuser",
 		MentorID:         "4821fee2-7601-41ad-8798-70d57f0b2acc",
 		CaptchaToken:     "invalid-but-valid-length-token-12345", // Valid length (>= 20 chars)
 	}
@@ -377,7 +377,7 @@ func TestContactHandler_ContactMentor_ServiceError(t *testing.T) {
 		Name:             "Test User",
 		Experience:       "Middle",
 		Intro:            "I want to learn Go programming",
-		TelegramUsername: "testuser",
+		PreferredContact: "testuser",
 		MentorID:         "4821fee2-7601-41ad-8798-70d57f0b2acc",
 		CaptchaToken:     "valid-token-12345678901234",
 	}
@@ -405,9 +405,9 @@ func TestContactHandler_ContactMentor_ServiceError(t *testing.T) {
 	mockService.AssertExpectations(t)
 }
 
-// TestContactHandler_ContactMentor_WithoutTelegram verifies the telegram
-// handle is optional: a request without it passes validation and succeeds.
-func TestContactHandler_ContactMentor_WithoutTelegram(t *testing.T) {
+// TestContactHandler_ContactMentor_WithoutContact verifies the contact
+// details are optional: a request without them passes validation and succeeds.
+func TestContactHandler_ContactMentor_WithoutContact(t *testing.T) {
 	mockService := new(MockContactService)
 	handler := handlers.NewContactHandler(mockService)
 
@@ -419,13 +419,13 @@ func TestContactHandler_ContactMentor_WithoutTelegram(t *testing.T) {
 		Name:       "Test User",
 		Experience: "Middle",
 		Intro:      "I want to learn Go programming",
-		// TelegramUsername omitted (optional)
+		// PreferredContact omitted (optional)
 		MentorID:     "4821fee2-7601-41ad-8798-70d57f0b2acc",
 		CaptchaToken: "valid-token-12345678901234",
 	}
 
 	mockService.On("SubmitContactForm", mock.Anything, mock.MatchedBy(func(req *models.ContactMentorRequest) bool {
-		return req.Email == "test@example.com" && req.TelegramUsername == ""
+		return req.Email == "test@example.com" && req.PreferredContact == ""
 	})).Return(&models.ContactMentorResponse{
 		Success: true,
 	}, nil)

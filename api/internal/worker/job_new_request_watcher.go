@@ -2,6 +2,7 @@ package worker
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -57,9 +58,9 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 		return
 	}
 
-	request.Telegram = trimTelegramHandle(request.Telegram)
+	request.PreferredContact = strings.TrimSpace(request.PreferredContact)
 
-	if err := h.repo.SetRequestTelegramPending(ctx, request.ID, request.Telegram); err != nil {
+	if err := h.repo.SetRequestContactPending(ctx, request.ID, request.PreferredContact); err != nil {
 		logger.Error("[New Client Request] Failed to update request", zap.String("request_id", requestID), zap.Error(err))
 		trackError("db_error")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to update request"})
@@ -103,11 +104,11 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 		menteeMessage.Props["calendly_url"] = mentor.CalendarURL
 	}
 
-	// Telegram is an optional contact handle - friendly fallback per the
+	// The contact details are optional free text - friendly fallback per the
 	// func's NewRequestMentorEmailMessage (P2.6).
-	menteeTg := "not provided"
-	if request.Telegram != "" {
-		menteeTg = "@" + request.Telegram
+	menteeContact := "not provided"
+	if request.PreferredContact != "" {
+		menteeContact = request.PreferredContact
 	}
 
 	sendErr := h.sendEmails(ctx, job,
@@ -119,7 +120,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 				"mentor_name":    mentor.Name,
 				"mentee_name":    request.Name,
 				"mentee_email":   request.Email,
-				"mentee_tg":      menteeTg,
+				"mentee_contact": menteeContact,
 				"mentee_request": request.Description,
 			},
 		},

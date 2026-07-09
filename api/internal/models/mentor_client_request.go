@@ -62,22 +62,22 @@ const (
 
 // MentorClientRequest represents a mentee's request to a mentor (full admin view)
 type MentorClientRequest struct {
-	ID              string        `json:"id"`
-	Email           string        `json:"email"`
-	Name            string        `json:"name"`
-	Telegram        string        `json:"telegram"`
-	Details         string        `json:"details"`
-	Level           string        `json:"level"`
-	CreatedAt       time.Time     `json:"createdAt"`
-	ModifiedAt      time.Time     `json:"modifiedAt"`
-	StatusChangedAt *time.Time    `json:"statusChangedAt"` // Nullable - may be NULL for old records
-	ScheduledAt     *time.Time    `json:"scheduledAt"`
-	Review          *string       `json:"review"`
-	ReviewURL       *string       `json:"reviewUrl"`
-	Status          RequestStatus `json:"status"`
-	MentorID        string        `json:"mentorId"`
-	DeclineReason   string        `json:"declineReason"`
-	DeclineComment  *string       `json:"declineComment"`
+	ID               string        `json:"id"`
+	Email            string        `json:"email"`
+	Name             string        `json:"name"`
+	PreferredContact string        `json:"contact"`
+	Details          string        `json:"details"`
+	Level            string        `json:"level"`
+	CreatedAt        time.Time     `json:"createdAt"`
+	ModifiedAt       time.Time     `json:"modifiedAt"`
+	StatusChangedAt  *time.Time    `json:"statusChangedAt"` // Nullable - may be NULL for old records
+	ScheduledAt      *time.Time    `json:"scheduledAt"`
+	Review           *string       `json:"review"`
+	ReviewURL        *string       `json:"reviewUrl"`
+	Status           RequestStatus `json:"status"`
+	MentorID         string        `json:"mentorId"`
+	DeclineReason    string        `json:"declineReason"`
+	DeclineComment   *string       `json:"declineComment"`
 }
 
 // UpdateStatusRequest is the payload for updating request status
@@ -118,7 +118,7 @@ func (g RequestGroup) GetStatuses() []RequestStatus {
 }
 
 // ScanClientRequest scans a single PostgreSQL row into a MentorClientRequest struct
-// Expected columns: id, mentor_id, email, name, telegram, description, level, status,
+// Expected columns: id, mentor_id, email, name, preferred_contact, description, level, status,
 // created_at, updated_at, status_changed_at, scheduled_at, decline_reason, decline_comment,
 // mentor_review (from LEFT JOIN reviews)
 func ScanClientRequest(row pgx.Row) (*MentorClientRequest, error) {
@@ -135,7 +135,7 @@ func ScanClientRequest(row pgx.Row) (*MentorClientRequest, error) {
 		&r.MentorID,
 		&r.Email,
 		&r.Name,
-		&r.Telegram,
+		&r.PreferredContact,
 		&r.Details,
 		&level, // Scan into nullable variable
 		&r.Status,

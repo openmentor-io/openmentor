@@ -81,7 +81,7 @@ export interface MentorClientRequest {
   id: string
   email: string
   name: string
-  telegram: string
+  contact: string
   details: string
   level: string
   createdAt: string // ISO date string

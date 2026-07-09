@@ -110,14 +110,14 @@ func (s *AdminMentorsService) UpdateMentorProfile(
 		return nil, permissionErr
 	}
 
-	telegram := normalizeTelegramHandle(req.Telegram)
+	contact := strings.TrimSpace(req.PreferredContact)
 	tagIDs := s.resolveTagIDs(ctx, req.Tags)
 	if len(tagIDs) == 0 {
 		s.trackAdminProfileUpdate(ctx, session, mentorID, "invalid_tags", nil)
 		return nil, fmt.Errorf("at least one valid tag is required")
 	}
 
-	updates, err := buildProfileUpdates(session, req, telegram)
+	updates, err := buildProfileUpdates(session, req, contact)
 	if err != nil {
 		s.trackAdminProfileUpdate(ctx, session, mentorID, "invalid_payload", nil)
 		return nil, err
@@ -320,14 +320,6 @@ func validateProfileUpdatePermissions(
 	return nil
 }
 
-func normalizeTelegramHandle(input string) string {
-	telegram := strings.TrimSpace(input)
-	telegram = strings.TrimPrefix(telegram, "@")
-	telegram = strings.TrimPrefix(telegram, "https://t.me/")
-	telegram = strings.TrimPrefix(telegram, "t.me/")
-	return telegram
-}
-
 func (s *AdminMentorsService) resolveTagIDs(ctx context.Context, tags []string) []string {
 	tagIDs := make([]string, 0, len(tags))
 	for _, tagName := range tags {
@@ -342,21 +334,21 @@ func (s *AdminMentorsService) resolveTagIDs(ctx context.Context, tags []string) 
 func buildProfileUpdates(
 	session *models.AdminSession,
 	req *models.AdminMentorProfileUpdateRequest,
-	telegram string,
+	contact string,
 ) (map[string]interface{}, error) {
 
 	updates := map[string]interface{}{
-		"name":         req.Name,
-		"email":        req.Email,
-		"telegram":     telegram,
-		"job_title":    req.Job,
-		"workplace":    req.Workplace,
-		"experience":   req.Experience,
-		"price":        req.Price,
-		"details":      req.Description,
-		"about":        req.About,
-		"competencies": req.Competencies,
-		"calendar_url": req.CalendarURL,
+		"name":              req.Name,
+		"email":             req.Email,
+		"preferred_contact": contact,
+		"job_title":         req.Job,
+		"workplace":         req.Workplace,
+		"experience":        req.Experience,
+		"price":             req.Price,
+		"details":           req.Description,
+		"about":             req.About,
+		"competencies":      req.Competencies,
+		"calendar_url":      req.CalendarURL,
 	}
 	if session.Role != models.ModeratorRoleAdmin {
 		return updates, nil

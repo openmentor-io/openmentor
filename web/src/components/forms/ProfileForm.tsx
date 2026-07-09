@@ -239,8 +239,8 @@ export default function ProfileForm({
               Upload your profile photo. JPEG, PNG, and WebP formats are supported. The maximum file
               size is 10 MB.
               <br />
-              This feature is still experimental. If something goes wrong, message @glamcoder on
-              Telegram.
+              This feature is still experimental. If something goes wrong, drop us a line at
+              hello@openmentor.io.
             </span>
           </Tooltip>
         </label>

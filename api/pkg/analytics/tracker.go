@@ -375,21 +375,20 @@ func trimStringValue(input string) string {
 
 func isBlockedPropertyKey(key string) bool {
 	blockedKeys := map[string]struct{}{
-		"email":             {},
-		"mentor_email":      {},
-		"moderator_email":   {},
-		"name":              {},
-		"mentor_name":       {},
-		"moderator_name":    {},
-		"telegram":          {},
-		"telegram_username": {},
-		"intro":             {},
-		"description":       {},
-		"review":            {},
-		"mentor_review":     {},
-		"platform_review":   {},
-		"improvements":      {},
-		"login_url":         {},
+		"email":           {},
+		"mentor_email":    {},
+		"moderator_email": {},
+		"name":            {},
+		"mentor_name":     {},
+		"moderator_name":  {},
+		"contact":         {},
+		"intro":           {},
+		"description":     {},
+		"review":          {},
+		"mentor_review":   {},
+		"platform_review": {},
+		"improvements":    {},
+		"login_url":       {},
 	}
 
 	_, found := blockedKeys[strings.ToLower(strings.TrimSpace(key))]

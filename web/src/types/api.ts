@@ -26,7 +26,7 @@ export interface ContactMentorRequest {
   mentorId: string
   name: string
   email: string
-  telegramUsername: string
+  contact: string
   experience?: string
   intro: string
   captchaToken: string
@@ -115,7 +115,7 @@ export interface ProfilePictureData {
 export interface RegisterMentorRequest {
   name: string
   email: string
-  telegram: string
+  contact: string
   job: string
   workplace: string
   experience: string // '2-5' | '5-10' | '10+'

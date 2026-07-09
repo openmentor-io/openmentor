@@ -59,7 +59,7 @@ describe('analytics', () => {
 
     const { default: analytics, analyticsEvents } = await import('@/lib/analytics')
     analytics.event(analyticsEvents.MENTEE_CONTACT_SUBMITTED, {
-      has_telegram_username: true,
+      has_contact: true,
       review_id: 'rev_123',
       mentor_review: 'raw review text',
     })
@@ -67,7 +67,7 @@ describe('analytics', () => {
     expect(capture).toHaveBeenCalledTimes(1)
     const [, payload] = capture.mock.calls[0]
     expect(payload).toMatchObject({
-      has_telegram_username: true,
+      has_contact: true,
       review_id: 'rev_123',
     })
     expect(payload.mentor_review).toBeUndefined()

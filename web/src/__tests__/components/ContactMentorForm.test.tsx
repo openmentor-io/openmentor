@@ -27,7 +27,7 @@ describe('ContactMentorForm', () => {
     expect(screen.getByLabelText(/Your email/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Your full name/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/What would you like to talk about/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/Telegram \(optional\)/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/How can your mentor reach you/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/How would you rate your level/i)).toBeInTheDocument()
   })
 
@@ -108,7 +108,7 @@ describe('ContactMentorForm', () => {
       screen.getByLabelText(/What would you like to talk about/i),
       'I need help with my career development in tech industry.'
     )
-    await user.type(screen.getByLabelText(/Telegram \(optional\)/i), '@johndoe')
+    await user.type(screen.getByLabelText(/How can your mentor reach you/i), '@johndoe')
 
     // Complete the captcha
     await act(async () => {
@@ -131,18 +131,18 @@ describe('ContactMentorForm', () => {
         email: 'test@example.com',
         name: 'John Doe',
         intro: 'I need help with my career development in tech industry.',
-        telegramUsername: '@johndoe',
+        contact: '@johndoe',
         captchaToken: 'mock-turnstile-token',
       }),
       expect.anything() // react-hook-form passes event as second arg
     )
   })
 
-  it('submits form without a telegram username (optional field)', async () => {
+  it('submits form without contact details (optional field)', async () => {
     const user = userEvent.setup()
     render(<ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
-    // Fill all required fields, leave telegram empty
+    // Fill all required fields, leave the contact field empty
     await user.type(screen.getByLabelText(/Your email/i), 'test@example.com')
     await user.type(screen.getByLabelText(/Your full name/i), 'John Doe')
     await user.type(
@@ -169,7 +169,7 @@ describe('ContactMentorForm', () => {
     expect(mockOnSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         email: 'test@example.com',
-        telegramUsername: '',
+        contact: '',
       }),
       expect.anything()
     )
@@ -186,7 +186,7 @@ describe('ContactMentorForm', () => {
       screen.getByLabelText(/What would you like to talk about/i),
       'I need help with my career development in tech industry.'
     )
-    await user.type(screen.getByLabelText(/Telegram \(optional\)/i), '@johndoe')
+    await user.type(screen.getByLabelText(/How can your mentor reach you/i), '@johndoe')
 
     // Don't complete the captcha - submit form
     const submitButton = screen.getByRole('button', { name: /Send request/i })

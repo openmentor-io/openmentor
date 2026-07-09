@@ -18,7 +18,7 @@ export interface AdminMentorListItem {
   id: number
   name: string
   email: string
-  telegram: string
+  contact: string
   job: string
   workplace: string
   price: string
@@ -32,7 +32,7 @@ export interface AdminMentorDetails {
   slug: string
   name: string
   email: string
-  telegram: string
+  contact: string
   job: string
   workplace: string
   experience: string
@@ -60,7 +60,7 @@ export interface AdminMentorResponse {
 export interface AdminMentorProfileUpdateRequest {
   name: string
   email: string
-  telegram: string
+  contact: string
   job: string
   workplace: string
   experience: string

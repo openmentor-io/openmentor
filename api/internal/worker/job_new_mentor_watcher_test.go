@@ -14,8 +14,8 @@ import (
 func TestNewMentorWatcherHappyPath(t *testing.T) {
 	env := newJobsTestEnv()
 	mentor := testMentor("m1")
-	mentor.Name = "John  Doe " // trailing space + double space
-	mentor.Telegram = "@johndoe"
+	mentor.Name = "John  Doe "             // trailing space + double space
+	mentor.PreferredContact = " @johndoe " // free text, only whitespace is trimmed
 	env.repo.mentors["m1"] = mentor
 
 	w := env.do(http.MethodPost, "/jobs/new-mentor-watcher?mentorId=m1", nil)
@@ -27,7 +27,7 @@ func TestNewMentorWatcherHappyPath(t *testing.T) {
 	update := env.repo.finalized[0]
 	assert.Equal(t, "m1", update.MentorID)
 	assert.Equal(t, "John Doe", update.Name)
-	assert.Equal(t, "johndoe", update.Telegram)
+	assert.Equal(t, "@johndoe", update.PreferredContact)
 	assert.Equal(t, "pending", update.Status)
 	assert.Equal(t, "john-doe-42", update.Slug, "existing slug must be kept, not regenerated")
 	assert.NotEmpty(t, update.LoginToken)

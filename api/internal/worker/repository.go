@@ -12,41 +12,41 @@ import (
 
 // This file holds the worker's own data access layer. The API's
 // internal/repository types are shaped around the public API (mentor cache,
-// public field filtering, hidden email/telegram columns), while the job
+// public field filtering, hidden email/contact columns), while the job
 // handlers ported from openmentor-func need raw rows including email,
-// telegram and login token columns. The SQL below mirrors the queries in
-// openmentor-func/lib/utils/db.ts and each function's index.ts.
+// preferred_contact and login token columns. The SQL below mirrors the
+// queries in openmentor-func/lib/utils/db.ts and each function's index.ts.
 
 // JobMentor is the mentor row shape the job handlers need. It mirrors the
 // Mentor class in openmentor-func/lib/data/mentor.ts (PgRowAdapter mapping).
 type JobMentor struct {
-	ID          string // uuid primary key
-	LegacyID    int    // legacy numeric id (used in slug generation)
-	Name        string
-	Email       string
-	Status      string
-	Telegram    string
-	Slug        string
-	JobTitle    string
-	Workplace   string
-	Price       string
-	CalendarURL string // "Calendly Url" in the func app
+	ID               string // uuid primary key
+	LegacyID         int    // legacy numeric id (used in slug generation)
+	Name             string
+	Email            string
+	Status           string
+	PreferredContact string
+	Slug             string
+	JobTitle         string
+	Workplace        string
+	Price            string
+	CalendarURL      string // "Calendly Url" in the func app
 }
 
 // JobRequest is the client_requests row shape the job handlers need,
 // mirroring the Request class in openmentor-func/lib/data/mentor.ts.
 type JobRequest struct {
-	ID             string
-	MentorID       string
-	Name           string
-	Email          string
-	Telegram       string
-	Description    string
-	Level          string
-	Status         string
-	DeclineReason  string
-	DeclineComment string
-	MentorName     string // populated only by GetJobRequestWithMentorName
+	ID               string
+	MentorID         string
+	Name             string
+	Email            string
+	PreferredContact string
+	Description      string
+	Level            string
+	Status           string
+	DeclineReason    string
+	DeclineComment   string
+	MentorName       string // populated only by GetJobRequestWithMentorName
 }
 
 // JobReview is the reviews row (joined with its client request) used by the
@@ -72,7 +72,7 @@ type JobModerator struct {
 type FinalizeNewMentorParams struct {
 	MentorID            string
 	Name                string
-	Telegram            string
+	PreferredContact    string
 	LoginToken          string
 	LoginTokenExpiresAt time.Time
 	Slug                string
@@ -109,7 +109,7 @@ type JobsRepository interface {
 	SetMentorStatus(ctx context.Context, mentorID, status string) error
 	GetJobRequestByID(ctx context.Context, requestID string) (*JobRequest, error)
 	GetJobRequestWithMentorName(ctx context.Context, requestID string) (*JobRequest, error)
-	SetRequestTelegramPending(ctx context.Context, requestID, telegram string) error
+	SetRequestContactPending(ctx context.Context, requestID, contact string) error
 	GetJobModeratorByID(ctx context.Context, moderatorID string) (*JobModerator, error)
 	GetJobReviewByID(ctx context.Context, reviewID string) (*JobReview, error)
 
@@ -139,7 +139,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*JobMentor, error) {
 	query := `
 		SELECT id, legacy_id, name, COALESCE(email::text, ''), status,
-			COALESCE(telegram, ''), COALESCE(slug, ''), COALESCE(job_title, ''),
+			COALESCE(preferred_contact, ''), COALESCE(slug, ''), COALESCE(job_title, ''),
 			COALESCE(workplace, ''), COALESCE(price, ''), COALESCE(calendar_url, '')
 		FROM mentors
 		WHERE id = $1
@@ -148,7 +148,7 @@ func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*Jo
 	var m JobMentor
 	err := r.pool.QueryRow(ctx, query, mentorID).Scan(
 		&m.ID, &m.LegacyID, &m.Name, &m.Email, &m.Status,
-		&m.Telegram, &m.Slug, &m.JobTitle,
+		&m.PreferredContact, &m.Slug, &m.JobTitle,
 		&m.Workplace, &m.Price, &m.CalendarURL,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -181,7 +181,7 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 	query := `
 		UPDATE mentors SET
 			name = $1,
-			telegram = $2,
+			preferred_contact = $2,
 			login_token = $3,
 			login_token_expires_at = $4,
 			slug = $5,
@@ -191,7 +191,7 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 		WHERE id = $8
 	`
 	_, err := r.pool.Exec(ctx, query,
-		p.Name, p.Telegram, p.LoginToken, p.LoginTokenExpiresAt,
+		p.Name, p.PreferredContact, p.LoginToken, p.LoginTokenExpiresAt,
 		p.Slug, p.Status, p.SortOrder, p.MentorID,
 	)
 	if err != nil {
@@ -215,7 +215,7 @@ func (r *Repository) SetMentorStatus(ctx context.Context, mentorID, status strin
 
 const jobRequestColumns = `
 	cr.id, cr.mentor_id, cr.name, COALESCE(cr.email::text, ''),
-	COALESCE(cr.telegram, ''), COALESCE(cr.description, ''),
+	COALESCE(cr.preferred_contact, ''), COALESCE(cr.description, ''),
 	COALESCE(cr.level, ''), cr.status,
 	COALESCE(cr.decline_reason::text, ''), COALESCE(cr.decline_comment, '')`
 
@@ -227,7 +227,7 @@ func (r *Repository) GetJobRequestByID(ctx context.Context, requestID string) (*
 	var req JobRequest
 	err := r.pool.QueryRow(ctx, query, requestID).Scan(
 		&req.ID, &req.MentorID, &req.Name, &req.Email,
-		&req.Telegram, &req.Description,
+		&req.PreferredContact, &req.Description,
 		&req.Level, &req.Status,
 		&req.DeclineReason, &req.DeclineComment,
 	)
@@ -254,7 +254,7 @@ func (r *Repository) GetJobRequestWithMentorName(ctx context.Context, requestID 
 	var req JobRequest
 	err := r.pool.QueryRow(ctx, query, requestID).Scan(
 		&req.ID, &req.MentorID, &req.Name, &req.Email,
-		&req.Telegram, &req.Description,
+		&req.PreferredContact, &req.Description,
 		&req.Level, &req.Status,
 		&req.DeclineReason, &req.DeclineComment,
 		&req.MentorName,
@@ -268,14 +268,14 @@ func (r *Repository) GetJobRequestWithMentorName(ctx context.Context, requestID 
 	return &req, nil
 }
 
-// SetRequestTelegramPending stores the normalized telegram handle and moves
+// SetRequestContactPending stores the trimmed contact details and moves
 // the request to 'pending'. Mirrors new-request-watcher/index.ts exactly
-// (UPDATE client_requests SET telegram = $1, status = $2 WHERE id = $3 -
+// (UPDATE client_requests SET preferred_contact = $1, status = $2 WHERE id = $3 -
 // deliberately no updated_at/status_changed_at touch, matching the func).
-func (r *Repository) SetRequestTelegramPending(ctx context.Context, requestID, telegram string) error {
+func (r *Repository) SetRequestContactPending(ctx context.Context, requestID, contact string) error {
 	_, err := r.pool.Exec(ctx,
-		`UPDATE client_requests SET telegram = $1, status = 'pending' WHERE id = $2`,
-		telegram, requestID,
+		`UPDATE client_requests SET preferred_contact = $1, status = 'pending' WHERE id = $2`,
+		contact, requestID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update client request %s: %w", requestID, err)
@@ -364,7 +364,7 @@ func (r *Repository) ListMentorsWithStalePendingRequests(ctx context.Context) ([
 // ListStalePendingRequests returns a mentor's pending requests older than
 // 24 hours, oldest first. Mirrors the per-mentor requests query in
 // sessions-watcher/index.ts (same predicates, interval, days-ago
-// computation and ordering; unused columns - telegram, email, level,
+// computation and ordering; unused columns - preferred_contact, email, level,
 // mentor_name, decline fields - are not selected).
 func (r *Repository) ListStalePendingRequests(ctx context.Context, mentorID string) ([]JobReminderRequest, error) {
 	query := `

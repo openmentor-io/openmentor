@@ -108,7 +108,7 @@ export interface ContactFormData {
   email: string
   name: string
   intro: string
-  telegram?: string
+  contact?: string
 }
 
 /**

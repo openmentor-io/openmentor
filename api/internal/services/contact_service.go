@@ -54,7 +54,7 @@ func (s *ContactService) SubmitContactForm(ctx context.Context, req *models.Cont
 	baseProperties := map[string]interface{}{
 		"mentor_id":              req.MentorID,
 		"experience":             req.Experience,
-		"has_telegram_username":  strings.TrimSpace(req.TelegramUsername) != "",
+		"has_contact":            strings.TrimSpace(req.PreferredContact) != "",
 		"calendar_url_requested": true,
 	}
 
@@ -64,7 +64,7 @@ func (s *ContactService) SubmitContactForm(ctx context.Context, req *models.Cont
 		s.tracker.Track(ctx, analytics.EventMenteeContactSubmitted, analytics.MentorDistinctID(req.MentorID), map[string]interface{}{
 			"mentor_id":              req.MentorID,
 			"experience":             req.Experience,
-			"has_telegram_username":  strings.TrimSpace(req.TelegramUsername) != "",
+			"has_contact":            strings.TrimSpace(req.PreferredContact) != "",
 			"calendar_url_requested": true,
 			"outcome":                "captcha_failed",
 		})
@@ -77,12 +77,12 @@ func (s *ContactService) SubmitContactForm(ctx context.Context, req *models.Cont
 
 	// Create client request in PostgreSQL
 	clientReq := &models.ClientRequest{
-		Email:       req.Email,
-		Name:        req.Name,
-		Level:       req.Experience,
-		MentorID:    req.MentorID,
-		Description: req.Intro,
-		Telegram:    normalizeTelegramHandle(req.TelegramUsername),
+		Email:            req.Email,
+		Name:             req.Name,
+		Level:            req.Experience,
+		MentorID:         req.MentorID,
+		Description:      req.Intro,
+		PreferredContact: strings.TrimSpace(req.PreferredContact),
 	}
 
 	requestID, err := s.clientRequestRepo.Create(ctx, clientReq)
@@ -91,7 +91,7 @@ func (s *ContactService) SubmitContactForm(ctx context.Context, req *models.Cont
 		s.tracker.Track(ctx, analytics.EventMenteeContactSubmitted, analytics.MentorDistinctID(req.MentorID), map[string]interface{}{
 			"mentor_id":              req.MentorID,
 			"experience":             req.Experience,
-			"has_telegram_username":  strings.TrimSpace(req.TelegramUsername) != "",
+			"has_contact":            strings.TrimSpace(req.PreferredContact) != "",
 			"calendar_url_requested": true,
 			"outcome":                "db_error",
 		})
@@ -115,7 +115,7 @@ func (s *ContactService) SubmitContactForm(ctx context.Context, req *models.Cont
 			"mentor_id":              req.MentorID,
 			"request_id":             requestID,
 			"experience":             req.Experience,
-			"has_telegram_username":  strings.TrimSpace(req.TelegramUsername) != "",
+			"has_contact":            strings.TrimSpace(req.PreferredContact) != "",
 			"calendar_url_requested": true,
 			"calendar_url_available": false,
 			"outcome":                "success",

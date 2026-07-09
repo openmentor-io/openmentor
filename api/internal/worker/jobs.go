@@ -125,16 +125,6 @@ func (h *Handlers) track(ctx context.Context, event, distinctID string, props ma
 	h.tracker.Track(ctx, event, distinctID, props)
 }
 
-// trimTelegramHandle mirrors the func app's normalization verbatim:
-// (value || ”).trim().replace('@', ”).replace('https://t.me/', ”) -
-// JS String.replace with a string pattern replaces the FIRST occurrence only.
-func trimTelegramHandle(value string) string {
-	trimmed := strings.TrimSpace(value)
-	trimmed = strings.Replace(trimmed, "@", "", 1)
-	trimmed = strings.Replace(trimmed, "https://t.me/", "", 1)
-	return trimmed
-}
-
 // trimMentorName mirrors the func app: name.trim().replace('  ', ' ')
 // (first double-space only, as in JS String.replace with a string pattern).
 func trimMentorName(value string) string {

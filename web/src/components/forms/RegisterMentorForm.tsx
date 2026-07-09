@@ -19,7 +19,7 @@ interface TagOption {
 interface RegisterFormData {
   name: string
   email: string
-  telegram: string
+  contact: string
   job: string
   workplace: string
   experience: string
@@ -242,27 +242,26 @@ export default function RegisterMentorForm({
         </div>
 
         <div>
-          <label htmlFor="telegram" className="block mb-2 font-medium text-ink">
-            Telegram (optional)
+          <label htmlFor="contact" className="block mb-2 font-medium text-ink">
+            How can we reach you?
           </label>
 
-          {errors.telegram && (
+          {errors.contact && (
             <div className="text-sm text-red-700 mt-3 mb-2">
-              The username must be 50 characters or fewer.
+              The contact details must be 100 characters or fewer.
             </div>
           )}
 
           <input
             type="text"
-            {...register('telegram', { maxLength: 50 })}
-            id="telegram"
-            autoComplete="username"
+            {...register('contact', { maxLength: 100 })}
+            id="contact"
             className="field"
           />
 
           <p className="mt-2 text-sm text-gray-500">
-            Optional — add your Telegram handle if you prefer to chat there. Otherwise we&apos;ll
-            reach out by email. Enter just the username, without @ or links.
+            Optional — email, Telegram, LinkedIn, whatever works for you. Otherwise we&apos;ll
+            reach out by email.
           </p>
         </div>
       </section>

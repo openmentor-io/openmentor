@@ -46,7 +46,7 @@ function buildFormData(
   return {
     name: mentor.name,
     email: mentor.email,
-    telegram: mentor.telegram,
+    contact: mentor.contact,
     job: mentor.job,
     workplace: mentor.workplace,
     experience: mentor.experience,
@@ -376,10 +376,10 @@ function MentorModerationEditContent(): JSX.Element {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Telegram</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Contact</label>
               <input
-                value={formData.telegram}
-                onChange={(e) => handleInputChange('telegram', e.target.value)}
+                value={formData.contact}
+                onChange={(e) => handleInputChange('contact', e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
               />
             </div>

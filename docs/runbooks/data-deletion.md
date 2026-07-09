@@ -6,9 +6,9 @@
 
 | Subject | Where | Data |
 |---|---|---|
-| Mentor | `mentors` table | name, email, telegram handle, job/workplace, about/details, photo (blob storage), slug |
+| Mentor | `mentors` table | name, email, preferred contact, job/workplace, about/details, photo (blob storage), slug |
 | Mentor | blob storage (S3 bucket) | profile photo(s) keyed by slug/id |
-| Mentee | `client_requests` table | name, email, telegram handle, request description, level |
+| Mentee | `client_requests` table | name, email, preferred contact, request description, level |
 | Mentee | `reviews` table | review text (linked to a request) |
 | Both | analytics (PostHog) | events keyed by distinct_id |
 | Both | email provider logs (SES) | delivery metadata (auto-expires) |
@@ -32,7 +32,7 @@
    DELETE FROM reviews WHERE client_request_id IN (SELECT id FROM client_requests WHERE email = $1);
    DELETE FROM client_requests WHERE email = $1;
    ```
-   If the mentor should retain evidence a session happened, replace PII with placeholders instead of row deletion (`UPDATE client_requests SET name='[deleted]', email=NULL, telegram=NULL, description='[deleted]' ...`) — prefer full deletion unless there's an active dispute.
+   If the mentor should retain evidence a session happened, replace PII with placeholders instead of row deletion (`UPDATE client_requests SET name='[deleted]', email=NULL, preferred_contact=NULL, description='[deleted]' ...`) — prefer full deletion unless there's an active dispute.
 4. **Analytics**: delete the person in PostHog (Persons → delete, incl. events) using their distinct_id/email.
 5. **Confirm** to the requester in writing; note the date. Keep a minimal log (date, subject hash, operator) in the ops tracker — not the deleted data itself.
 

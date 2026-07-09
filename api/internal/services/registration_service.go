@@ -80,8 +80,8 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		}, fmt.Errorf("captcha verification failed: %w", err)
 	}
 
-	// 2. Clean optional telegram handle (remove @ and t.me/ prefix)
-	telegram := normalizeTelegramHandle(req.Telegram)
+	// 2. Trim the optional free-text contact details
+	contact := strings.TrimSpace(req.PreferredContact)
 
 	// 3. Get tag IDs for selected tags
 	var tagIDs []string
@@ -96,17 +96,17 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 
 	// 4. Create mentor record in PostgreSQL
 	fields := map[string]interface{}{
-		"name":         strings.TrimSpace(req.Name),
-		"email":        req.Email,
-		"telegram":     telegram,
-		"job_title":    req.Job,
-		"workplace":    req.Workplace,
-		"experience":   req.Experience,
-		"price":        req.Price,
-		"about":        req.About,
-		"details":      req.Description,
-		"competencies": req.Competencies,
-		"status":       registrationStatusPending,
+		"name":              strings.TrimSpace(req.Name),
+		"email":             req.Email,
+		"preferred_contact": contact,
+		"job_title":         req.Job,
+		"workplace":         req.Workplace,
+		"experience":        req.Experience,
+		"price":             req.Price,
+		"about":             req.About,
+		"details":           req.Description,
+		"competencies":      req.Competencies,
+		"status":            registrationStatusPending,
 	}
 
 	if req.CalendarURL != "" {

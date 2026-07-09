@@ -7,8 +7,8 @@
 
 | # | Activity | Data subjects | Personal data | Purpose | Lawful basis | Recipients / processors | Retention | Transfers |
 |---|---|---|---|---|---|---|---|---|
-| 1 | Mentor profiles | Mentors | Name, email, telegram handle, job title, workplace, bio, photo, price | Operate the mentor catalog; matching | Contract (Art. 6(1)(b)) | Hosting (Hetzner, EU), storage bucket, email (AWS SES) | While profile active + 12 mo after deletion request grace | EU hosting; SES region TBD |
-| 2 | Mentee contact requests | Mentees | Name, email, telegram handle (optional), request text, self-assessed level | Deliver the request to the chosen mentor; session coordination | Contract | Hosting, email provider; the chosen mentor | 24 months (D13, pending) | as above |
+| 1 | Mentor profiles | Mentors | Name, email, preferred contact (optional free text), job title, workplace, bio, photo, price | Operate the mentor catalog; matching | Contract (Art. 6(1)(b)) | Hosting (Hetzner, EU), storage bucket, email (AWS SES) | While profile active + 12 mo after deletion request grace | EU hosting; SES region TBD |
+| 2 | Mentee contact requests | Mentees | Name, email, preferred contact (optional free text), request text, self-assessed level | Deliver the request to the chosen mentor; session coordination | Contract | Hosting, email provider; the chosen mentor | 24 months (D13, pending) | as above |
 | 3 | Session reviews | Mentees | Review text, ratings, NPS | Quality feedback to mentors and platform | Legitimate interest | Hosting; the reviewed mentor | 24 months (D13, pending) | as above |
 | 4 | Authentication | Mentors, moderators | Email, single-use login tokens, session cookies | Account access (magic links) | Contract | Hosting, email provider | Tokens 15 min; sessions per TTL | as above |
 | 5 | Product analytics | All visitors | Pseudonymous events, device data | Product improvement | Consent (cookie banner, P5.2) | PostHog (EU cloud) — Mixpanel DROPPED (D18, 2026-07-09) | Provider defaults | per provider |

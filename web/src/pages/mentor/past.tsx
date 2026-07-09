@@ -33,7 +33,7 @@ function filterRequests(requests: MentorClientRequest[], query: string): MentorC
     (r) =>
       r.name.toLowerCase().includes(lowerQuery) ||
       r.email.toLowerCase().includes(lowerQuery) ||
-      r.telegram.toLowerCase().includes(lowerQuery) ||
+      r.contact.toLowerCase().includes(lowerQuery) ||
       r.details.toLowerCase().includes(lowerQuery) ||
       r.id.toLowerCase().includes(lowerQuery)
   )
@@ -136,7 +136,7 @@ function PastRequestsContent(): JSX.Element {
             <SearchInput
               value={searchQuery}
               onChange={setSearchQuery}
-              placeholder="Search by name, email, telegram..."
+              placeholder="Search by name, email, contact..."
             />
           </div>
           <SortToggle value={sortOrder} onChange={setSortOrder} />

@@ -3,9 +3,9 @@ package models
 // RegisterMentorRequest represents a mentor registration form submission
 type RegisterMentorRequest struct {
 	// Personal Info
-	Name     string `json:"name" binding:"required,max=100"`
-	Email    string `json:"email" binding:"required,email,max=255"`
-	Telegram string `json:"telegram" binding:"omitempty,max=50"` // Optional contact handle
+	Name             string `json:"name" binding:"required,max=100"`
+	Email            string `json:"email" binding:"required,email,max=255"`
+	PreferredContact string `json:"contact" binding:"omitempty,max=100"` // Optional free-text contact details
 
 	// Professional Info
 	Job        string   `json:"job" binding:"required,max=200"`

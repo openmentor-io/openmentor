@@ -7,7 +7,7 @@ interface ContactFormData {
   name: string
   intro: string
   experience?: string
-  telegramUsername: string
+  contact: string
   captchaToken: string
 }
 
@@ -134,27 +134,26 @@ export default function ContactMentorForm({
       </div>
 
       <div>
-        <label htmlFor="telegramUsername" className="block mb-2 font-medium text-ink">
-          Telegram (optional)
+        <label htmlFor="contact" className="block mb-2 font-medium text-ink">
+          How can your mentor reach you?
         </label>
 
-        {errors.telegramUsername && errors.telegramUsername.type === 'maxLength' && (
+        {errors.contact && errors.contact.type === 'maxLength' && (
           <div className="text-sm text-red-700 mt-3 mb-2">
-            The username must be 50 characters or fewer.
+            The contact details must be 100 characters or fewer.
           </div>
         )}
 
         <input
           type="text"
-          {...register('telegramUsername', { maxLength: 50 })}
-          id="telegramUsername"
-          autoComplete="username"
+          {...register('contact', { maxLength: 100 })}
+          id="contact"
           className="field"
         />
 
         <p className="mt-2 text-sm text-gray-500">
-          Optional — add your Telegram handle if you prefer to chat there. Otherwise your mentor
-          will reach out by email.
+          Optional — email, Telegram, LinkedIn, whatever works for you. Your mentor will use your
+          email otherwise.
         </p>
       </div>
 

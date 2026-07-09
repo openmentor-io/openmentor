@@ -169,20 +169,20 @@ func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId
 
 // allowedUpdateColumns defines the columns that can be updated via the Update method
 var allowedUpdateColumns = map[string]bool{
-	"name":         true,
-	"email":        true,
-	"job_title":    true,
-	"workplace":    true,
-	"about":        true,
-	"details":      true,
-	"competencies": true,
-	"experience":   true,
-	"price":        true,
-	"telegram":     true,
-	"calendar_url": true,
-	"slug":         true,
-	"status":       true,
-	"updated_at":   true,
+	"name":              true,
+	"email":             true,
+	"job_title":         true,
+	"workplace":         true,
+	"about":             true,
+	"details":           true,
+	"competencies":      true,
+	"experience":        true,
+	"price":             true,
+	"preferred_contact": true,
+	"calendar_url":      true,
+	"slug":              true,
+	"status":            true,
+	"updated_at":        true,
 }
 
 // Update updates a mentor in PostgreSQL
@@ -251,7 +251,7 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 
 	query := `
 		INSERT INTO mentors (legacy_id, slug, name, email, job_title, workplace, about, details,
-			competencies, experience, price, status, telegram, calendar_url, sort_order)
+			competencies, experience, price, status, preferred_contact, calendar_url, sort_order)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING id
 	`
@@ -271,7 +271,7 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 		fields["experience"],
 		fields["price"],
 		fields["status"],
-		fields["telegram"],
+		fields["preferred_contact"],
 		fields["calendar_url"],
 		fields["sort_order"],
 	).Scan(&mentorId)
@@ -546,7 +546,7 @@ func (r *MentorRepository) ListForModeration(ctx context.Context, statuses []str
 			m.legacy_id,
 			m.name,
 			COALESCE(m.email::text, ''),
-			COALESCE(m.telegram, ''),
+			COALESCE(m.preferred_contact, ''),
 			COALESCE(m.job_title, ''),
 			COALESCE(m.workplace, ''),
 			COALESCE(m.price, ''),
@@ -571,7 +571,7 @@ func (r *MentorRepository) ListForModeration(ctx context.Context, statuses []str
 			&item.LegacyID,
 			&item.Name,
 			&item.Email,
-			&item.Telegram,
+			&item.PreferredContact,
 			&item.Job,
 			&item.Workplace,
 			&item.Price,
@@ -599,7 +599,7 @@ func (r *MentorRepository) GetForModerationByID(ctx context.Context, mentorID st
 			m.slug,
 			m.name,
 			COALESCE(m.email::text, ''),
-			COALESCE(m.telegram, ''),
+			COALESCE(m.preferred_contact, ''),
 			COALESCE(m.job_title, ''),
 			COALESCE(m.workplace, ''),
 			COALESCE(m.experience, ''),
@@ -628,7 +628,7 @@ func (r *MentorRepository) GetForModerationByID(ctx context.Context, mentorID st
 		&mentor.Slug,
 		&mentor.Name,
 		&mentor.Email,
-		&mentor.Telegram,
+		&mentor.PreferredContact,
 		&mentor.Job,
 		&mentor.Workplace,
 		&mentor.Experience,

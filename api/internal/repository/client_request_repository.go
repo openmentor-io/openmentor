@@ -24,7 +24,7 @@ func NewClientRequestRepository(pool *pgxpool.Pool) *ClientRequestRepository {
 // Returns: requestID (UUID), error
 func (r *ClientRequestRepository) Create(ctx context.Context, req *models.ClientRequest) (string, error) {
 	query := `
-		INSERT INTO client_requests (mentor_id, email, name, telegram, description, level, status)
+		INSERT INTO client_requests (mentor_id, email, name, preferred_contact, description, level, status)
 		VALUES ($1, $2, $3, $4, $5, $6, 'pending')
 		RETURNING id
 	`
@@ -34,7 +34,7 @@ func (r *ClientRequestRepository) Create(ctx context.Context, req *models.Client
 		req.MentorID,
 		req.Email,
 		req.Name,
-		req.Telegram,
+		req.PreferredContact,
 		req.Description,
 		req.Level,
 	).Scan(&requestID)
@@ -49,7 +49,7 @@ func (r *ClientRequestRepository) Create(ctx context.Context, req *models.Client
 // GetByMentor retrieves all client requests for a mentor filtered by statuses
 func (r *ClientRequestRepository) GetByMentor(ctx context.Context, mentorId string, statuses []models.RequestStatus) ([]*models.MentorClientRequest, error) {
 	query := `
-		SELECT cr.id, cr.mentor_id, cr.email, cr.name, cr.telegram, cr.description,
+		SELECT cr.id, cr.mentor_id, cr.email, cr.name, cr.preferred_contact, cr.description,
 			cr.level, cr.status, cr.created_at, cr.updated_at, cr.status_changed_at,
 			cr.scheduled_at, cr.decline_reason, cr.decline_comment,
 			r.mentor_review
@@ -76,7 +76,7 @@ func (r *ClientRequestRepository) GetByMentor(ctx context.Context, mentorId stri
 // GetByID retrieves a single client request by ID
 func (r *ClientRequestRepository) GetByID(ctx context.Context, id string) (*models.MentorClientRequest, error) {
 	query := `
-		SELECT cr.id, cr.mentor_id, cr.email, cr.name, cr.telegram, cr.description,
+		SELECT cr.id, cr.mentor_id, cr.email, cr.name, cr.preferred_contact, cr.description,
 			cr.level, cr.status, cr.created_at, cr.updated_at, cr.status_changed_at,
 			cr.scheduled_at, cr.decline_reason, cr.decline_comment,
 			r.mentor_review
