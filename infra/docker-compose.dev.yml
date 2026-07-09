@@ -1,0 +1,174 @@
+# Development overrides for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  # Disable Traefik in development - access services directly
+  traefik:
+    profiles:
+      - production-only
+
+  frontend:
+    # Build from local source instead of pulling from registry
+    build:
+      context: ../openmentor
+      dockerfile: Dockerfile
+      target: deps  # Use deps stage for dependencies only
+      args:
+        NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV:-development}
+        NEXT_PUBLIC_ANALYTICS_PROVIDER: ${NEXT_PUBLIC_ANALYTICS_PROVIDER:-posthog}
+        NEXT_PUBLIC_ANALYTICS_EVENT_VERSION: ${NEXT_PUBLIC_ANALYTICS_EVENT_VERSION:-v1}
+    image: openmentor-frontend:dev
+
+    # Mount entire source code for hot-reloading
+    volumes:
+      - ../openmentor:/app
+      # Prevent overwriting node_modules from container
+      - /app/node_modules
+      - /app/.next
+
+    # Working directory
+    working_dir: /app
+
+    # Override environment for development
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_APP_ENV=${NEXT_PUBLIC_APP_ENV:-development}
+      - NEXT_PUBLIC_ANALYTICS_PROVIDER=${NEXT_PUBLIC_ANALYTICS_PROVIDER:-posthog}
+      - NEXT_PUBLIC_ANALYTICS_EVENT_VERSION=${NEXT_PUBLIC_ANALYTICS_EVENT_VERSION:-v1}
+      - NEXT_PUBLIC_GO_API_URL=http://backend:8081
+      # Image host for next/image — path-style S3 endpoint host + bucket,
+      # matching S3_STORAGE_* in .env.example (AWS S3, DECISIONS D15)
+      - NEXT_PUBLIC_S3_STORAGE_ENDPOINT=${NEXT_PUBLIC_S3_STORAGE_ENDPOINT}
+      - NEXT_PUBLIC_S3_STORAGE_BUCKET=${NEXT_PUBLIC_S3_STORAGE_BUCKET}
+      - NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY=${NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY}
+      - GO_API_INTERNAL_TOKEN=${GO_API_INTERNAL_TOKEN}
+      - PORT=3000
+
+    # Expose port directly (no Traefik)
+    ports:
+      - "3000:3000"
+
+    # Remove Traefik labels in dev
+    labels: []
+
+    # Disable healthcheck in dev (deps stage doesn't have curl)
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Run in development mode
+    command: yarn dev
+
+  # PostgreSQL database for development.
+  # Overrides the base `postgres` service (same image/limits) with dev
+  # credentials, a regular non-external dev volume (the mount below replaces
+  # the base `postgres-data` mount — same container path wins on merge) and
+  # host port 5433 for local tooling. Only ONE database runs in the merged
+  # stack.
+  postgres:
+    container_name: openmentor-postgres-dev
+    environment:
+      - POSTGRES_USER=openmentor
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=openmentor
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openmentor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  migrate:
+    # Use locally built backend image (same as backend service)
+    image: openmentor-backend:dev
+    environment:
+      - APP_ENV=development
+      - LOG_LEVEL=debug
+      - LOG_DIR=/app/logs
+      - DATABASE_URL=postgresql://openmentor:password@postgres:5432/openmentor?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    # Build from local source instead of pulling from registry
+    build:
+      context: ../openmentor-api
+      dockerfile: Dockerfile
+      target: runner  # Use production target (Go doesn't have hot-reload by default)
+    image: openmentor-backend:dev
+
+    # Expose port directly for debugging
+    ports:
+      - "8081:8081"
+
+    # Override environment for development
+    environment:
+      - GIN_MODE=debug
+      - PORT=8081
+      - APP_ENV=development
+      - LOG_LEVEL=debug
+      - LOG_DIR=/app/logs
+      - DATABASE_URL=postgresql://openmentor:password@postgres:5432/openmentor?sslmode=disable
+
+    # Mount logs directory for easier access
+    volumes:
+      - ./logs/backend:/app/logs
+
+    # Depend on PostgreSQL
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    # Use locally built backend image (same as backend service)
+    image: openmentor-backend:dev
+
+    # Expose port directly for debugging (manual job/cron triggers)
+    ports:
+      - "8090:8090"
+
+    # Override environment for development
+    environment:
+      - GIN_MODE=debug
+      - WORKER_PORT=8090
+      - APP_ENV=development
+      - LOG_LEVEL=debug
+      - LOG_DIR=/app/logs
+      - DATABASE_URL=postgresql://openmentor:password@postgres:5432/openmentor?sslmode=disable
+
+    # Mount logs directory for easier access
+    volumes:
+      - ./logs/worker:/app/logs
+
+    # Depend on PostgreSQL
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Disable the backup sidecar in development - dev data is disposable and
+  # the local stack should not touch backup buckets
+  postgres-backup:
+    profiles:
+      - production-only
+
+  # Disable Alloy and cAdvisor in development - prevents polluting production Grafana Cloud data
+  alloy:
+    profiles:
+      - production-only
+
+  cadvisor:
+    profiles:
+      - production-only
+
+volumes:
+  pgdata:
+    name: openmentor-postgres-data-dev

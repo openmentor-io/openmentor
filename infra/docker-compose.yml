@@ -1,0 +1,340 @@
+services:
+  # Traefik reverse proxy for SSL/TLS termination
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    restart: always
+    mem_limit: 256m
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare"
+      - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # Uncomment for staging/testing Let's Encrypt certificates
+      # - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+    environment:
+      - CLOUDFLARE_DNS_API_TOKEN=${CLOUDFLARE_DNS_API_TOKEN}
+    ports:
+      - "80:80"
+      - "443:443"
+      # Uncomment to expose Traefik dashboard (secure it properly!)
+      # - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certificates:/letsencrypt
+    networks:
+      - openmentor-network
+    labels:
+      # Redirect HTTP to HTTPS globally
+      - "traefik.http.routers.http-catchall.rule=hostregexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+
+  # cAdvisor for container resource monitoring
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: cadvisor
+    mem_limit: 256m
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - openmentor-network
+
+
+  # Next.js Frontend
+  frontend:
+    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-frontend:${FRONTEND_IMAGE_TAG:-${IMAGE_TAG}}
+    container_name: openmentor-frontend
+    restart: always
+    mem_limit: 768m
+    environment:
+      - NODE_ENV=production
+      - APP_ENV=${APP_ENV:-production}
+      - NEXT_PUBLIC_APP_ENV=${NEXT_PUBLIC_APP_ENV:-production}
+      - NEXT_PUBLIC_ANALYTICS_PROVIDER=${NEXT_PUBLIC_ANALYTICS_PROVIDER:-posthog}
+      - NEXT_PUBLIC_ANALYTICS_EVENT_VERSION=${NEXT_PUBLIC_ANALYTICS_EVENT_VERSION:-v1}
+      - NEXT_PUBLIC_GO_API_URL=http://backend:8081
+      - PORT=3000
+      - SERVICE_INSTANCE_ID=${HOSTNAME}
+    env_file:
+      - .env
+    networks:
+      - openmentor-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - frontend-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      # HTTP router (will redirect to HTTPS)
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      # HTTPS router
+      - "traefik.http.routers.frontend-secure.rule=Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)"
+      - "traefik.http.routers.frontend-secure.entrypoints=websecure"
+      - "traefik.http.routers.frontend-secure.tls=true"
+      - "traefik.http.routers.frontend-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+
+  # PostgreSQL database (containerized on the VM per DECISIONS D2)
+  # Data lives in the external volume `openmentor-postgres-data`, created by
+  # deploy.sh (`docker volume create`) so that `docker compose down -v` can
+  # never delete the production database. No published ports — admin access
+  # is `docker exec -it openmentor-postgres psql ...` (see
+  # ../docs/runbooks/postgres-backup-restore.md).
+  postgres:
+    image: postgres:16.14-alpine
+    container_name: openmentor-postgres
+    restart: always
+    mem_limit: 512m
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-openmentor}
+      # No default on purpose: the container refuses to initialize without it
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-openmentor}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - openmentor-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openmentor} -d ${POSTGRES_DB:-openmentor}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Nightly logical backups of the postgres container (pg_dump -Fc): shipped
+  # to S3 when BACKUP_S3_BUCKET is set, otherwise kept in the local
+  # openmentor-postgres-backups volume with a loud warning. Built on the VM
+  # from ./postgres-backup (docker-compose builds it on first `up`).
+  # Restore procedure: ../docs/runbooks/postgres-backup-restore.md
+  postgres-backup:
+    build:
+      context: ./postgres-backup
+    image: openmentor-postgres-backup:local
+    container_name: openmentor-postgres-backup
+    restart: always
+    mem_limit: 256m
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-openmentor}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-openmentor}
+      - BACKUP_TIME=${BACKUP_TIME:-03:30}
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
+      - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
+      - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-postgres}
+      # Dedicated backup credentials; backup.sh falls back to S3_STORAGE_*
+      # (via env_file) when these are empty - see .env.example
+      - BACKUP_AWS_ACCESS_KEY_ID=${BACKUP_AWS_ACCESS_KEY_ID:-}
+      - BACKUP_AWS_SECRET_ACCESS_KEY=${BACKUP_AWS_SECRET_ACCESS_KEY:-}
+      - BACKUP_AWS_REGION=${BACKUP_AWS_REGION:-}
+    env_file:
+      - .env
+    volumes:
+      - postgres-backups:/backups
+    networks:
+      - openmentor-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Database Migration Service (runs once before backend starts)
+  migrate:
+    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
+    container_name: openmentor-migrate
+    mem_limit: 256m
+    command: ["/app/migrate"]
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_DIR=/app/logs
+      - DATABASE_URL=${DATABASE_URL}
+    env_file:
+      - .env
+    networks:
+      - openmentor-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"  # Run once and exit
+    volumes:
+      - backend-logs:/app/logs
+
+  # Go API Backend (internal only, no public access)
+  backend:
+    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
+    container_name: openmentor-backend
+    restart: always
+    mem_limit: 512m
+    environment:
+      - GIN_MODE=release
+      - PORT=8081
+      - APP_ENV=${APP_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_DIR=/app/logs
+      - SERVICE_INSTANCE_ID=${HOSTNAME}
+      - DATABASE_URL=${DATABASE_URL}
+    env_file:
+      - .env
+    networks:
+      - openmentor-network
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - backend-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/api/healthcheck"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      # MCP endpoint - expose mcp.${DOMAIN} -> backend:8081/api/internal/mcp
+      # HTTPS router for MCP endpoint (POST only)
+      - "traefik.http.routers.backend-mcp.rule=Host(`mcp.${DOMAIN}`) && Method(`POST`)"
+      - "traefik.http.routers.backend-mcp.entrypoints=websecure"
+      - "traefik.http.routers.backend-mcp.tls=true"
+      - "traefik.http.routers.backend-mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.backend-mcp.middlewares=mcp-addprefix"
+      - "traefik.http.routers.backend-mcp.service=backend-mcp"
+      # Middleware to add /api/internal/mcp prefix to requests
+      - "traefik.http.middlewares.mcp-addprefix.replacepath.path=/api/internal/mcp"
+      # Service definition
+      - "traefik.http.services.backend-mcp.loadbalancer.server.port=8081"
+
+  # Go Background Worker (internal only, no public access)
+  # Same image as the backend; runs /app/worker (async event triggers from
+  # the API via /jobs/* plus the daily cron jobs). Replaces the deprecated
+  # openmentor-func Azure Functions app.
+  worker:
+    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
+    container_name: openmentor-worker
+    restart: always
+    mem_limit: 256m
+    command: ["/app/worker"]
+    environment:
+      - GIN_MODE=release
+      - WORKER_PORT=8090
+      - APP_ENV=${APP_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_DIR=/app/logs
+      - SERVICE_INSTANCE_ID=${HOSTNAME}
+      - DATABASE_URL=${DATABASE_URL}
+    env_file:
+      - .env
+    networks:
+      - openmentor-network
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - worker-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Grafana Alloy for observability
+  alloy:
+    image: grafana/alloy:v1.15.0
+    container_name: grafana-alloy
+    restart: always
+    mem_limit: 512m
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+      # Mount log directories from frontend, backend and worker for tailing
+      - frontend-logs:/var/log/frontend:ro
+      - backend-logs:/var/log/backend:ro
+      - worker-logs:/var/log/worker:ro
+      # Database observability secrets (created by deploy.sh, never committed)
+      # Contains: postgres_secret_openmentor (DSN) and CA.pem (Yandex Cloud CA cert)
+      - ./alloy-secrets:/var/lib/alloy/secrets:ro
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PORT=8081
+      - GCLOUD_HOSTED_METRICS_URL=${GCLOUD_HOSTED_METRICS_URL}
+      - GCLOUD_HOSTED_METRICS_ID=${GCLOUD_HOSTED_METRICS_ID}
+      - GCLOUD_HOSTED_LOGS_URL=${GCLOUD_HOSTED_LOGS_URL}
+      - GCLOUD_HOSTED_LOGS_ID=${GCLOUD_HOSTED_LOGS_ID}
+      - GCLOUD_HOSTED_TRACES_URL=${GCLOUD_HOSTED_TRACES_URL}
+      - GCLOUD_HOSTED_TRACES_ID=${GCLOUD_HOSTED_TRACES_ID}
+      - GCLOUD_HOSTED_PROFILES_URL=${GCLOUD_HOSTED_PROFILES_URL}
+      - GCLOUD_HOSTED_PROFILES_ID=${GCLOUD_HOSTED_PROFILES_ID}
+      - GCLOUD_RW_API_KEY=${GCLOUD_RW_API_KEY}
+      - O11Y_BE_SERVICE_NAME=${O11Y_BE_SERVICE_NAME}
+      - O11Y_FE_SERVICE_NAME=${O11Y_FE_SERVICE_NAME}
+      - O11Y_WORKER_SERVICE_NAME=${O11Y_WORKER_SERVICE_NAME}
+      - O11Y_SERVICE_NAMESPACE=${O11Y_SERVICE_NAMESPACE}
+      - METRICS_AUTH_TOKEN=${METRICS_AUTH_TOKEN}
+      - POSTGRES_OBS_DSN=${POSTGRES_OBS_DSN}
+    env_file:
+      - .env
+    networks:
+      - openmentor-network
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+
+networks:
+  openmentor-network:
+    driver: bridge
+    # Network is NOT internal - frontend needs internet access for external APIs
+    # Security is enforced by:
+    # 1. Only frontend exposed via Traefik
+    # 2. Backend, Worker and Alloy have no port mappings
+    # 3. Traefik configured with proper routing rules
+
+volumes:
+  traefik-certificates:
+    name: traefik-letsencrypt-certificates
+  postgres-data:
+    # Created out-of-band by deploy.sh (`docker volume create
+    # openmentor-postgres-data`). Declared external so compose does not own
+    # it and `docker compose down -v` can never delete the database.
+    name: openmentor-postgres-data
+    external: true
+  postgres-backups:
+    # Local fallback destination for dumps when BACKUP_S3_BUCKET is unset,
+    # and scratch space for the dump before its S3 upload
+    name: openmentor-postgres-backups
+  frontend-logs:
+    name: openmentor-frontend-logs
+  backend-logs:
+    name: openmentor-backend-logs
+  worker-logs:
+    name: openmentor-worker-logs
+  alloy-data:
+    name: grafana-alloy-data

@@ -1,0 +1,467 @@
+// Grafana Alloy Configuration for OpenMentor
+// This configuration handles metrics and logs collection for all services in Docker Compose
+// Runs as a separate container that scrapes the frontend, backend and worker services
+
+// Logging configuration
+logging {
+  level  = coalesce(env("LOG_LEVEL"), "info")
+  format = "logfmt"
+}
+
+prometheus.scrape "cadvisor" {
+  targets = [
+    {
+      __address__ = "cadvisor:8080",
+      instance    = coalesce(env("HOSTNAME"), "cadvisor"),
+      environment = coalesce(env("APP_ENV"), "production"),
+      service_name = "yc-cadvisor",
+      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+    },
+  ]
+  forward_to = [prometheus.relabel.clean_container_labels.receiver]
+  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+  metrics_path = "/metrics"
+}
+
+// Prometheus metrics scraping - Go API Backend
+prometheus.scrape "yc_go_api" {
+  targets = [
+    {
+      __address__ = string.format("backend:%s", coalesce(env("PORT"), "8081")),
+      instance    = coalesce(env("HOSTNAME"), "backend"),
+      environment = coalesce(env("APP_ENV"), "production"),
+      service_name = coalesce(env("O11Y_BE_SERVICE_NAME"), "openmentor-api"),
+      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+    },
+  ]
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+  metrics_path    = "/api/metrics"
+}
+
+// Prometheus metrics scraping - Go Background Worker
+prometheus.scrape "yc_go_worker" {
+  targets = [
+    {
+      __address__ = string.format("worker:%s", coalesce(env("WORKER_PORT"), "8090")),
+      instance    = coalesce(env("HOSTNAME"), "worker"),
+      environment = coalesce(env("APP_ENV"), "production"),
+      service_name = coalesce(env("O11Y_WORKER_SERVICE_NAME"), "openmentor-worker"),
+      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+    },
+  ]
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+  metrics_path    = "/metrics"
+}
+
+// Prometheus metrics scraping - Next.js frontend
+prometheus.scrape "yc_nextjs_frontend" {
+  targets = [
+    {
+      __address__ = "frontend:3000",
+      instance    = coalesce(env("HOSTNAME"), "frontend"),
+      environment = coalesce(env("APP_ENV"), "production"),
+      service_name = coalesce(env("O11Y_FE_SERVICE_NAME"), "openmentor-frontend"),
+      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+    },
+  ]
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+  metrics_path    = "/api/metrics"
+
+  // SECURITY: Send bearer token to access frontend metrics
+  bearer_token = env("METRICS_AUTH_TOKEN")
+}
+
+// Self-monitoring: Grafana Alloy metrics
+prometheus.scrape "yc_alloy_self_monitoring" {
+  targets = [
+    {
+      __address__ = "localhost:12345",
+      instance    = coalesce(env("HOSTNAME"), "alloy"),
+      environment = coalesce(env("APP_ENV"), "production"),
+      service_name = "openmentor-o11y",
+      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+    },
+  ]
+  forward_to      = [prometheus.relabel.drop_unused_metrics.receiver]
+  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+}
+
+// Clean verbose container labels but keep essential ones
+prometheus.relabel "clean_container_labels" {
+  // Drop unnecessary Docker Compose labels (SAFE - not used in dashboards)
+  rule {
+    regex  = "container_label_com_docker_compose_(config_hash|depends_on|image)"
+    action = "labeldrop"
+  }
+
+  rule {
+    regex  = "container_label_org_opencontainers_image_(source|version)"
+    action = "labeldrop"
+  }
+
+  forward_to = [prometheus.relabel.drop_unused_metrics.receiver]
+}
+
+// Drop truly unused metrics only
+prometheus.relabel "drop_unused_metrics" {
+  // Drop alloy internal metrics
+  rule {
+    source_labels = ["__name__"]
+    regex         = "alloy_(component_dependencies_wait_seconds.*|component_evaluation_seconds.*|labelstore_.*)"
+    action        = "drop"
+  }
+
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+// Prometheus remote write to Grafana Cloud
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = env("GCLOUD_HOSTED_METRICS_URL")
+
+    basic_auth {
+      username = env("GCLOUD_HOSTED_METRICS_ID")
+      password = env("GCLOUD_RW_API_KEY")
+    }
+  }
+}
+
+// Log collection from volume-mounted log directories
+// Frontend, backend and worker write logs to /app/logs, which are mounted to Alloy as:
+// - /var/log/frontend (frontend logs with daily rotation)
+// - /var/log/backend (backend logs with size-based rotation)
+// - /var/log/worker (worker logs with size-based rotation)
+
+// Local file match for frontend log files
+// Frontend uses winston-daily-rotate-file, creating files like app-2025-12-02.log
+local.file_match "yc_frontend_logs" {
+  path_targets = [
+    {
+      __path__    = "/var/log/frontend/app-*.log",
+      job         = "nextjs",
+      instance    = coalesce(env("HOSTNAME"), "frontend"),
+      environment = coalesce(env("APP_ENV"), "production"),
+      service_name = coalesce(env("O11Y_FE_SERVICE_NAME"), "openmentor-frontend"),
+      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+    },
+  ]
+}
+
+// Local file match for backend log files
+// Backend uses lumberjack, creating files like app.log
+local.file_match "yc_backend_logs" {
+  path_targets = [
+    {
+      __path__    = "/var/log/backend/app.log",
+      job         = "go-api",
+      instance    = coalesce(env("HOSTNAME"), "backend"),
+      environment = coalesce(env("APP_ENV"), "production"),
+      service_name = coalesce(env("O11Y_BE_SERVICE_NAME"), "openmentor-api"),
+      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+    },
+  ]
+}
+
+// Local file match for worker log files
+// Worker uses the same Zap+lumberjack logger as the backend (app.log)
+local.file_match "yc_worker_logs" {
+  path_targets = [
+    {
+      __path__    = "/var/log/worker/app.log",
+      job         = "go-worker",
+      instance    = coalesce(env("HOSTNAME"), "worker"),
+      environment = coalesce(env("APP_ENV"), "production"),
+      service_name = coalesce(env("O11Y_WORKER_SERVICE_NAME"), "openmentor-worker"),
+      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+    },
+  ]
+}
+
+// Loki source file - tail frontend logs
+loki.source.file "frontend_logs" {
+  targets    = local.file_match.yc_frontend_logs.targets
+  forward_to = [loki.process.parse_json_logs.receiver]
+}
+
+// Loki source file - tail backend logs
+loki.source.file "backend_logs" {
+  targets    = local.file_match.yc_backend_logs.targets
+  forward_to = [loki.process.parse_json_logs.receiver]
+}
+
+// Loki source file - tail worker logs
+loki.source.file "worker_logs" {
+  targets    = local.file_match.yc_worker_logs.targets
+  forward_to = [loki.process.parse_json_logs.receiver]
+}
+
+// Loki process - parse JSON logs and extract fields
+loki.process "parse_json_logs" {
+  forward_to = [loki.write.grafana_cloud.receiver]
+
+  // Parse JSON log format (Winston for frontend, Zap for backend)
+  stage.json {
+    expressions = {
+      timestamp = "timestamp",
+      level     = "level",
+      message   = "message",
+      // Trace context fields (OpenTelemetry)
+      trace_id    = "trace_id",
+      span_id     = "span_id",
+      trace_flags = "trace_flags",
+      // Backend-specific fields (Zap)
+      caller    = "caller",
+      method    = "method",
+      path      = "path",
+      status    = "status",
+      duration  = "duration",
+      error     = "error",
+    }
+  }
+
+  // Use timestamp from log entry (ISO 8601 format)
+  stage.timestamp {
+    source = "timestamp"
+    format = "RFC3339"
+  }
+
+  // Add labels extracted from JSON log fields
+  // Note: service_name label comes from path_targets (lines 135, 151), not from log content
+  stage.labels {
+    values = {
+      level = "level",
+    }
+  }
+
+  // Set message as output
+  // stage.output {
+  //   source = "message"
+  // }
+}
+
+// Loki write to Grafana Cloud
+loki.write "grafana_cloud" {
+  endpoint {
+    url = env("GCLOUD_HOSTED_LOGS_URL")
+
+    basic_auth {
+      username = env("GCLOUD_HOSTED_LOGS_ID")
+      password = env("GCLOUD_RW_API_KEY")
+    }
+  }
+}
+
+// Pyroscope receiver for push-mode profiling from backend
+pyroscope.receive_http "default" {
+  http {
+    listen_address = "0.0.0.0"
+    listen_port    = 4040
+  }
+
+  forward_to = [pyroscope.write.grafana_cloud.receiver]
+}
+
+// Pyroscope write to Grafana Cloud Profiles
+pyroscope.write "grafana_cloud" {
+  endpoint {
+    url = env("GCLOUD_HOSTED_PROFILES_URL")
+
+    basic_auth {
+      username = env("GCLOUD_HOSTED_PROFILES_ID")
+      password = env("GCLOUD_RW_API_KEY")
+    }
+  }
+}
+
+// OpenTelemetry receiver for traces (HTTP & gRPC)
+otelcol.receiver.otlp "default" {
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  output {
+    traces = [otelcol.processor.resourcedetection.default.input]
+  }
+}
+
+otelcol.processor.resourcedetection "default" {
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.processor.resourcedetection/
+	detectors = ["env", "system"]
+
+	system {
+		hostname_sources = ["os"]
+	}
+
+	output {
+		traces  = [otelcol.processor.transform.drop_unneeded_resource_attributes.input]
+	}
+}
+
+otelcol.processor.transform "drop_unneeded_resource_attributes" {
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.processor.transform/
+	error_mode = "ignore"
+
+	trace_statements {
+		context    = "resource"
+		statements = [
+			"delete_key(attributes, \"k8s.pod.start_time\")",
+			"delete_key(attributes, \"os.description\")",
+			"delete_key(attributes, \"process.command_args\")",
+			"delete_key(attributes, \"process.executable.path\")",
+			// Keep these attributes for correlation and debugging:
+			// - process.pid: Correlate with container metrics
+			// - process.runtime.*: Identify runtime version/environment
+			// - os.type: Useful for multi-platform deployments
+		]
+	}
+
+	output {
+		traces  = [
+			otelcol.processor.batch.default.input,
+			otelcol.connector.host_info.default.input,
+		]
+	}
+}
+
+otelcol.connector.host_info "default" {
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.connector.host_info/
+	host_identifiers = ["host.name"]
+
+	output {
+		metrics = [otelcol.processor.batch.default.input]
+	}
+}
+
+otelcol.processor.batch "default" {
+	// https://grafana.com/docs/alloy/latest/reference/components/otelcol.processor.batch/
+	output {
+		traces  = [otelcol.exporter.otlphttp.grafana_cloud.input]
+		metrics = [otelcol.exporter.otlphttp.grafana_cloud.input]
+	}
+}
+
+// OpenTelemetry exporter to Grafana Cloud Tempo (HTTP mode)
+otelcol.exporter.otlphttp "grafana_cloud" {
+  client {
+    endpoint = env("GCLOUD_HOSTED_TRACES_URL")
+    auth = otelcol.auth.basic.grafana_cloud.handler
+  }
+}
+
+otelcol.auth.basic "grafana_cloud" {
+  username = env("GCLOUD_HOSTED_TRACES_ID")
+  password = env("GCLOUD_RW_API_KEY")
+}
+
+// ============================================================================
+// Database Observability - PostgreSQL (Yandex Managed PostgreSQL)
+//
+// Collects query details, query samples, explain plans, and schema information
+// via direct SQL connection. Forwards structured logs to Grafana Cloud Loki and
+// exports Prometheus metrics to Grafana Cloud.
+//
+// The "logs" collector is disabled: Yandex Managed PostgreSQL does not expose
+// log files on disk, so file-based log collection is not possible.
+//
+// Prerequisites (manual, one-time setup on the PostgreSQL cluster):
+//   1. Enable pg_stat_statements in cluster settings → shared_preload_libraries
+//      (requires cluster restart)
+//   2. Create a monitoring user:
+//        CREATE USER grafana_monitoring WITH PASSWORD '...';
+//        GRANT pg_monitor TO grafana_monitoring;
+//        GRANT CONNECT ON DATABASE openmentor TO grafana_monitoring;
+//
+// Required files on VM (created by deploy.sh):
+//   /opt/openmentor-infra/alloy-secrets/postgres_secret_openmentor
+//     → one-line DSN, e.g.:
+//       postgres://grafana_monitoring:pass@host:6432/openmentor?sslmode=verify-full&sslrootcert=/var/lib/alloy/secrets/CA.pem
+//   /opt/openmentor-infra/alloy-secrets/CA.pem
+//     → Yandex Cloud CA certificate (downloaded automatically by deploy.sh)
+//
+// Required env var in .env.production:
+//   POSTGRES_OBS_DSN=postgres://grafana_monitoring:pass@host:6432/openmentor?sslmode=verify-full&sslrootcert=/var/lib/alloy/secrets/CA.pem
+// ============================================================================
+
+local.file "postgres_secret_openmentor" {
+  filename  = "/var/lib/alloy/secrets/postgres_secret_openmentor"
+  is_secret = true
+}
+
+prometheus.exporter.postgres "postgres_openmentor" {
+  data_source_names  = [coalesce(env("POSTGRES_OBS_DSN"), local.file.postgres_secret_openmentor.content)]
+  enabled_collectors = ["stat_statements"]
+
+  stat_statements {
+    exclude_users = ["grafana"]
+  }
+}
+
+database_observability.postgres "postgres_openmentor" {
+  data_source_name   = local.file.postgres_secret_openmentor.content
+  forward_to         = [loki.relabel.database_observability_postgres_openmentor.receiver]
+  targets            = prometheus.exporter.postgres.postgres_openmentor.targets
+  enable_collectors = ["query_details", "query_samples", "schema_details", "explain_plans"]
+  exclude_users     = ["grafana"]
+  exclude_databases = ["postgres"]
+}
+
+loki.relabel "database_observability_postgres_openmentor" {
+  forward_to = [loki.write.grafana_cloud.receiver]
+
+  rule {
+    target_label = "service_name"
+    replacement  = "openmentor-postgres"
+  }
+
+  rule {
+    target_label = "instance"
+    replacement  = "db-openmentor-pg"
+  }
+
+  rule {
+    target_label = "namespace"
+    replacement  = "openmentor"
+  }
+}
+
+discovery.relabel "database_observability_postgres_openmentor" {
+  targets = database_observability.postgres.postgres_openmentor.targets
+
+  rule {
+    target_label = "job"
+    replacement  = "integrations/db-o11y"
+  }
+
+  rule {
+    source_labels = ["instance"]
+    target_label  = "dsn"
+  }
+
+  rule {
+    target_label = "instance"
+    replacement  = "db-openmentor-pg"
+  }
+
+  rule {
+    target_label = "service_name"
+    replacement  = "openmentor-postgres"
+  }
+
+  rule {
+    target_label = "namespace"
+    replacement  = "openmentor"
+  }
+}
+
+prometheus.scrape "postgres_openmentor" {
+  targets         = discovery.relabel.database_observability_postgres_openmentor.output
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+}

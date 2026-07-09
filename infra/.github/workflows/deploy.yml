@@ -1,0 +1,395 @@
+name: Deploy to Yandex Cloud
+
+on:
+  # push:
+  #   branches:
+  #     - main
+  #   paths-ignore:
+  #     - 'README.md'
+  #     - 'docs/**'
+  #     - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to deploy'
+        required: true
+        type: choice
+        options:
+          - both
+          - frontend
+          - backend
+        default: 'both'
+      image_tag:
+        description: 'Image tag (leave empty for commit SHA)'
+        required: false
+        type: string
+
+env:
+  # TODO(P6): move to ghcr.io (GitHub Container Registry) — Yandex registry kept temporarily
+  REGISTRY: cr.yandex
+  FRONTEND_IMAGE: openmentor-frontend
+  BACKEND_IMAGE: openmentor-backend
+  DOMAIN: ${{ secrets.DOMAIN }}
+
+jobs:
+  # Detect which services changed (only for push events)
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      frontend: ${{ steps.changes.outputs.frontend }}
+      backend: ${{ steps.changes.outputs.backend }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need at least 2 commits to compare
+
+      - name: Detect changes
+        id: changes
+        run: |
+          # Check if this is the first commit
+          if [ $(git rev-list --count HEAD) -eq 1 ]; then
+            echo "First commit, deploying everything"
+            echo "frontend=true" >> $GITHUB_OUTPUT
+            echo "backend=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Get changed files
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # NOTE: This infrastructure repo doesn't contain frontend/backend code
+          # Change detection always deploys both services when infrastructure changes
+          # To deploy only one service, use manual workflow_dispatch trigger
+
+          # For automatic change detection, consider:
+          # 1. Using repository_dispatch from frontend/backend repos
+          # 2. Setting up Git submodules
+          # 3. Using a monorepo structure
+
+          # Current behavior: Always deploy both services on infrastructure changes
+          echo "frontend=true" >> $GITHUB_OUTPUT
+          echo "backend=true" >> $GITHUB_OUTPUT
+
+  # Build and push frontend
+  build-frontend:
+    name: Build & Push Frontend
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: |
+      always() &&
+      (needs.detect-changes.outputs.frontend == 'true' ||
+       github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.service == 'frontend' || github.event.inputs.service == 'both'))
+    steps:
+      - name: Checkout infrastructure repo
+        uses: actions/checkout@v4
+
+      - name: Checkout frontend repo
+        uses: actions/checkout@v4
+        with:
+          repository: openmentor-io/openmentor
+          path: openmentor
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # TODO(P6): move to ghcr.io — replace this login step with docker/login-action against ghcr.io
+      - name: Login to Yandex Container Registry
+        run: |
+          echo '${{ secrets.YANDEX_SA_KEY }}' | docker login \
+            --username json_key \
+            --password-stdin \
+            ${{ env.REGISTRY }}
+
+      - name: Set image tags
+        id: tags
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="${{ github.sha }}"
+          fi
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "Image tag: $TAG"
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./openmentor
+          file: ./openmentor/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.REGISTRY }}/${{ secrets.YANDEX_REGISTRY_ID }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tags.outputs.TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_GO_API_URL=http://backend:8081
+            NEXT_PUBLIC_S3_STORAGE_ENDPOINT=${{ secrets.NEXT_PUBLIC_S3_STORAGE_ENDPOINT }}
+            NEXT_PUBLIC_S3_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_S3_STORAGE_BUCKET }}
+            NEXT_PUBLIC_RECAPTCHA_V2_SITE_KEY=${{ secrets.RECAPTCHA_V2_SITE_KEY }}
+
+      - name: Image build summary
+        run: |
+          echo "✅ Frontend image built and pushed successfully!"
+          echo "Image: ${{ env.REGISTRY }}/${{ secrets.YANDEX_REGISTRY_ID }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tags.outputs.TAG }}"
+
+  # Build and push backend
+  build-backend:
+    name: Build & Push Backend
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: |
+      always() &&
+      (needs.detect-changes.outputs.backend == 'true' ||
+       github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.service == 'backend' || github.event.inputs.service == 'both'))
+    steps:
+      - name: Checkout infrastructure repo
+        uses: actions/checkout@v4
+
+      - name: Checkout backend repo
+        uses: actions/checkout@v4
+        with:
+          repository: openmentor-io/openmentor-api
+          path: openmentor-api
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # TODO(P6): move to ghcr.io — replace this login step with docker/login-action against ghcr.io
+      - name: Login to Yandex Container Registry
+        run: |
+          echo '${{ secrets.YANDEX_SA_KEY }}' | docker login \
+            --username json_key \
+            --password-stdin \
+            ${{ env.REGISTRY }}
+
+      - name: Set image tags
+        id: tags
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="${{ github.sha }}"
+          fi
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "Image tag: $TAG"
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./openmentor-api
+          file: ./openmentor-api/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.REGISTRY }}/${{ secrets.YANDEX_REGISTRY_ID }}/${{ env.BACKEND_IMAGE }}:${{ steps.tags.outputs.TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image build summary
+        run: |
+          echo "✅ Backend image built and pushed successfully!"
+          echo "Image: ${{ env.REGISTRY }}/${{ secrets.YANDEX_REGISTRY_ID }}/${{ env.BACKEND_IMAGE }}:${{ steps.tags.outputs.TAG }}"
+
+  # Deploy to production VM
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-frontend, build-backend]
+    if: always() && (needs.build-frontend.result == 'success' || needs.build-backend.result == 'success')
+    environment:
+      name: production
+      url: https://${{ env.DOMAIN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="${{ github.sha }}"
+          fi
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "Deploying with tag: $TAG"
+
+      - name: Deploy via SSH
+        id: deploy
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.VM_SSH_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            set -e
+
+            echo "🚀 Starting deployment..."
+
+            # Navigate to infra directory
+            cd /opt/openmentor-infra
+
+            # Save current image tag for rollback
+            PREVIOUS_TAG=$(grep "IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
+            echo "Previous image tag: $PREVIOUS_TAG"
+            echo "$PREVIOUS_TAG" > /tmp/previous_tag
+
+            # Pull latest infrastructure code
+            git pull origin main || echo "⚠️  Git pull failed, using existing code"
+
+            # Export new image tag
+            export IMAGE_TAG=${{ steps.tag.outputs.TAG }}
+            echo "IMAGE_TAG=$IMAGE_TAG" > .env.image_tag
+
+            # Login to Yandex Container Registry
+            # TODO(P6): move to ghcr.io — update registry host and credentials
+            echo '${{ secrets.YANDEX_SA_KEY }}' | docker login \
+              --username json_key \
+              --password-stdin \
+              cr.yandex || echo "⚠️  Registry login failed, trying to pull anyway"
+
+            # Pull new images
+            echo "📦 Pulling images..."
+            docker-compose pull
+
+            # Restart services with zero downtime
+            echo "🔄 Restarting services..."
+            docker-compose up -d
+
+            # Wait for containers to start
+            echo "⏳ Waiting for containers to start..."
+            sleep 20
+
+            # Check service status
+            echo "📊 Service status:"
+            docker-compose ps
+
+            # Verify health checks (CRITICAL - fail if health checks fail)
+            echo "🏥 Checking health endpoints..."
+            HEALTH_CHECK_FAILED=0
+
+            # Check frontend health
+            if ! docker exec openmentor-frontend curl -f http://localhost:3000/api/healthcheck 2>/dev/null; then
+              echo "❌ Frontend health check FAILED"
+              HEALTH_CHECK_FAILED=1
+            else
+              echo "✅ Frontend health check passed"
+            fi
+
+            # Check backend health
+            if ! docker exec openmentor-backend curl -f http://localhost:8081/api/healthcheck 2>/dev/null; then
+              echo "❌ Backend health check FAILED"
+              HEALTH_CHECK_FAILED=1
+            else
+              echo "✅ Backend health check passed"
+            fi
+
+            # Check worker health
+            if ! docker exec openmentor-worker curl -f http://localhost:8090/healthz 2>/dev/null; then
+              echo "❌ Worker health check FAILED"
+              HEALTH_CHECK_FAILED=1
+            else
+              echo "✅ Worker health check passed"
+            fi
+
+            # Rollback if health checks failed
+            if [ $HEALTH_CHECK_FAILED -eq 1 ]; then
+              echo "🔄 ROLLING BACK to previous version ($PREVIOUS_TAG)..."
+              export IMAGE_TAG=$PREVIOUS_TAG
+              docker-compose pull
+              docker-compose up -d
+              sleep 10
+
+              # Verify rollback succeeded
+              if docker exec openmentor-frontend curl -f http://localhost:3000/api/healthcheck 2>/dev/null && \
+                 docker exec openmentor-backend curl -f http://localhost:8081/api/healthcheck 2>/dev/null && \
+                 docker exec openmentor-worker curl -f http://localhost:8090/healthz 2>/dev/null; then
+                echo "✅ Rollback successful"
+              else
+                echo "❌ Rollback FAILED - manual intervention required!"
+              fi
+
+              exit 1
+            fi
+
+            echo "✅ Deployment complete!"
+
+      - name: Verify deployment
+        run: |
+          echo "⏳ Waiting for services to stabilize..."
+          sleep 30
+
+          echo "🔍 Verifying public endpoints..."
+
+          # Check if domain is configured in secrets
+          if [ -n "${{ secrets.DOMAIN }}" ]; then
+            # Check HTTPS health endpoint
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.DOMAIN }}/api/healthcheck || echo "000")
+
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "✅ Health check passed (HTTP $HTTP_STATUS)"
+            else
+              echo "⚠️  Health check returned HTTP $HTTP_STATUS"
+              echo "This might be expected if DNS/SSL is not yet configured"
+            fi
+          else
+            echo "⚠️  DOMAIN secret not set, skipping public health check"
+          fi
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "## Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tag**: ${{ steps.tag.outputs.TAG }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Deployment completed successfully!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Next steps**:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Verify application at https://${{ secrets.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+            echo "2. Monitor Grafana dashboards for anomalies" >> $GITHUB_STEP_SUMMARY
+            echo "3. Check error logs if needed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Deployment failed!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Troubleshooting**:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Check workflow logs above" >> $GITHUB_STEP_SUMMARY
+            echo "2. SSH to VM and run: \`docker-compose logs\`" >> $GITHUB_STEP_SUMMARY
+            echo "3. Consider rolling back: \`export IMAGE_TAG=<previous-sha> && docker-compose up -d\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # Notify on failure
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: failure()
+    steps:
+      - name: Send failure notification
+        run: |
+          echo "🚨 Deployment failed!"
+          echo "Check the workflow logs for details"
+
+          # Add Slack/Telegram/Email notification here if needed
+          # Example Slack webhook:
+          # curl -X POST -H 'Content-type: application/json' \
+          #   --data '{"text":"🚨 Deployment failed! Check GitHub Actions."}' \
+          #   ${{ secrets.SLACK_WEBHOOK_URL }}

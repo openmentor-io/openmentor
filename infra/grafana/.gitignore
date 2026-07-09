@@ -1,0 +1,8 @@
+# Build output
+dist/
+
+# Grafonnet dependencies (installed via jb install)
+vendor/
+
+# Jsonnet lock file
+jsonnetfile.lock.json

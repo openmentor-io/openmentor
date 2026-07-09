@@ -1,0 +1,20 @@
+{
+  "name": "openmentor-migration-scripts",
+  "version": "1.0.0",
+  "description": "One-off migration scripts (Yandex Object Storage -> AWS S3 images, per DECISIONS D15)",
+  "main": "yandex-to-s3-migration.js",
+  "scripts": {
+    "migrate-images-s3": "node --env-file=.env yandex-to-s3-migration.js"
+  },
+  "keywords": [
+    "aws-s3",
+    "yandex-cloud",
+    "migration",
+    "object-storage"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.675.0"
+  }
+}
