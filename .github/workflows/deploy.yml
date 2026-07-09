@@ -160,22 +160,40 @@ jobs:
 
       # The VM used to `git pull` a separate infrastructure repo in
       # /opt/openmentor/infra. In the monorepo the compose files live in
-      # infra/, so sync that subdirectory instead. No --delete: runtime state
-      # (.env, logs, backups) living next to the compose files must survive.
+      # infra/, so sync that subdirectory instead (same semantics as the
+      # `infra` target of infra/deploy.sh). No --delete: runtime state
+      # (.env, logs, backups, alloy-secrets) living next to the compose files
+      # must survive. --checksum --itemize-changes reports WHICH files
+      # changed so the deploy step can restart/rebuild services whose config
+      # reaches the container through a bind mount (compose won't notice
+      # those): alloy <- alloy/config.alloy (restart), postgres-backup is
+      # built on the VM from postgres-backup/ (rebuild).
       - name: Sync infra/ to VM
+        id: sync
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p 22 -H "${{ secrets.VM_SSH_HOST }}" >> ~/.ssh/known_hosts
 
-          rsync -az \
+          rsync -az --checksum --itemize-changes \
             --exclude '.env' \
             --exclude '.env.*' \
             --exclude 'logs/' \
+            --exclude 'alloy-secrets/' \
             -e "ssh -i ~/.ssh/deploy_key -p 22" \
             infra/ \
-            "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}:/opt/openmentor/infra/"
+            "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}:/opt/openmentor/infra/" \
+            | tee rsync.log
+
+          CHANGED_FILES=$(awk '$1 ~ /^[<>]f/ {print $2}' rsync.log)
+          RESTART_ALLOY=0
+          REBUILD_BACKUP=0
+          if echo "$CHANGED_FILES" | grep -qx 'alloy/config.alloy'; then RESTART_ALLOY=1; fi
+          if echo "$CHANGED_FILES" | grep -q '^postgres-backup/'; then REBUILD_BACKUP=1; fi
+          echo "restart_alloy=$RESTART_ALLOY" >> $GITHUB_OUTPUT
+          echo "rebuild_backup=$REBUILD_BACKUP" >> $GITHUB_OUTPUT
+          echo "Bind-mount changes: restart_alloy=$RESTART_ALLOY rebuild_backup=$REBUILD_BACKUP"
 
       - name: Deploy via SSH
         id: deploy
@@ -195,29 +213,76 @@ jobs:
             # infra/ subdirectory by the previous step)
             cd /opt/openmentor/infra
 
-            # Save current image tag for rollback
-            PREVIOUS_TAG=$(grep "IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
-            echo "Previous image tag: $PREVIOUS_TAG"
-            echo "$PREVIOUS_TAG" > /tmp/previous_tag
+            # Backup the current .env (previous image tags) for rollback —
+            # same mechanism as infra/deploy.sh. The .env itself is uploaded
+            # by deploy.sh (the workflow only maintains the tag lines,
+            # left for P6.4 to unify).
+            if [ -f .env ]; then cp .env .env.backup; else touch .env; fi
 
-            # Export new image tag
-            export IMAGE_TAG=${{ steps.tag.outputs.TAG }}
-            echo "IMAGE_TAG=$IMAGE_TAG" > .env.image_tag
+            # Replace-or-append a KEY=value in .env
+            set_env_tag() {
+              if grep -q "^${1}=" .env; then
+                sed -i "s|^${1}=.*|${1}=${2}|" .env
+              else
+                echo "${1}=${2}" >> .env
+              fi
+            }
+
+            # Per-service image tags (FRONTEND_IMAGE_TAG / BACKEND_IMAGE_TAG,
+            # matching infra/deploy.sh): only the deployed service's tag is
+            # updated; the other keeps its currently deployed tag.
+            SERVICE="${{ github.event.inputs.service }}"
+            TAG="${{ steps.tag.outputs.TAG }}"
+            if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
+              set_env_tag FRONTEND_IMAGE_TAG "$TAG"
+            fi
+            if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
+              set_env_tag BACKEND_IMAGE_TAG "$TAG"
+            fi
+            echo "Deploying with:"
+            grep -E "^(FRONTEND|BACKEND)_IMAGE_TAG=" .env
+
+            # Regenerate .env.runtime: container env WITHOUT the tag lines
+            # (tags only affect compose interpolation, so a tag-only deploy
+            # recreates only the retagged service)
+            regen_env_runtime() {
+              grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime
+              chmod 600 .env.runtime
+            }
+            regen_env_runtime
 
             # Login to Yandex Container Registry
-            # TODO(P6): move to ghcr.io — update registry host and credentials
+            # TODO(P6.4): move to ghcr.io — update registry host and credentials
             echo '${{ secrets.YANDEX_SA_KEY }}' | docker login \
               --username json_key \
               --password-stdin \
               cr.yandex || echo "⚠️  Registry login failed, trying to pull anyway"
 
+            # Ensure the external Postgres data volume exists (idempotent)
+            docker volume create openmentor-postgres-data
+
+            # Rebuild the backup sidecar image if its build context changed
+            # in the sync (it is built on the VM from ./postgres-backup)
+            if [ "${{ steps.sync.outputs.rebuild_backup }}" = "1" ]; then
+              echo "🔨 postgres-backup/ changed — rebuilding sidecar image..."
+              docker-compose build postgres-backup
+            fi
+
             # Pull new images
             echo "📦 Pulling images..."
             docker-compose pull
 
-            # Restart services with zero downtime
-            echo "🔄 Restarting services..."
-            docker-compose up -d
+            # Converge: compose recreates only services whose image tag (or
+            # definition) changed; --remove-orphans drops deleted services
+            echo "🔄 Converging services..."
+            docker-compose up -d --remove-orphans
+
+            # Bind-mount trap: compose does not react to changes in
+            # bind-mounted config files — restart alloy if its config changed
+            if [ "${{ steps.sync.outputs.restart_alloy }}" = "1" ]; then
+              echo "↻ alloy/config.alloy changed — restarting alloy..."
+              docker-compose restart alloy
+            fi
 
             # Wait for containers to start
             echo "⏳ Waiting for containers to start..."
@@ -255,10 +320,12 @@ jobs:
               echo "✅ Worker health check passed"
             fi
 
-            # Rollback if health checks failed
+            # Rollback if health checks failed: restore the previous .env
+            # (previous image tags) and re-converge
             if [ $HEALTH_CHECK_FAILED -eq 1 ]; then
-              echo "🔄 ROLLING BACK to previous version ($PREVIOUS_TAG)..."
-              export IMAGE_TAG=$PREVIOUS_TAG
+              echo "🔄 ROLLING BACK to previous version (.env.backup)..."
+              cp .env.backup .env
+              regen_env_runtime
               docker-compose pull
               docker-compose up -d
               sleep 10
@@ -323,7 +390,7 @@ jobs:
             echo "**Troubleshooting**:" >> $GITHUB_STEP_SUMMARY
             echo "1. Check workflow logs above" >> $GITHUB_STEP_SUMMARY
             echo "2. SSH to VM and run: \`docker-compose logs\`" >> $GITHUB_STEP_SUMMARY
-            echo "3. Consider rolling back: \`export IMAGE_TAG=<previous-sha> && docker-compose up -d\`" >> $GITHUB_STEP_SUMMARY
+            echo "3. Consider rolling back: \`./rollback.sh <previous-sha>\` from a workstation, or on the VM: \`cp .env.backup .env && docker-compose up -d\`" >> $GITHUB_STEP_SUMMARY
           fi
 
   # Notify on failure
