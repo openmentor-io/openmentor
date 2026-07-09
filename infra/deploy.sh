@@ -692,6 +692,29 @@ docker-compose pull
 echo "🔄 Converging services (docker-compose up -d $UP_FLAGS)..."
 docker-compose up -d $UP_FLAGS
 
+# Post-up guard: verify every running project container is attached to the
+# compose network. Docker can (rarely - seen with a port conflict during a
+# delayed image-pull start) bring a container up with no network endpoint;
+# in-container healthchecks still pass while inter-service DNS fails.
+# Self-heal once with a force-recreate.
+for svc in $(docker-compose ps --services 2>/dev/null); do
+    cid=$(docker-compose ps -q "$svc" 2>/dev/null | head -1)
+    [ -n "$cid" ] || continue
+    running=$(docker inspect -f '{{.State.Running}}' "$cid" 2>/dev/null)
+    [ "$running" = "true" ] || continue
+    nets=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$cid")
+    if [ -z "${nets// /}" ]; then
+        echo "⚠️  '$svc' is running but detached from the network - force-recreating..."
+        docker-compose up -d --force-recreate "$svc"
+        nets=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$(docker-compose ps -q "$svc" | head -1)")
+        if [ -z "${nets// /}" ]; then
+            echo "❌ '$svc' still has no network after recreate - aborting."
+            exit 1
+        fi
+        echo "   '$svc' reattached ($nets)"
+    fi
+done
+
 # Bind-mount trap: compose does NOT react to changes in bind-mounted config
 # files. Restart exactly the services whose file config changed in the sync.
 if [ "$RESTART_ALLOY" = "1" ]; then

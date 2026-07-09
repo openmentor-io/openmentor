@@ -414,6 +414,25 @@ echo ""
 echo -e "${BLUE}🚢 Step 6/7: Converging the dev stack...${NC}"
 cd "$SCRIPT_DIR"
 
+# Pre-flight: published host ports must be free or already owned by this
+# project. A foreign process holding a port (e.g. another compose stack's
+# postgres on POSTGRES_DEV_PORT) causes partial startups that are painful
+# to diagnose - fail fast with a pointer instead.
+PG_PORT="${POSTGRES_DEV_PORT:-5433}"
+for port in 80 3000 8081 8090 "$PG_PORT"; do
+    holder=$(docker ps --filter "publish=$port" --format '{{.Names}}' | head -1)
+    if [ -n "$holder" ]; then
+        case "$holder" in
+            openmentor-*|traefik) ;;  # ours - compose will converge it
+            *)
+                echo -e "${RED}❌ Host port $port is held by container '$holder' (not part of this stack).${NC}"
+                echo "   Stop it, or (for postgres) set POSTGRES_DEV_PORT in infra/.env to a free port."
+                exit 1
+                ;;
+        esac
+    fi
+done
+
 # The base compose file declares the Postgres data volume as external
 # (protects production data from `down -v`); create it idempotently so the
 # merged config always resolves. The dev overlay mounts its own
@@ -430,6 +449,30 @@ if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Failed to start services${NC}"
     exit 1
 fi
+
+# Post-up guard: verify every running project container is actually
+# attached to the compose network. Docker can (rarely - seen with a port
+# conflict during a delayed image-pull start) bring a container up with no
+# network endpoint; its healthcheck still passes because it runs inside
+# the container, and everything that needs to reach it then fails DNS.
+# Self-heal once with a force-recreate.
+for svc in $("${COMPOSE[@]}" ps --services 2>/dev/null); do
+    cid=$("${COMPOSE[@]}" ps -q "$svc" 2>/dev/null | head -1)
+    [ -n "$cid" ] || continue
+    running=$(docker inspect -f '{{.State.Running}}' "$cid" 2>/dev/null)
+    [ "$running" = "true" ] || continue
+    nets=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$cid")
+    if [ -z "${nets// /}" ]; then
+        echo -e "${YELLOW}⚠️  '$svc' is running but detached from the network - force-recreating...${NC}"
+        "${COMPOSE[@]}" up -d --force-recreate "$svc"
+        nets=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$("${COMPOSE[@]}" ps -q "$svc" | head -1)")
+        if [ -z "${nets// /}" ]; then
+            echo -e "${RED}❌ '$svc' still has no network after recreate - aborting.${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}   '$svc' reattached (${nets})${NC}"
+    fi
+done
 
 if [ "$RESTART_ALLOY" = "1" ]; then
     echo "↻ Restarting alloy (bind-mounted config changed)..."
