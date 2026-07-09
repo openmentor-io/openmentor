@@ -11,7 +11,6 @@ function Nav(): JSX.Element {
   return (
     <ul>
       <li>
-        <Link href="https://blog.openmentor.io">Blog</Link>
       </li>
       <li>
         <Link href="/donate">Support us</Link>
