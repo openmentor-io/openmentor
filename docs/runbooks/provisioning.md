@@ -6,6 +6,14 @@ Tags: **[console]** provider web UI (owner) · **[terminal]** CLI (owner or Clau
 
 Region convention: **eu-central-1** everywhere in AWS (matches env template examples).
 
+> **Automated path.** Steps 2-4 and 7.1 are scripted (idempotent, `--dry-run`,
+> outputs chained between scripts) in the **private** `openmentor-provision`
+> repository - kept out of this public repo so the real deployment topology
+> isn't exposed. Run order: aws -> hetzner -> cloudflare -> assemble-env ->
+> set-github-secrets; see that repo's README for bootstrap-token scopes.
+> Still manual: accounts (0), Grafana/PostHog/GTM (5), the ECR code swap (6),
+> first deploy + moderator seeding + smoke test (7.2-7.3), and 8.
+
 ## 0. Prerequisites
 
 - [ ] `openmentor.io` registered, nameservers on Cloudflare
