@@ -76,7 +76,7 @@ scales/deploys independently of the API; S3/SES scale on their own.
 ## Repository Layout
 
 ```
-openmentor-infra/
+infra/
 ├── docker-compose.yml          # Production stack
 ├── docker-compose.dev.yml      # Dev overlay (local builds, dev postgres creds, no traefik/alloy/cadvisor/backups)
 ├── postgres-backup/            # Backup sidecar image (pg_dump → S3, see Backups)
@@ -96,27 +96,29 @@ openmentor-infra/
 └── docs/troubleshooting.md     # Operational troubleshooting
 ```
 
-The sibling repos `../openmentor` (frontend) and `../openmentor-api` (Go API +
-worker + migrations) must be cloned next to this repo for local builds.
+The sibling monorepo directories `../web` (frontend) and `../api` (Go API +
+worker + migrations) are used for local builds — a single clone of the
+monorepo brings everything.
 
 ## Quick Start (Local Development)
 
 ### Prerequisites
 
 - Docker 20.10+ with Compose 2.x
-- Sibling repos cloned:
+- The monorepo cloned (one repo contains everything):
 
 ```
-~/projects/
-├── openmentor/        # frontend
-├── openmentor-api/    # backend + worker
-└── openmentor-infra/  # this repo
+git clone https://github.com/openmentor-io/openmentor.git
+openmentor/
+├── web/     # frontend
+├── api/     # backend + worker
+└── infra/   # this directory
 ```
 
 ### 1. Configure environment
 
 ```bash
-cd openmentor-infra
+cd openmentor/infra
 cp .env.example .env
 # fill in real values (tokens, S3/SES creds, PostHog keys, ...)
 ```
@@ -131,7 +133,8 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
 
 The dev overlay:
-- builds frontend/backend images from the sibling repos instead of pulling,
+- builds frontend/backend images from `../web` and `../api` instead of
+  pulling,
 - overrides the `postgres` service with dev credentials, a disposable
   `openmentor-postgres-data-dev` volume and host port **5433** (only one
   database runs in the merged stack),
@@ -161,7 +164,7 @@ committed templates for the full annotated variable list:
 - `.env.example` → `.env` (local development, read by compose `env_file`)
 - `.env.production.example` → `.env.production` (deployment credentials,
   frontend build args, and runtime secrets; `deploy.sh` uploads it to
-  `/opt/openmentor-infra/.env` on the VM)
+  `/opt/openmentor/infra/.env` on the VM)
 
 Highlights:
 
@@ -177,8 +180,9 @@ Generate secrets with `openssl rand -base64 32` (or `-hex 32` for the worker tok
 
 ## Production Deployment
 
-Production is a single Hetzner Cloud VM (DECISIONS D2) with Docker, the repo
-checked out at `/opt/openmentor-infra`, and firewall open on 22/80/443.
+Production is a single Hetzner Cloud VM (DECISIONS D2) with Docker, the
+monorepo checked out at `/opt/openmentor` (compose runs from
+`/opt/openmentor/infra`), and firewall open on 22/80/443.
 
 ### Deploy from a workstation
 
@@ -190,11 +194,11 @@ cp .env.production.example .env.production   # once; fill in everything
 
 `deploy.sh`:
 
-1. builds images tagged with the source repos' short commit SHAs
+1. builds images tagged with the monorepo's short commit SHA
    (see `DOCKER_TAG_POLICY.md` — never `latest`),
 2. pushes them to the container registry (currently `cr.yandex`; ghcr.io swap
    tracked as **P6.4**),
-3. uploads `.env.production` to the VM as `/opt/openmentor-infra/.env`
+3. uploads `.env.production` to the VM as `/opt/openmentor/infra/.env`
    (mode 600) and writes the Alloy DB-observability secret,
 4. ensures the external `openmentor-postgres-data` volume exists
    (idempotent `docker volume create`), then runs
@@ -293,6 +297,6 @@ Also back up:
 
 ## Support
 
-- Issues: https://github.com/openmentor-io/openmentor-infra/issues
+- Issues: https://github.com/openmentor-io/openmentor/issues
 - Docs: `DEPLOYMENT.md`, `ENVIRONMENT_VARIABLES.md`, `DOCKER_TAG_POLICY.md`,
   `docs/troubleshooting.md`, and the migration plan in `../docs/migration/`

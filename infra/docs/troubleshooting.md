@@ -43,7 +43,7 @@ docker-compose ps
    docker exec -it <container> env
 
    # Solution: Update .env file
-   nano /opt/openmentor-infra/.env
+   nano /opt/openmentor/infra/.env
    docker-compose up -d
    ```
 
@@ -149,7 +149,7 @@ docker-compose ps backend
 docker exec -it openmentor-frontend curl http://backend:8081/api/healthcheck
 
 # Check Docker network
-docker network inspect openmentor-infra_openmentor-network
+docker network inspect openmentor_openmentor-network
 ```
 
 **Solutions:**
@@ -184,7 +184,7 @@ docker network inspect openmentor-infra_openmentor-network
    docker network ls
 
    # Create network manually
-   docker network create openmentor-infra_openmentor-network
+   docker network create openmentor_openmentor-network
    docker-compose up -d
    ```
 
@@ -480,11 +480,11 @@ docker exec -it openmentor-backend psql $DATABASE_URL -c "SELECT COUNT(*) FROM m
 1. **Invalid Connection String**
    ```bash
    # Check DATABASE_URL in .env
-   cat /opt/openmentor-infra/.env | grep DATABASE_URL
+   cat /opt/openmentor/infra/.env | grep DATABASE_URL
 
    # Solution: Update with valid connection string
    # Format: postgres://user:password@host:5432/database
-   nano /opt/openmentor-infra/.env
+   nano /opt/openmentor/infra/.env
    docker-compose up -d backend
    ```
 
@@ -531,7 +531,7 @@ docker exec -it openmentor-backend curl -I $S3_STORAGE_ENDPOINT
    # S3_STORAGE_ENDPOINT / S3_STORAGE_REGION in .env
 
    # Solution: Get new credentials from your storage provider (R2/S3/B2)
-   nano /opt/openmentor-infra/.env
+   nano /opt/openmentor/infra/.env
    docker-compose up -d backend
    ```
 
@@ -571,7 +571,7 @@ docker-compose logs alloy | grep "remote_write"
 1. **Invalid Grafana Cloud Credentials**
    ```bash
    # Check credentials in .env
-   cat /opt/openmentor-infra/.env | grep GCLOUD_
+   cat /opt/openmentor/infra/.env | grep GCLOUD_
 
    # Solution: Update with valid credentials
    # Get from: Grafana Cloud → Configuration → Data Sources
@@ -770,7 +770,7 @@ docker-compose logs frontend
 docker-compose stop frontend backend
 
 # 2. Backup current state
-sudo cp -r /opt/openmentor-infra ~/backup-$(date +%Y%m%d-%H%M%S)
+sudo cp -r /opt/openmentor/infra ~/backup-$(date +%Y%m%d-%H%M%S)
 
 # 3. Investigate
 # Check PostgreSQL (primary data source)
@@ -836,7 +836,7 @@ free -h >> debug-info.txt
 docker version >> debug-info.txt
 
 # 5. Network
-docker network inspect openmentor-infra_openmentor-network >> debug-info.txt
+docker network inspect openmentor_openmentor-network >> debug-info.txt
 
 # Send debug-info.txt to support
 ```

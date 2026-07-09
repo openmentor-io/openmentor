@@ -9,7 +9,7 @@ annotated list of every variable.
 ## File Structure
 
 ```
-openmentor-infra/
+infra/
 ├── .env                      # Local development (git ignored)
 ├── .env.example              # Development template (committed)
 ├── .env.production           # Production: deploy creds + build args + runtime secrets (git ignored)
@@ -33,7 +33,7 @@ Cloud / PostHog keys.
 
 **Purpose**: single source for production deployment
 **Used by**: `deploy.sh` and `rollback.sh` locally; uploaded by `deploy.sh`
-to `/opt/openmentor-infra/.env` on the VM where **all containers** read it
+to `/opt/openmentor/infra/.env` on the VM where **all containers** read it
 **Git status**: ignored
 
 Three sections (mirroring `.env.production.example`):
@@ -54,13 +54,13 @@ automatically — never set image tags manually in the file.
 ### Build-time (frontend only)
 
 `NEXT_PUBLIC_*` variables are **baked into** the frontend image during
-`docker build` (see `ARG`s in `../openmentor/Dockerfile`). Changing them
+`docker build` (see `ARG`s in `../web/Dockerfile`). Changing them
 requires rebuilding the frontend image (`./deploy.sh --frontend-only`).
 
 ### Runtime (all containers)
 
 Everything else is read at container startup from
-`/opt/openmentor-infra/.env` via compose `env_file`. Changing runtime values
+`/opt/openmentor/infra/.env` via compose `env_file`. Changing runtime values
 does **not** require an image rebuild — re-run `./deploy.sh` (or edit the
 `.env` on the VM and `docker-compose up -d`).
 
@@ -116,7 +116,7 @@ Compose resolution order (highest priority first): shell env →
 1. Never commit `.env` or `.env.production` (both gitignored)
 2. Use different credentials per environment
 3. Rotate tokens regularly; generate with `openssl rand -base64 32`
-4. On the VM: `chmod 600 /opt/openmentor-infra/.env`
+4. On the VM: `chmod 600 /opt/openmentor/infra/.env`
 5. Back up `.env.production` in a password manager or secrets vault — never
    in email/chat/repos
 
@@ -137,7 +137,7 @@ docker logs openmentor-migrate    # migrations run first; failures block startup
 ### Variable not taking effect
 
 1. Build-time (`NEXT_PUBLIC_*`)? → rebuild the frontend image
-2. Runtime? → confirm it reached the VM: `ssh <vm> "grep ^VAR /opt/openmentor-infra/.env"`,
+2. Runtime? → confirm it reached the VM: `ssh <vm> "grep ^VAR /opt/openmentor/infra/.env"`,
    then `docker-compose up -d` to recreate containers
 3. Check for a hardcoded `environment:` override in `docker-compose.yml`
    (those beat `env_file`)
