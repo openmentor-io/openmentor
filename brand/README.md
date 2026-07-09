@@ -5,6 +5,12 @@ Start with `manifest.json` if you're an agent — it indexes every file with
 its purpose and exact use case. This README is the narrative version of
 the same information.
 
+The assets the site actually serves are copied into `../web/public/brand`
+(plus `favicon.ico` at the public root and the color tokens in
+`../web/src/styles/brand-tokens.css`); the `/brand/...` URL paths in the
+snippets below resolve there at runtime. This directory remains the source
+of truth.
+
 ## Quick start (most common tasks)
 
 **Site header / footer:**
@@ -38,7 +44,7 @@ up (buttons, links, dark-mode surfaces).
 ## Folder structure
 
 ```
-openmentor-brand-assets/
+brand/
 ├── README.md                  ← you are here
 ├── manifest.json               ← machine-readable index of every asset
 ├── logo/
