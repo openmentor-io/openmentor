@@ -159,7 +159,7 @@ jobs:
           echo "Deploying with tag: $TAG"
 
       # The VM used to `git pull` a separate infrastructure repo in
-      # /opt/openmentor-infra. In the monorepo the compose files live in
+      # /opt/openmentor/infra. In the monorepo the compose files live in
       # infra/, so sync that subdirectory instead. No --delete: runtime state
       # (.env, logs, backups) living next to the compose files must survive.
       - name: Sync infra/ to VM
@@ -175,7 +175,7 @@ jobs:
             --exclude 'logs/' \
             -e "ssh -i ~/.ssh/deploy_key -p 22" \
             infra/ \
-            "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}:/opt/openmentor-infra/"
+            "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}:/opt/openmentor/infra/"
 
       - name: Deploy via SSH
         id: deploy
@@ -193,7 +193,7 @@ jobs:
 
             # Navigate to infra directory (already synced from the monorepo
             # infra/ subdirectory by the previous step)
-            cd /opt/openmentor-infra
+            cd /opt/openmentor/infra
 
             # Save current image tag for rollback
             PREVIOUS_TAG=$(grep "IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
