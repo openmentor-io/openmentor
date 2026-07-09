@@ -7,16 +7,7 @@ type PendingCommand =
   | { type: 'identify'; distinctId: string; properties?: AnalyticsProperties }
   | { type: 'reset' }
 
-type AnalyticsProvider = 'none' | 'mixpanel' | 'posthog' | 'dual'
-
-interface MixpanelClient {
-  track: (name: string, params?: AnalyticsProperties) => void
-  identify: (id: string) => void
-  reset?: () => void
-  people?: {
-    set: (props: AnalyticsProperties) => void
-  }
-}
+type AnalyticsProvider = 'none' | 'posthog'
 
 interface PostHogClient {
   capture: (name: string, properties?: AnalyticsProperties) => void
@@ -94,28 +85,15 @@ function resolveProvider(): AnalyticsProvider {
   const explicit = ANALYTICS_PROVIDER
 
   if (explicit === 'none') return 'none'
-  if (explicit === 'mixpanel') return 'mixpanel'
   if (explicit === 'posthog') return 'posthog'
-  if (explicit === 'dual') return 'dual'
 
-  return 'mixpanel'
+  // Unset (or unknown) defaults to the only supported provider; events are
+  // still gated on the PostHog client actually being initialized (consent +
+  // NEXT_PUBLIC_POSTHOG_KEY).
+  return 'posthog'
 }
 
 const provider = resolveProvider()
-
-function getMixpanel(): MixpanelClient | null {
-  if (typeof window === 'undefined') return null
-
-  const mixpanel = window.mixpanel
-  if (
-    !mixpanel ||
-    typeof mixpanel.track !== 'function' ||
-    typeof mixpanel.identify !== 'function'
-  ) {
-    return null
-  }
-  return mixpanel as MixpanelClient
-}
 
 function getPostHog(): PostHogClient | null {
   const client = getPostHogClient()
@@ -168,9 +146,7 @@ function withCommonProperties(params?: AnalyticsProperties): AnalyticsProperties
 
 function canFlush(providerName: AnalyticsProvider): boolean {
   if (providerName === 'none') return false
-  if (providerName === 'mixpanel') return getMixpanel() !== null
-  if (providerName === 'posthog') return getPostHog() !== null
-  return getMixpanel() !== null || getPostHog() !== null
+  return getPostHog() !== null
 }
 
 function executeCommand(command: PendingCommand): void {
@@ -178,42 +154,7 @@ function executeCommand(command: PendingCommand): void {
     return
   }
 
-  if (provider === 'mixpanel') {
-    executeMixpanelCommand(command)
-    return
-  }
-
-  if (provider === 'posthog') {
-    executePostHogCommand(command)
-    return
-  }
-
-  if (provider === 'dual') {
-    executePostHogCommand(command)
-    executeMixpanelCommand(command)
-  }
-}
-
-function executeMixpanelCommand(command: PendingCommand): void {
-  const mixpanel = getMixpanel()
-  if (!mixpanel) return
-
-  if (command.type === 'track') {
-    mixpanel.track(command.event, withCommonProperties(command.properties))
-    return
-  }
-
-  if (command.type === 'identify') {
-    mixpanel.identify(command.distinctId)
-    if (command.properties && mixpanel.people?.set) {
-      mixpanel.people.set(sanitizeProperties(command.properties))
-    }
-    return
-  }
-
-  if (command.type === 'reset') {
-    mixpanel.reset?.()
-  }
+  executePostHogCommand(command)
 }
 
 function executePostHogCommand(command: PendingCommand): void {

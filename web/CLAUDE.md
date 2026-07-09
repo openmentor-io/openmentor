@@ -140,7 +140,7 @@ Optional (all documented in `.env.example`):
 - `DOMAIN` - Canonical domain for SEO URLs and sitemap (production)
 - `NEXT_PUBLIC_FARO_*` / `NEXT_PUBLIC_O11Y_*` - Grafana Faro client telemetry
 - `O11Y_*`, `APP_ENV`, `SERVICE_INSTANCE_ID` - server-side OpenTelemetry tracing
-- `NEXT_PUBLIC_ANALYTICS_PROVIDER` / `NEXT_PUBLIC_ANALYTICS_EVENT_VERSION` - analytics (none/mixpanel/posthog/dual)
+- `NEXT_PUBLIC_ANALYTICS_PROVIDER` / `NEXT_PUBLIC_ANALYTICS_EVENT_VERSION` - analytics (none/posthog)
 - `NEXT_PUBLIC_POSTHOG_KEY` / `NEXT_PUBLIC_POSTHOG_HOST`, `POSTHOG_PERSONAL_API_KEY` / `POSTHOG_PROJECT_ID` - PostHog error tracking and source map upload
 
 Type declarations for all of these live in `src/types/env.d.ts` — keep it in sync with `.env.example`.

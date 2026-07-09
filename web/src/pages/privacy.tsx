@@ -199,7 +199,6 @@ export default function Privacy(): JSX.Element {
             <li>Amazon Web Services (SES) — transactional email delivery;</li>
             <li>An S3-compatible object storage provider — storage of profile images;</li>
             <li>PostHog — product analytics (only with your consent);</li>
-            <li>Mixpanel — product analytics (only with your consent);</li>
             <li>Google ReCAPTCHA — spam and bot protection on public forms;</li>
             <li>Grafana Cloud — logging, monitoring, and error tracking;</li>
             <li>Cloudflare — DNS and content delivery.</li>
@@ -222,8 +221,8 @@ export default function Privacy(): JSX.Element {
           <h2>5. International transfers</h2>
 
           <p>
-            Our primary hosting is located in the EU. Some of our providers (for example Google and
-            Mixpanel) may process data in the United States or other countries outside the EU/EEA.
+            Our primary hosting is located in the EU. Some of our providers (for example Google)
+            may process data in the United States or other countries outside the EU/EEA.
             Where that happens, transfers are safeguarded by the European Commission&rsquo;s
             Standard Contractual Clauses (SCCs) or an applicable adequacy decision (such as the
             EU-U.S. Data Privacy Framework).
@@ -310,7 +309,7 @@ export default function Privacy(): JSX.Element {
               These are always on.
             </li>
             <li>
-              <strong>Analytics cookies</strong> — used by PostHog and Mixpanel to help us
+              <strong>Analytics cookies</strong> — used by PostHog to help us
               understand product usage. These are set{' '}
               <strong>only if you accept them in the consent banner</strong> shown on your first
               visit. You can decline them without losing any functionality, and you can withdraw

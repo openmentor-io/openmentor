@@ -29,13 +29,15 @@ if (typeof window !== 'undefined') {
 
 let analyticsInitialized = false
 
-// Product analytics (PostHog + GTM, which loads Mixpanel/GA) initialize only
+// Product analytics (PostHog + GTM, which loads GA) initialize only
 // after the user accepts analytics cookies in the consent banner.
 function initializeAnalytics(): void {
   if (analyticsInitialized) return
   analyticsInitialized = true
 
   initializePostHog()
+  // Mixpanel tag must also be removed in the GTM console (GTM-NBGRPCZ) —
+  // code cannot control container contents.
   TagManager.initialize({ gtmId: 'GTM-NBGRPCZ' })
 }
 

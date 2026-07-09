@@ -91,11 +91,11 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value:
               "default-src 'self'; " +
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://openmentor.io https://cdn.mxpnl.com https://www.google.com https://www.gstatic.com https://www.googletagmanager.com https://www.google-analytics.com https://decide.mixpanel.com https://a.openmentor.io https://us.i.posthog.com https://eu.i.posthog.com https://us-assets.i.posthog.com https://eu-assets.i.posthog.com https://faro-collector-prod-eu-west-3.grafana.net; " +
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://openmentor.io https://www.google.com https://www.gstatic.com https://www.googletagmanager.com https://www.google-analytics.com https://a.openmentor.io https://us.i.posthog.com https://eu.i.posthog.com https://us-assets.i.posthog.com https://eu-assets.i.posthog.com https://faro-collector-prod-eu-west-3.grafana.net; " +
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
               "img-src 'self' https: data:; " +
               "font-src 'self' data: https://fonts.gstatic.com https://at.alicdn.com; " +
-              "connect-src 'self' https://api.mixpanel.com https://decide.mixpanel.com https://a.openmentor.io https://us.i.posthog.com https://eu.i.posthog.com https://eu.posthog.com https://openmentor.io https://www.google-analytics.com https://region1.analytics.google.com https://stats.g.doubleclick.net https://google.com https://www.google.com https://faro-collector-prod-eu-west-3.grafana.net; " +
+              "connect-src 'self' https://a.openmentor.io https://us.i.posthog.com https://eu.i.posthog.com https://eu.posthog.com https://openmentor.io https://www.google-analytics.com https://region1.analytics.google.com https://stats.g.doubleclick.net https://google.com https://www.google.com https://faro-collector-prod-eu-west-3.grafana.net; " +
               // calendlab.ru kept in frame-src: CalendlabWidget still embeds
               // mentor calendars (CalendarType 'calendlab')
               'frame-src https://www.google.com https://calendly.com https://koalendar.com https://calendlab.ru https://docs.google.com; ' +
@@ -117,32 +117,6 @@ const nextConfig = {
         source: '/:slug([a-z-]+\\d+)',
         destination: '/mentor/:slug', // Matched parameters can be used in the destination
         permanent: true,
-      },
-
-      // proxy redirects for Mixpanel
-      {
-        source: '/mxp/lib.min.js',
-        destination: 'https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js',
-        permanent: true,
-        basePath: false,
-      },
-      {
-        source: '/mxp/lib.js',
-        destination: 'https://cdn.mxpnl.com/libs/mixpanel-2-latest.js',
-        permanent: true,
-        basePath: false,
-      },
-      {
-        source: '/mxp/decide',
-        destination: 'https://decide.mixpanel.com/decide',
-        permanent: true,
-        basePath: false,
-      },
-      {
-        source: '/mxp',
-        destination: 'https://api.mixpanel.com/',
-        permanent: true,
-        basePath: false,
       },
     ]
   },

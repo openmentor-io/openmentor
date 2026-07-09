@@ -3,7 +3,7 @@
  *
  * The user's choice is stored client-side in localStorage (with an explicit
  * expiry) and mirrored in a first-party cookie, both valid for 12 months.
- * Analytics (PostHog, GTM/Mixpanel/GA) must only initialize after the user
+ * Analytics (PostHog, GTM/GA) must only initialize after the user
  * accepts — see `onAnalyticsConsentGranted` and its usage in `_app.tsx`.
  */
 
