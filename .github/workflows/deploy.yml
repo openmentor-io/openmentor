@@ -26,7 +26,7 @@ on:
         type: string
 
 env:
-  # TODO(P6.4): move to ghcr.io (GitHub Container Registry) — Yandex registry kept temporarily
+  # TODO(P6.4): move to AWS ECR (D19) (GitHub Container Registry) — Yandex registry kept temporarily
   REGISTRY: cr.yandex
   FRONTEND_IMAGE: openmentor-frontend
   BACKEND_IMAGE: openmentor-backend
@@ -45,7 +45,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # TODO(P6): move to ghcr.io — replace this login step with docker/login-action against ghcr.io
+      # TODO(P6): move to AWS ECR (D19) — replace this login step with docker/login-action against AWS ECR (D19)
       - name: Login to Yandex Container Registry
         run: |
           echo '${{ secrets.YANDEX_SA_KEY }}' | docker login \
@@ -98,7 +98,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # TODO(P6): move to ghcr.io — replace this login step with docker/login-action against ghcr.io
+      # TODO(P6): move to AWS ECR (D19) — replace this login step with docker/login-action against AWS ECR (D19)
       - name: Login to Yandex Container Registry
         run: |
           echo '${{ secrets.YANDEX_SA_KEY }}' | docker login \
@@ -252,7 +252,7 @@ jobs:
             regen_env_runtime
 
             # Login to Yandex Container Registry
-            # TODO(P6.4): move to ghcr.io — update registry host and credentials
+            # TODO(P6.4): move to AWS ECR (D19) — update registry host and credentials
             echo '${{ secrets.YANDEX_SA_KEY }}' | docker login \
               --username json_key \
               --password-stdin \

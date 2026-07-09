@@ -31,7 +31,7 @@ Hetzner VM (only thing operated day-to-day)
                     / postgres / postgres-backup / alloy / cadvisor
 AWS (passive, one account):  S3 = profile images (D15) · SES = email (D1)
 Cloudflare (passive):        DNS
-cr.yandex → ghcr.io:         container images (registry swap pending, P6.4)
+cr.yandex → AWS ECR (D19):         container images (registry swap pending, P6.4)
 Grafana Cloud (free tier):   metrics / logs / traces / profiles
 ```
 
@@ -220,7 +220,7 @@ cp .env.production.example .env.production   # once; fill in everything
 
 1. builds the targeted images tagged with the monorepo's short commit SHA
    (see `DOCKER_TAG_POLICY.md` — never `latest`) and pushes them to the
-   container registry (currently `cr.yandex`; ghcr.io swap tracked as
+   container registry (currently `cr.yandex`; AWS ECR (D19) swap tracked as
    **P6.4**),
 2. fetches the currently deployed tags from the VM for any service **not**
    being deployed, so untouched services keep their tags,
@@ -333,7 +333,7 @@ Also back up:
 ## Known TODOs
 
 - **P6.4 — registry swap**: images are still pushed to Yandex Container
-  Registry (`cr.yandex`, service-account JSON key auth). Moving to **ghcr.io**
+  Registry (`cr.yandex`, service-account JSON key auth). Moving to **AWS ECR (D19)**
   (docker/login-action + PAT/OIDC) is tracked as P6.4; `TODO(P6.4)` markers
   sit in `.env.example`, `.env.production.example` and the deploy workflow.
   Until then the Yandex account must stay alive for pulls/pushes.

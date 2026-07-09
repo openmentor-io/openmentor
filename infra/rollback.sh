@@ -161,7 +161,7 @@ fi
 grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime
 chmod 600 .env.runtime
 
-# Login to registry (TODO(P6.4): registry swap cr.yandex -> ghcr.io)
+# Login to registry (TODO(P6.4): registry swap cr.yandex -> AWS ECR (D19))
 echo "🔑 Logging in to registry..."
 echo "\$YANDEX_SA_KEY" | docker login \
     --username json_key \

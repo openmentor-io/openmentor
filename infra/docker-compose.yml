@@ -58,7 +58,7 @@ services:
 
 
   # Next.js Frontend
-  # TODO(P6.4): registry swap cr.yandex -> ghcr.io (applies to all image: lines below)
+  # TODO(P6.4): registry swap cr.yandex -> AWS ECR (D19) (applies to all image: lines below)
   frontend:
     image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-frontend:${FRONTEND_IMAGE_TAG:-${IMAGE_TAG}}
     container_name: openmentor-frontend

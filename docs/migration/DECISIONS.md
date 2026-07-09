@@ -24,3 +24,4 @@ Status: `OPEN` = needs product-owner answer; `DECIDED` = answer recorded, plan u
 | D18 | Analytics provider | PostHog only — Mixpanel removed across web/api/worker (Mixpanel GTM tag removal in the GTM console is a manual owner task) | DECIDED (2026-07-09) |
 
 When a decision is made: update the row to DECIDED with the choice, and update the referencing plan docs (01/03/04/05/06).
+| D19 | Container registry | **AWS ECR** (same passive AWS account as S3/SES — supersedes the earlier ghcr.io plan in D2; TODO(P6.4) markers retargeted) | DECIDED (2026-07-09) |

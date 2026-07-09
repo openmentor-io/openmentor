@@ -70,7 +70,7 @@ docker-compose ps
 4. **Image Pull Failure**
    ```bash
    # Check registry authentication (registry is cr.yandex until the
-   # TODO(P6.4) ghcr.io swap)
+   # TODO(P6.4) AWS ECR (D19) swap)
    docker login cr.yandex
 
    # Retry pull
@@ -672,7 +672,7 @@ sudo systemctl status docker
 2. **Corrupted Image**
    ```bash
    # Remove image and re-pull (registry is cr.yandex until the
-   # TODO(P6.4) ghcr.io swap)
+   # TODO(P6.4) AWS ECR (D19) swap)
    docker rmi cr.yandex/${REGISTRY_ID}/openmentor-frontend:<tag>
    docker-compose pull
    docker-compose up -d

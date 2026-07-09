@@ -8,7 +8,7 @@ local machine using `./deploy.sh`.
 1. **Docker** installed and running locally
 2. **SSH access** to the production VM (Hetzner Cloud, see DECISIONS D2)
 3. **Container registry credentials** — currently Yandex Container Registry
-   (`TODO(P6.4)`: moving to ghcr.io):
+   (`TODO(P6.4)`: moving to AWS ECR (D19)):
    - Service account JSON key with `container-registry.images.pusher` role
    - Registry ID (`crp...`)
 4. **Full monorepo checkout** — the frontend (`../web`) and backend

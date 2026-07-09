@@ -203,7 +203,7 @@ fi
 
 SSH_OPTS=(-i "$_VM_SSH_KEY_FILE" -o StrictHostKeyChecking=no)
 
-# Generate image tags. TODO(P6.4): registry swap cr.yandex -> ghcr.io
+# Generate image tags. TODO(P6.4): registry swap cr.yandex -> AWS ECR (D19)
 REGISTRY="cr.yandex"
 FRONTEND_IMAGE="$REGISTRY/$YANDEX_REGISTRY_ID/openmentor-frontend"
 BACKEND_IMAGE="$REGISTRY/$YANDEX_REGISTRY_ID/openmentor-backend"

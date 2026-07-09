@@ -27,7 +27,7 @@ We use Git commit SHA (short form) as unique identifiers for each deployment.
 
 ### Tag Format
 
-Registry is currently `cr.yandex` — `TODO(P6.4)`: moving to ghcr.io.
+Registry is currently `cr.yandex` — `TODO(P6.4)`: moving to AWS ECR (D19).
 
 ```
 Frontend: cr.yandex/<registry-id>/openmentor-frontend:<commit-sha>
