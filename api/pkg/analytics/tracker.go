@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	DefaultMixpanelEndpoint  = "https://api.mixpanel.com/track?verbose=1"
 	DefaultPostHogHost       = "https://us.i.posthog.com"
 	DefaultEventVersion      = "v1"
 	defaultTimeout           = 3 * time.Second
@@ -24,9 +23,7 @@ const (
 	defaultEnvironment       = "unknown"
 	defaultAnalyticsProvider = ProviderNone
 	providerNoneValue        = "none"
-	providerMixpanelValue    = "mixpanel"
 	providerPostHogValue     = "posthog"
-	providerDualValue        = "dual"
 )
 
 type Tracker interface {
@@ -36,10 +33,8 @@ type Tracker interface {
 type Provider string
 
 const (
-	ProviderNone     Provider = providerNoneValue
-	ProviderMixpanel Provider = providerMixpanelValue
-	ProviderPostHog  Provider = providerPostHogValue
-	ProviderDual     Provider = providerDualValue
+	ProviderNone    Provider = providerNoneValue
+	ProviderPostHog Provider = providerPostHogValue
 )
 
 type Config struct {
@@ -50,16 +45,6 @@ type Config struct {
 	Timeout      time.Duration
 	QueueSize    int
 	HTTPClient   *http.Client
-
-	// Mixpanel (new names)
-	MixpanelEnabled  bool
-	MixpanelToken    string
-	MixpanelEndpoint string
-
-	// Mixpanel legacy fields kept for backward compatibility.
-	Enabled  bool
-	Token    string
-	Endpoint string
 
 	// PostHog
 	PostHogEnabled         bool
@@ -75,8 +60,6 @@ func (NoopTracker) Track(context.Context, string, string, map[string]interface{}
 
 type AnalyticsTracker struct {
 	provider            Provider
-	mixpanelToken       string
-	mixpanelEndpoint    string
 	posthogAPIKey       string
 	posthogEndpoint     string
 	posthogDisableGeoIP bool
@@ -94,11 +77,6 @@ type queuedEvent struct {
 	occurredAt time.Time
 }
 
-type mixpanelEventPayload struct {
-	Event      string                 `json:"event"`
-	Properties map[string]interface{} `json:"properties"`
-}
-
 type posthogPayload struct {
 	APIKey       string                 `json:"api_key"`
 	Event        string                 `json:"event"`
@@ -113,19 +91,11 @@ func NewTracker(cfg *Config) Tracker {
 		return NoopTracker{}
 	}
 
-	mixpanelToken := strings.TrimSpace(firstNonEmpty(cfg.MixpanelToken, cfg.Token))
-	mixpanelEndpoint := strings.TrimSpace(firstNonEmpty(cfg.MixpanelEndpoint, cfg.Endpoint))
-	if mixpanelEndpoint == "" {
-		mixpanelEndpoint = DefaultMixpanelEndpoint
-	}
-
 	posthogAPIKey := strings.TrimSpace(cfg.PostHogAPIKey)
 	posthogEndpoint := normalizePostHogEndpoint(cfg.PostHogHost, cfg.PostHogCaptureEndpoint)
 
 	resolvedProvider := resolveProvider(
 		cfg.Provider,
-		cfg.MixpanelEnabled || cfg.Enabled,
-		mixpanelToken != "",
 		cfg.PostHogEnabled,
 		posthogAPIKey != "" && posthogEndpoint != "",
 	)
@@ -165,8 +135,6 @@ func NewTracker(cfg *Config) Tracker {
 
 	tracker := &AnalyticsTracker{
 		provider:            resolvedProvider,
-		mixpanelToken:       mixpanelToken,
-		mixpanelEndpoint:    mixpanelEndpoint,
 		posthogAPIKey:       posthogAPIKey,
 		posthogEndpoint:     posthogEndpoint,
 		posthogDisableGeoIP: cfg.PostHogDisableGeoIP,
@@ -216,42 +184,8 @@ func (t *AnalyticsTracker) Track(_ context.Context, event string, distinctID str
 
 func (t *AnalyticsTracker) runWorker() {
 	for event := range t.queue {
-		switch t.provider {
-		case ProviderMixpanel:
-			t.sendMixpanel(event)
-		case ProviderPostHog:
-			t.sendPostHog(event)
-		case ProviderDual:
-			t.sendMixpanel(event)
-			t.sendPostHog(event)
-		}
+		t.sendPostHog(event)
 	}
-}
-
-func (t *AnalyticsTracker) sendMixpanel(event queuedEvent) {
-	if t.mixpanelToken == "" {
-		return
-	}
-
-	mixpanelProps := cloneProperties(event.properties)
-	mixpanelProps["token"] = t.mixpanelToken
-	mixpanelProps["distinct_id"] = event.distinctID
-	mixpanelProps["time"] = event.occurredAt.Unix()
-
-	payload := []mixpanelEventPayload{{
-		Event:      event.event,
-		Properties: mixpanelProps,
-	}}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		logger.Warn("Failed to marshal Mixpanel event payload",
-			zap.String("event", event.event),
-			zap.Error(err))
-		return
-	}
-
-	t.postJSON(t.mixpanelEndpoint, event.event, body)
 }
 
 func (t *AnalyticsTracker) sendPostHog(event queuedEvent) {
@@ -321,64 +255,20 @@ func (t *AnalyticsTracker) postJSON(endpoint string, eventName string, body []by
 	}
 }
 
-func resolveProvider(
-	requestedProvider string,
-	mixpanelEnabled bool,
-	mixpanelReady bool,
-	posthogEnabled bool,
-	posthogReady bool,
-) Provider {
-
-	normalizedProvider := normalizeProvider(requestedProvider)
-	if normalizedProvider == "" {
-		return resolveImplicitProvider(mixpanelEnabled, mixpanelReady, posthogEnabled, posthogReady)
-	}
-
-	return resolveExplicitProvider(Provider(normalizedProvider), requestedProvider, mixpanelReady, posthogReady)
-}
-
-func resolveImplicitProvider(mixpanelEnabled, mixpanelReady, posthogEnabled, posthogReady bool) Provider {
-	switch {
-	case mixpanelEnabled && posthogEnabled && mixpanelReady && posthogReady:
-		return ProviderDual
-	case mixpanelEnabled && mixpanelReady:
-		return ProviderMixpanel
-	case posthogEnabled && posthogReady:
-		return ProviderPostHog
-	default:
-		return defaultAnalyticsProvider
-	}
-}
-
-func resolveExplicitProvider(provider Provider, requestedProvider string, mixpanelReady, posthogReady bool) Provider {
-	switch provider {
-	case ProviderNone:
-		return ProviderNone
-	case ProviderMixpanel:
-		if mixpanelReady {
-			return ProviderMixpanel
+func resolveProvider(requestedProvider string, posthogEnabled, posthogReady bool) Provider {
+	switch normalizeProvider(requestedProvider) {
+	case "":
+		if posthogEnabled && posthogReady {
+			return ProviderPostHog
 		}
-		logger.Warn("Analytics provider mixpanel requested but not configured")
+		return defaultAnalyticsProvider
+	case providerNoneValue:
 		return ProviderNone
-	case ProviderPostHog:
+	case providerPostHogValue:
 		if posthogReady {
 			return ProviderPostHog
 		}
 		logger.Warn("Analytics provider posthog requested but not configured")
-		return ProviderNone
-	case ProviderDual:
-		if mixpanelReady && posthogReady {
-			return ProviderDual
-		}
-		if mixpanelReady {
-			logger.Warn("Analytics provider dual requested; posthog is not configured, falling back to mixpanel")
-			return ProviderMixpanel
-		}
-		if posthogReady {
-			logger.Warn("Analytics provider dual requested; mixpanel is not configured, falling back to posthog")
-			return ProviderPostHog
-		}
-		logger.Warn("Analytics provider dual requested but neither provider is configured")
 		return ProviderNone
 	default:
 		logger.Warn("Unsupported analytics provider requested", zap.String("provider", requestedProvider))
@@ -412,16 +302,6 @@ func cloneProperties(properties map[string]interface{}) map[string]interface{} {
 		clone[key] = value
 	}
 	return clone
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }
 
 func MentorDistinctID(mentorID string) string {

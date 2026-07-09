@@ -4,13 +4,24 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestMain(m *testing.M) {
+	// resolveProvider logs via the global logger on misconfiguration paths;
+	// initialize it so those tests don't hit a nil logger.
+	if err := logger.Initialize(logger.Config{Level: "error", Environment: "development"}); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
 
 type capturedRequest struct {
 	URL  string
@@ -93,43 +104,6 @@ func waitForRequests(t *testing.T, transport *captureTransport, targetCount int)
 	return nil
 }
 
-func TestMixpanelTracker_Track_SanitizesAndAddsCommonProps(t *testing.T) {
-	t.Parallel()
-
-	transport := &captureTransport{}
-	client := &http.Client{Transport: transport}
-	tracker := NewTracker(&Config{
-		Enabled:      true,
-		Token:        "test-token",
-		Endpoint:     "https://mixpanel.invalid/track",
-		SourceSystem: "api",
-		Environment:  "staging",
-		EventVersion: "v9",
-		HTTPClient:   client,
-	})
-
-	tracker.Track(context.Background(), EventMenteeContactSubmitted, MentorDistinctID("mentor-123"), map[string]interface{}{
-		"email":     "private@openmentor.io",
-		"name":      "Private Name",
-		"mentor_id": "mentor-123",
-		"outcome":   "success",
-	})
-
-	requests := waitForRequests(t, transport, 1)
-	body := requests[0].Body
-
-	assert.Contains(t, body, EventMenteeContactSubmitted)
-	assert.Contains(t, body, `"token":"test-token"`)
-	assert.Contains(t, body, `"distinct_id":"mentor:mentor-123"`)
-	assert.Contains(t, body, `"source_system":"api"`)
-	assert.Contains(t, body, `"environment":"staging"`)
-	assert.Contains(t, body, `"event_version":"v9"`)
-	assert.Contains(t, body, `"mentor_id":"mentor-123"`)
-	assert.Contains(t, body, `"outcome":"success"`)
-	assert.NotContains(t, body, "private@openmentor.io")
-	assert.NotContains(t, body, "Private Name")
-}
-
 func TestPostHogTracker_Track_SanitizesAndAddsCommonProps(t *testing.T) {
 	t.Parallel()
 
@@ -170,21 +144,19 @@ func TestPostHogTracker_Track_SanitizesAndAddsCommonProps(t *testing.T) {
 	assert.NotContains(t, body, "Private Name")
 }
 
-func TestDualTracker_Track_SendsToBothProviders(t *testing.T) {
+func TestPostHogTracker_ImplicitProvider_UsesPostHogWhenEnabled(t *testing.T) {
 	t.Parallel()
 
 	transport := &captureTransport{}
 	client := &http.Client{Transport: transport}
 	tracker := NewTracker(&Config{
-		Provider:         "dual",
-		MixpanelToken:    "mx-token",
-		MixpanelEndpoint: "https://mixpanel.invalid/track",
-		PostHogAPIKey:    "ph-test-key",
-		PostHogHost:      "https://us.i.posthog.com",
-		SourceSystem:     "api",
-		Environment:      "staging",
-		EventVersion:     "v9",
-		HTTPClient:       client,
+		PostHogEnabled: true,
+		PostHogAPIKey:  "ph-test-key",
+		PostHogHost:    "https://us.i.posthog.com",
+		SourceSystem:   "api",
+		Environment:    "staging",
+		EventVersion:   "v9",
+		HTTPClient:     client,
 	})
 
 	tracker.Track(context.Background(), EventMenteeContactSubmitted, MentorDistinctID("mentor-123"), map[string]interface{}{
@@ -192,34 +164,21 @@ func TestDualTracker_Track_SendsToBothProviders(t *testing.T) {
 		"outcome":   "success",
 	})
 
-	requests := waitForRequests(t, transport, 2)
-
-	var hasMixpanel bool
-	var hasPostHog bool
-	for _, request := range requests {
-		if strings.Contains(request.URL, "mixpanel.invalid/track") {
-			hasMixpanel = true
-		}
-		if strings.Contains(request.URL, "posthog.com/capture/") {
-			hasPostHog = true
-		}
-	}
-
-	assert.True(t, hasMixpanel, "expected mixpanel request")
-	assert.True(t, hasPostHog, "expected posthog request")
+	requests := waitForRequests(t, transport, 1)
+	assert.Contains(t, requests[0].URL, "https://us.i.posthog.com/capture/")
 }
 
 func TestTracker_Track_DoesNotBlockOnSlowNetwork(t *testing.T) {
 	transport := &slowTransport{delay: 300 * time.Millisecond}
 	client := &http.Client{Transport: transport}
 	tracker := NewTracker(&Config{
-		Enabled:      true,
-		Token:        "test-token",
-		Endpoint:     "https://mixpanel.invalid/track",
-		SourceSystem: "api",
-		Environment:  "staging",
-		EventVersion: "v9",
-		HTTPClient:   client,
+		Provider:      "posthog",
+		PostHogAPIKey: "ph-test-key",
+		PostHogHost:   "https://us.i.posthog.com",
+		SourceSystem:  "api",
+		Environment:   "staging",
+		EventVersion:  "v9",
+		HTTPClient:    client,
 	})
 
 	startedAt := time.Now()
@@ -245,8 +204,30 @@ func TestNewTracker_DisabledReturnsNoop(t *testing.T) {
 	t.Parallel()
 
 	tracker := NewTracker(&Config{
-		Enabled: false,
-		Token:   "",
+		PostHogEnabled: false,
+		PostHogAPIKey:  "",
+	})
+
+	assert.IsType(t, NoopTracker{}, tracker)
+}
+
+func TestNewTracker_PostHogRequestedButUnconfiguredReturnsNoop(t *testing.T) {
+	t.Parallel()
+
+	tracker := NewTracker(&Config{
+		Provider: "posthog",
+	})
+
+	assert.IsType(t, NoopTracker{}, tracker)
+}
+
+func TestNewTracker_UnsupportedProviderReturnsNoop(t *testing.T) {
+	t.Parallel()
+
+	tracker := NewTracker(&Config{
+		Provider:      "unsupported-provider",
+		PostHogAPIKey: "ph-test-key",
+		PostHogHost:   "https://us.i.posthog.com",
 	})
 
 	assert.IsType(t, NoopTracker{}, tracker)

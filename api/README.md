@@ -122,7 +122,7 @@ The worker serves `/healthz` and `/metrics`, keeps its own smaller DB pool
 - **Profile pictures** on any S3-compatible storage (`pkg/s3storage`,
   `S3_STORAGE_*` — Cloudflare R2, AWS S3, Backblaze B2, ...).
 - **Email** via AWS SESv2 (`SES_*`, `MODERATORS_EMAIL`).
-- **Analytics** via PostHog and/or Mixpanel (`ANALYTICS_PROVIDER`).
+- **Analytics** via PostHog (`ANALYTICS_PROVIDER`: `none` | `posthog`).
 - **Observability**: OTLP traces + Prometheus metrics + JSON logs shipped by
   a Grafana Alloy sidecar container (`O11Y_*`), optional Pyroscope
   continuous profiling (`O11Y_PROFILING_*`).

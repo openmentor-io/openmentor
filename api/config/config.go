@@ -8,11 +8,9 @@ import (
 )
 
 const (
-	analyticsProviderNone     = "none"
-	analyticsProviderMixpanel = "mixpanel"
-	analyticsProviderPosthog  = "posthog"
-	analyticsProviderDual     = "dual"
-	defaultEventVersion       = "v1"
+	analyticsProviderNone    = "none"
+	analyticsProviderPosthog = "posthog"
+	defaultEventVersion      = "v1"
 )
 
 // Config holds all application configuration
@@ -24,7 +22,6 @@ type Config struct {
 	S3Storage     S3StorageConfig
 	Auth          AuthConfig
 	Analytics     AnalyticsConfig
-	Mixpanel      MixpanelConfig
 	PostHog       PostHogConfig
 	ReCAPTCHA     ReCAPTCHAConfig
 	EventTriggers EventTriggerFunctionsConfig
@@ -68,13 +65,6 @@ type AuthConfig struct {
 	InternalMentorsAPI string
 	MCPAuthToken       string
 	MCPAllowAll        bool
-}
-
-type MixpanelConfig struct {
-	Enabled      bool
-	Token        string
-	Endpoint     string
-	EventVersion string
 }
 
 type AnalyticsConfig struct {
@@ -195,9 +185,6 @@ func Load() (*Config, error) {
 	v.SetDefault("MCP_ALLOW_ALL", false)
 	v.SetDefault("ANALYTICS_PROVIDER", "")
 	v.SetDefault("ANALYTICS_EVENT_VERSION", defaultEventVersion)
-	v.SetDefault("MIXPANEL_ENABLED", false)
-	v.SetDefault("MIXPANEL_ENDPOINT", "https://api.mixpanel.com/track?verbose=1")
-	v.SetDefault("MIXPANEL_EVENT_VERSION", defaultEventVersion)
 	v.SetDefault("POSTHOG_ENABLED", false)
 	v.SetDefault("POSTHOG_HOST", "https://eu.i.posthog.com")
 	v.SetDefault("POSTHOG_DISABLE_GEOIP", true)
@@ -243,9 +230,6 @@ func Load() (*Config, error) {
 
 	analyticsProvider := strings.ToLower(strings.TrimSpace(v.GetString("ANALYTICS_PROVIDER")))
 	analyticsEventVersion := strings.TrimSpace(v.GetString("ANALYTICS_EVENT_VERSION"))
-	if analyticsEventVersion == "" {
-		analyticsEventVersion = strings.TrimSpace(v.GetString("MIXPANEL_EVENT_VERSION"))
-	}
 
 	cfg := &Config{
 		Server: ServerConfig{
@@ -277,12 +261,6 @@ func Load() (*Config, error) {
 		Analytics: AnalyticsConfig{
 			Provider:     analyticsProvider,
 			EventVersion: analyticsEventVersion,
-		},
-		Mixpanel: MixpanelConfig{
-			Enabled:      v.GetBool("MIXPANEL_ENABLED"),
-			Token:        v.GetString("MIXPANEL_TOKEN"),
-			Endpoint:     v.GetString("MIXPANEL_ENDPOINT"),
-			EventVersion: v.GetString("MIXPANEL_EVENT_VERSION"),
 		},
 		PostHog: PostHogConfig{
 			Enabled:         v.GetBool("POSTHOG_ENABLED"),
@@ -404,16 +382,12 @@ func (c *Config) validateAuthConfig() error {
 func (c *Config) validateAnalyticsConfig() error {
 	provider := c.ResolvedAnalyticsProvider()
 	switch provider {
-	case analyticsProviderNone, analyticsProviderMixpanel, analyticsProviderPosthog, analyticsProviderDual:
+	case analyticsProviderNone, analyticsProviderPosthog:
 	default:
-		return fmt.Errorf("ANALYTICS_PROVIDER must be one of: none, mixpanel, posthog, dual")
+		return fmt.Errorf("ANALYTICS_PROVIDER must be one of: none, posthog")
 	}
 
-	if (provider == analyticsProviderMixpanel || provider == analyticsProviderDual) && strings.TrimSpace(c.Mixpanel.Token) == "" {
-		return fmt.Errorf("MIXPANEL_TOKEN is required when ANALYTICS_PROVIDER=%s", provider)
-	}
-
-	if provider != analyticsProviderPosthog && provider != analyticsProviderDual {
+	if provider != analyticsProviderPosthog {
 		return nil
 	}
 
@@ -454,37 +428,26 @@ func (c *Config) validateProfilingConfig() error {
 	return nil
 }
 
-// ResolvedAnalyticsProvider returns normalized provider with legacy compatibility.
+// ResolvedAnalyticsProvider returns the normalized provider, falling back to
+// POSTHOG_ENABLED when ANALYTICS_PROVIDER is unset (default: none).
 func (c *Config) ResolvedAnalyticsProvider() string {
 	provider := strings.ToLower(strings.TrimSpace(c.Analytics.Provider))
 	if provider != "" {
 		return provider
 	}
 
-	switch {
-	case c.Mixpanel.Enabled && c.PostHog.Enabled:
-		return analyticsProviderDual
-	case c.Mixpanel.Enabled:
-		return analyticsProviderMixpanel
-	case c.PostHog.Enabled:
+	if c.PostHog.Enabled {
 		return analyticsProviderPosthog
-	default:
-		return analyticsProviderNone
 	}
+	return analyticsProviderNone
 }
 
-// ResolvedAnalyticsEventVersion returns analytics event version with legacy fallback.
+// ResolvedAnalyticsEventVersion returns the analytics event version (default: v1).
 func (c *Config) ResolvedAnalyticsEventVersion() string {
 	eventVersion := strings.TrimSpace(c.Analytics.EventVersion)
 	if eventVersion != "" {
 		return eventVersion
 	}
-
-	legacyEventVersion := strings.TrimSpace(c.Mixpanel.EventVersion)
-	if legacyEventVersion != "" {
-		return legacyEventVersion
-	}
-
 	return defaultEventVersion
 }
 

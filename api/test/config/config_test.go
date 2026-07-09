@@ -99,25 +99,9 @@ func TestConfig_ResolvedAnalyticsProvider(t *testing.T) {
 			name: "explicit provider",
 			cfg: &config.Config{
 				Analytics: config.AnalyticsConfig{Provider: "posthog"},
-				Mixpanel:  config.MixpanelConfig{Enabled: true},
 				PostHog:   config.PostHogConfig{Enabled: true},
 			},
 			expected: "posthog",
-		},
-		{
-			name: "legacy dual fallback",
-			cfg: &config.Config{
-				Mixpanel: config.MixpanelConfig{Enabled: true},
-				PostHog:  config.PostHogConfig{Enabled: true},
-			},
-			expected: "dual",
-		},
-		{
-			name: "legacy mixpanel fallback",
-			cfg: &config.Config{
-				Mixpanel: config.MixpanelConfig{Enabled: true},
-			},
-			expected: "mixpanel",
 		},
 		{
 			name: "legacy posthog fallback",
@@ -246,36 +230,6 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    "POSTHOG_API_KEY is required",
-		},
-		{
-			name: "dual provider missing mixpanel token",
-			cfg: &config.Config{
-				Server: config.ServerConfig{
-					Port:           "8081",
-					BaseURL:        "https://example.com",
-					AllowedOrigins: []string{"https://example.com"},
-				},
-				Database: config.DatabaseConfig{
-					WorkOffline: true,
-				},
-				Auth: config.AuthConfig{
-					InternalMentorsAPI: "test-token",
-					MCPAuthToken:       "test-mcp-token",
-					MentorsAPIToken:    "public-token",
-				},
-				Analytics: config.AnalyticsConfig{
-					Provider: "dual",
-				},
-				PostHog: config.PostHogConfig{
-					APIKey: "ph-key",
-					Host:   "https://us.i.posthog.com",
-				},
-				ReCAPTCHA: config.ReCAPTCHAConfig{
-					SecretKey: "recaptcha-secret",
-				},
-			},
-			expectError: true,
-			errorMsg:    "MIXPANEL_TOKEN is required",
 		},
 		{
 			name: "valid posthog provider config",

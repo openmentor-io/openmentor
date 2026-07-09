@@ -22,8 +22,8 @@ const (
 	EventAdminMentorProfileUpdated   = "admin_mentor_profile_updated"
 	EventAdminMentorPictureUploaded  = "admin_mentor_picture_uploaded"
 
-	// Worker job events (ported from openmentor-func's
-	// lib/analytics/mixpanel.ts analyticsEvents; names kept verbatim).
+	// Worker job events (ported from openmentor-func's legacy analytics
+	// event catalog; names kept verbatim).
 	EventNewMentorWatcherProcessed      = "new_mentor_watcher_processed"
 	EventNewRequestWatcherProcessed     = "new_request_watcher_processed"
 	EventMentorAuthLoginEmailSent       = "mentor_auth_login_email_sent"
