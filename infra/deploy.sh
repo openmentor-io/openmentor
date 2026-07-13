@@ -139,7 +139,7 @@ if [ ! -f "$SCRIPT_DIR/.env.production" ]; then
     echo "  - YANDEX_SA_KEY_FILE (path to service account JSON key)"
     echo "  - VM_SSH_HOST"
     echo "  - VM_SSH_USER"
-    echo "  - VM_SSH_KEY_FILE (path to SSH private key)"
+    echo "  - VM_SSH_KEY_FILE (optional; omit to use your ssh agent, e.g. 1Password)"
     echo "  - DOMAIN"
     echo ""
     echo "Copy from template:"
@@ -196,12 +196,16 @@ if [ ! -f "$YANDEX_SA_KEY_FILE" ]; then
     exit 1
 fi
 
-if [ ! -f "$_VM_SSH_KEY_FILE" ]; then
-    echo -e "${RED}❌ Error: SSH key file not found: $_VM_SSH_KEY_FILE${NC}"
-    exit 1
+# VM_SSH_KEY_FILE is OPTIONAL: when unset, ssh uses your agent (works with
+# the 1Password SSH agent, ssh-agent, etc.). Set it only for file-based keys.
+SSH_OPTS=(-o StrictHostKeyChecking=no)
+if [ -n "${_VM_SSH_KEY_FILE:-}" ]; then
+    if [ ! -f "$_VM_SSH_KEY_FILE" ]; then
+        echo -e "${RED}❌ Error: SSH key file not found: $_VM_SSH_KEY_FILE${NC}"
+        exit 1
+    fi
+    SSH_OPTS=(-i "$_VM_SSH_KEY_FILE" "${SSH_OPTS[@]}")
 fi
-
-SSH_OPTS=(-i "$_VM_SSH_KEY_FILE" -o StrictHostKeyChecking=no)
 
 # Generate image tags. TODO(P6.4): registry swap cr.yandex -> AWS ECR (D19)
 REGISTRY="cr.yandex"

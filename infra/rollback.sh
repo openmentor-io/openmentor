@@ -50,7 +50,7 @@ fi
 source "$SCRIPT_DIR/.env.production"
 
 # Validate required variables
-if [ -z "$VM_SSH_HOST" ] || [ -z "$VM_SSH_USER" ] || [ -z "$VM_SSH_KEY_FILE" ]; then
+if [ -z "$VM_SSH_HOST" ] || [ -z "$VM_SSH_USER" ]; then
     echo -e "${RED}❌ Error: Missing required variables in .env.production${NC}"
     exit 1
 fi
@@ -229,7 +229,7 @@ REMOTE_SCRIPT
 
 # Execute on remote
 ROLLBACK_EXIT_CODE=0
-ssh -i "$VM_SSH_KEY_FILE" \
+ssh ${VM_SSH_KEY_FILE:+-i "$VM_SSH_KEY_FILE"} -o StrictHostKeyChecking=no \
     -o StrictHostKeyChecking=no \
     "$VM_SSH_USER@$VM_SSH_HOST" \
     bash <<< "$ROLLBACK_SCRIPT" || ROLLBACK_EXIT_CODE=$?
