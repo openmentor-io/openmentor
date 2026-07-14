@@ -125,7 +125,6 @@ set -e
 
 FRONTEND_TARGET_TAG="$FRONTEND_TARGET_TAG"
 BACKEND_TARGET_TAG="$BACKEND_TARGET_TAG"
-YANDEX_SA_KEY="$(cat $YANDEX_SA_KEY_FILE)"
 
 # The monorepo's infra/ directory lives at $REMOTE_INFRA_DIR on the VM
 cd $REMOTE_INFRA_DIR
@@ -161,12 +160,21 @@ fi
 grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime
 chmod 600 .env.runtime
 
-# Login to registry (TODO(P6.4): registry swap cr.yandex -> AWS ECR (D19))
+# Login to AWS ECR (D19) with the VM pull credentials (IAM user
+# openmentor-vm) read from the VM's .env — uploaded there by deploy.sh, so
+# the secrets never travel as command-line arguments
 echo "🔑 Logging in to registry..."
-echo "\$YANDEX_SA_KEY" | docker login \
-    --username json_key \
+ECR_REGISTRY=\$(grep "^ECR_REGISTRY=" .env | cut -d'=' -f2)
+ECR_AWS_REGION=\$(grep "^AWS_REGION=" .env | cut -d'=' -f2)
+AWS_ACCESS_KEY_ID=\$(grep "^VM_ECR_ACCESS_KEY_ID=" .env | cut -d'=' -f2)
+AWS_SECRET_ACCESS_KEY=\$(grep "^VM_ECR_SECRET_ACCESS_KEY=" .env | cut -d'=' -f2-)
+export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+
+aws ecr get-login-password --region "\$ECR_AWS_REGION" | docker login \
+    --username AWS \
     --password-stdin \
-    cr.yandex
+    "\$ECR_REGISTRY"
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 
 # Ensure the Postgres data volume exists (idempotent; declared external in
 # docker-compose.yml so compose never deletes it)

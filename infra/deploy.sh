@@ -135,8 +135,9 @@ if [ ! -f "$SCRIPT_DIR/.env.production" ]; then
     echo -e "${YELLOW}💡 Please create .env.production with your production configuration${NC}"
     echo ""
     echo "Required variables:"
-    echo "  - YANDEX_REGISTRY_ID"
-    echo "  - YANDEX_SA_KEY_FILE (path to service account JSON key)"
+    echo "  - ECR_REGISTRY (<account-id>.dkr.ecr.<region>.amazonaws.com)"
+    echo "  - AWS_REGION"
+    echo "  - VM_ECR_ACCESS_KEY_ID / VM_ECR_SECRET_ACCESS_KEY (openmentor-vm IAM pull creds)"
     echo "  - VM_SSH_HOST"
     echo "  - VM_SSH_USER"
     echo "  - VM_SSH_KEY_FILE (optional; omit to use your ssh agent, e.g. 1Password)"
@@ -154,8 +155,10 @@ source "$SCRIPT_DIR/.env.production"
 
 # Validate required variables
 REQUIRED_VARS=(
-    "YANDEX_REGISTRY_ID"
-    "YANDEX_SA_KEY_FILE"
+    "ECR_REGISTRY"
+    "AWS_REGION"
+    "VM_ECR_ACCESS_KEY_ID"
+    "VM_ECR_SECRET_ACCESS_KEY"
     "VM_SSH_HOST"
     "VM_SSH_USER"
     "VM_SSH_KEY_FILE"
@@ -163,8 +166,10 @@ REQUIRED_VARS=(
 
 if [ "$STAGING" = true ]; then
     REQUIRED_VARS=(
-        "YANDEX_REGISTRY_ID"
-        "YANDEX_SA_KEY_FILE"
+        "ECR_REGISTRY"
+        "AWS_REGION"
+        "VM_ECR_ACCESS_KEY_ID"
+        "VM_ECR_SECRET_ACCESS_KEY"
         "VM_SSH_HOST_STAGING"
         "VM_SSH_USER_STAGING"
         "VM_SSH_KEY_FILE_STAGING"
@@ -190,12 +195,6 @@ for var in "${REQUIRED_VARS[@]}"; do
     fi
 done
 
-# Validate key files exist
-if [ ! -f "$YANDEX_SA_KEY_FILE" ]; then
-    echo -e "${RED}❌ Error: Yandex service account key file not found: $YANDEX_SA_KEY_FILE${NC}"
-    exit 1
-fi
-
 # VM_SSH_KEY_FILE is OPTIONAL: when unset, ssh uses your agent (works with
 # the 1Password SSH agent, ssh-agent, etc.). Set it only for file-based keys.
 SSH_OPTS=(-o StrictHostKeyChecking=no)
@@ -207,10 +206,11 @@ if [ -n "${_VM_SSH_KEY_FILE:-}" ]; then
     SSH_OPTS=(-i "$_VM_SSH_KEY_FILE" "${SSH_OPTS[@]}")
 fi
 
-# Generate image tags. TODO(P6.4): registry swap cr.yandex -> AWS ECR (D19)
-REGISTRY="cr.yandex"
-FRONTEND_IMAGE="$REGISTRY/$YANDEX_REGISTRY_ID/openmentor-frontend"
-BACKEND_IMAGE="$REGISTRY/$YANDEX_REGISTRY_ID/openmentor-backend"
+# Generate image tags. Registry: AWS ECR (D19); the host comes from .env
+# (ECR_REGISTRY = <account-id>.dkr.ecr.<region>.amazonaws.com).
+REGISTRY="$ECR_REGISTRY"
+FRONTEND_IMAGE="$REGISTRY/openmentor-frontend"
+BACKEND_IMAGE="$REGISTRY/openmentor-backend"
 
 # The monorepo's short commit SHA is the image tag (see DOCKER_TAG_POLICY.md
 # — never `latest`). web/ and api/ are part of the monorepo, so the .git
@@ -230,7 +230,7 @@ fi
 echo -e "${GREEN}🚀 OpenMentor Production Deployment${NC}"
 echo "=================================="
 echo ""
-echo "Registry: $REGISTRY/$YANDEX_REGISTRY_ID"
+echo "Registry: $REGISTRY"
 echo "VM: $_VM_SSH_USER@$_VM_SSH_HOST ($REMOTE_INFRA_DIR)"
 echo ""
 echo "Deployment plan:"
@@ -274,13 +274,26 @@ fi
 # Step 1/9: Registry login
 # --------------------------------------------------------------------------
 if [ "$DEPLOY_FRONTEND" = true ] || [ "$DEPLOY_BACKEND" = true ]; then
-    echo -e "${BLUE}🔑 Step 1/9: Logging in to container registry...${NC}"
-    cat "$YANDEX_SA_KEY_FILE" | docker login \
-        --username json_key \
-        --password-stdin \
-        $REGISTRY
+    echo -e "${BLUE}🔑 Step 1/9: Logging in to AWS ECR...${NC}"
 
-    if [ $? -ne 0 ]; then
+    # Preflight: the LOCAL push login uses YOUR aws CLI identity (which must
+    # have ECR push access), NOT the VM_ECR_* pull credentials from .env —
+    # those are only used on the VM for pulls.
+    if ! command -v aws >/dev/null 2>&1; then
+        echo -e "${RED}❌ aws CLI not found${NC}"
+        echo -e "${YELLOW}💡 Install it (e.g. brew install awscli) and configure an identity with ECR push access${NC}"
+        exit 1
+    fi
+    if ! aws sts get-caller-identity >/dev/null 2>&1; then
+        echo -e "${RED}❌ No usable AWS identity (aws sts get-caller-identity failed)${NC}"
+        echo -e "${YELLOW}💡 Configure credentials (aws configure / aws sso login / AWS_PROFILE) with ECR push access${NC}"
+        exit 1
+    fi
+
+    if ! aws ecr get-login-password --region "$AWS_REGION" | docker login \
+        --username AWS \
+        --password-stdin \
+        "$ECR_REGISTRY"; then
         echo -e "${RED}❌ Failed to login to container registry${NC}"
         exit 1
     fi
@@ -593,13 +606,9 @@ DEPLOY_SCRIPT=$(cat <<'REMOTE_SCRIPT'
 #!/bin/bash
 set -e
 
-ENCODED_SA_KEY="$1"
-UP_FLAGS="$2"
-RESTART_ALLOY="$3"
-REBUILD_BACKUP_SIDECAR="$4"
-
-# Decode the base64-encoded service account key
-YANDEX_SA_KEY=$(echo "$ENCODED_SA_KEY" | base64 -d)
+UP_FLAGS="$1"
+RESTART_ALLOY="$2"
+REBUILD_BACKUP_SIDECAR="$3"
 
 echo "🚀 Starting deployment on production VM..."
 
@@ -628,41 +637,25 @@ regen_env_runtime() {
 }
 regen_env_runtime
 
-# Login to Yandex Container Registry
+# Login to AWS ECR (D19) with the VM pull credentials (IAM user
+# openmentor-vm, ECR read-only) read from the just-uploaded .env — the
+# secrets never appear as command-line arguments. awscli is installed on
+# the VM by cloud-init.
 echo "🔑 Logging in to registry..."
+ECR_REGISTRY=$(grep "^ECR_REGISTRY=" .env | cut -d'=' -f2)
+ECR_AWS_REGION=$(grep "^AWS_REGION=" .env | cut -d'=' -f2)
+AWS_ACCESS_KEY_ID=$(grep "^VM_ECR_ACCESS_KEY_ID=" .env | cut -d'=' -f2)
+AWS_SECRET_ACCESS_KEY=$(grep "^VM_ECR_SECRET_ACCESS_KEY=" .env | cut -d'=' -f2-)
+export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 
-# Disable docker credential helper for this session
-# Move config.json temporarily if it exists
-DOCKER_CONFIG_MOVED=0
-if [ -f ~/.docker/config.json ]; then
-    mv ~/.docker/config.json ~/.docker/config.json.disabled
-    DOCKER_CONFIG_MOVED=1
-fi
-
-# Login to registry (creates new config.json without credential helper)
-echo "$YANDEX_SA_KEY" | docker login \
-    --username json_key \
+if ! aws ecr get-login-password --region "$ECR_AWS_REGION" | docker login \
+    --username AWS \
     --password-stdin \
-    cr.yandex
-
-LOGIN_EXIT=$?
-
-# Restore original config if login was successful
-# (we want to keep the new auth, but merge with old config if needed)
-if [ $DOCKER_CONFIG_MOVED -eq 1 ] && [ $LOGIN_EXIT -eq 0 ]; then
-    # Just remove the disabled config - we have fresh auth now
-    rm -f ~/.docker/config.json.disabled
-elif [ $DOCKER_CONFIG_MOVED -eq 1 ]; then
-    # Login failed, restore original
-    mv ~/.docker/config.json.disabled ~/.docker/config.json
+    "$ECR_REGISTRY"; then
     echo "❌ Docker login failed"
     exit 1
 fi
-
-if [ $LOGIN_EXIT -ne 0 ]; then
-    echo "❌ Docker login failed"
-    exit 1
-fi
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 
 # Ensure the Postgres data volume exists (idempotent). It is declared
 # `external` in docker-compose.yml so `docker compose down -v` can never
@@ -808,14 +801,12 @@ exit 0
 REMOTE_SCRIPT
 )
 
-# Execute deployment on remote VM
-# Encode the JSON key in base64 to avoid quoting issues
-ENCODED_SA_KEY=$(cat "$YANDEX_SA_KEY_FILE" | base64)
-
+# Execute deployment on remote VM (the ECR pull credentials travel inside
+# the already-uploaded .env, never as ssh arguments)
 DEPLOY_EXIT_CODE=0
 ssh "${SSH_OPTS[@]}" \
     "$_VM_SSH_USER@$_VM_SSH_HOST" \
-    "bash -s" -- "$ENCODED_SA_KEY" "$UP_FLAGS" "$RESTART_ALLOY" "$REBUILD_BACKUP_SIDECAR" <<< "$DEPLOY_SCRIPT" \
+    "bash -s" -- "$UP_FLAGS" "$RESTART_ALLOY" "$REBUILD_BACKUP_SIDECAR" <<< "$DEPLOY_SCRIPT" \
     || DEPLOY_EXIT_CODE=$?
 
 if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
