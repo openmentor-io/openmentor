@@ -69,9 +69,14 @@ docker-compose ps
 
 4. **Image Pull Failure**
    ```bash
-   # Check registry authentication (registry is cr.yandex until the
-   # TODO(P6.4) AWS ECR (D19) swap)
-   docker login cr.yandex
+   # Re-authenticate against AWS ECR (D19). On the VM, use the
+   # openmentor-vm pull credentials from /opt/openmentor/infra/.env
+   # (VM_ECR_ACCESS_KEY_ID / VM_ECR_SECRET_ACCESS_KEY):
+   export AWS_ACCESS_KEY_ID=$(grep '^VM_ECR_ACCESS_KEY_ID=' .env | cut -d'=' -f2)
+   export AWS_SECRET_ACCESS_KEY=$(grep '^VM_ECR_SECRET_ACCESS_KEY=' .env | cut -d'=' -f2-)
+   aws ecr get-login-password --region $(grep '^AWS_REGION=' .env | cut -d'=' -f2) \
+     | docker login --username AWS --password-stdin $(grep '^ECR_REGISTRY=' .env | cut -d'=' -f2)
+   unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 
    # Retry pull
    docker-compose pull
@@ -671,9 +676,8 @@ sudo systemctl status docker
 
 2. **Corrupted Image**
    ```bash
-   # Remove image and re-pull (registry is cr.yandex until the
-   # TODO(P6.4) AWS ECR (D19) swap)
-   docker rmi cr.yandex/${REGISTRY_ID}/openmentor-frontend:<tag>
+   # Remove image and re-pull (registry host = ECR_REGISTRY from .env)
+   docker rmi ${ECR_REGISTRY}/openmentor-frontend:<tag>
    docker-compose pull
    docker-compose up -d
    ```

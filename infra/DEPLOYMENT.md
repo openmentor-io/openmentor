@@ -7,10 +7,14 @@ local machine using `./deploy.sh`.
 
 1. **Docker** installed and running locally
 2. **SSH access** to the production VM (Hetzner Cloud, see DECISIONS D2)
-3. **Container registry credentials** — currently Yandex Container Registry
-   (`TODO(P6.4)`: moving to AWS ECR (D19)):
-   - Service account JSON key with `container-registry.images.pusher` role
-   - Registry ID (`crp...`)
+3. **Container registry credentials** — AWS ECR (DECISIONS D19):
+   - **aws CLI** installed locally with an identity that has ECR push access
+     (`aws sts get-caller-identity` must work — profile, SSO, or env creds)
+   - `ECR_REGISTRY` (`<account-id>.dkr.ecr.eu-central-1.amazonaws.com`) and
+     `AWS_REGION` in `.env.production`
+   - `VM_ECR_ACCESS_KEY_ID`/`VM_ECR_SECRET_ACCESS_KEY` (the `openmentor-vm`
+     IAM user's pull-only keys) in `.env.production` — the VM logs in with
+     them before pulling
 4. **Full monorepo checkout** — the frontend (`../web`) and backend
    (`../api`) are sibling directories of this `infra/` directory; check out
    the commit you want to ship — the image tag is the repo's short commit SHA
@@ -29,8 +33,9 @@ cp .env.production.example .env.production
 `.env.production` contains three kinds of values (see the template's
 sections):
 
-- **Deployment machine settings** — used only by `deploy.sh`/`rollback.sh`
-  locally: `YANDEX_SA_KEY_FILE`, `YANDEX_REGISTRY_ID`, `VM_SSH_HOST`,
+- **Deployment machine settings** — used by `deploy.sh`/`rollback.sh`:
+  `ECR_REGISTRY`, `AWS_REGION`, `VM_ECR_ACCESS_KEY_ID`,
+  `VM_ECR_SECRET_ACCESS_KEY` (VM-side ECR pull login), `VM_SSH_HOST`,
   `VM_SSH_USER`, `VM_SSH_KEY_FILE`
 - **Build-time variables** — `NEXT_PUBLIC_*` (and Faro/PostHog sourcemap
   vars), baked into the frontend image during `docker build`
@@ -156,8 +161,9 @@ cd ../api && docker build .    # see the full backend error
 ### Push fails
 
 ```bash
-# Test registry login manually (Yandex CR until P6.4)
-cat /path/to/sa-key.json | docker login --username json_key --password-stdin cr.yandex
+# Test the ECR login manually (uses your local aws CLI identity)
+aws ecr get-login-password --region eu-central-1 \
+  | docker login --username AWS --password-stdin <account-id>.dkr.ecr.eu-central-1.amazonaws.com
 ```
 
 ### Health checks fail after deploy

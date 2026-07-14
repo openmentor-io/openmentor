@@ -10,7 +10,7 @@ This document explains our Docker image tagging strategy and why we don't use `l
 
 - `docker-compose up -d` won't recreate a container whose image tag hasn't
   changed, and cached `latest` layers can mask a failed pull
-  (this bit us hard on the old Yandex Container Optimized Image host)
+  (this bit us hard on the old getmentor Yandex Container Optimized Image host)
 - You can't tell which code version is running, and rollback has no target
 - Unique tags per deployment guarantee updates and give rollbacks a name
 
@@ -27,15 +27,16 @@ We use Git commit SHA (short form) as unique identifiers for each deployment.
 
 ### Tag Format
 
-Registry is currently `cr.yandex` — `TODO(P6.4)`: moving to AWS ECR (D19).
+Registry is AWS ECR (DECISIONS D19); the host comes from `ECR_REGISTRY`
+(`<account-id>.dkr.ecr.<region>.amazonaws.com`).
 
 ```
-Frontend: cr.yandex/<registry-id>/openmentor-frontend:<commit-sha>
-Backend:  cr.yandex/<registry-id>/openmentor-backend:<commit-sha>
+Frontend: ${ECR_REGISTRY}/openmentor-frontend:<commit-sha>
+Backend:  ${ECR_REGISTRY}/openmentor-backend:<commit-sha>
 
 Example:
-- cr.yandex/crpXXXXXX/openmentor-frontend:abc123f
-- cr.yandex/crpXXXXXX/openmentor-backend:abc123f
+- 123456789012.dkr.ecr.eu-central-1.amazonaws.com/openmentor-frontend:abc123f
+- 123456789012.dkr.ecr.eu-central-1.amazonaws.com/openmentor-backend:abc123f
 ```
 
 ## Implementation
@@ -68,7 +69,7 @@ IMAGE_TAG: ${{ github.sha }}
 ```yaml
 services:
   frontend:
-    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-frontend:${FRONTEND_IMAGE_TAG:-${IMAGE_TAG}}
+    image: ${ECR_REGISTRY}/openmentor-frontend:${FRONTEND_IMAGE_TAG:-${IMAGE_TAG}}
     # No fallback to 'latest' — per-service tags, written to .env by the
     # deploy scripts (IMAGE_TAG is only a legacy fallback)
 ```
@@ -152,13 +153,13 @@ If migrating from `latest` tags:
 3. All future deployments will use unique SHAs
 4. Old `latest` images can be cleaned up:
    ```bash
-   docker image rm cr.yandex/<registry>/openmentor-frontend:latest
-   docker image rm cr.yandex/<registry>/openmentor-backend:latest
+   docker image rm ${ECR_REGISTRY}/openmentor-frontend:latest
+   docker image rm ${ECR_REGISTRY}/openmentor-backend:latest
    ```
 
 ## References
 
-- [Yandex Cloud Container Registry Documentation](https://cloud.yandex.com/en/docs/container-registry/)
+- [Amazon ECR Documentation](https://docs.aws.amazon.com/ecr/)
 - [Docker Image Tag Best Practices](https://docs.docker.com/develop/dev-best-practices/)
 - [Semantic Versioning](https://semver.org/)
 

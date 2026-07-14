@@ -11,8 +11,9 @@ Region convention: **eu-central-1** everywhere in AWS (matches env template exam
 > repository - kept out of this public repo so the real deployment topology
 > isn't exposed. Run order: aws -> hetzner -> cloudflare -> assemble-env ->
 > set-github-secrets; see that repo's README for bootstrap-token scopes.
-> Still manual: accounts (0), Grafana/PostHog/GTM (5), the ECR code swap (6),
+> Still manual: accounts (0), Grafana/PostHog/GTM (5),
 > first deploy + moderator seeding + smoke test (7.2-7.3), and 8.
+> The ECR code swap (6) is implemented (branch `ecr-registry`).
 
 ## 0. Prerequisites
 
@@ -111,11 +112,17 @@ Manual: PostHog, GTM.*
 
 ## 6. Code task — ECR swap **[code: Claude, ~1 branch]**
 
-- [ ] Replace `cr.yandex/${YANDEX_REGISTRY_ID}` image prefix with `${ECR_REGISTRY}` in compose;
+**IMPLEMENTED 2026-07-14** on branch `ecr-registry` (merge to main to land it).
+
+- [x] Replace `cr.yandex/${YANDEX_REGISTRY_ID}` image prefix with `${ECR_REGISTRY}` in compose;
   swap registry login in `deploy.sh` (local push + remote pull over SSH: `aws ecr get-login-password | docker login`),
   `rollback.sh`, and `.github/workflows/deploy.yml` (`aws-actions/configure-aws-credentials` + `amazon-ecr-login`,
-  OIDC role); env templates gain `ECR_REGISTRY`/`AWS_REGION`, lose `YANDEX_REGISTRY_ID`/`YANDEX_SA_KEY`;
-  retire `infra/migration/` if step 1 chose fresh start. **Blocked only on knowing the AWS account ID.**
+  OIDC role); env templates gain `ECR_REGISTRY`/`AWS_REGION`, lose `YANDEX_REGISTRY_ID`/`YANDEX_SA_KEY`.
+  VM pull credentials keep the provisioning output's key names
+  (`VM_ECR_ACCESS_KEY_ID`/`VM_ECR_SECRET_ACCESS_KEY` from `out/aws.env`,
+  merged into `.env.production` by `assemble-env.sh`); the deploy scripts
+  read them from the uploaded `.env` on the VM. `infra/migration/` is KEPT
+  until step 1 (data-carry decision) resolves — retire it with a fresh start.
 
 ## 7. Secrets assembly & first deploy
 
@@ -127,7 +134,8 @@ Manual: PostHog, GTM.*
 - [ ] Fill everything from steps 2–5 (S3/SES/Turnstile/Cloudflare/Grafana/PostHog/backup vars,
   `DOMAIN=openmentor.io`, `LETSENCRYPT_EMAIL`)
 - [ ] GitHub Actions secrets for `deploy.yml`: `VM_SSH_HOST/USER/KEY`, `DOMAIN`,
-  ECR auth (OIDC role ARN or keys), `NEXT_PUBLIC_S3_STORAGE_ENDPOINT/BUCKET`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `NEXT_PUBLIC_CDN_ENDPOINT`
+  ECR auth (`ECR_REGISTRY`, `AWS_REGION`, `AWS_CI_ROLE_ARN` — OIDC, set by `set-github-secrets.sh`),
+  `NEXT_PUBLIC_S3_STORAGE_ENDPOINT/BUCKET`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `NEXT_PUBLIC_CDN_ENDPOINT`
 
 ### 7.2 Deploy
 - [ ] [terminal] `cd infra && ./deploy.sh all` (first run: uploads env, syncs infra/, builds+pushes both

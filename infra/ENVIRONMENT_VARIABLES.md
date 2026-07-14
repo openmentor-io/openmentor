@@ -52,10 +52,14 @@ to `/opt/openmentor/infra/.env` on the VM where **all containers** read it
 
 Three sections (mirroring `.env.production.example`):
 
-1. **Deployment machine configuration** — registry credentials
-   (`YANDEX_SA_KEY_FILE`, `YANDEX_REGISTRY_ID` — AWS ECR (D19) swap tracked as
-   P6.4) and VM SSH settings (`VM_SSH_HOST/USER/KEY_FILE`, plus
-   `VM_SSH_*_STAGING` for `--staging`)
+1. **Deployment machine configuration** — the ECR registry (`ECR_REGISTRY`,
+   `AWS_REGION` — AWS ECR per DECISIONS D19), the VM's pull-only ECR
+   credentials (`VM_ECR_ACCESS_KEY_ID` / `VM_ECR_SECRET_ACCESS_KEY`, access
+   key of the `openmentor-vm` IAM user; the deploy scripts read them from
+   the uploaded `.env` ON THE VM and run
+   `aws ecr get-login-password | docker login` before pulling) and VM SSH
+   settings (`VM_SSH_HOST/USER/KEY_FILE`, plus `VM_SSH_*_STAGING` for
+   `--staging`)
 2. **Build-time variables** — `NEXT_PUBLIC_*` values baked into the frontend
    image (plus optional Faro/PostHog sourcemap-upload vars)
 3. **Runtime secrets** — read by the containers at startup

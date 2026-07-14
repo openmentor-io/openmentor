@@ -31,7 +31,7 @@ Hetzner VM (only thing operated day-to-day)
                     / postgres / postgres-backup / alloy / cadvisor
 AWS (passive, one account):  S3 = profile images (D15) · SES = email (D1)
 Cloudflare (passive):        DNS
-cr.yandex → AWS ECR (D19):         container images (registry swap pending, P6.4)
+AWS ECR (passive, D19):      container images (`${ECR_REGISTRY}` in compose)
 Grafana Cloud (free tier):   metrics / logs / traces / profiles
 ```
 
@@ -219,9 +219,9 @@ cp .env.production.example .env.production   # once; fill in everything
 `deploy.sh`:
 
 1. builds the targeted images tagged with the monorepo's short commit SHA
-   (see `DOCKER_TAG_POLICY.md` — never `latest`) and pushes them to the
-   container registry (currently `cr.yandex`; AWS ECR (D19) swap tracked as
-   **P6.4**),
+   (see `DOCKER_TAG_POLICY.md` — never `latest`) and pushes them to AWS ECR
+   (D19; `${ECR_REGISTRY}`, `aws ecr get-login-password` login with your
+   local aws CLI identity),
 2. fetches the currently deployed tags from the VM for any service **not**
    being deployed, so untouched services keep their tags,
 3. for the `infra` target: rsyncs `infra/` to `/opt/openmentor/infra`
@@ -278,9 +278,10 @@ See `DEPLOYMENT.md` for the full guide and troubleshooting.
 `../.github/workflows/deploy.yml` (repo root) builds/pushes both images and deploys over SSH
 with the same health-check + rollback logic. It is currently
 **manual-trigger only** (`workflow_dispatch`); the push trigger is commented
-out. Required repo secrets: `YANDEX_REGISTRY_ID`, `YANDEX_SA_KEY` (until
-P6.4), `VM_SSH_HOST`, `VM_SSH_USER`, `VM_SSH_KEY`, `DOMAIN`,
-`NEXT_PUBLIC_S3_STORAGE_ENDPOINT`, `NEXT_PUBLIC_S3_STORAGE_BUCKET`,
+out. Required repo secrets: `ECR_REGISTRY`, `AWS_REGION`, `AWS_CI_ROLE_ARN`
+(GitHub OIDC role with ECR push, D19 — set by the private provisioning
+repo's `set-github-secrets.sh`), `VM_SSH_HOST`, `VM_SSH_USER`, `VM_SSH_KEY`,
+`DOMAIN`, `NEXT_PUBLIC_S3_STORAGE_ENDPOINT`, `NEXT_PUBLIC_S3_STORAGE_BUCKET`,
 `TURNSTILE_SITE_KEY`.
 
 ## Monitoring & Observability
@@ -332,13 +333,11 @@ Also back up:
 
 ## Known TODOs
 
-- **P6.4 — registry swap**: images are still pushed to Yandex Container
-  Registry (`cr.yandex`, service-account JSON key auth). Moving to **AWS ECR (D19)**
-  (docker/login-action + PAT/OIDC) is tracked as P6.4; `TODO(P6.4)` markers
-  sit in `.env.example`, `.env.production.example` and the deploy workflow.
-  Until then the Yandex account must stay alive for pulls/pushes.
 - **Image copy (D15)**: `migration/yandex-to-s3-migration.js` copies profile
-  images from Yandex Object Storage to AWS S3; run before cutover.
+  images from getmentor's Yandex Object Storage to AWS S3; run before
+  cutover **if** the data-carry decision (provisioning runbook step 1) says
+  to carry getmentor data — retire `migration/` (and the Yandex account)
+  once that decision lands.
 - **wal-g PITR**: nightly `pg_dump` to S3 is implemented (see Backups);
   continuous WAL archiving with wal-g is the documented upgrade path if
   ~minutes RPO is ever needed.
