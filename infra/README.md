@@ -309,6 +309,20 @@ Everything ships to **Grafana Cloud** through the `alloy` container
 Dashboards and alerts live as code in `grafana/` (jsonnet, `make build`);
 product analytics dashboards in `posthog/dashboards/` (`node sync.mjs`).
 
+## Database access
+
+Postgres publishes no ports anywhere — access goes over SSH via `./db.sh`:
+
+```bash
+./db.sh                          # interactive psql shell on production
+./db.sh -c "SELECT ..."          # one-off query
+./db.sh < queries.sql            # run a SQL file
+./db.sh tunnel                   # SSH tunnel for GUI clients → localhost:5433
+```
+
+The tunnel prints the DSN; the password is `POSTGRES_PASSWORD` in
+`.env.production`. Uses your SSH agent (1Password-friendly).
+
 ## Backups
 
 Per DECISIONS D2, the database has three protection layers (restore
