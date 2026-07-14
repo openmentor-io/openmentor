@@ -58,9 +58,8 @@ services:
 
 
   # Next.js Frontend
-  # TODO(P6.4): registry swap cr.yandex -> AWS ECR (D19) (applies to all image: lines below)
   frontend:
-    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-frontend:${FRONTEND_IMAGE_TAG:-${IMAGE_TAG}}
+    image: ${ECR_REGISTRY}/openmentor-frontend:${FRONTEND_IMAGE_TAG:-${IMAGE_TAG}}
     container_name: openmentor-frontend
     restart: always
     mem_limit: 768m
@@ -173,7 +172,7 @@ services:
 
   # Database Migration Service (runs once before backend starts)
   migrate:
-    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
+    image: ${ECR_REGISTRY}/openmentor-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
     container_name: openmentor-migrate
     mem_limit: 256m
     command: ["/app/migrate"]
@@ -199,7 +198,7 @@ services:
 
   # Go API Backend (internal only, no public access)
   backend:
-    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
+    image: ${ECR_REGISTRY}/openmentor-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
     container_name: openmentor-backend
     restart: always
     mem_limit: 512m
@@ -236,7 +235,7 @@ services:
   # the API via /jobs/* plus the daily cron jobs). Replaces the deprecated
   # openmentor-func Azure Functions app.
   worker:
-    image: cr.yandex/${YANDEX_REGISTRY_ID}/openmentor-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
+    image: ${ECR_REGISTRY}/openmentor-backend:${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
     container_name: openmentor-worker
     restart: always
     mem_limit: 256m
