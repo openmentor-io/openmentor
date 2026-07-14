@@ -294,11 +294,13 @@ jobs:
             if [ "${{ steps.sync.outputs.rebuild_backup }}" = "1" ]; then
               echo "🔨 postgres-backup/ changed — rebuilding sidecar image..."
               docker compose build postgres-backup
+            elif ! docker image inspect openmentor-postgres-backup:local >/dev/null 2>&1; then
+              docker compose build postgres-backup
             fi
 
             # Pull new images
             echo "📦 Pulling images..."
-            docker compose pull
+            docker compose pull --ignore-buildable
 
             # Converge: compose recreates only services whose image tag (or
             # definition) changed; --remove-orphans drops deleted services
@@ -354,7 +356,7 @@ jobs:
               echo "🔄 ROLLING BACK to previous version (.env.backup)..."
               cp .env.backup .env
               regen_env_runtime
-              docker compose pull
+              docker compose pull --ignore-buildable
               docker compose up -d
               sleep 10
 

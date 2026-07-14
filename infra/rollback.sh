@@ -170,7 +170,7 @@ docker volume create openmentor-postgres-data
 
 # Pull images with target tags
 echo "📦 Pulling images..."
-docker compose pull
+docker compose pull --ignore-buildable
 
 # Converge: only services whose tag changed are recreated
 echo "🔄 Restarting services..."

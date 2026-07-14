@@ -648,14 +648,15 @@ docker volume create openmentor-postgres-data
 # Rebuild the backup sidecar image if its build context changed in the sync
 # (it is BUILT on the VM from ./postgres-backup — `up -d` alone would keep
 # running the stale image)
-if [ "$REBUILD_BACKUP_SIDECAR" = "1" ]; then
+if [ "$REBUILD_BACKUP_SIDECAR" = "1" ] || ! docker image inspect openmentor-postgres-backup:local >/dev/null 2>&1; then
     echo "🔨 postgres-backup/ changed — rebuilding sidecar image..."
     docker compose build postgres-backup
 fi
 
 # Pull new images
 echo "📦 Pulling new images..."
-docker compose pull
+# --ignore-buildable: postgres-backup is built on the VM, not pulled
+docker compose pull --ignore-buildable
 
 # Converge: compose recreates only services whose image/definition changed
 echo "🔄 Converging services (docker compose up -d $UP_FLAGS)..."
@@ -759,7 +760,8 @@ if [ $HEALTH_CHECK_FAILED -eq 1 ]; then
         exit 1
     fi
 
-    docker compose pull
+    # --ignore-buildable: postgres-backup is built on the VM, not pulled
+docker compose pull --ignore-buildable
     docker compose up -d
     sleep 10
 
