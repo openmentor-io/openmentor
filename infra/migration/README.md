@@ -1,3 +1,27 @@
+# Migration tooling
+
+Two scripts live here:
+
+- **`migrate-mentors.sh` / `migrate-mentors.js`** — the getmentor.dev →
+  openmentor.io mentor migration (DECISIONS D22): per-slug (or CSV-bulk)
+  import with RU→EN translation via the Claude API, enum/tag/price mapping,
+  new legacy ids, photo copy and a notification email through the worker.
+  Idempotent, dry-run first. **Full instructions:
+  [docs/runbooks/mentor-migration.md](../../docs/runbooks/mentor-migration.md).**
+
+  ```bash
+  npm install
+  ./migrate-mentors.sh --slug ivan-petrov-42 --dry-run   # always dry-run first
+  ./migrate-mentors.sh --csv mentors.csv                 # bulk
+  ```
+
+- **`yandex-to-s3-migration.js`** — the one-off bulk image copy, documented
+  below. (For per-mentor image copies, migrate-mentors.js does its own —
+  keyed to the *new* slug.)
+
+`yandex-ca.pem` is the public Yandex Managed PostgreSQL cluster CA
+(expires 2027) used by migrate-mentors.js to verify the source DB's TLS.
+
 # Yandex Object Storage to AWS S3 Migration Script
 
 `yandex-to-s3-migration.js` copies all objects from a Yandex Object Storage

@@ -89,6 +89,7 @@ func (s *Server) RegisterJobRoutes(h *Handlers) {
 	s.RegisterHandler("/mentor-moderation-action", h.MentorModerationAction)
 	s.RegisterHandler("/process-mentee-review", h.ProcessMenteeReview, "POST", "GET")
 	s.RegisterHandler("/request-process-finished", h.RequestProcessFinished, "GET")
+	s.RegisterHandler("/profile-migrated", h.ProfileMigrated)
 }
 
 // sendEmail sends one message, recording metrics and logging failures.

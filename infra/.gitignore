@@ -35,6 +35,9 @@ secrets/
 *.pem
 *.crt
 *.csr
+# Exception: Yandex's PUBLIC managed-Postgres cluster CA used by
+# migration/migrate-mentors.js to verify the source DB's TLS (not a secret).
+!migration/yandex-ca.pem
 
 # Backup files
 *.bak

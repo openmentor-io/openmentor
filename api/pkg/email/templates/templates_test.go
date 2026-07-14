@@ -26,6 +26,11 @@ var expectedTemplates = map[string][]string{
 	"pending-requests-reminder": {"mentor_name", "pending_count", "requests_list", "requests_list_text"},
 	"status-update-reminder":    {"mentor_name", "requests_list", "requests_list_text"},
 	"profile-deactivated":       {"mentor_name"},
+
+	// Post-func-app additions (no legacy counterpart): profile-migrated is
+	// sent by the getmentor->openmentor migration tooling through the
+	// worker's /jobs/profile-migrated endpoint.
+	"profile-migrated": {"first_name", "mentor_profile_url"},
 }
 
 var placeholderRe = regexp.MustCompile(`\{\{([a-z_]+)\}\}`)

@@ -31,4 +31,8 @@ const (
 	EventRequestProcessFinishedNotified = "request_process_finished_notified"
 	EventMentorPendingRequestsReminded  = "mentor_pending_requests_reminded"
 	EventMentorStatusUpdateReminded     = "mentor_status_update_reminded"
+
+	// Migration tooling events (getmentor.dev -> openmentor.io imports,
+	// fired by the worker's /jobs/profile-migrated endpoint).
+	EventMentorProfileMigrated = "mentor_profile_migrated"
 )
