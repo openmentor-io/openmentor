@@ -96,6 +96,11 @@ distribution can exist; re-runs are single-pass no-ops.*
 - [ ] `VM_SSH_HOST/USER/KEY` noted for GitHub secrets + `.env.production`
 
 ## 5. Observability & analytics
+*Automated: Grafana Cloud via `provision-grafana.sh` in the private repo (stack find-or-create,
+all `GCLOUD_*` endpoints/IDs, the Alloy write token; `--upload-dashboards` optional). Bootstrap:
+one Cloud Access Policy token (stacks + access-policies read/write). First real run is the final
+API-shape verification — extraction failures die loudly instead of writing bad env values.
+Manual: PostHog, GTM.*
 
 - [ ] [console] Grafana Cloud (EU): note Prometheus/Loki/Tempo/Pyroscope endpoints + IDs, create RW
   API key → all `GCLOUD_*` vars
