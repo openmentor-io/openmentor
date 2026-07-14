@@ -25,3 +25,4 @@ Status: `OPEN` = needs product-owner answer; `DECIDED` = answer recorded, plan u
 
 When a decision is made: update the row to DECIDED with the choice, and update the referencing plan docs (01/03/04/05/06).
 | D19 | Container registry | **AWS ECR** (same passive AWS account as S3/SES — supersedes the earlier ghcr.io plan in D2; TODO(P6.4) markers retargeted) | DECIDED (2026-07-09) |
+| D20 | Images CDN | **AWS CloudFront** in front of the private images bucket (cdn.openmentor.io, OAC, ACM cert in us-east-1, PriceClass_All; ~free under the 1TB/mo always-free tier). Replaces the public-read bucket policy; NEXT_PUBLIC_CDN_ENDPOINT stays and points at it. Provisioned via the private openmentor-provision repo | DECIDED (2026-07-13) |

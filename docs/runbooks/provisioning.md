@@ -42,6 +42,14 @@ Region convention: **eu-central-1** everywhere in AWS (matches env template exam
   `S3_STORAGE_REGION=eu-central-1`, `NEXT_PUBLIC_S3_STORAGE_ENDPOINT=s3.eu-central-1.amazonaws.com`,
   `NEXT_PUBLIC_S3_STORAGE_BUCKET=openmentor-images`, `BACKUP_S3_BUCKET=openmentor-db-backups`
 
+### 2.1b CloudFront images CDN (D20)
+*Automated: `provision-aws.sh` (ACM cert in us-east-1, OAC, distribution, bucket lockdown) +
+`provision-cloudflare.sh` (validation + cdn CNAMEs). First-time setup is a two-pass loop
+(aws → cloudflare → aws → cloudflare) because the cert must validate via DNS before the
+distribution can exist; re-runs are single-pass no-ops.*
+- [ ] Distribution serving `openmentor-images` at `cdn.openmentor.io`; bucket becomes private (OAC-only)
+- [ ] Values → `NEXT_PUBLIC_CDN_ENDPOINT=cdn.openmentor.io` (env + the GitHub Actions secret of the same name)
+
 ### 2.2 ECR (D19)
 - [ ] [terminal] `aws ecr create-repository --repository-name openmentor-frontend`
       and `--repository-name openmentor-backend`; add a lifecycle policy (keep last ~20 images)
@@ -114,7 +122,7 @@ Region convention: **eu-central-1** everywhere in AWS (matches env template exam
 - [ ] Fill everything from steps 2–5 (S3/SES/Turnstile/Cloudflare/Grafana/PostHog/backup vars,
   `DOMAIN=openmentor.io`, `LETSENCRYPT_EMAIL`)
 - [ ] GitHub Actions secrets for `deploy.yml`: `VM_SSH_HOST/USER/KEY`, `DOMAIN`,
-  ECR auth (OIDC role ARN or keys), `NEXT_PUBLIC_S3_STORAGE_ENDPOINT/BUCKET`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`
+  ECR auth (OIDC role ARN or keys), `NEXT_PUBLIC_S3_STORAGE_ENDPOINT/BUCKET`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `NEXT_PUBLIC_CDN_ENDPOINT`
 
 ### 7.2 Deploy
 - [ ] [terminal] `cd infra && ./deploy.sh all` (first run: uploads env, syncs infra/, builds+pushes both
