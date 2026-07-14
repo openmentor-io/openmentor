@@ -25,9 +25,18 @@ on:
         required: false
         type: string
 
+# OIDC: the build jobs assume the AWS_CI_ROLE_ARN role via GitHub's OIDC
+# provider (aws-actions/configure-aws-credentials) — no long-lived AWS keys
+# in this repo's secrets. id-token: write is required for that token.
+permissions:
+  id-token: write
+  contents: read
+
 env:
-  # TODO(P6.4): move to AWS ECR (D19) (GitHub Container Registry) — Yandex registry kept temporarily
-  REGISTRY: cr.yandex
+  # AWS ECR (D19): registry host (<account-id>.dkr.ecr.<region>.amazonaws.com)
+  # comes from the ECR_REGISTRY secret, set by the private provisioning
+  # repo's set-github-secrets.sh alongside AWS_REGION and AWS_CI_ROLE_ARN.
+  REGISTRY: ${{ secrets.ECR_REGISTRY }}
   FRONTEND_IMAGE: openmentor-frontend
   BACKEND_IMAGE: openmentor-backend
   DOMAIN: ${{ secrets.DOMAIN }}
@@ -45,13 +54,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # TODO(P6): move to AWS ECR (D19) — replace this login step with docker/login-action against AWS ECR (D19)
-      - name: Login to Yandex Container Registry
-        run: |
-          echo '${{ secrets.YANDEX_SA_KEY }}' | docker login \
-            --username json_key \
-            --password-stdin \
-            ${{ env.REGISTRY }}
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set image tags
         id: tags
@@ -72,7 +82,7 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            ${{ env.REGISTRY }}/${{ secrets.YANDEX_REGISTRY_ID }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tags.outputs.TAG }}
+            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tags.outputs.TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
@@ -85,7 +95,7 @@ jobs:
       - name: Image build summary
         run: |
           echo "✅ Frontend image built and pushed successfully!"
-          echo "Image: ${{ env.REGISTRY }}/${{ secrets.YANDEX_REGISTRY_ID }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tags.outputs.TAG }}"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tags.outputs.TAG }}"
 
   # Build and push backend
   build-backend:
@@ -99,13 +109,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # TODO(P6): move to AWS ECR (D19) — replace this login step with docker/login-action against AWS ECR (D19)
-      - name: Login to Yandex Container Registry
-        run: |
-          echo '${{ secrets.YANDEX_SA_KEY }}' | docker login \
-            --username json_key \
-            --password-stdin \
-            ${{ env.REGISTRY }}
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set image tags
         id: tags
@@ -126,14 +137,14 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            ${{ env.REGISTRY }}/${{ secrets.YANDEX_REGISTRY_ID }}/${{ env.BACKEND_IMAGE }}:${{ steps.tags.outputs.TAG }}
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.tags.outputs.TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Image build summary
         run: |
           echo "✅ Backend image built and pushed successfully!"
-          echo "Image: ${{ env.REGISTRY }}/${{ secrets.YANDEX_REGISTRY_ID }}/${{ env.BACKEND_IMAGE }}:${{ steps.tags.outputs.TAG }}"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.tags.outputs.TAG }}"
 
   # Deploy to production VM
   deploy:
@@ -252,12 +263,21 @@ jobs:
             }
             regen_env_runtime
 
-            # Login to Yandex Container Registry
-            # TODO(P6.4): move to AWS ECR (D19) — update registry host and credentials
-            echo '${{ secrets.YANDEX_SA_KEY }}' | docker login \
-              --username json_key \
+            # Login to AWS ECR (D19) with the VM pull credentials (IAM user
+            # openmentor-vm) read from /opt/openmentor/infra/.env — uploaded
+            # there by infra/deploy.sh, the same mechanism its remote script
+            # uses. awscli is on the VM via cloud-init.
+            echo "🔑 Logging in to registry..."
+            ECR_REGISTRY=$(grep "^ECR_REGISTRY=" .env | cut -d'=' -f2)
+            ECR_AWS_REGION=$(grep "^AWS_REGION=" .env | cut -d'=' -f2)
+            AWS_ACCESS_KEY_ID=$(grep "^VM_ECR_ACCESS_KEY_ID=" .env | cut -d'=' -f2)
+            AWS_SECRET_ACCESS_KEY=$(grep "^VM_ECR_SECRET_ACCESS_KEY=" .env | cut -d'=' -f2-)
+            export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+            aws ecr get-login-password --region "$ECR_AWS_REGION" | docker login \
+              --username AWS \
               --password-stdin \
-              cr.yandex || echo "⚠️  Registry login failed, trying to pull anyway"
+              "$ECR_REGISTRY" || echo "⚠️  Registry login failed, trying to pull anyway"
+            unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 
             # Ensure the external Postgres data volume exists (idempotent)
             docker volume create openmentor-postgres-data
