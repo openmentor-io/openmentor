@@ -119,7 +119,6 @@ Manual: PostHog, GTM.*
   `rollback.sh`, and `.github/workflows/deploy.yml` (`aws-actions/configure-aws-credentials` + `amazon-ecr-login`,
   OIDC role); env templates gain `ECR_REGISTRY`/`AWS_REGION`, lose `YANDEX_REGISTRY_ID`/`YANDEX_SA_KEY`.
   VM pull credentials keep the provisioning output's key names
-  (`VM_ECR_ACCESS_KEY_ID`/`VM_ECR_SECRET_ACCESS_KEY` from `out/aws.env`,
   merged into `.env.production` by `assemble-env.sh`); the deploy scripts
   read them from the uploaded `.env` on the VM. `infra/migration/` is KEPT
   until step 1 (data-carry decision) resolves — retire it with a fresh start.

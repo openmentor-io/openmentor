@@ -137,7 +137,6 @@ if [ ! -f "$SCRIPT_DIR/.env.production" ]; then
     echo "Required variables:"
     echo "  - ECR_REGISTRY (<account-id>.dkr.ecr.<region>.amazonaws.com)"
     echo "  - AWS_REGION"
-    echo "  - VM_ECR_ACCESS_KEY_ID / VM_ECR_SECRET_ACCESS_KEY (openmentor-vm IAM pull creds)"
     echo "  - VM_SSH_HOST"
     echo "  - VM_SSH_USER"
     echo "  - VM_SSH_KEY_FILE (optional; omit to use your ssh agent, e.g. 1Password)"
@@ -157,8 +156,6 @@ source "$SCRIPT_DIR/.env.production"
 REQUIRED_VARS=(
     "ECR_REGISTRY"
     "AWS_REGION"
-    "VM_ECR_ACCESS_KEY_ID"
-    "VM_ECR_SECRET_ACCESS_KEY"
     "VM_SSH_HOST"
     "VM_SSH_USER"
     # VM_SSH_KEY_FILE is optional: unset = authenticate via your ssh agent
@@ -168,8 +165,6 @@ if [ "$STAGING" = true ]; then
     REQUIRED_VARS=(
         "ECR_REGISTRY"
         "AWS_REGION"
-        "VM_ECR_ACCESS_KEY_ID"
-        "VM_ECR_SECRET_ACCESS_KEY"
         "VM_SSH_HOST_STAGING"
         "VM_SSH_USER_STAGING"
         # VM_SSH_KEY_FILE_STAGING is optional (ssh agent)
@@ -277,7 +272,7 @@ if [ "$DEPLOY_FRONTEND" = true ] || [ "$DEPLOY_BACKEND" = true ]; then
     echo -e "${BLUE}🔑 Step 1/9: Logging in to AWS ECR...${NC}"
 
     # Preflight: the LOCAL push login uses YOUR aws CLI identity (which must
-    # have ECR push access), NOT the VM_ECR_* pull credentials from .env —
+    # have ECR push access) — the VM itself holds no AWS credentials —
     # those are only used on the VM for pulls.
     if ! command -v aws >/dev/null 2>&1; then
         echo -e "${RED}❌ aws CLI not found${NC}"
@@ -637,25 +632,10 @@ regen_env_runtime() {
 }
 regen_env_runtime
 
-# Login to AWS ECR (D19) with the VM pull credentials (IAM user
-# openmentor-vm, ECR read-only) read from the just-uploaded .env — the
-# secrets never appear as command-line arguments. awscli is installed on
-# the VM by cloud-init.
-echo "🔑 Logging in to registry..."
-ECR_REGISTRY=$(grep "^ECR_REGISTRY=" .env | cut -d'=' -f2)
-ECR_AWS_REGION=$(grep "^AWS_REGION=" .env | cut -d'=' -f2)
-AWS_ACCESS_KEY_ID=$(grep "^VM_ECR_ACCESS_KEY_ID=" .env | cut -d'=' -f2)
-AWS_SECRET_ACCESS_KEY=$(grep "^VM_ECR_SECRET_ACCESS_KEY=" .env | cut -d'=' -f2-)
-export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
-
-if ! aws ecr get-login-password --region "$ECR_AWS_REGION" | docker login \
-    --username AWS \
-    --password-stdin \
-    "$ECR_REGISTRY"; then
-    echo "❌ Docker login failed"
-    exit 1
-fi
-unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+# Registry login was already performed from the deploy machine (an ECR
+# token minted locally and piped into `docker login` over ssh stdin), so
+# the VM needs no AWS CLI and no AWS credentials at all. Tokens last 12h;
+# each deploy re-authenticates.
 
 # Ensure the Postgres data volume exists (idempotent). It is declared
 # `external` in docker-compose.yml so `docker compose down -v` can never
@@ -801,8 +781,25 @@ exit 0
 REMOTE_SCRIPT
 )
 
-# Execute deployment on remote VM (the ECR pull credentials travel inside
-# the already-uploaded .env, never as ssh arguments)
+# Log the VM's docker into ECR from HERE: the token is minted with the
+# operator's local aws identity and piped over ssh stdin — it never
+# appears in arguments, env files, or on the VM's disk, and the VM needs
+# neither the aws CLI nor AWS credentials (Ubuntu 24.04 dropped the
+# awscli package anyway).
+echo -e "${BLUE}🔑 Logging the VM into ECR (token minted locally)...${NC}"
+if ! command -v aws >/dev/null; then
+    echo -e "${RED}❌ aws CLI not found locally — needed to mint the ECR token${NC}"
+    echo "   brew install awscli && aws configure (an identity with ECR access)"
+    exit 1
+fi
+if ! aws ecr get-login-password --region "$AWS_REGION" | \
+    ssh "${SSH_OPTS[@]}" "$_VM_SSH_USER@$_VM_SSH_HOST" \
+    "docker login --username AWS --password-stdin '$ECR_REGISTRY'"; then
+    echo -e "${RED}❌ ECR login on the VM failed${NC}"
+    exit 1
+fi
+
+# Execute deployment on remote VM
 DEPLOY_EXIT_CODE=0
 ssh "${SSH_OPTS[@]}" \
     "$_VM_SSH_USER@$_VM_SSH_HOST" \

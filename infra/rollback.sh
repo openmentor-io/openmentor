@@ -160,21 +160,8 @@ fi
 grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime
 chmod 600 .env.runtime
 
-# Login to AWS ECR (D19) with the VM pull credentials (IAM user
-# openmentor-vm) read from the VM's .env — uploaded there by deploy.sh, so
-# the secrets never travel as command-line arguments
-echo "🔑 Logging in to registry..."
-ECR_REGISTRY=\$(grep "^ECR_REGISTRY=" .env | cut -d'=' -f2)
-ECR_AWS_REGION=\$(grep "^AWS_REGION=" .env | cut -d'=' -f2)
-AWS_ACCESS_KEY_ID=\$(grep "^VM_ECR_ACCESS_KEY_ID=" .env | cut -d'=' -f2)
-AWS_SECRET_ACCESS_KEY=\$(grep "^VM_ECR_SECRET_ACCESS_KEY=" .env | cut -d'=' -f2-)
-export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
-
-aws ecr get-login-password --region "\$ECR_AWS_REGION" | docker login \
-    --username AWS \
-    --password-stdin \
-    "\$ECR_REGISTRY"
-unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+# Registry login happens below via a token minted on THIS machine and
+# piped over ssh stdin — the VM has no aws CLI and no AWS credentials.
 
 # Ensure the Postgres data volume exists (idempotent; declared external in
 # docker-compose.yml so compose never deletes it)
@@ -235,10 +222,20 @@ fi
 REMOTE_SCRIPT
 )
 
+# Log the VM's docker into ECR first: token minted locally, piped over
+# ssh stdin (the VM has no aws CLI / credentials). Needs a local aws
+# identity with ECR read access.
+if ! aws ecr get-login-password --region "$AWS_REGION" | \
+    ssh ${VM_SSH_KEY_FILE:+-i "$VM_SSH_KEY_FILE"} -o StrictHostKeyChecking=no \
+    "$VM_SSH_USER@$VM_SSH_HOST" \
+    "docker login --username AWS --password-stdin '$ECR_REGISTRY'"; then
+    echo -e "${RED}❌ ECR login on the VM failed${NC}"
+    exit 1
+fi
+
 # Execute on remote
 ROLLBACK_EXIT_CODE=0
 ssh ${VM_SSH_KEY_FILE:+-i "$VM_SSH_KEY_FILE"} -o StrictHostKeyChecking=no \
-    -o StrictHostKeyChecking=no \
     "$VM_SSH_USER@$VM_SSH_HOST" \
     bash <<< "$ROLLBACK_SCRIPT" || ROLLBACK_EXIT_CODE=$?
 

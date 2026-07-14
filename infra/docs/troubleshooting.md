@@ -71,9 +71,9 @@ docker-compose ps
    ```bash
    # Re-authenticate against AWS ECR (D19). On the VM, use the
    # openmentor-vm pull credentials from /opt/openmentor/infra/.env
-   # (VM_ECR_ACCESS_KEY_ID / VM_ECR_SECRET_ACCESS_KEY):
-   export AWS_ACCESS_KEY_ID=$(grep '^VM_ECR_ACCESS_KEY_ID=' .env | cut -d'=' -f2)
-   export AWS_SECRET_ACCESS_KEY=$(grep '^VM_ECR_SECRET_ACCESS_KEY=' .env | cut -d'=' -f2-)
+   # from your LOCAL machine (the VM holds no AWS credentials):
+   aws ecr get-login-password --region eu-central-1 | \
+     ssh deploy@<vm> "docker login --username AWS --password-stdin '<ECR_REGISTRY>'"
    aws ecr get-login-password --region $(grep '^AWS_REGION=' .env | cut -d'=' -f2) \
      | docker login --username AWS --password-stdin $(grep '^ECR_REGISTRY=' .env | cut -d'=' -f2)
    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY

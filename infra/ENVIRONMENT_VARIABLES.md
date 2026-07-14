@@ -54,7 +54,7 @@ Three sections (mirroring `.env.production.example`):
 
 1. **Deployment machine configuration** — the ECR registry (`ECR_REGISTRY`,
    `AWS_REGION` — AWS ECR per DECISIONS D19), the VM's pull-only ECR
-   credentials (`VM_ECR_ACCESS_KEY_ID` / `VM_ECR_SECRET_ACCESS_KEY`, access
+   no VM-side credentials (each deploy mints a short-lived ECR token locally
    key of the `openmentor-vm` IAM user; the deploy scripts read them from
    the uploaded `.env` ON THE VM and run
    `aws ecr get-login-password | docker login` before pulling) and VM SSH

@@ -207,6 +207,18 @@ jobs:
           echo "rebuild_backup=$REBUILD_BACKUP" >> $GITHUB_OUTPUT
           echo "Bind-mount changes: restart_alloy=$RESTART_ALLOY rebuild_backup=$REBUILD_BACKUP"
 
+      - name: Configure AWS credentials (mint ECR token for the VM)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Mint ECR login token
+        run: |
+          TOKEN=$(aws ecr get-login-password --region "${{ secrets.AWS_REGION }}")
+          echo "::add-mask::$TOKEN"
+          echo "ECR_PASSWORD=$TOKEN" >> "$GITHUB_ENV"
+
       - name: Deploy via SSH
         id: deploy
         uses: appleboy/ssh-action@v1.0.0
@@ -216,6 +228,7 @@ jobs:
           key: ${{ secrets.VM_SSH_KEY }}
           port: 22
           script_stop: true
+          envs: ECR_PASSWORD
           script: |
             set -e
 
@@ -263,21 +276,15 @@ jobs:
             }
             regen_env_runtime
 
-            # Login to AWS ECR (D19) with the VM pull credentials (IAM user
-            # openmentor-vm) read from /opt/openmentor/infra/.env — uploaded
-            # there by infra/deploy.sh, the same mechanism its remote script
-            # uses. awscli is on the VM via cloud-init.
+            # Login to AWS ECR (D19) with a short-lived token minted in the
+            # runner (OIDC role) and delivered via the action's `envs` —
+            # the VM holds no AWS credentials and needs no aws CLI.
             echo "🔑 Logging in to registry..."
             ECR_REGISTRY=$(grep "^ECR_REGISTRY=" .env | cut -d'=' -f2)
-            ECR_AWS_REGION=$(grep "^AWS_REGION=" .env | cut -d'=' -f2)
-            AWS_ACCESS_KEY_ID=$(grep "^VM_ECR_ACCESS_KEY_ID=" .env | cut -d'=' -f2)
-            AWS_SECRET_ACCESS_KEY=$(grep "^VM_ECR_SECRET_ACCESS_KEY=" .env | cut -d'=' -f2-)
-            export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
-            aws ecr get-login-password --region "$ECR_AWS_REGION" | docker login \
+            printf '%s' "$ECR_PASSWORD" | docker login \
               --username AWS \
               --password-stdin \
-              "$ECR_REGISTRY" || echo "⚠️  Registry login failed, trying to pull anyway"
-            unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+              "$ECR_REGISTRY"
 
             # Ensure the external Postgres data volume exists (idempotent)
             docker volume create openmentor-postgres-data

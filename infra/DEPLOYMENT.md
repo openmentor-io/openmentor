@@ -12,7 +12,7 @@ local machine using `./deploy.sh`.
      (`aws sts get-caller-identity` must work — profile, SSO, or env creds)
    - `ECR_REGISTRY` (`<account-id>.dkr.ecr.eu-central-1.amazonaws.com`) and
      `AWS_REGION` in `.env.production`
-   - `VM_ECR_ACCESS_KEY_ID`/`VM_ECR_SECRET_ACCESS_KEY` (the `openmentor-vm`
+   - no VM-side AWS credentials needed (short-lived ECR tokens are piped in)
      IAM user's pull-only keys) in `.env.production` — the VM logs in with
      them before pulling
 4. **Full monorepo checkout** — the frontend (`../web`) and backend
@@ -34,8 +34,7 @@ cp .env.production.example .env.production
 sections):
 
 - **Deployment machine settings** — used by `deploy.sh`/`rollback.sh`:
-  `ECR_REGISTRY`, `AWS_REGION`, `VM_ECR_ACCESS_KEY_ID`,
-  `VM_ECR_SECRET_ACCESS_KEY` (VM-side ECR pull login), `VM_SSH_HOST`,
+  `ECR_REGISTRY`, `AWS_REGION`, `VM_SSH_HOST`,
   `VM_SSH_USER`, `VM_SSH_KEY_FILE`
 - **Build-time variables** — `NEXT_PUBLIC_*` (and Faro/PostHog sourcemap
   vars), baked into the frontend image during `docker build`
