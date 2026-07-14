@@ -207,172 +207,77 @@ jobs:
           echo "rebuild_backup=$REBUILD_BACKUP" >> $GITHUB_OUTPUT
           echo "Bind-mount changes: restart_alloy=$RESTART_ALLOY rebuild_backup=$REBUILD_BACKUP"
 
+      # CI-specific .env preparation: deploy.sh uploads a fresh .env with the
+      # tag lines already resolved; the workflow instead edits the tag lines
+      # of the VM's existing .env in place. Only the deployed service's tag
+      # is updated (FRONTEND_IMAGE_TAG / BACKEND_IMAGE_TAG, matching
+      # infra/deploy.sh); the other keeps its currently deployed tag. The
+      # previous .env is preserved as .env.backup FIRST so deploy-remote.sh's
+      # auto-rollback can restore the previous tags. Uses the SSH key written
+      # by the sync step.
+      - name: Set image tags on VM
+        run: |
+          ssh -i ~/.ssh/deploy_key -p 22 \
+            "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}" \
+            "bash -s" -- "${{ github.event.inputs.service }}" "${{ steps.tag.outputs.TAG }}" <<'TAG_SCRIPT'
+          set -e
+          SERVICE="$1"
+          TAG="$2"
+          cd /opt/openmentor/infra
+
+          # Backup the current .env (previous image tags) for rollback
+          if [ -f .env ]; then cp .env .env.backup; else touch .env; fi
+
+          # Replace-or-append a KEY=value in .env
+          set_env_tag() {
+            if grep -q "^${1}=" .env; then
+              sed -i "s|^${1}=.*|${1}=${2}|" .env
+            else
+              echo "${1}=${2}" >> .env
+            fi
+          }
+
+          if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
+            set_env_tag FRONTEND_IMAGE_TAG "$TAG"
+          fi
+          if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
+            set_env_tag BACKEND_IMAGE_TAG "$TAG"
+          fi
+          TAG_SCRIPT
+
       - name: Configure AWS credentials (mint ECR token for the VM)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Mint ECR login token
+      # Log the VM's docker into ECR from the runner: the short-lived token
+      # (OIDC role) is piped over ssh stdin — it never appears in arguments,
+      # env files, or on the VM's disk, and the VM holds no AWS credentials
+      # and needs no aws CLI. Same mechanism as infra/deploy.sh.
+      - name: Log the VM into ECR
         run: |
-          TOKEN=$(aws ecr get-login-password --region "${{ secrets.AWS_REGION }}")
-          echo "::add-mask::$TOKEN"
-          echo "ECR_PASSWORD=$TOKEN" >> "$GITHUB_ENV"
+          aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" \
+            | ssh -i ~/.ssh/deploy_key -p 22 \
+                "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}" \
+                "docker login --username AWS --password-stdin '${{ env.REGISTRY }}'"
 
-      - name: Deploy via SSH
-        id: deploy
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.VM_SSH_HOST }}
-          username: ${{ secrets.VM_SSH_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
-          port: 22
-          script_stop: true
-          envs: ECR_PASSWORD
-          script: |
-            set -e
-
-            echo "🚀 Starting deployment..."
-
-            # Navigate to infra directory (already synced from the monorepo
-            # infra/ subdirectory by the previous step)
-            cd /opt/openmentor/infra
-
-            # Backup the current .env (previous image tags) for rollback —
-            # same mechanism as infra/deploy.sh. The .env itself is uploaded
-            # by deploy.sh (the workflow only maintains the tag lines,
-            # left for P6.4 to unify).
-            if [ -f .env ]; then cp .env .env.backup; else touch .env; fi
-
-            # Replace-or-append a KEY=value in .env
-            set_env_tag() {
-              if grep -q "^${1}=" .env; then
-                sed -i "s|^${1}=.*|${1}=${2}|" .env
-              else
-                echo "${1}=${2}" >> .env
-              fi
-            }
-
-            # Per-service image tags (FRONTEND_IMAGE_TAG / BACKEND_IMAGE_TAG,
-            # matching infra/deploy.sh): only the deployed service's tag is
-            # updated; the other keeps its currently deployed tag.
-            SERVICE="${{ github.event.inputs.service }}"
-            TAG="${{ steps.tag.outputs.TAG }}"
-            if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
-              set_env_tag FRONTEND_IMAGE_TAG "$TAG"
-            fi
-            if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
-              set_env_tag BACKEND_IMAGE_TAG "$TAG"
-            fi
-            echo "Deploying with:"
-            grep -E "^(FRONTEND|BACKEND)_IMAGE_TAG=" .env
-
-            # Regenerate .env.runtime: container env WITHOUT the tag lines
-            # (tags only affect compose interpolation, so a tag-only deploy
-            # recreates only the retagged service)
-            regen_env_runtime() {
-              grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime
-              chmod 600 .env.runtime
-            }
-            regen_env_runtime
-
-            # Login to AWS ECR (D19) with a short-lived token minted in the
-            # runner (OIDC role) and delivered via the action's `envs` —
-            # the VM holds no AWS credentials and needs no aws CLI.
-            echo "🔑 Logging in to registry..."
-            ECR_REGISTRY=$(grep "^ECR_REGISTRY=" .env | cut -d'=' -f2)
-            printf '%s' "$ECR_PASSWORD" | docker login \
-              --username AWS \
-              --password-stdin \
-              "$ECR_REGISTRY"
-
-            # Ensure the external Postgres data volume exists (idempotent)
-            docker volume create openmentor-postgres-data
-
-            # Rebuild the backup sidecar image if its build context changed
-            # in the sync (it is built on the VM from ./postgres-backup)
-            if [ "${{ steps.sync.outputs.rebuild_backup }}" = "1" ]; then
-              echo "🔨 postgres-backup/ changed — rebuilding sidecar image..."
-              docker compose build postgres-backup
-            elif ! docker image inspect openmentor-postgres-backup:local >/dev/null 2>&1; then
-              docker compose build postgres-backup
-            fi
-
-            # Pull new images
-            echo "📦 Pulling images..."
-            docker compose pull --ignore-buildable
-
-            # Converge: compose recreates only services whose image tag (or
-            # definition) changed; --remove-orphans drops deleted services
-            echo "🔄 Converging services..."
-            docker compose up -d --remove-orphans
-
-            # Bind-mount trap: compose does not react to changes in
-            # bind-mounted config files — restart alloy if its config changed
-            if [ "${{ steps.sync.outputs.restart_alloy }}" = "1" ]; then
-              echo "↻ alloy/config.alloy changed — restarting alloy..."
-              docker compose restart alloy
-            fi
-
-            # Wait for containers to start
-            echo "⏳ Waiting for containers to start..."
-            sleep 20
-
-            # Check service status
-            echo "📊 Service status:"
-            docker compose ps
-
-            # Verify health checks (CRITICAL - fail if health checks fail)
-            echo "🏥 Checking health endpoints..."
-            HEALTH_CHECK_FAILED=0
-
-            # Check frontend health
-            if ! docker exec openmentor-frontend curl -f http://localhost:3000/api/healthcheck 2>/dev/null; then
-              echo "❌ Frontend health check FAILED"
-              HEALTH_CHECK_FAILED=1
-            else
-              echo "✅ Frontend health check passed"
-            fi
-
-            # Check backend health
-            if ! docker exec openmentor-backend curl -f http://localhost:8081/api/healthcheck 2>/dev/null; then
-              echo "❌ Backend health check FAILED"
-              HEALTH_CHECK_FAILED=1
-            else
-              echo "✅ Backend health check passed"
-            fi
-
-            # Check worker health
-            if ! docker exec openmentor-worker curl -f http://localhost:8090/healthz 2>/dev/null; then
-              echo "❌ Worker health check FAILED"
-              HEALTH_CHECK_FAILED=1
-            else
-              echo "✅ Worker health check passed"
-            fi
-
-            # Rollback if health checks failed: restore the previous .env
-            # (previous image tags) and re-converge
-            if [ $HEALTH_CHECK_FAILED -eq 1 ]; then
-              echo "🔄 ROLLING BACK to previous version (.env.backup)..."
-              cp .env.backup .env
-              regen_env_runtime
-              docker compose pull --ignore-buildable
-              docker compose up -d
-              sleep 10
-
-              # Verify rollback succeeded
-              if docker exec openmentor-frontend curl -f http://localhost:3000/api/healthcheck 2>/dev/null && \
-                 docker exec openmentor-backend curl -f http://localhost:8081/api/healthcheck 2>/dev/null && \
-                 docker exec openmentor-worker curl -f http://localhost:8090/healthz 2>/dev/null; then
-                echo "✅ Rollback successful"
-              else
-                echo "❌ Rollback FAILED - manual intervention required!"
-              fi
-
-              exit 1
-            fi
-
-            echo "✅ Deployment complete!"
+      # The remote deploy logic (volume, sidecar rebuild, pull, converge,
+      # network-attachment guard, alloy restart, health checks, auto-rollback)
+      # lives in infra/deploy-remote.sh — the single canonical script shared
+      # with infra/deploy.sh. The runner pipes its CHECKED-OUT copy over ssh
+      # stdin, so the executed logic always matches this commit regardless of
+      # what the rsync step shipped. The workflow always syncs infra/, hence
+      # always --remove-orphans (same as deploy.sh's infra target).
+      - name: Deploy on VM
+        run: |
+          ssh -i ~/.ssh/deploy_key -p 22 \
+            "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}" \
+            "bash -s" -- \
+            "--remove-orphans" \
+            "${{ steps.sync.outputs.restart_alloy }}" \
+            "${{ steps.sync.outputs.rebuild_backup }}" \
+            < infra/deploy-remote.sh
 
       - name: Verify deployment
         run: |
