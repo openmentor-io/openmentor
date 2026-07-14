@@ -483,7 +483,7 @@ if [ "$DEPLOY_INFRA" = true ]; then
         --exclude '.env.*' \
         --exclude 'logs/' \
         --exclude 'alloy-secrets/' \
-        -e "ssh -i $_VM_SSH_KEY_FILE -o StrictHostKeyChecking=no" \
+        -e "ssh ${_VM_SSH_KEY_FILE:+-i $_VM_SSH_KEY_FILE }-o StrictHostKeyChecking=no" \
         "$SCRIPT_DIR/" \
         "$_VM_SSH_USER@$_VM_SSH_HOST:$REMOTE_INFRA_DIR/")
 
