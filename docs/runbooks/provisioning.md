@@ -26,7 +26,7 @@ Region convention: **eu-central-1** everywhere in AWS (matches env template exam
 
 ## 1. Decide: fresh start or carry getmentor data?
 
-- [ ] **Decision needed.** Fresh start = nothing to do here. Carrying data over is a
+- [x] **DECIDED (D21): launch fresh.** Migration tooling stays parked for a possible later import. Original context: Carrying data over is a
   small project of its own: the schema diverged (columns renamed/dropped:
   `preferred_contact`, no `tg_secret`/`telegram_chat_id`, no sponsor tags), so it
   needs a transform script (old dump → new schema) plus the image copy
