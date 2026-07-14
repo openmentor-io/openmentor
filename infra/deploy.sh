@@ -161,7 +161,7 @@ REQUIRED_VARS=(
     "VM_ECR_SECRET_ACCESS_KEY"
     "VM_SSH_HOST"
     "VM_SSH_USER"
-    "VM_SSH_KEY_FILE"
+    # VM_SSH_KEY_FILE is optional: unset = authenticate via your ssh agent
 )
 
 if [ "$STAGING" = true ]; then
@@ -172,18 +172,18 @@ if [ "$STAGING" = true ]; then
         "VM_ECR_SECRET_ACCESS_KEY"
         "VM_SSH_HOST_STAGING"
         "VM_SSH_USER_STAGING"
-        "VM_SSH_KEY_FILE_STAGING"
+        # VM_SSH_KEY_FILE_STAGING is optional (ssh agent)
     )
 fi
 
 _VM_SSH_HOST="$VM_SSH_HOST"
 _VM_SSH_USER="$VM_SSH_USER"
-_VM_SSH_KEY_FILE="$VM_SSH_KEY_FILE"
+_VM_SSH_KEY_FILE="${VM_SSH_KEY_FILE:-}"
 
 if [ "$STAGING" = true ]; then
     _VM_SSH_HOST="$VM_SSH_HOST_STAGING"
     _VM_SSH_USER="$VM_SSH_USER_STAGING"
-    _VM_SSH_KEY_FILE="$VM_SSH_KEY_FILE_STAGING"
+    _VM_SSH_KEY_FILE="${VM_SSH_KEY_FILE_STAGING:-}"
 
     echo -e "${YELLOW}⚠️  Deploying to STAGING environment at $_VM_SSH_HOST${NC}"
 fi
