@@ -293,23 +293,23 @@ jobs:
             # in the sync (it is built on the VM from ./postgres-backup)
             if [ "${{ steps.sync.outputs.rebuild_backup }}" = "1" ]; then
               echo "🔨 postgres-backup/ changed — rebuilding sidecar image..."
-              docker-compose build postgres-backup
+              docker compose build postgres-backup
             fi
 
             # Pull new images
             echo "📦 Pulling images..."
-            docker-compose pull
+            docker compose pull
 
             # Converge: compose recreates only services whose image tag (or
             # definition) changed; --remove-orphans drops deleted services
             echo "🔄 Converging services..."
-            docker-compose up -d --remove-orphans
+            docker compose up -d --remove-orphans
 
             # Bind-mount trap: compose does not react to changes in
             # bind-mounted config files — restart alloy if its config changed
             if [ "${{ steps.sync.outputs.restart_alloy }}" = "1" ]; then
               echo "↻ alloy/config.alloy changed — restarting alloy..."
-              docker-compose restart alloy
+              docker compose restart alloy
             fi
 
             # Wait for containers to start
@@ -318,7 +318,7 @@ jobs:
 
             # Check service status
             echo "📊 Service status:"
-            docker-compose ps
+            docker compose ps
 
             # Verify health checks (CRITICAL - fail if health checks fail)
             echo "🏥 Checking health endpoints..."
@@ -354,8 +354,8 @@ jobs:
               echo "🔄 ROLLING BACK to previous version (.env.backup)..."
               cp .env.backup .env
               regen_env_runtime
-              docker-compose pull
-              docker-compose up -d
+              docker compose pull
+              docker compose up -d
               sleep 10
 
               # Verify rollback succeeded
@@ -417,8 +417,8 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Troubleshooting**:" >> $GITHUB_STEP_SUMMARY
             echo "1. Check workflow logs above" >> $GITHUB_STEP_SUMMARY
-            echo "2. SSH to VM and run: \`docker-compose logs\`" >> $GITHUB_STEP_SUMMARY
-            echo "3. Consider rolling back: \`./rollback.sh <previous-sha>\` from a workstation, or on the VM: \`cp .env.backup .env && docker-compose up -d\`" >> $GITHUB_STEP_SUMMARY
+            echo "2. SSH to VM and run: \`docker compose logs\`" >> $GITHUB_STEP_SUMMARY
+            echo "3. Consider rolling back: \`./rollback.sh <previous-sha>\` from a workstation, or on the VM: \`cp .env.backup .env && docker compose up -d\`" >> $GITHUB_STEP_SUMMARY
           fi
 
   # Notify on failure

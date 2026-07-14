@@ -17,7 +17,7 @@ set -e
 #   --yes, -y    skip the confirmation prompt
 #
 # The script edits the tags in /opt/openmentor/infra/.env on the VM (keeping
-# a .env.backup), pulls, re-converges with `docker-compose up -d` and runs
+# a .env.backup), pulls, re-converges with `docker compose up -d` and runs
 # the same health checks as deploy.sh.
 # ============================================================================
 
@@ -170,11 +170,11 @@ docker volume create openmentor-postgres-data
 
 # Pull images with target tags
 echo "📦 Pulling images..."
-docker-compose pull
+docker compose pull
 
 # Converge: only services whose tag changed are recreated
 echo "🔄 Restarting services..."
-docker-compose up -d
+docker compose up -d
 
 # Wait for startup
 echo "⏳ Waiting for services to start..."
