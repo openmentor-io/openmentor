@@ -82,6 +82,8 @@ infra/
 ├── .env.example                # Local development env template
 ├── .env.production.example     # Production env template (deploy creds + build args + runtime secrets)
 ├── deploy.sh                   # Deploy [frontend|backend|infra|all] to the VM (health checks + auto-rollback)
+├── deploy-remote.sh            # The remote deploy logic that runs ON the VM — single source shared
+│                               # by deploy.sh and the CI workflow (both pipe it over ssh stdin)
 ├── deploy-dev.sh               # Same CLI/flow against the local docker stack
 ├── rollback.sh                 # Roll production back to previous image tags (per service)
 ├── alloy/config.alloy          # Grafana Alloy pipeline
@@ -244,6 +246,11 @@ cp .env.production.example .env.production   # once; fill in everything
 8. **automatically rolls back** to the previous `.env` (previous image tags)
    if any health check fails, then verifies the rollback.
 
+Steps 5–8 run **on the VM** as `deploy-remote.sh` — the single canonical
+remote script, piped over ssh stdin from the local checkout (never executed
+from the rsynced copy) and shared verbatim with the CI workflow. Edit the
+remote logic once, both deploy paths pick it up.
+
 `deploy-dev.sh` runs the identical CLI and flow against the local dev stack
 (no registry, no SSH — see Quick Start).
 
@@ -275,8 +282,11 @@ See `DEPLOYMENT.md` for the full guide and troubleshooting.
 
 ## CI/CD Pipeline
 
-`../.github/workflows/deploy.yml` (repo root) builds/pushes both images and deploys over SSH
-with the same health-check + rollback logic. It is currently
+`../.github/workflows/deploy.yml` (repo root) builds/pushes both images and
+deploys over SSH by piping the **same `infra/deploy-remote.sh`** that
+`deploy.sh` uses (single source of the remote pull/converge/network-guard/
+health-check/auto-rollback logic — no drift between CI and workstation
+deploys). It is currently
 **manual-trigger only** (`workflow_dispatch`); the push trigger is commented
 out. Required repo secrets: `ECR_REGISTRY`, `AWS_REGION`, `AWS_CI_ROLE_ARN`
 (GitHub OIDC role with ECR push, D19 — set by the private provisioning

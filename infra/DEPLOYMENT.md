@@ -112,6 +112,12 @@ The script will:
 
 Notes:
 
+- Steps 8–10 (volume, sidecar rebuild, pull, converge, network-attachment
+  guard, health checks, auto-rollback) are `deploy-remote.sh` — the single
+  canonical remote script. `deploy.sh` and the CI workflow
+  (`../.github/workflows/deploy.yml`) both pipe the **local checked-out
+  copy** over ssh stdin, so the remote logic is edited once and consumed by
+  both paths, and never depends on the rsynced copy on the VM being fresh.
 - The `migrate` service runs database migrations before backend and worker
   start (`depends_on: service_completed_successfully`) — this holds on every
   `up -d`.
