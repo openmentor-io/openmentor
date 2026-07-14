@@ -628,9 +628,13 @@ fi
 
 # Execute deployment on remote VM (local deploy-remote.sh piped over stdin)
 DEPLOY_EXIT_CODE=0
+# printf %q: ssh flattens argv into one unquoted string, which silently
+# DROPS empty arguments (an empty UP_FLAGS made the remote script read the
+# alloy flag as a compose service name). %q preserves every arg, empty ones
+# included, across the ssh boundary.
 ssh "${SSH_OPTS[@]}" \
     "$_VM_SSH_USER@$_VM_SSH_HOST" \
-    "bash -s" -- "$UP_FLAGS" "$RESTART_ALLOY" "$REBUILD_BACKUP_SIDECAR" \
+    "bash -s -- $(printf '%q ' "$UP_FLAGS" "$RESTART_ALLOY" "$REBUILD_BACKUP_SIDECAR")" \
     < "$SCRIPT_DIR/deploy-remote.sh" \
     || DEPLOY_EXIT_CODE=$?
 

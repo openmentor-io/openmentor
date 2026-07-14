@@ -273,10 +273,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -p 22 \
             "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}" \
-            "bash -s" -- \
-            "--remove-orphans" \
-            "${{ steps.sync.outputs.restart_alloy }}" \
-            "${{ steps.sync.outputs.rebuild_backup }}" \
+            "bash -s -- $(printf '%q ' "--remove-orphans" "${{ steps.sync.outputs.restart_alloy }}" "${{ steps.sync.outputs.rebuild_backup }}")" \
             < infra/deploy-remote.sh
 
       - name: Verify deployment
