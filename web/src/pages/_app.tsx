@@ -38,7 +38,7 @@ function initializeAnalytics(): void {
   initializePostHog()
   // Mixpanel tag must also be removed in the GTM console (GTM-NBGRPCZ) —
   // code cannot control container contents.
-  TagManager.initialize({ gtmId: 'GTM-NBGRPCZ' })
+  TagManager.initialize({ gtmId: 'GTM-5GLW4WPS' })
 }
 
 function MyApp({ Component, pageProps }: AppProps): JSX.Element {
