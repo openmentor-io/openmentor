@@ -22,6 +22,8 @@ export type {
   GetOneMentorParams,
   ContactMentorRequest,
   ContactMentorResponse,
+  ScheduleMigrationRequest,
+  ScheduleMigrationResponse,
   SaveProfileRequest,
   SaveProfileResponse,
   UploadProfilePictureRequest,

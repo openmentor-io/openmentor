@@ -34,11 +34,15 @@
  * Usage (normally via ./migrate-mentors.sh, which opens the DB tunnel):
  *   node --env-file=.env migrate-mentors.js --slug ivan-petrov-42 [--slug ...]
  *   node --env-file=.env migrate-mentors.js --csv slugs.csv --dry-run
+ *   node --env-file=.env migrate-mentors.js --from-intents
  *
  * Flags:
  *   --slug <slug>       mentor to migrate (repeatable)
  *   --csv <file>        bulk input: one slug per line, or a CSV whose first
  *                       column (header "slug" optional) holds the slugs
+ *   --from-intents      also process every pending row of the target's
+ *                       migration_intents table (filled by the public
+ *                       /migrate page) and write each outcome back to it
  *   --dry-run           read + map + report only; no translation, no writes,
  *                       no image copy, no email
  *   --translate-dry-run with --dry-run: also run the Claude translation so
@@ -131,6 +135,7 @@ function parseArgs(argv) {
   const parsed = {
     slugs: [],
     csv: '',
+    fromIntents: false,
     dryRun: false,
     translateDryRun: false,
     resume: false,
@@ -145,6 +150,9 @@ function parseArgs(argv) {
         break;
       case '--csv':
         parsed.csv = requireValue(argv, ++i, '--csv');
+        break;
+      case '--from-intents':
+        parsed.fromIntents = true;
         break;
       case '--dry-run':
         parsed.dryRun = true;
@@ -194,11 +202,7 @@ function loadSlugs() {
       slugs.push(value);
     }
   }
-  const unique = [...new Set(slugs)];
-  if (unique.length === 0) {
-    fail('No slugs to migrate. Pass --slug <slug> and/or --csv <file>.');
-  }
-  return unique;
+  return [...new Set(slugs)];
 }
 
 function validateConfig() {
@@ -581,6 +585,40 @@ async function triggerMigratedEmail(mentorId) {
 }
 
 // ---------------------------------------------------------------------------
+// Migration intents (public /migrate page opt-ins in the target DB)
+// ---------------------------------------------------------------------------
+
+async function fetchPendingIntentSlugs(target) {
+  const { rows } = await target.query(
+    `SELECT slug FROM migration_intents WHERE status = 'pending' ORDER BY created_at`
+  );
+  return rows.map((r) => r.slug);
+}
+
+// Record the mentor's outcome onto their migration_intents row (no-op when
+// the slug wasn't scheduled through the /migrate page).
+async function recordIntentOutcome(target, slug) {
+  const row = reportRows[reportRows.length - 1];
+  if (!row || row.slug !== slug || row.outcome.startsWith('would migrate')) return;
+
+  let status;
+  if (/^(migrated|resumed)/.test(row.outcome)) status = 'done';
+  else if (row.outcome.startsWith('skipped')) status = 'skipped';
+  else status = 'failed';
+
+  try {
+    await target.query(
+      `UPDATE migration_intents
+          SET status = $2, note = $3, processed_at = now()
+        WHERE slug = $1`,
+      [slug, status, row.outcome.slice(0, 500)]
+    );
+  } catch (error) {
+    console.error(`  ⚠️  could not update migration_intents for ${slug}: ${error.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Per-mentor pipeline
 // ---------------------------------------------------------------------------
 
@@ -713,16 +751,29 @@ function printMappedRecord(mentor, translated, mappedTags, marker) {
 
 async function main() {
   validateConfig();
-  const slugs = loadSlugs();
-  stats.total = slugs.length;
+  let slugs = loadSlugs();
+  if (slugs.length === 0 && !args.fromIntents) {
+    fail('No slugs to migrate. Pass --slug <slug>, --csv <file> and/or --from-intents.');
+  }
 
   console.log(`🚀 getmentor.dev -> openmentor.io mentor migration${args.dryRun ? ' (DRY RUN)' : ''}`);
-  console.log(`   Mentors to process: ${slugs.length}`);
 
   const source = await connectSource();
   const target = await connectTarget();
 
   try {
+    if (args.fromIntents) {
+      const intentSlugs = await fetchPendingIntentSlugs(target);
+      console.log(`   Pending migration intents: ${intentSlugs.length}`);
+      slugs = [...new Set([...slugs, ...intentSlugs])];
+    }
+    stats.total = slugs.length;
+    console.log(`   Mentors to process: ${slugs.length}`);
+    if (slugs.length === 0) {
+      console.log('   Nothing to do.');
+      return;
+    }
+
     for (const slug of slugs) {
       try {
         await migrateMentor(source, target, slug);
@@ -730,6 +781,9 @@ async function main() {
         stats.failed++;
         reportRows.push({ slug, outcome: `error: ${error.message}`, notes: [] });
         console.error(`  ❌ ${slug}: ${error.message}`);
+      }
+      if (!args.dryRun) {
+        await recordIntentOutcome(target, slug);
       }
     }
   } finally {

@@ -89,10 +89,48 @@ cd infra/migration
 
 # Re-run images + email for already-migrated mentors
 ./migrate-mentors.sh --slug ivan-petrov-42 --resume
+
+# Process everything mentors scheduled via the /migrate page (see below)
+./migrate-mentors.sh --from-intents
 ```
 
 Useful flags: `--skip-images`, `--skip-email`, `--skip-translation`
 (keeps the Russian text verbatim).
+
+## Self-service opt-ins (the /migrate page)
+
+Mentors schedule their own migration at
+
+```
+https://openmentor.io/migrate?slug=<getmentor-slug>
+```
+
+e.g. `https://openmentor.io/migrate?slug=ivan-petrov-42` — this is the link
+to template into the Telegram announcement, one per mentor, using their
+getmentor.dev slug. The page shows what migration does and a
+"Schedule migration" button (Turnstile-protected). Clicking it records the
+slug in the `migration_intents` table (API endpoint
+`POST /api/v1/migration/intents`), idempotently — repeat clicks show
+"already scheduled".
+
+To process the queue (run this daily while the announcement is hot):
+
+```bash
+./migrate-mentors.sh --from-intents
+```
+
+It picks up every `pending` intent, migrates each mentor, and writes the
+outcome back to the row (`done` / `skipped` / `failed` + a note), so the
+next run only sees new opt-ins. Peek at the queue any time:
+
+```bash
+../db.sh -c "SELECT slug, status, note, created_at FROM migration_intents ORDER BY created_at DESC LIMIT 20"
+```
+
+A `failed` intent (bad slug, no email) stays recorded with its reason —
+fix the cause and reset it with
+`UPDATE migration_intents SET status='pending' WHERE slug='...'`, or handle
+that mentor manually with `--slug`.
 
 Cost note: translation runs on `claude-opus-4-8`; a typical profile is
 ~1.5–4k input tokens + a similar output, i.e. **a few cents per mentor**.

@@ -43,6 +43,23 @@ export interface ContactMentorResponse {
 }
 
 /**
+ * Schedule a getmentor.dev profile migration (public /migrate page)
+ */
+export interface ScheduleMigrationRequest {
+  slug: string
+  captchaToken: string
+}
+
+/**
+ * Schedule migration response
+ */
+export interface ScheduleMigrationResponse {
+  success: boolean
+  alreadyScheduled?: boolean
+  error?: string
+}
+
+/**
  * Save profile request
  */
 export interface SaveProfileRequest {

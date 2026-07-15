@@ -19,6 +19,8 @@ import type {
   GetOneMentorParams,
   ContactMentorRequest,
   ContactMentorResponse,
+  ScheduleMigrationRequest,
+  ScheduleMigrationResponse,
   SaveProfileRequest,
   SaveProfileResponse,
   UploadProfilePictureRequest,
@@ -205,6 +207,15 @@ class GoApiClient {
   async contactMentor(contactData: ContactMentorRequest): Promise<ContactMentorResponse> {
     return this.request<ContactMentorResponse>('POST', '/api/v1/contact-mentor', {
       body: contactData as unknown as Record<string, unknown>,
+    })
+  }
+
+  /**
+   * Schedule a getmentor.dev profile migration (public /migrate page, D22)
+   */
+  async scheduleMigration(data: ScheduleMigrationRequest): Promise<ScheduleMigrationResponse> {
+    return this.request<ScheduleMigrationResponse>('POST', '/api/v1/migration/intents', {
+      body: data as unknown as Record<string, unknown>,
     })
   }
 

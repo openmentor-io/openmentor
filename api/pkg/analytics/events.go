@@ -32,7 +32,10 @@ const (
 	EventMentorPendingRequestsReminded  = "mentor_pending_requests_reminded"
 	EventMentorStatusUpdateReminded     = "mentor_status_update_reminded"
 
-	// Migration tooling events (getmentor.dev -> openmentor.io imports,
-	// fired by the worker's /jobs/profile-migrated endpoint).
-	EventMentorProfileMigrated = "mentor_profile_migrated"
+	// Migration tooling events (getmentor.dev -> openmentor.io imports).
+	// EventMentorProfileMigrated fires from the worker's
+	// /jobs/profile-migrated endpoint; EventMigrationIntentScheduled from
+	// the public /migrate page's opt-in endpoint.
+	EventMentorProfileMigrated    = "mentor_profile_migrated"
+	EventMigrationIntentScheduled = "migration_intent_scheduled"
 )

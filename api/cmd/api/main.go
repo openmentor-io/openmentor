@@ -44,6 +44,7 @@ func registerAPIRoutes(
 	logsHandler *handlers.LogsHandler,
 	registrationHandler *handlers.RegistrationHandler,
 	reviewHandler *handlers.ReviewHandler,
+	migrationIntentHandler *handlers.MigrationIntentHandler,
 ) {
 
 	group.GET("/mentors", generalRateLimiter.Middleware(), middleware.TokenAuthMiddleware(cfg.Auth.MentorsAPIToken), mentorHandler.GetPublicMentors)
@@ -56,6 +57,9 @@ func registerAPIRoutes(
 	// Review routes (public - uses captcha for protection)
 	group.GET("/reviews/:requestId/check", generalRateLimiter.Middleware(), reviewHandler.CheckReview)
 	group.POST("/reviews/:requestId", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), reviewHandler.SubmitReview)
+
+	// getmentor.dev migration opt-ins (public - uses captcha for protection, D22)
+	group.POST("/migration/intents", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024), migrationIntentHandler.ScheduleMigration)
 }
 
 // registerMentorAdminRoutes registers mentor admin routes for authentication, request management, and profile
@@ -300,6 +304,7 @@ func main() { //nolint:gocyclo
 
 	// Initialize repositories for reviews
 	reviewRepo := repository.NewReviewRepository(pool)
+	migrationIntentRepo := repository.NewMigrationIntentRepository(pool)
 
 	// Initialize services
 	mentorService := services.NewMentorService(mentorRepo, cfg)
@@ -311,12 +316,14 @@ func main() { //nolint:gocyclo
 	mentorRequestsService := services.NewMentorRequestsService(clientRequestRepo, cfg, httpClient, analyticsTracker)
 	reviewService := services.NewReviewService(reviewRepo, cfg, httpClient, analyticsTracker)
 	adminMentorsService := services.NewAdminMentorsService(mentorRepo, profileService, cfg, httpClient, analyticsTracker)
+	migrationIntentService := services.NewMigrationIntentService(migrationIntentRepo, cfg, httpClient, analyticsTracker)
 
 	// Initialize handlers
 	mentorHandler := handlers.NewMentorHandler(mentorService, cfg.Server.BaseURL)
 	contactHandler := handlers.NewContactHandler(contactService)
 	registrationHandler := handlers.NewRegistrationHandler(registrationService)
 	reviewHandler := handlers.NewReviewHandler(reviewService)
+	migrationIntentHandler := handlers.NewMigrationIntentHandler(migrationIntentService)
 	// Health check: If cache is disabled, always return true for cache readiness
 	cacheReadyFunc := mentorCache.IsReady
 	if cfg.Cache.DisableMentorsCache {
@@ -375,7 +382,7 @@ func main() { //nolint:gocyclo
 	// SECURITY: Apply body size limits to prevent DoS attacks
 	v1 := router.Group("/api/v1")
 	registerAPIRoutes(v1, cfg, generalRateLimiter, contactRateLimiter, registrationRateLimiter,
-		mentorHandler, contactHandler, logsHandler, registrationHandler, reviewHandler)
+		mentorHandler, contactHandler, logsHandler, registrationHandler, reviewHandler, migrationIntentHandler)
 
 	// Mentor admin routes (authentication, request management, and profile)
 	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, mentorAuthService.GetTokenManager())
