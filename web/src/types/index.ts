@@ -11,6 +11,7 @@ export type {
   Tag,
   MentorBase,
   MentorProfileStatus,
+  MentorPhotoStyle,
   MentorWithSecureFields,
   MentorListItem,
 } from './mentor'

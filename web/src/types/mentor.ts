@@ -57,8 +57,18 @@ export type Tag = MentorTag
 /**
  * Mentor profile lifecycle status.
  * Only 'active' profiles are visible in the public catalog.
+ * 'draft' = submitted but not email-confirmed, or returned by a moderator
+ * for edits (see moderationNote); confirming/resubmitting moves it to
+ * 'pending'. Once 'active', a profile can never return to 'draft'.
  */
-export type MentorProfileStatus = 'pending' | 'active' | 'inactive' | 'declined'
+export type MentorProfileStatus = 'draft' | 'pending' | 'active' | 'inactive' | 'declined'
+
+/**
+ * Catalog card photo treatment, classified at upload time by the API
+ * (border-luminance heuristic): 'hero' = light plain background, safe for
+ * the multiply-blend cut-out look; 'frame' = arch-masked tile fallback.
+ */
+export type MentorPhotoStyle = 'hero' | 'frame'
 
 /**
  * Base mentor data (public fields)
@@ -89,6 +99,16 @@ export interface MentorBase {
   calendarType: CalendarType
   updatedAt?: string
   status?: MentorProfileStatus
+  /**
+   * Card photo treatment (see MentorPhotoStyle). Optional: absent in older
+   * payloads and for mentors without a photo — treat as 'frame'.
+   */
+  photoStyle?: MentorPhotoStyle
+  /**
+   * Reviewer note attached when a moderator returns the profile to 'draft'
+   * for edits. Only present on authenticated own-profile payloads.
+   */
+  moderationNote?: string | null
 }
 
 /**
