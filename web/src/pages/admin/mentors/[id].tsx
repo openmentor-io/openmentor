@@ -5,7 +5,12 @@ import Image from 'next/image'
 import { useRouter } from 'next/router'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch } from '@fortawesome/free-solid-svg-icons'
-import { AdminAuthProvider, AdminLayout, useAdminAuth } from '@/components/admin-moderation'
+import {
+  AdminAuthProvider,
+  AdminLayout,
+  useAdminAuth,
+  moderationStatusBadgeClass,
+} from '@/components/admin-moderation'
 import Wysiwyg from '@/components/forms/Wysiwyg'
 import filters from '@/config/filters'
 import type {
@@ -18,23 +23,20 @@ import {
   updateModerationMentor,
   approveModerationMentor,
   declineModerationMentor,
+  returnModerationMentor,
   updateModerationMentorStatus,
   uploadModerationMentorPicture,
+  ApiError,
 } from '@/lib/admin-moderation-api'
 import { imageLoader } from '@/lib/image-loader'
 
 type SaveState = 'idle' | 'loading' | 'success' | 'error'
 type PictureState = 'idle' | 'loading' | 'success' | 'error'
 
-function statusBadge(status: AdminMentorDetails['status']): string {
-  if (status === 'active') return 'bg-green-100 text-green-800'
-  if (status === 'inactive') return 'bg-gray-200 text-gray-800'
-  if (status === 'declined') return 'bg-red-100 text-red-800'
-  return 'bg-yellow-100 text-yellow-800'
-}
+const RETURN_REASON_MAX = 2000
 
 function getBackLink(status: AdminMentorDetails['status']): string {
-  if (status === 'pending') return '/admin/mentors/pending'
+  if (status === 'pending' || status === 'draft') return '/admin/mentors/pending'
   if (status === 'declined') return '/admin/mentors/declined'
   return '/admin/mentors/approved'
 }
@@ -64,6 +66,8 @@ function buildFormData(
   }
 }
 
+const labelClass = 'mb-1 block text-[13px] font-semibold text-ink'
+
 function MentorModerationEditContent(): JSX.Element {
   const router = useRouter()
   const { id } = router.query
@@ -80,6 +84,16 @@ function MentorModerationEditContent(): JSX.Element {
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Return-for-edits inline form
+  const [showReturnForm, setShowReturnForm] = useState(false)
+  const [returnReason, setReturnReason] = useState('')
+  const [returnError, setReturnError] = useState<string | null>(null)
+  const [isReturning, setIsReturning] = useState(false)
+
+  // Decline confirm step
+  const [confirmingDecline, setConfirmingDecline] = useState(false)
+  const [isDeclining, setIsDeclining] = useState(false)
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -174,9 +188,11 @@ function MentorModerationEditContent(): JSX.Element {
     if (!mentor) return
     setSaveState('idle')
     setActionError(null)
+    setConfirmingDecline(false)
     try {
       const updated = await approveModerationMentor(mentor.mentorId)
       setMentor(updated)
+      setShowReturnForm(false)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to approve mentor')
     }
@@ -186,11 +202,50 @@ function MentorModerationEditContent(): JSX.Element {
     if (!mentor) return
     setSaveState('idle')
     setActionError(null)
+    setIsDeclining(true)
     try {
       const updated = await declineModerationMentor(mentor.mentorId)
       setMentor(updated)
+      setShowReturnForm(false)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to decline mentor')
+    } finally {
+      setIsDeclining(false)
+      setConfirmingDecline(false)
+    }
+  }
+
+  const onReturn = async (): Promise<void> => {
+    if (!mentor || isReturning) return
+
+    const reason = returnReason.trim()
+    if (!reason) {
+      setReturnError('A reason for the mentor is required.')
+      return
+    }
+    if (reason.length > RETURN_REASON_MAX) {
+      setReturnError(`The reason must be at most ${RETURN_REASON_MAX} characters.`)
+      return
+    }
+
+    setIsReturning(true)
+    setReturnError(null)
+    setActionError(null)
+    try {
+      const updated = await returnModerationMentor(mentor.mentorId, reason)
+      setMentor(updated)
+      setShowReturnForm(false)
+      setReturnReason('')
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setReturnError(
+          'This mentor has already been activated and cannot be returned to draft. Edit the profile directly or decline it instead.'
+        )
+      } else {
+        setReturnError(err instanceof Error ? err.message : 'Failed to return the profile')
+      }
+    } finally {
+      setIsReturning(false)
     }
   }
 
@@ -261,14 +316,14 @@ function MentorModerationEditContent(): JSX.Element {
 
   if (authLoading || !isAuthenticated) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-surface">
         <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
       </div>
     )
   }
 
   return (
-    <AdminLayout title="Mentor Review">
+    <AdminLayout title="Mentor review">
       <Head>
         <title>Mentor moderation — openmentor.io</title>
       </Head>
@@ -283,18 +338,18 @@ function MentorModerationEditContent(): JSX.Element {
       )}
 
       {!isLoading && error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-card border border-danger/40 bg-white p-4 text-sm font-medium text-danger">
           {error}
         </div>
       )}
 
       {!isLoading && !error && mentor && formData && (
-        <div className="space-y-6">
+        <div className="space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-4">
               <Link
                 href={getBackLink(mentor.status)}
-                className="text-sm text-brand-cobalt hover:text-brand-cobalt/80"
+                className="text-sm font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
               >
                 ← Back to list
               </Link>
@@ -302,119 +357,242 @@ function MentorModerationEditContent(): JSX.Element {
                 href={`/mentor/${mentor.slug}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-sm text-brand-cobalt hover:text-brand-cobalt/80"
+                className="text-sm font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
               >
                 Open mentor profile ↗
               </Link>
             </div>
-            <span
-              className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadge(
-                mentor.status
-              )}`}
-            >
-              {mentor.status}
-            </span>
+            <span className={moderationStatusBadgeClass(mentor.status)}>{mentor.status}</span>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={onApprove}
-              className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
-            >
+          {/* Reviewer note on a returned (draft) profile */}
+          {mentor.status === 'draft' && mentor.moderationNote && (
+            <div className="rounded-panel border border-l-4 border-line border-l-danger bg-white p-5">
+              <div className="font-display text-[13px] font-extrabold uppercase tracking-[0.03em] text-ink">
+                Returned for edits
+              </div>
+              <p className="my-0 mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink">
+                {mentor.moderationNote}
+              </p>
+              <p className="my-0 mt-2 text-[13px] text-ink-soft">
+                The mentor is editing their profile — it will come back to the pending queue once
+                they resubmit.
+              </p>
+            </div>
+          )}
+
+          {/* Moderation actions: approve / return for edits / decline */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button type="button" onClick={onApprove} className="button">
               Approve
             </button>
-            <button
-              type="button"
-              onClick={onDecline}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-            >
-              Decline
-            </button>
 
-            {session?.role === 'admin' && (
-              <>
+            {mentor.status === 'pending' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReturnForm((value) => !value)
+                  setReturnError(null)
+                  setConfirmingDecline(false)
+                }}
+                className="button-secondary"
+                aria-expanded={showReturnForm}
+              >
+                Return for edits…
+              </button>
+            )}
+
+            {confirmingDecline ? (
+              <span className="inline-flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => onToggleActive('active')}
-                  className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
+                  onClick={onDecline}
+                  disabled={isDeclining}
+                  className="button-destructive disabled:opacity-50"
                 >
-                  Set active
+                  {isDeclining ? (
+                    <>
+                      <FontAwesomeIcon icon={faCircleNotch} className="mr-2 animate-spin" />
+                      Declining...
+                    </>
+                  ) : (
+                    'Confirm decline'
+                  )}
                 </button>
                 <button
                   type="button"
-                  onClick={() => onToggleActive('inactive')}
-                  className="rounded-md border border-gray-300 bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-200"
+                  onClick={() => setConfirmingDecline(false)}
+                  disabled={isDeclining}
+                  className="button-ghost"
                 >
-                  Set inactive
+                  Cancel
                 </button>
-              </>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingDecline(true)
+                  setShowReturnForm(false)
+                }}
+                className="button-destructive"
+              >
+                Decline…
+              </button>
             )}
           </div>
 
+          {confirmingDecline && (
+            <p className="my-0 text-sm text-ink-soft">
+              Decline is a hard reject (spam / not a real profile). To ask for fixes, use
+              &quot;Return for edits&quot; instead.
+            </p>
+          )}
+
+          {/* Inline return-for-edits reason form */}
+          {showReturnForm && (
+            <div className="animate-dropdown-in rounded-panel border border-line bg-white p-5">
+              <label htmlFor="return-reason" className={labelClass}>
+                What should the mentor fix? <span className="text-danger">*</span>
+              </label>
+              <p className="my-0 mb-2 text-[13px] text-ink-soft">
+                This note is emailed to the mentor and shown on their profile edit page. The
+                profile goes back to draft until they resubmit.
+              </p>
+              <textarea
+                id="return-reason"
+                value={returnReason}
+                onChange={(e) => {
+                  setReturnReason(e.target.value)
+                  setReturnError(null)
+                }}
+                rows={4}
+                maxLength={RETURN_REASON_MAX}
+                disabled={isReturning}
+                placeholder="e.g. Please add a real photo and expand the about section…"
+                className="field"
+              />
+              <div className="meta-mono mt-1 text-ink-mute">
+                {returnReason.length} / {RETURN_REASON_MAX}
+              </div>
+              {returnError && (
+                <p className="my-0 mt-2 text-sm font-medium text-danger" role="alert">
+                  {returnError}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2.5">
+                <button
+                  type="button"
+                  onClick={onReturn}
+                  disabled={isReturning || !returnReason.trim()}
+                  className="button disabled:opacity-50"
+                >
+                  {isReturning ? (
+                    <>
+                      <FontAwesomeIcon icon={faCircleNotch} className="mr-2 animate-spin" />
+                      Returning...
+                    </>
+                  ) : (
+                    'Return to mentor'
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowReturnForm(false)
+                    setReturnError(null)
+                  }}
+                  disabled={isReturning}
+                  className="button-ghost"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {session?.role === 'admin' && (
+            <div className="flex flex-wrap gap-2.5">
+              <button
+                type="button"
+                onClick={() => onToggleActive('active')}
+                className="button-secondary"
+              >
+                Set active
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleActive('inactive')}
+                className="button-secondary"
+              >
+                Set inactive
+              </button>
+            </div>
+          )}
+
           {actionError && saveState !== 'error' && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div className="rounded-card border border-danger/40 bg-white p-3 text-sm font-medium text-danger">
               {actionError}
             </div>
           )}
 
-          <div className="grid gap-4 rounded-md border border-gray-200 bg-white p-6 md:grid-cols-2">
+          <div className="grid gap-4 rounded-panel border border-line bg-white p-6 md:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Name</label>
+              <label className={labelClass}>Name</label>
               <input
                 value={formData.name}
                 onChange={(e) => handleInputChange('name', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="field"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Email</label>
+              <label className={labelClass}>Email</label>
               <input
                 value={formData.email}
                 onChange={(e) => handleInputChange('email', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="field"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Contact</label>
+              <label className={labelClass}>Contact</label>
               <input
                 value={formData.contact}
                 onChange={(e) => handleInputChange('contact', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="field"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Job</label>
+              <label className={labelClass}>Job</label>
               <input
                 value={formData.job}
                 onChange={(e) => handleInputChange('job', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="field"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Workplace</label>
+              <label className={labelClass}>Workplace</label>
               <input
                 value={formData.workplace}
                 onChange={(e) => handleInputChange('workplace', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="field"
               />
             </div>
             {session?.role === 'admin' && (
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Slug</label>
+                <label className={labelClass}>Slug</label>
                 <input
                   value={formData.slug ?? ''}
                   onChange={(e) => handleInputChange('slug', e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  className="field"
                 />
               </div>
             )}
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Experience</label>
+              <label className={labelClass}>Experience</label>
               <select
                 value={formData.experience}
                 onChange={(e) => handleInputChange('experience', e.target.value)}
-                className="block w-full rounded-md border border-gray-300 bg-white py-2 pl-3 pr-8 text-sm shadow-sm focus:border-brand-cobalt focus:outline-none focus:ring-brand-cobalt"
+                className="field"
               >
                 <option value="">Select experience</option>
                 {Object.keys(filters.experience).map((item) => (
@@ -428,11 +606,11 @@ function MentorModerationEditContent(): JSX.Element {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Price</label>
+              <label className={labelClass}>Price</label>
               <select
                 value={formData.price}
                 onChange={(e) => handleInputChange('price', e.target.value)}
-                className="block w-full rounded-md border border-gray-300 bg-white py-2 pl-3 pr-8 text-sm shadow-sm focus:border-brand-cobalt focus:outline-none focus:ring-brand-cobalt"
+                className="field"
               >
                 <option value="">Select price</option>
                 {filters.price.map((item) => (
@@ -443,33 +621,33 @@ function MentorModerationEditContent(): JSX.Element {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Calendar URL</label>
+              <label className={labelClass}>Calendar URL</label>
               <input
                 value={formData.calendarUrl}
                 onChange={(e) => handleInputChange('calendarUrl', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="field"
               />
             </div>
 
             <div className="md:col-span-2">
-              <p className="mb-2 text-sm font-medium text-gray-700">Tags</p>
+              <p className={labelClass}>Tags</p>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {availableTags.map((tag) => {
                   const selected = formData.tags.includes(tag)
                   return (
                     <label
                       key={tag}
-                      className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                      className={`flex cursor-pointer items-center gap-2 rounded-field border px-3 py-2 text-sm text-ink ${
                         selected
                           ? 'border-brand-cobalt bg-brand-cobalt/5'
-                          : 'border-gray-200 bg-white'
+                          : 'border-line bg-white'
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={selected}
                         onChange={() => toggleTag(tag)}
-                        className="h-4 w-4"
+                        className="h-4 w-4 rounded border-line text-brand-cobalt focus:ring-brand-cobalt"
                       />
                       <span>{tag}</span>
                     </label>
@@ -479,7 +657,7 @@ function MentorModerationEditContent(): JSX.Element {
             </div>
 
             <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-medium text-gray-700">About</label>
+              <label className={labelClass}>About</label>
               <Wysiwyg
                 key={`about-${mentor.updatedAt}`}
                 content={formData.about}
@@ -487,7 +665,7 @@ function MentorModerationEditContent(): JSX.Element {
               />
             </div>
             <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-medium text-gray-700">Description</label>
+              <label className={labelClass}>Description</label>
               <Wysiwyg
                 key={`description-${mentor.updatedAt}`}
                 content={formData.description}
@@ -495,18 +673,20 @@ function MentorModerationEditContent(): JSX.Element {
               />
             </div>
             <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-medium text-gray-700">Competencies</label>
+              <label className={labelClass}>Competencies</label>
               <textarea
                 value={formData.competencies}
                 onChange={(e) => handleInputChange('competencies', e.target.value)}
-                className="h-20 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="field h-20"
               />
             </div>
           </div>
 
           {session?.role === 'admin' && (
-            <div className="rounded-md border border-gray-200 bg-white p-6">
-              <h3 className="mb-3 text-sm font-semibold text-gray-800">Profile picture</h3>
+            <div className="rounded-panel border border-line bg-white p-6">
+              <h3 className="mb-3 font-display text-[13px] font-extrabold uppercase tracking-[0.03em] text-ink">
+                Profile picture
+              </h3>
               <div className="mb-3 flex items-center gap-4">
                 <Image
                   src={imagePreview || imageLoader({ src: mentor.slug, quality: 'full' })}
@@ -522,13 +702,17 @@ function MentorModerationEditContent(): JSX.Element {
                     type="file"
                     accept="image/jpeg,image/jpg,image/png,image/webp"
                     onChange={handleImageSelect}
-                    className="block w-full text-sm text-gray-500"
+                    className="block w-full text-sm text-ink-soft file:mr-4 file:rounded-field file:border-0 file:bg-brand-cobalt/10 file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand-cobalt hover:file:bg-brand-cobalt/20"
                   />
                   {pictureState === 'success' && (
-                    <p className="mt-2 text-sm text-green-700">Picture uploaded successfully.</p>
+                    <p className="my-0 mt-2 text-sm font-medium text-mint-ink">
+                      Picture uploaded successfully.
+                    </p>
                   )}
                   {pictureState === 'error' && (
-                    <p className="mt-2 text-sm text-red-700">Picture upload failed.</p>
+                    <p className="my-0 mt-2 text-sm font-medium text-danger">
+                      Picture upload failed.
+                    </p>
                   )}
                 </div>
               </div>
@@ -536,7 +720,7 @@ function MentorModerationEditContent(): JSX.Element {
                 type="button"
                 onClick={onUploadPicture}
                 disabled={pictureState === 'loading' || !selectedImage}
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="button-secondary disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {pictureState === 'loading' ? (
                   <>
@@ -555,7 +739,7 @@ function MentorModerationEditContent(): JSX.Element {
               type="button"
               onClick={onSave}
               disabled={saveState === 'loading'}
-              className="rounded-md bg-brand-navy px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy/90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="button disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saveState === 'loading' ? (
                 <>
@@ -567,10 +751,10 @@ function MentorModerationEditContent(): JSX.Element {
               )}
             </button>
             {saveState === 'success' && (
-              <span className="text-sm text-green-700">Mentor saved successfully.</span>
+              <span className="text-sm font-medium text-mint-ink">Mentor saved successfully.</span>
             )}
             {saveState === 'error' && (
-              <span className="text-sm text-red-700">
+              <span className="text-sm font-medium text-danger">
                 {actionError || 'Failed to save changes.'}
               </span>
             )}

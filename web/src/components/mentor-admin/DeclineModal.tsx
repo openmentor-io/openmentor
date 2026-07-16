@@ -1,7 +1,8 @@
 /**
  * Decline Modal component
  *
- * Modal dialog for declining a request with reason and optional comment.
+ * Confirm sheet for declining a request with a reason and an optional
+ * comment (design 08 MOTION note), on the redesign panel/field system.
  */
 
 import { useState, useEffect, useRef } from 'react'
@@ -92,7 +93,7 @@ export default function DeclineModal({
     >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+        className="fixed inset-0 bg-ink/40 transition-opacity"
         onClick={handleBackdropClick}
       />
 
@@ -100,17 +101,20 @@ export default function DeclineModal({
       <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
         <div
           ref={modalRef}
-          className="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg"
+          className="relative w-full transform overflow-hidden rounded-panel bg-white text-left shadow-dropdown transition-all sm:my-8 sm:max-w-lg"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <h3 id="decline-modal-title" className="text-lg font-medium text-gray-900">
+          <div className="flex items-center justify-between border-b border-line px-6 py-4">
+            <h3
+              id="decline-modal-title"
+              className="font-display text-sm font-extrabold uppercase tracking-[0.03em] text-ink"
+            >
               Decline request
             </h3>
             <button
               onClick={onClose}
               disabled={isSubmitting}
-              className="text-gray-400 hover:text-gray-500 disabled:opacity-50"
+              className="text-ink-soft transition-colors duration-120 hover:text-ink disabled:opacity-50"
               aria-label="Close"
             >
               <FontAwesomeIcon icon={faTimes} />
@@ -119,19 +123,20 @@ export default function DeclineModal({
 
           {/* Content */}
           <form onSubmit={handleSubmit}>
-            <div className="px-6 py-4 space-y-4">
-              <p className="text-sm text-gray-600">
+            <div className="space-y-4 px-6 py-4">
+              <p className="my-0 text-sm text-ink-soft">
                 You are about to decline the request from{' '}
-                <span className="font-medium">{menteName}</span>. Please select a reason.
+                <span className="font-semibold text-ink">{menteName}</span>. Please select a
+                reason.
               </p>
 
               {/* Reason select */}
               <div>
                 <label
                   htmlFor="decline-reason"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="mb-1.5 block text-[13px] font-semibold text-ink"
                 >
-                  Decline reason <span className="text-red-500">*</span>
+                  Decline reason <span className="text-danger">*</span>
                 </label>
                 <select
                   id="decline-reason"
@@ -139,7 +144,7 @@ export default function DeclineModal({
                   value={reason}
                   onChange={(e) => setReason(e.target.value as DeclineReasonValue)}
                   disabled={isSubmitting}
-                  className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-brand-cobalt focus:border-brand-cobalt sm:text-sm disabled:bg-gray-100"
+                  className="field"
                 >
                   <option value="">Select a reason</option>
                   {DECLINE_REASONS.map((r) => (
@@ -154,9 +159,9 @@ export default function DeclineModal({
               <div>
                 <label
                   htmlFor="decline-comment"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="mb-1.5 block text-[13px] font-semibold text-ink"
                 >
-                  Comment <span className="text-gray-400">(optional)</span>
+                  Comment <span className="font-normal text-ink-soft">(optional)</span>
                 </label>
                 <textarea
                   id="decline-comment"
@@ -165,36 +170,36 @@ export default function DeclineModal({
                   disabled={isSubmitting}
                   rows={3}
                   placeholder="Additional information for the mentee..."
-                  className="block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-cobalt focus:border-brand-cobalt sm:text-sm disabled:bg-gray-100 placeholder-gray-400"
+                  className="field"
                 />
               </div>
 
               {/* Error message */}
               {error && (
-                <div className="p-3 rounded-md bg-red-50 border border-red-200">
-                  <p className="text-sm text-red-600">{error}</p>
-                </div>
+                <p className="my-0 animate-shake text-sm font-medium text-danger" role="alert">
+                  {error}
+                </p>
               )}
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+            <div className="flex flex-col-reverse gap-3 border-t border-line bg-surface px-6 py-4 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-cobalt disabled:opacity-50"
+                className="button-secondary w-full text-sm sm:w-auto"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting || !reason}
-                className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="button-destructive w-full text-sm disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 {isSubmitting ? (
                   <>
-                    <FontAwesomeIcon icon={faCircleNotch} className="animate-spin mr-2" />
+                    <FontAwesomeIcon icon={faCircleNotch} className="mr-2 animate-spin" />
                     Declining...
                   </>
                 ) : (

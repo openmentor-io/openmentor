@@ -210,12 +210,12 @@ export default function ProfileForm({
   return (
     <form className="space-y-8" onSubmit={handleSubmit(handleFormSubmit)}>
       <div>
-        <label htmlFor="name" className="block mb-2 font-medium text-gray-700">
+        <label htmlFor="name" className="block mb-2 font-medium text-ink">
           Your full name
         </label>
 
         {errors.name && (
-          <div className="text-sm text-red-700 mt-3 mb-2">This field is required.</div>
+          <div className="text-sm text-danger mt-3 mb-2">This field is required.</div>
         )}
 
         <input
@@ -229,7 +229,7 @@ export default function ProfileForm({
       </div>
 
       <div>
-        <label htmlFor="profilePicture" className="block mb-2 font-medium text-gray-700">
+        <label htmlFor="profilePicture" className="block mb-2 font-medium text-ink">
           Profile photo{' '}
           <a data-tooltip-id="photo-tip">
             <FontAwesomeIcon icon={faQuestionCircle} />
@@ -270,7 +270,7 @@ export default function ProfileForm({
                   key={mentor.updatedAt ?? mentor.photo_url}
                 />
               )}
-              <span className="text-sm text-gray-600">Current photo</span>
+              <span className="text-sm text-ink-soft">Current photo</span>
             </div>
           )}
 
@@ -284,7 +284,7 @@ export default function ProfileForm({
                 width={40}
                 height={40}
               />
-              <span className="text-sm text-gray-600">Preview</span>
+              <span className="text-sm text-ink-soft">Preview</span>
             </div>
           )}
 
@@ -295,7 +295,7 @@ export default function ProfileForm({
               id="profilePicture"
               accept="image/jpeg,image/jpg,image/png,image/webp"
               onChange={handleImageChange}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-brand-cobalt/10 file:text-brand-cobalt hover:file:bg-brand-cobalt/20"
+              className="block w-full text-sm text-ink-soft file:mr-4 file:py-2 file:px-4 file:rounded-field file:border-0 file:text-sm file:font-medium file:bg-brand-cobalt/10 file:text-brand-cobalt hover:file:bg-brand-cobalt/20"
             />
           </div>
 
@@ -320,7 +320,7 @@ export default function ProfileForm({
               <button
                 type="button"
                 onClick={handleCancelImage}
-                className="text-sm text-gray-600 hover:text-gray-800"
+                className="text-sm text-ink-soft hover:text-ink"
                 disabled={imageUploadStatus === 'loading'}
               >
                 Cancel
@@ -329,19 +329,19 @@ export default function ProfileForm({
           )}
 
           {imageUploadStatus === 'success' && (
-            <div className="text-sm text-green-700">
+            <div className="text-sm text-mint-ink">
               Photo uploaded successfully! Your profile will be updated shortly.
             </div>
           )}
 
           {imageUploadStatus === 'error' && (
-            <div className="text-sm text-red-700">
+            <div className="text-sm text-danger">
               Failed to upload the photo. Please try again.
             </div>
           )}
 
           {imageError && (
-            <div className="text-sm text-red-700" role="alert">
+            <div className="text-sm text-danger" role="alert">
               {imageError}
             </div>
           )}
@@ -349,12 +349,12 @@ export default function ProfileForm({
       </div>
 
       <div>
-        <label htmlFor="job" className="block mb-2 font-medium text-gray-700">
+        <label htmlFor="job" className="block mb-2 font-medium text-ink">
           Job title
         </label>
 
         {errors.job && (
-          <div className="text-sm text-red-700 mt-3 mb-2">This field is required.</div>
+          <div className="text-sm text-danger mt-3 mb-2">This field is required.</div>
         )}
 
         <input
@@ -368,7 +368,7 @@ export default function ProfileForm({
       </div>
 
       <div>
-        <label htmlFor="workplace" className="block mb-2 font-medium text-gray-700">
+        <label htmlFor="workplace" className="block mb-2 font-medium text-ink">
           Company{' '}
           <a data-tooltip-id="workplace-tip">
             <FontAwesomeIcon icon={faQuestionCircle} />
@@ -382,7 +382,7 @@ export default function ProfileForm({
         </label>
 
         {errors.workplace && (
-          <div className="text-sm text-red-700 mt-3 mb-2">This field is required.</div>
+          <div className="text-sm text-danger mt-3 mb-2">This field is required.</div>
         )}
 
         <input
@@ -397,7 +397,7 @@ export default function ProfileForm({
 
       <div className="flex space-x-8">
         <div>
-          <label htmlFor="experience" className="block mb-2 font-medium text-gray-700">
+          <label htmlFor="experience" className="block mb-2 font-medium text-ink">
             Experience
           </label>
 
@@ -419,7 +419,7 @@ export default function ProfileForm({
         </div>
 
         <div>
-          <label htmlFor="price" className="block mb-2 font-medium text-gray-700">
+          <label htmlFor="price" className="block mb-2 font-medium text-ink">
             Price per one-hour session
           </label>
 
@@ -434,7 +434,7 @@ export default function ProfileForm({
       </div>
 
       <div>
-        <label htmlFor="tags" className="block mb-2 font-medium text-gray-700">
+        <label htmlFor="tags" className="block mb-2 font-medium text-ink">
           Specialization{' '}
           <a data-tooltip-id="tags-tip">
             <FontAwesomeIcon icon={faQuestionCircle} />
@@ -478,7 +478,7 @@ export default function ProfileForm({
       </div>
 
       <div>
-        <label htmlFor="about" className="block mb-2 font-medium text-gray-700">
+        <label htmlFor="about" className="block mb-2 font-medium text-ink">
           About you{' '}
           <a data-tooltip-id="about-tip">
             <FontAwesomeIcon icon={faQuestionCircle} />
@@ -492,7 +492,7 @@ export default function ProfileForm({
         </label>
 
         {errors.about && (
-          <div className="text-sm text-red-700 mt-3 mb-2">This field is required.</div>
+          <div className="text-sm text-danger mt-3 mb-2">This field is required.</div>
         )}
 
         <div className="mt-1">
@@ -512,7 +512,7 @@ export default function ProfileForm({
       </div>
 
       <div>
-        <label htmlFor="description" className="block mb-2 font-medium text-gray-700">
+        <label htmlFor="description" className="block mb-2 font-medium text-ink">
           How can you help?{' '}
           <a data-tooltip-id="description-tip">
             <FontAwesomeIcon icon={faQuestionCircle} />
@@ -540,7 +540,7 @@ export default function ProfileForm({
         </label>
 
         {errors.description && (
-          <div className="text-sm text-red-700 mt-3 mb-2">This field is required.</div>
+          <div className="text-sm text-danger mt-3 mb-2">This field is required.</div>
         )}
 
         <div className="mt-1">
@@ -560,7 +560,7 @@ export default function ProfileForm({
       </div>
 
       <div>
-        <label htmlFor="competencies" className="block mb-2 font-medium text-gray-700">
+        <label htmlFor="competencies" className="block mb-2 font-medium text-ink">
           Skills and technologies (comma-separated){' '}
           <a data-tooltip-id="competencies-tip">
             <FontAwesomeIcon icon={faQuestionCircle} />
@@ -574,7 +574,7 @@ export default function ProfileForm({
         </label>
 
         {errors.competencies && (
-          <div className="text-sm text-red-700 mt-3 mb-2">This field is required.</div>
+          <div className="text-sm text-danger mt-3 mb-2">This field is required.</div>
         )}
 
         <input
@@ -587,7 +587,7 @@ export default function ProfileForm({
       </div>
 
       <div>
-        <label htmlFor="calendarUrl" className="block mb-2 font-medium text-gray-700">
+        <label htmlFor="calendarUrl" className="block mb-2 font-medium text-ink">
           Booking link to your calendar (
           <Link
             href="https://calendlab.ru/signup?referral_code=for-mentors-6-months"
@@ -620,7 +620,7 @@ export default function ProfileForm({
         </label>
 
         {errors.calendarUrl && (
-          <div className="text-sm text-red-700 mt-3 mb-2">This must be a valid URL</div>
+          <div className="text-sm text-danger mt-3 mb-2">This must be a valid URL</div>
         )}
 
         <input
@@ -635,7 +635,7 @@ export default function ProfileForm({
           className="field"
         />
 
-        <label htmlFor="calendarUrl" className="block mb-2 mt-1 font-small italic text-gray-700">
+        <label htmlFor="calendarUrl" className="block mb-2 mt-1 font-small italic text-ink-soft">
           🎉 You can get your first 6 months of CalendLab for free via{' '}
           <Link
             href="https://calendlab.ru/signup?referral_code=for-mentors-6-months"
@@ -650,7 +650,7 @@ export default function ProfileForm({
       </div>
 
       {isError && (
-        <div className="text-red-700">
+        <div className="text-danger">
           Something went wrong. We&apos;re probably already fixing it — please try saving again
           later.
         </div>

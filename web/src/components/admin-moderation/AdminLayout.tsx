@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/router'
+import classNames from 'classnames'
 import { useAdminAuth } from './AdminAuthContext'
 
 interface AdminLayoutProps {
@@ -31,8 +32,8 @@ export function AdminLayout({ title, children }: AdminLayoutProps): JSX.Element 
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white">
+    <div className="min-h-screen bg-surface">
+      <header className="border-b border-line bg-white">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-4">
           <div className="flex items-center gap-3">
             <Image
@@ -43,35 +44,33 @@ export function AdminLayout({ title, children }: AdminLayoutProps): JSX.Element 
               unoptimized
             />
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-500">openmentor.io admin</p>
-              <h1 className="text-lg font-semibold text-gray-900">{title}</h1>
+              <p className="meta-mono my-0 text-ink-mute">openmentor.io admin</p>
+              <h1 className="text-lg tracking-[-0.02em] text-ink">{title}</h1>
             </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right">
-              <p className="text-sm font-medium text-gray-800">{session?.name}</p>
-              <p className="text-xs text-gray-500">{session?.role}</p>
+              <p className="my-0 text-sm font-semibold text-ink">{session?.name}</p>
+              <p className="meta-mono my-0 text-ink-mute">{session?.role}</p>
             </div>
-            <button
-              onClick={onLogout}
-              className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-            >
-              Logout
+            <button onClick={onLogout} className="button-ghost px-3 py-2 text-sm">
+              Log out
             </button>
           </div>
         </div>
-        <div className="mx-auto flex w-full max-w-7xl gap-3 px-4 pb-4">
+        <div className="mx-auto flex w-full max-w-7xl gap-1.5 px-4 pb-4">
           {tabs.map((tab) => {
             const isActive = router.pathname === tab.href
             return (
               <Link
                 key={tab.href}
                 href={tab.href}
-                className={
+                className={classNames(
+                  'rounded-full text-xs font-semibold transition-colors duration-120',
                   isActive
-                    ? 'rounded-md bg-brand-navy px-3 py-2 text-sm font-medium text-white'
-                    : 'rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100'
-                }
+                    ? 'bg-brand-navy px-3.5 py-2 text-white'
+                    : 'border-[1.5px] border-line bg-white px-[13px] py-[6.5px] text-brand-navy hover:border-brand-cobalt/45'
+                )}
               >
                 {tab.label}
               </Link>

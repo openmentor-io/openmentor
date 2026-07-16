@@ -1,55 +1,79 @@
 /**
  * Request Card component
  *
- * Displays a single request in list view.
+ * A single request row in the inbox list (design 07): initials circle,
+ * mentee name in Schibsted, mono timestamp, one-line message preview and
+ * a mono status pill. Pending rows carry the 4px cobalt "unread" bar;
+ * closed rows are dimmed until hover.
  */
 
 import Link from 'next/link'
-import type { MentorClientRequest } from '@/types'
+import classNames from 'classnames'
+import type { MentorClientRequest, RequestStatus } from '@/types'
 import StatusBadge from './StatusBadge'
-import { formatDate } from './utils'
+import { formatCompactTime, nameInitials } from './utils'
 
 interface RequestCardProps {
   request: MentorClientRequest
 }
 
-/**
- * Truncate text to specified length
- */
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text
-  return text.slice(0, maxLength).trim() + '...'
+/** Initials-circle fill per request status (design 07 row set). */
+const AVATAR_CLASSES: Record<RequestStatus, string> = {
+  pending: 'bg-brand-navy text-white',
+  contacted: 'bg-brand-cobalt text-white',
+  working: 'bg-brand-mint text-white',
+  done: 'bg-ink-soft text-white',
+  declined: 'bg-line text-ink-mute',
+  unavailable: 'bg-line text-ink-mute',
 }
 
 export default function RequestCard({ request }: RequestCardProps): JSX.Element {
+  const isPending = request.status === 'pending'
+  const isClosed =
+    request.status === 'done' || request.status === 'declined' || request.status === 'unavailable'
+
   return (
     <Link
       href={`/mentor/requests/${request.id}`}
-      className="block bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md hover:border-gray-300 transition-all"
+      className={classNames(
+        'flex items-center gap-4 rounded-card border border-line bg-white px-5 py-4 transition-all duration-180 hover:shadow-card-hover sm:gap-[18px] sm:px-[22px] sm:py-[18px]',
+        isPending && 'border-l-4 border-l-brand-cobalt',
+        request.status === 'done' && 'opacity-75 hover:opacity-100',
+        (request.status === 'declined' || request.status === 'unavailable') &&
+          'opacity-60 hover:opacity-100'
+      )}
     >
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
-        {/* Main info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-base font-medium text-gray-900 truncate">{request.name}</h3>
-            <StatusBadge status={request.status} />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 mb-2">
-            <span className="truncate">{request.email}</span>
-            <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-xs">
-              {request.level}
-            </span>
-          </div>
-
-          <p className="text-sm text-gray-600 line-clamp-2">{truncate(request.details, 150)}</p>
-        </div>
-
-        {/* Date */}
-        <div className="flex-shrink-0 text-sm text-gray-500 sm:text-right">
-          <time dateTime={request.createdAt}>{formatDate(request.createdAt)}</time>
-        </div>
+      {/* Initials circle */}
+      <div
+        aria-hidden="true"
+        className={classNames(
+          'flex h-11 w-11 flex-none items-center justify-center rounded-full font-name text-base font-bold',
+          AVATAR_CLASSES[request.status]
+        )}
+      >
+        {nameInitials(request.name)}
       </div>
+
+      {/* Name, timestamp, preview */}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2.5">
+          <span className="truncate font-name text-base font-bold tracking-[-0.015em] text-ink">
+            {request.name}
+          </span>
+          <time dateTime={request.createdAt} className="meta-mono flex-none text-ink-mute">
+            {formatCompactTime(request.createdAt)}
+          </time>
+        </div>
+        <p className="my-0 mt-0.5 truncate text-[13.5px] leading-normal text-ink-soft">
+          {request.details}
+        </p>
+      </div>
+
+      {/* Status pill (hidden on the smallest screens for closed rows) */}
+      <StatusBadge
+        status={request.status}
+        className={classNames('flex-none', isClosed && 'hidden sm:inline-flex')}
+      />
     </Link>
   )
 }

@@ -1,7 +1,9 @@
 /**
  * Layout component for Mentor Admin pages
  *
- * Provides consistent header, navigation, and footer for all mentor admin pages.
+ * Dashboard shell per designs 07–09: fixed white sidebar on desktop
+ * (logomark + wordmark, nav items, user block with log out) and a compact
+ * top bar with a collapsible menu on mobile.
  */
 
 import { useState } from 'react'
@@ -11,27 +13,30 @@ import Image from 'next/image'
 import { useRouter } from 'next/router'
 import classNames from 'classnames'
 import { useMentorAuth } from './MentorAuthContext'
+import { nameInitials } from './utils'
 
 interface MentorAdminLayoutProps {
   children: ReactNode
   title?: string
+  /** Rendered on the H1 row, right-aligned (e.g. the status filter pills). */
+  actions?: ReactNode
 }
 
 interface NavItemProps {
   href: string
   label: string
   isActive: boolean
+  onClick?: () => void
 }
 
-function NavItem({ href, label, isActive }: NavItemProps): JSX.Element {
+function NavItem({ href, label, isActive, onClick }: NavItemProps): JSX.Element {
   return (
     <Link
       href={href}
+      onClick={onClick}
       className={classNames(
-        'block px-4 py-2 rounded-md text-sm font-medium transition-colors',
-        isActive
-          ? 'bg-brand-cobalt/10 text-brand-cobalt'
-          : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+        'block rounded-[11px] px-3.5 py-3 text-sm transition-colors duration-120',
+        isActive ? 'bg-brand-navy font-semibold text-white' : 'font-medium text-ink-mute hover:bg-surface'
       )}
     >
       {label}
@@ -42,6 +47,7 @@ function NavItem({ href, label, isActive }: NavItemProps): JSX.Element {
 export default function MentorAdminLayout({
   children,
   title,
+  actions,
 }: MentorAdminLayoutProps): JSX.Element {
   const router = useRouter()
   const { session, logout } = useMentorAuth()
@@ -59,140 +65,124 @@ export default function MentorAdminLayout({
   }
 
   const isActive = (path: string): boolean => {
-    if (path === '/mentor' && router.pathname === '/mentor') return true
-    if (path !== '/mentor' && router.pathname.startsWith(path)) return true
-    return false
+    if (path === '/mentor') {
+      return router.pathname === '/mentor' || router.pathname.startsWith('/mentor/requests')
+    }
+    return router.pathname.startsWith(path)
   }
 
+  const navItems = [
+    { href: '/mentor', label: 'Requests' },
+    { href: '/mentor/past', label: 'Archive' },
+    { href: '/mentor/profile/edit', label: 'My profile' },
+  ]
+
+  const logoutButton = (
+    <button
+      onClick={handleLogout}
+      disabled={isLoggingOut}
+      className="text-left text-[11px] text-ink-soft transition-colors duration-120 hover:text-ink disabled:opacity-50"
+    >
+      {isLoggingOut ? 'Signing out...' : 'Log out'}
+    </button>
+  )
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            {/* Logo */}
-            <Link href="/mentor" className="flex items-center">
-              <Image
-                src="/brand/logo/svg/logo-horizontal.svg"
-                width={117}
-                height={32}
-                alt="openmentor.io"
-                unoptimized
-              />
-              <span className="ml-3 text-sm font-medium text-gray-500 hidden sm:block">
-                Dashboard
-              </span>
-            </Link>
+    <div className="flex min-h-screen bg-surface">
+      {/* Desktop sidebar */}
+      <aside className="hidden w-60 flex-none flex-col gap-0.5 border-r border-line bg-white px-4 py-6 md:flex">
+        <Link href="/" className="flex items-center gap-2.5 px-2.5 pb-6">
+          <Image
+            src="/brand/logo/svg/logomark.svg"
+            width={34}
+            height={34}
+            alt=""
+            unoptimized
+          />
+          <span className="font-display text-[15px] font-extrabold uppercase tracking-[-0.02em] text-brand-navy">
+            openmentor
+          </span>
+        </Link>
 
-            {/* Desktop Navigation */}
-            <nav className="hidden md:flex items-center space-x-4">
-              <NavItem
-                href="/mentor"
-                label="Active requests"
-                isActive={isActive('/mentor') && !isActive('/mentor/past')}
-              />
-              <NavItem
-                href="/mentor/past"
-                label="Past requests"
-                isActive={isActive('/mentor/past')}
-              />
-              <div className="h-6 w-px bg-gray-200 mx-2" />
-              {session && (
-                <Link
-                  href="/mentor/profile/edit"
-                  className="text-sm text-gray-500 hover:text-gray-700 mr-2"
-                >
-                  {session.name}
-                </Link>
-              )}
-              <button
-                onClick={handleLogout}
-                disabled={isLoggingOut}
-                className="text-sm text-gray-600 hover:text-gray-900 font-medium disabled:opacity-50"
-              >
-                {isLoggingOut ? 'Signing out...' : 'Sign out'}
-              </button>
-            </nav>
+        <nav className="flex flex-col gap-0.5" aria-label="Dashboard">
+          {navItems.map((item) => (
+            <NavItem
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              isActive={isActive(item.href)}
+            />
+          ))}
+        </nav>
 
-            {/* Mobile menu button */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100"
-              aria-label="Menu"
-            >
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                {mobileMenuOpen ? (
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                ) : (
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 6h16M4 12h16M4 18h16"
-                  />
-                )}
-              </svg>
-            </button>
+        <div className="flex-1" />
+
+        <div className="flex items-center gap-2.5 border-t border-line pl-2.5 pt-3.5">
+          <div
+            aria-hidden="true"
+            className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-brand-navy font-name text-xs font-bold text-white"
+          >
+            {session ? nameInitials(session.name) : ''}
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-semibold text-ink">{session?.name}</div>
+            {logoutButton}
           </div>
         </div>
+      </aside>
 
-        {/* Mobile Navigation */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile top bar */}
+        <header className="flex items-center justify-between border-b border-line bg-white px-5 py-3.5 md:hidden">
+          <Link href="/">
+            <Image src="/brand/logo/svg/logomark.svg" width={30} height={30} alt="openmentor.io" unoptimized />
+          </Link>
+          {title && (
+            <span className="font-display text-sm font-extrabold uppercase text-ink">{title}</span>
+          )}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-navy font-name text-xs font-bold text-white"
+            aria-label="Menu"
+            aria-expanded={mobileMenuOpen}
+          >
+            {session ? nameInitials(session.name) : '☰'}
+          </button>
+        </header>
+
+        {/* Mobile menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-gray-200 bg-white">
-            <div className="px-4 py-3 space-y-2">
-              <NavItem
-                href="/mentor"
-                label="Active requests"
-                isActive={isActive('/mentor') && !isActive('/mentor/past')}
-              />
-              <NavItem
-                href="/mentor/past"
-                label="Past requests"
-                isActive={isActive('/mentor/past')}
-              />
-              <div className="border-t border-gray-200 my-2" />
-              {session && (
-                <Link
-                  href="/mentor/profile/edit"
-                  className="block px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-md"
-                >
-                  {session.name}
-                </Link>
-              )}
-              <button
-                onClick={handleLogout}
-                disabled={isLoggingOut}
-                className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-md disabled:opacity-50"
-              >
-                {isLoggingOut ? 'Signing out...' : 'Sign out'}
-              </button>
-            </div>
+          <div className="animate-dropdown-in border-b border-line bg-white px-5 py-3 md:hidden">
+            <nav className="flex flex-col gap-0.5" aria-label="Dashboard">
+              {navItems.map((item) => (
+                <NavItem
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  isActive={isActive(item.href)}
+                  onClick={() => setMobileMenuOpen(false)}
+                />
+              ))}
+            </nav>
+            <div className="mt-2 border-t border-line px-3.5 pt-3">{logoutButton}</div>
           </div>
         )}
-      </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {title && <h1 className="text-2xl font-semibold text-gray-900 mb-6">{title}</h1>}
-        {children}
-      </main>
-
-      {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <p className="text-center text-sm text-gray-500">
-            <Link href="/" className="hover:text-gray-700">
-              openmentor.io
-            </Link>{' '}
-            — a mentorship platform
-          </p>
-        </div>
-      </footer>
+        {/* Main content */}
+        <main className="mx-auto w-full max-w-[900px] flex-1 px-4 py-6 sm:px-8 sm:py-8">
+          {(title || actions) && (
+            <div className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
+              {title && (
+                <h1 className="hidden text-2xl tracking-[-0.02em] sm:text-[28px] md:block">
+                  {title}
+                </h1>
+              )}
+              {actions}
+            </div>
+          )}
+          {children}
+        </main>
+      </div>
     </div>
   )
 }

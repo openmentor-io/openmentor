@@ -22,11 +22,11 @@ describe('ProfileVisibilityCard', () => {
     jest.clearAllMocks()
   })
 
-  it('renders the toggle on for an active profile without helper text', () => {
+  it('renders the toggle on for an active profile without the hidden helper text', () => {
     render(<ProfileVisibilityCard initialStatus="active" />)
 
-    expect(screen.getByText('Profile visibility')).toBeInTheDocument()
-    expect(screen.getByText('Show my profile in the mentor catalog')).toBeInTheDocument()
+    expect(screen.getByText('Your profile is visible')).toBeInTheDocument()
+    expect(screen.getByText('Live in search')).toBeInTheDocument()
     expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
     expect(screen.queryByText(HELPER_TEXT)).not.toBeInTheDocument()
   })
@@ -34,6 +34,8 @@ describe('ProfileVisibilityCard', () => {
   it('renders the toggle off for an inactive profile with helper text', () => {
     render(<ProfileVisibilityCard initialStatus="inactive" />)
 
+    expect(screen.getByText('Your profile is hidden')).toBeInTheDocument()
+    expect(screen.getByText('Not in search')).toBeInTheDocument()
     expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
     expect(screen.getByText(HELPER_TEXT)).toBeInTheDocument()
   })

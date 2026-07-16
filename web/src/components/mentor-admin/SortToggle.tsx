@@ -1,5 +1,5 @@
 /**
- * Sort toggle component for request lists
+ * Sort toggle component for request lists (secondary-pill styling).
  */
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -19,12 +19,12 @@ export default function SortToggle({ value, onChange }: SortToggleProps): JSX.El
   return (
     <button
       onClick={toggle}
-      className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-cobalt"
+      className="inline-flex items-center rounded-full border-[1.5px] border-line bg-white px-4 py-2 text-xs font-semibold text-brand-navy transition-colors duration-120 hover:border-brand-cobalt/45"
       title={value === 'newest' ? 'Newest first' : 'Oldest first'}
     >
       <FontAwesomeIcon
         icon={value === 'newest' ? faArrowDown : faArrowUp}
-        className="mr-2 text-gray-500"
+        className="mr-2 text-ink-soft"
       />
       {value === 'newest' ? 'Newest first' : 'Oldest first'}
     </button>

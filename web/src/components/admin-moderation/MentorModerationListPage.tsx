@@ -6,6 +6,7 @@ import { faCircleNotch } from '@fortawesome/free-solid-svg-icons'
 import type { MentorModerationFilter, AdminMentorListItem } from '@/types'
 import { useAdminAuth } from './AdminAuthContext'
 import { AdminLayout } from './AdminLayout'
+import { moderationStatusBadgeClass } from './utils'
 import { getModerationMentors } from '@/lib/admin-moderation-api'
 
 const PAGE_SIZE = 50
@@ -13,13 +14,6 @@ const PAGE_SIZE = 50
 interface MentorModerationListPageProps {
   status: MentorModerationFilter
   title: string
-}
-
-function getStatusBadge(status: AdminMentorListItem['status']): string {
-  if (status === 'active') return 'bg-green-100 text-green-800'
-  if (status === 'inactive') return 'bg-gray-200 text-gray-800'
-  if (status === 'declined') return 'bg-red-100 text-red-800'
-  return 'bg-yellow-100 text-yellow-800'
 }
 
 export function MentorModerationListPage({
@@ -89,7 +83,7 @@ export function MentorModerationListPage({
       const contact = mentor.contact.toLowerCase()
       return name.includes(query) || email.includes(query) || contact.includes(query)
     })
-  }, [mentors, searchQuery])
+  }, [mentors, searchQuery, status])
 
   const totalPages = Math.max(1, Math.ceil(filteredMentors.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -101,7 +95,7 @@ export function MentorModerationListPage({
 
   if (authLoading || !isAuthenticated) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-surface">
         <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
       </div>
     )
@@ -115,11 +109,11 @@ export function MentorModerationListPage({
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search by name, email, contact"
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand-cobalt focus:outline-none"
+          className="field"
         />
       </div>
 
-      <div className="mb-4 text-sm text-gray-600">
+      <div className="meta-mono mb-4 text-ink-mute">
         Showing {pageItems.length} of {filteredMentors.length}
       </div>
 
@@ -133,44 +127,40 @@ export function MentorModerationListPage({
       )}
 
       {error && !isLoading && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-card border border-danger/40 bg-white p-4 text-sm font-medium text-danger">
           {error}
         </div>
       )}
 
       {!isLoading && !error && pageItems.length === 0 && (
-        <div className="rounded-md border border-gray-200 bg-white p-6 text-sm text-gray-600">
+        <div className="rounded-card border border-line bg-white p-6 text-sm text-ink-soft">
           No mentors found.
         </div>
       )}
 
       {!isLoading && !error && pageItems.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {pageItems.map((mentor) => (
             <Link
               key={mentor.mentorId}
               href={`/admin/mentors/${mentor.mentorId}`}
-              className="block rounded-md border border-gray-200 bg-white p-4 hover:border-brand-cobalt/40"
+              className="block rounded-card border border-line bg-white p-4 transition-all duration-180 hover:shadow-card-hover"
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-base font-semibold text-gray-900">{mentor.name}</p>
-                  <p className="text-sm text-gray-600">{mentor.email}</p>
-                  <p className="text-sm text-gray-500">{mentor.contact}</p>
+                  <p className="my-0 font-name text-base font-bold tracking-[-0.015em] text-ink">
+                    {mentor.name}
+                  </p>
+                  <p className="my-0 text-sm text-ink-soft">{mentor.email}</p>
+                  <p className="my-0 text-sm text-ink-mute">{mentor.contact}</p>
                 </div>
-                <span
-                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${getStatusBadge(
-                    mentor.status
-                  )}`}
-                >
-                  {mentor.status}
-                </span>
+                <span className={moderationStatusBadgeClass(mentor.status)}>{mentor.status}</span>
               </div>
-              <div className="mt-3 text-sm text-gray-700">
-                <p>
+              <div className="mt-3 text-sm text-ink">
+                <p className="my-0">
                   {mentor.job} {mentor.workplace ? `• ${mentor.workplace}` : ''}
                 </p>
-                <p>{mentor.price}</p>
+                <p className="meta-mono my-0 mt-1 text-ink-mute">{mentor.price}</p>
               </div>
             </Link>
           ))}
@@ -183,18 +173,18 @@ export function MentorModerationListPage({
             type="button"
             onClick={() => setPage((prev) => Math.max(1, prev - 1))}
             disabled={currentPage <= 1}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="button-secondary disabled:cursor-not-allowed disabled:opacity-50"
           >
             Previous
           </button>
-          <span className="text-sm text-gray-600">
+          <span className="meta-mono text-ink-mute">
             Page {currentPage} of {totalPages}
           </span>
           <button
             type="button"
             onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
             disabled={currentPage >= totalPages}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="button-secondary disabled:cursor-not-allowed disabled:opacity-50"
           >
             Next
           </button>

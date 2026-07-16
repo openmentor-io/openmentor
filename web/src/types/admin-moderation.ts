@@ -2,7 +2,8 @@ export type ModeratorRole = 'moderator' | 'admin'
 
 export type MentorModerationFilter = 'pending' | 'approved' | 'declined'
 
-export type MentorModerationStatus = 'pending' | 'active' | 'inactive' | 'declined'
+// 'draft' — returned for edits (moderationNote) or awaiting email confirmation
+export type MentorModerationStatus = 'draft' | 'pending' | 'active' | 'inactive' | 'declined'
 
 export interface AdminSession {
   moderatorId: string
@@ -44,6 +45,12 @@ export interface AdminMentorDetails {
   calendarUrl: string
   status: MentorModerationStatus
   sortOrder: number
+  /** Reviewer note written when the profile was returned to draft (cleared on approve). */
+  moderationNote?: string
+  /** Auto-detected profile picture display style. */
+  photoStyle?: string
+  /** Set on first approve; once set the mentor can never be returned to draft. */
+  activatedAt?: string | null
   createdAt: string
   updatedAt: string
 }

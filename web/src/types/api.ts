@@ -137,6 +137,32 @@ export interface UpdateProfileStatusResponse {
   error?: string
 }
 
+// ============================================================
+// Draft-workflow types (mentor submit-for-review + admin return)
+// ============================================================
+
+/**
+ * Submit a draft profile for review response
+ * (POST /api/mentor/profile/submit — mentor self-serve, session auth)
+ */
+export interface SubmitProfileResponse {
+  success: boolean
+  status?: string
+  error?: string
+}
+
+/**
+ * Return a pending profile to draft with a required reviewer note
+ * (POST /api/admin/mentors/:id/return)
+ */
+export interface AdminMentorReturnRequest {
+  reason: string
+}
+
+// ============================================================
+// End of draft-workflow types
+// ============================================================
+
 /**
  * Profile picture data for registration
  */

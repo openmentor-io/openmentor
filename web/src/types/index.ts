@@ -118,3 +118,6 @@ export type {
   AdminMentorProfileUpdateRequest,
   AdminStatusUpdateRequest,
 } from './admin-moderation'
+
+// Draft-workflow types (mentor submit-for-review + admin return)
+export type { SubmitProfileResponse, AdminMentorReturnRequest } from './api'

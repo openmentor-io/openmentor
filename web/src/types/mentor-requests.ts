@@ -50,15 +50,17 @@ export const STATUS_LABELS: Record<RequestStatus, string> = {
 }
 
 /**
- * Status badge colors (Tailwind classes)
+ * Status badge colors (Tailwind classes) — redesign pill system
+ * (component sheet + design 07): pending = solid cobalt, in progress =
+ * mint tint, closed states = deep paper.
  */
 export const STATUS_COLORS: Record<RequestStatus, { bg: string; text: string }> = {
-  pending: { bg: 'bg-yellow-100', text: 'text-yellow-800' },
-  contacted: { bg: 'bg-blue-100', text: 'text-blue-800' },
-  working: { bg: 'bg-indigo-100', text: 'text-indigo-800' },
-  done: { bg: 'bg-green-100', text: 'text-green-800' },
-  declined: { bg: 'bg-red-100', text: 'text-red-800' },
-  unavailable: { bg: 'bg-gray-100', text: 'text-gray-800' },
+  pending: { bg: 'bg-brand-cobalt', text: 'text-white' },
+  contacted: { bg: 'bg-pastel-sky', text: 'text-brand-navy' },
+  working: { bg: 'bg-brand-mint/15', text: 'text-mint-ink' },
+  done: { bg: 'bg-surface-deep', text: 'text-brand-navy' },
+  declined: { bg: 'bg-surface-deep', text: 'text-ink-mute' },
+  unavailable: { bg: 'bg-surface-deep', text: 'text-ink-mute' },
 }
 
 /**

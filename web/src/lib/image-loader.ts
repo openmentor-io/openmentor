@@ -13,8 +13,14 @@ const STORAGE_DOMAIN =
 const STORAGE_BUCKET = process.env.NEXT_PUBLIC_S3_STORAGE_BUCKET || 'mentor-images'
 
 export function imageLoader({ src, width, quality, version }: ImageLoaderParams): string {
+  // Local development: a localhost endpoint (e.g. the dev server itself
+  // serving fixture images) has no TLS.
+  const scheme =
+    STORAGE_DOMAIN?.startsWith('localhost') || STORAGE_DOMAIN?.startsWith('127.')
+      ? 'http://'
+      : 'https://'
   const url =
-    'https://' + STORAGE_DOMAIN + (process.env.NEXT_PUBLIC_CDN_ENDPOINT ? '' : '/' + STORAGE_BUCKET)
+    scheme + STORAGE_DOMAIN + (process.env.NEXT_PUBLIC_CDN_ENDPOINT ? '' : '/' + STORAGE_BUCKET)
 
   let size: ImageSize = 'full'
   if (width && width <= 36) {

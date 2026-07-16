@@ -46,4 +46,7 @@ docker-compose.override.yml
 /logs
 
 # IDEA
-.idea
+.ideaweb/public/sample-images/
+
+# Local dev fixture images (api/scripts/seed-dev-mentors.sql)
+public/sample-images/

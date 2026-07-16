@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import Head from 'next/head'
 import Image from 'next/image'
-import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useForm } from 'react-hook-form'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -73,45 +72,49 @@ function LoginForm(): JSX.Element {
 
   if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-surface">
         <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
       </div>
     )
   }
 
   return (
-    <div className="flex min-h-screen flex-col justify-center bg-gray-50 py-12 sm:px-6 lg:px-8">
+    <div className="flex min-h-screen flex-col justify-center bg-surface px-5 py-12">
       <Head>
         <title>Moderation — sign in — openmentor.io</title>
       </Head>
 
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <Link href="/" className="mb-6 flex justify-center">
-          <Image
-            src="/brand/logo/svg/logo-horizontal.svg"
-            width={165}
-            height={45}
-            alt="openmentor.io"
-            unoptimized
-          />
-        </Link>
-        <h2 className="text-center text-2xl font-semibold text-gray-900">Moderation panel</h2>
-        <p className="mt-2 text-center text-sm text-gray-600">Sign in with a one-time link</p>
-      </div>
+      <div className="mx-auto w-full max-w-[440px]">
+        <div className="rounded-[20px] border border-line bg-white p-7 shadow-[0_20px_50px_-24px_rgba(19,42,82,0.22)] sm:p-10">
+          <div className="mb-5 flex items-center gap-2.5">
+            <Image
+              src="/brand/logo/svg/logomark.svg"
+              width={38}
+              height={38}
+              alt=""
+              unoptimized
+            />
+            <span className="font-display text-lg font-extrabold uppercase tracking-[-0.02em] text-brand-navy">
+              openmentor<span className="text-brand-cobalt">.io</span>
+            </span>
+          </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white px-4 py-8 shadow-lg sm:rounded-lg sm:px-10">
+          <h1 className="text-[26px] tracking-[-0.02em] text-ink">Moderation</h1>
+          <p className="my-0 mb-5 mt-2 text-sm leading-normal text-ink-soft">
+            Sign in with a one-time link.
+          </p>
+
           {expired === 'true' && (
-            <div className="mb-6 rounded-md border border-yellow-200 bg-yellow-50 p-4">
-              <p className="text-sm text-yellow-800">
+            <div className="mb-5 rounded-field border border-line bg-surface p-3.5">
+              <p className="my-0 text-sm text-ink">
                 Your session has expired. Please sign in again.
               </p>
             </div>
           )}
 
           {callback_error && (
-            <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-4">
-              <p className="text-sm text-red-800">
+            <div className="mb-5 rounded-field border border-danger/40 bg-danger/5 p-3.5">
+              <p className="my-0 text-sm text-danger">
                 {callback_error === 'invalid_token'
                   ? 'The link is invalid or has expired. Please request a new one.'
                   : 'Something went wrong. Please try again.'}
@@ -121,24 +124,24 @@ function LoginForm(): JSX.Element {
 
           {submitSuccess ? (
             <div className="text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
-                <FontAwesomeIcon icon={faEnvelope} className="text-green-600" />
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand-mint/15">
+                <FontAwesomeIcon icon={faEnvelope} className="text-mint-ink" />
               </div>
-              <h3 className="mb-2 text-lg font-medium text-gray-900">Check your email</h3>
-              <p className="mb-4 text-sm text-gray-600">
+              <h2 className="mb-2 text-lg text-ink">Check your email</h2>
+              <p className="my-0 mb-4 text-sm text-ink-soft">
                 If the email is registered as a moderator, a login link is already on its way.
               </p>
               <button
                 onClick={() => setSubmitSuccess(false)}
-                className="text-xs text-brand-cobalt hover:text-brand-cobalt/80"
+                className="text-[13px] font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
               >
                 Send again
               </button>
             </div>
           ) : (
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="email" className="text-[13px] font-semibold text-ink">
                   Email
                 </label>
                 <input
@@ -153,31 +156,29 @@ function LoginForm(): JSX.Element {
                       message: 'Enter a valid email',
                     },
                   })}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand-cobalt focus:outline-none"
+                  className={errors.email ? 'field field-error animate-shake' : 'field'}
                 />
                 {errors.email && (
-                  <p className="mt-2 text-sm text-red-600">{errors.email.message}</p>
+                  <p className="my-0 text-xs font-medium text-danger" role="alert">
+                    {errors.email.message}
+                  </p>
                 )}
               </div>
 
               {submitError && (
-                <div className="rounded-md border border-red-200 bg-red-50 p-3">
-                  <p className="text-sm text-red-600">{submitError}</p>
-                </div>
+                <p className="my-0 text-sm font-medium text-danger" role="alert">
+                  {submitError}
+                </p>
               )}
 
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full rounded-md bg-brand-navy px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy/90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
+              <button type="submit" disabled={isSubmitting} className="button w-full text-[15px]">
                 {isSubmitting ? (
                   <>
                     <FontAwesomeIcon icon={faCircleNotch} className="mr-2 animate-spin" />
                     Sending...
                   </>
                 ) : (
-                  'Get a login link'
+                  'Email me a magic link'
                 )}
               </button>
             </form>

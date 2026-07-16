@@ -67,12 +67,12 @@ function CallbackHandler(): JSX.Element {
   }, [router, router.isReady, router.query.token, verifyLogin, isAuthenticated])
 
   return (
-    <div className="flex min-h-screen flex-col justify-center bg-gray-50 py-12 sm:px-6 lg:px-8">
+    <div className="flex min-h-screen flex-col justify-center bg-surface px-5 py-12">
       <Head>
         <title>Moderation sign-in — openmentor.io</title>
       </Head>
 
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+      <div className="mx-auto w-full max-w-md">
         <Link href="/" className="mb-8 flex justify-center">
           <Image
             src="/brand/logo/svg/logo-horizontal.svg"
@@ -83,36 +83,37 @@ function CallbackHandler(): JSX.Element {
           />
         </Link>
 
-        <div className="bg-white px-4 py-8 shadow-lg sm:rounded-lg sm:px-10">
+        <div className="rounded-[20px] border border-line bg-white px-6 py-8 shadow-[0_20px_50px_-24px_rgba(19,42,82,0.22)] sm:px-10">
           <div className="text-center">
             {state === 'verifying' && (
               <>
                 <FontAwesomeIcon
                   icon={faCircleNotch}
-                  className="mb-4 text-4xl text-brand-cobalt animate-spin"
+                  className="mb-4 animate-spin text-4xl text-brand-cobalt"
                 />
-                <h2 className="mb-2 text-lg font-medium text-gray-900">Verifying the link...</h2>
-                <p className="text-sm text-gray-600">Hang on, this will take a couple of seconds</p>
+                <h2 className="mb-2 text-lg text-ink">Verifying the link...</h2>
+                <p className="my-0 text-sm text-ink-soft">
+                  Hang on, this will take a couple of seconds
+                </p>
               </>
             )}
 
             {state === 'success' && (
               <>
                 <FontAwesomeIcon icon={faCheckCircle} className="mb-4 text-4xl text-brand-mint" />
-                <h2 className="mb-2 text-lg font-medium text-gray-900">You&apos;re signed in!</h2>
-                <p className="text-sm text-gray-600">Redirecting to the moderation panel...</p>
+                <h2 className="mb-2 text-lg text-ink">You&apos;re signed in!</h2>
+                <p className="my-0 text-sm text-ink-soft">
+                  Redirecting to the moderation panel...
+                </p>
               </>
             )}
 
             {state === 'error' && (
               <>
-                <FontAwesomeIcon icon={faTimesCircle} className="mb-4 text-4xl text-red-500" />
-                <h2 className="mb-2 text-lg font-medium text-gray-900">Sign-in failed</h2>
-                <p className="mb-4 text-sm text-gray-600">{errorMessage}</p>
-                <Link
-                  href="/admin/login"
-                  className="inline-flex items-center rounded-md border border-transparent bg-brand-navy px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy/90"
-                >
+                <FontAwesomeIcon icon={faTimesCircle} className="mb-4 text-4xl text-danger" />
+                <h2 className="mb-2 text-lg text-ink">Sign-in failed</h2>
+                <p className="my-0 mb-4 text-sm text-ink-soft">{errorMessage}</p>
+                <Link href="/admin/login" className="button">
                   Try again
                 </Link>
               </>

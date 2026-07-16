@@ -29,6 +29,8 @@ import type {
   UploadProfilePictureResponse,
   UpdateProfileStatusRequest,
   UpdateProfileStatusResponse,
+  SubmitProfileResponse,
+  AdminMentorReturnRequest,
   RegisterMentorRequest,
   RegisterMentorResponse,
   MentorClientRequest,
@@ -476,6 +478,19 @@ class GoApiClient {
   }
 
   /**
+   * Submit mentor's own draft profile for review (using session auth).
+   * Only valid while the profile is in 'draft' — moves it to 'pending'.
+   */
+  async mentorSubmitProfile(cookies: string): Promise<SubmitProfileResponse> {
+    const { data } = await this.requestWithCookies<SubmitProfileResponse>(
+      'POST',
+      '/api/v1/mentor/profile/submit',
+      { cookies }
+    )
+    return data
+  }
+
+  /**
    * Upload mentor's profile picture (using session auth)
    */
   async mentorUploadProfilePicture(
@@ -585,6 +600,23 @@ class GoApiClient {
       'POST',
       `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/decline`,
       { cookies }
+    )
+    return data.mentor
+  }
+
+  /**
+   * Return a pending mentor profile to draft with a required reviewer note.
+   * The Go API answers 409 when the mentor has ever been activated.
+   */
+  async adminReturnMentor(
+    cookies: string,
+    mentorId: string,
+    payload: AdminMentorReturnRequest
+  ): Promise<AdminMentorDetails> {
+    const { data } = await this.requestWithCookies<AdminMentorResponse>(
+      'POST',
+      `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/return`,
+      { cookies, body: payload as unknown as Record<string, unknown> }
     )
     return data.mentor
   }

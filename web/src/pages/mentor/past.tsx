@@ -1,26 +1,33 @@
 /**
- * Mentor Past Requests Page
+ * Mentor Past Requests Page (design 07 — archive view)
  *
- * Displays done, declined, and unavailable requests with pagination.
+ * Displays done, declined, and unavailable requests with status filter
+ * pills, search, sort, a with-review toggle and pagination.
  */
 
 import { useState, useEffect, useMemo } from 'react'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCircleNotch, faArchive } from '@fortawesome/free-solid-svg-icons'
-import type { MentorClientRequest, SortOrder } from '@/types'
+import { faCircleNotch } from '@fortawesome/free-solid-svg-icons'
+import classNames from 'classnames'
+import type { MentorClientRequest, RequestStatus, SortOrder } from '@/types'
+import { PAST_STATUSES, STATUS_LABELS } from '@/types'
 import {
   MentorAuthProvider,
   useMentorAuth,
   MentorAdminLayout,
   RequestCard,
+  RequestListSkeleton,
+  FilterPills,
   SearchInput,
   SortToggle,
 } from '@/components/mentor-admin'
 import { getPastRequests } from '@/lib/mentor-admin-api'
 
 const PAGE_SIZE = 20
+
+type StatusFilter = 'all' | RequestStatus
 
 /**
  * Filter requests by search query
@@ -58,6 +65,7 @@ function PastRequestsContent(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [showOnlyWithReview, setShowOnlyWithReview] = useState(false)
   const [displayCount, setDisplayCount] = useState(PAGE_SIZE)
 
@@ -88,14 +96,30 @@ function PastRequestsContent(): JSX.Element {
     loadRequests()
   }, [isAuthenticated])
 
+  // Status filter pill options with counts
+  const pillOptions = useMemo(
+    () => [
+      { value: 'all' as StatusFilter, label: 'All', count: requests.length },
+      ...PAST_STATUSES.map((status) => ({
+        value: status as StatusFilter,
+        label: STATUS_LABELS[status],
+        count: requests.filter((r) => r.status === status).length,
+      })),
+    ],
+    [requests]
+  )
+
   // Filter and sort requests
   const filteredRequests = useMemo(() => {
     let result = filterRequests(requests, searchQuery)
+    if (statusFilter !== 'all') {
+      result = result.filter((r) => r.status === statusFilter)
+    }
     if (showOnlyWithReview) {
       result = result.filter((r) => r.review && r.review.trim() !== '')
     }
     return sortRequests(result, sortOrder)
-  }, [requests, searchQuery, sortOrder, showOnlyWithReview])
+  }, [requests, searchQuery, sortOrder, statusFilter, showOnlyWithReview])
 
   // Paginated requests
   const displayedRequests = useMemo(
@@ -112,13 +136,13 @@ function PastRequestsContent(): JSX.Element {
   // Reset pagination when search, sort, or filter changes
   useEffect(() => {
     setDisplayCount(PAGE_SIZE)
-  }, [searchQuery, sortOrder, showOnlyWithReview])
+  }, [searchQuery, sortOrder, statusFilter, showOnlyWithReview])
 
   // Show loading while checking auth
   if (authLoading || !isAuthenticated) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-brand-cobalt text-2xl" />
+      <div className="flex min-h-screen items-center justify-center bg-surface">
+        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
       </div>
     )
   }
@@ -126,50 +150,64 @@ function PastRequestsContent(): JSX.Element {
   return (
     <>
       <Head>
-        <title>Request archive — openmentor.io</title>
+        <title>Archive — openmentor.io</title>
       </Head>
 
-      <MentorAdminLayout title="Request archive">
+      <MentorAdminLayout
+        title="Archive"
+        actions={
+          !isLoading && !error && requests.length > 0 ? (
+            <FilterPills options={pillOptions} value={statusFilter} onChange={setStatusFilter} />
+          ) : undefined
+        }
+      >
         {/* Search, Sort, and Filter */}
-        <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="flex-1 max-w-md">
-            <SearchInput
-              value={searchQuery}
-              onChange={setSearchQuery}
-              placeholder="Search by name, email, contact..."
-            />
-          </div>
-          <SortToggle value={sortOrder} onChange={setSortOrder} />
-          <label className="inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showOnlyWithReview}
-              onChange={(e) => setShowOnlyWithReview(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand-cobalt/40 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-cobalt"></div>
-            <span className="ms-3 text-sm font-medium text-gray-700">With a review</span>
-          </label>
-        </div>
-
-        {/* Loading state */}
-        {isLoading && (
-          <div className="flex flex-col items-center justify-center py-12">
-            <FontAwesomeIcon
-              icon={faCircleNotch}
-              className="animate-spin text-brand-cobalt text-2xl mb-3"
-            />
-            <p className="text-gray-500">Loading requests...</p>
+        {!isLoading && !error && requests.length > 0 && (
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="max-w-md flex-1">
+              <SearchInput
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search by name, email, contact..."
+              />
+            </div>
+            <SortToggle value={sortOrder} onChange={setSortOrder} />
+            <label className="inline-flex cursor-pointer items-center">
+              <input
+                type="checkbox"
+                checked={showOnlyWithReview}
+                onChange={(e) => setShowOnlyWithReview(e.target.checked)}
+                className="peer sr-only"
+              />
+              <span
+                aria-hidden="true"
+                className={classNames(
+                  'relative h-6 w-11 rounded-full transition-colors duration-180 ease-out peer-focus-visible:shadow-focus-ring',
+                  showOnlyWithReview ? 'bg-brand-mint' : 'bg-line'
+                )}
+              >
+                <span
+                  className={classNames(
+                    'absolute top-[2px] h-5 w-5 rounded-full bg-white shadow transition-all duration-180 ease-out',
+                    showOnlyWithReview ? 'left-[22px]' : 'left-[2px]'
+                  )}
+                />
+              </span>
+              <span className="ms-3 text-sm font-medium text-ink">With a review</span>
+            </label>
           </div>
         )}
 
+        {/* Loading state — shimmer rows */}
+        {isLoading && <RequestListSkeleton />}
+
         {/* Error state */}
         {error && !isLoading && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <p className="text-red-800">{error}</p>
+          <div className="rounded-card border border-danger/40 bg-white p-5">
+            <p className="my-0 text-sm font-medium text-danger">{error}</p>
             <button
               onClick={() => window.location.reload()}
-              className="mt-2 text-sm text-red-600 hover:text-red-700 underline"
+              className="mt-2 text-sm font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
             >
               Try again
             </button>
@@ -178,22 +216,32 @@ function PastRequestsContent(): JSX.Element {
 
         {/* Empty state */}
         {!isLoading && !error && requests.length === 0 && (
-          <div className="text-center py-12">
-            <FontAwesomeIcon icon={faArchive} className="text-gray-300 text-5xl mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-1">The archive is empty</h3>
-            <p className="text-gray-500">Completed and declined requests will appear here</p>
+          <div className="flex animate-rise-in flex-col items-center rounded-panel border border-line bg-white px-10 py-16 text-center">
+            <div aria-hidden="true" className="relative h-[88px] w-[88px]">
+              <div className="m-[9px] h-[70px] w-[70px] rounded-full border-[9px] border-line" />
+            </div>
+            <h2 className="mt-5 text-[22px] tracking-[-0.01em] text-ink">The archive is empty</h2>
+            <p className="my-0 mt-2.5 max-w-[400px] text-sm leading-relaxed text-ink-soft">
+              Completed and declined requests will appear here.
+            </p>
           </div>
         )}
 
-        {/* No search results */}
+        {/* No search / filter results */}
         {!isLoading && !error && requests.length > 0 && filteredRequests.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-500">Nothing found for &quot;{searchQuery}&quot;</p>
+          <div className="rounded-panel border border-line bg-white py-12 text-center">
+            <p className="my-0 text-sm text-ink-soft">
+              {searchQuery ? `Nothing found for "${searchQuery}"` : 'Nothing here with this filter'}
+            </p>
             <button
-              onClick={() => setSearchQuery('')}
-              className="mt-2 text-sm text-brand-cobalt hover:text-brand-cobalt/80"
+              onClick={() => {
+                setSearchQuery('')
+                setStatusFilter('all')
+                setShowOnlyWithReview(false)
+              }}
+              className="mt-2 text-sm font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
             >
-              Clear search
+              Clear filters
             </button>
           </div>
         )}
@@ -201,22 +249,25 @@ function PastRequestsContent(): JSX.Element {
         {/* Requests list */}
         {!isLoading && !error && displayedRequests.length > 0 && (
           <>
-            <div className="space-y-4">
-              {displayedRequests.map((request) => (
-                <RequestCard key={request.id} request={request} />
+            <div className="flex flex-col gap-2.5">
+              {displayedRequests.map((request, index) => (
+                <div
+                  key={request.id}
+                  className="animate-rise-in"
+                  style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+                >
+                  <RequestCard request={request} />
+                </div>
               ))}
             </div>
 
             {/* Pagination info and load more */}
             <div className="mt-6 text-center">
-              <p className="text-sm text-gray-500 mb-3">
-                Showing {displayedRequests.length} of {filteredRequests.length} requests
+              <p className="meta-mono my-0 mb-3 text-ink-mute">
+                Showing {displayedRequests.length} of {filteredRequests.length}
               </p>
               {hasMore && (
-                <button
-                  onClick={loadMore}
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-cobalt"
-                >
+                <button onClick={loadMore} className="button-secondary">
                   Show more
                 </button>
               )}

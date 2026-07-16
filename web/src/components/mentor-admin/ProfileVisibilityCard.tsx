@@ -1,9 +1,10 @@
 /**
- * Profile visibility card for the mentor profile edit page.
+ * Profile visibility card for the mentor profile edit page (design 09).
  *
  * Lets an approved mentor toggle their profile between 'active' (shown in the
  * public catalog) and 'inactive' (hidden). Saves immediately on toggle with
- * optimistic UI and rollback on failure.
+ * optimistic UI and rollback on failure. Visible state gets the mint border +
+ * soft ring; hidden state falls back to the quiet line border.
  */
 
 import { useState } from 'react'
@@ -72,42 +73,59 @@ export default function ProfileVisibilityCard({
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-      <h2 className="text-lg font-semibold text-ink">Profile visibility</h2>
-
-      <Switch.Group as="div" className="mt-4 flex items-center justify-between gap-4">
-        <Switch.Label as="span" className="text-sm text-ink" passive>
-          Show my profile in the mentor catalog
-        </Switch.Label>
+    <div
+      className={classNames(
+        'rounded-panel bg-white p-5 transition-all duration-180 sm:px-[26px] sm:py-[22px]',
+        isActive
+          ? 'border-[1.5px] border-brand-mint shadow-[0_0_0_4px_rgba(23,195,178,0.08)]'
+          : 'border-[1.5px] border-line'
+      )}
+    >
+      <Switch.Group as="div" className="flex items-center gap-4 sm:gap-5">
         <Switch
           checked={isActive}
           onChange={handleToggle}
           disabled={isSaving}
           className={classNames(
-            isActive ? 'bg-brand-navy' : 'bg-gray-200',
-            isSaving ? 'opacity-60 cursor-wait' : 'cursor-pointer',
-            'relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-brand-cobalt focus:ring-offset-2'
+            isActive ? 'bg-brand-mint' : 'bg-line',
+            isSaving ? 'cursor-wait opacity-60' : 'cursor-pointer',
+            'relative inline-flex h-7 w-[52px] shrink-0 rounded-full transition-colors duration-180 ease-out'
           )}
         >
           <span
             aria-hidden="true"
             className={classNames(
-              isActive ? 'translate-x-5' : 'translate-x-0',
-              'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out'
+              isActive ? 'translate-x-[27px]' : 'translate-x-[3px]',
+              'pointer-events-none mt-[3px] inline-block h-[22px] w-[22px] transform rounded-full bg-white shadow transition duration-180 ease-out'
             )}
           />
         </Switch>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-2.5">
+            <Switch.Label as="span" className="font-name text-base font-bold text-ink" passive>
+              {isActive ? 'Your profile is visible' : 'Your profile is hidden'}
+            </Switch.Label>
+            {isActive ? (
+              <span className="rounded-full bg-brand-mint/15 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.05em] text-mint-ink">
+                Live in search
+              </span>
+            ) : (
+              <span className="rounded-full bg-surface-deep px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.05em] text-ink-mute">
+                Not in search
+              </span>
+            )}
+          </div>
+          <p className="my-0 mt-1 text-[13px] leading-normal text-ink-soft">
+            {isActive
+              ? 'Mentees can find you in the catalog and send requests. Turn this off any time — your data stays, you just disappear from search.'
+              : "Your profile is hidden from the catalog. Mentees can't send you new requests, but you can still manage existing ones."}
+          </p>
+        </div>
       </Switch.Group>
 
-      {!isActive && (
-        <p className="mt-3 rounded-lg bg-surface p-3 text-sm text-gray-600">
-          Your profile is hidden from the catalog. Mentees can&apos;t send you new requests, but you
-          can still manage existing ones.
-        </p>
-      )}
-
       {error && (
-        <p className="mt-3 text-sm text-red-600" role="alert">
+        <p className="my-0 mt-3 text-sm font-medium text-danger" role="alert">
           {error}
         </p>
       )}

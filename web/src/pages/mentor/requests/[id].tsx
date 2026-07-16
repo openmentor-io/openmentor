@@ -1,7 +1,10 @@
 /**
- * Request Details Page
+ * Request Details Page (design 08)
  *
- * Displays full request information and allows status changes.
+ * Single-column detail view: mentee header card with initials avatar and
+ * status pill, "their message" card with meta row, review card, and the
+ * status actions (advance / decline with note). All existing status
+ * behaviors are kept.
  */
 
 import { useState, useEffect } from 'react'
@@ -9,16 +12,8 @@ import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import {
-  faCircleNotch,
-  faArrowLeft,
-  faEnvelope,
-  faComment,
-  faCalendar,
-  faStar,
-  faExternalLinkAlt,
-  faPaperPlane,
-} from '@fortawesome/free-solid-svg-icons'
+import { faCircleNotch, faStar } from '@fortawesome/free-solid-svg-icons'
+import classNames from 'classnames'
 import type { MentorClientRequest, RequestStatus, DeclineReasonValue } from '@/types'
 import { STATUS_TRANSITIONS, STATUS_LABELS, ACTIVE_STATUSES } from '@/types'
 import {
@@ -28,6 +23,8 @@ import {
   StatusBadge,
   DeclineModal,
   formatDateTime,
+  formatRelativeTime,
+  nameInitials,
 } from '@/components/mentor-admin'
 import { getRequestById, updateRequestStatus, declineRequest } from '@/lib/mentor-admin-api'
 
@@ -47,42 +44,26 @@ function canDecline(status: RequestStatus): boolean {
   return STATUS_TRANSITIONS[status].includes('declined')
 }
 
-interface InfoRowProps {
-  icon: typeof faEnvelope
+interface MetaItemProps {
   label: string
   value: string
   href?: string
-  external?: boolean
 }
 
-function InfoRow({ icon, label, value, href, external }: InfoRowProps): JSX.Element {
-  const content = (
-    <span className={href ? 'text-brand-cobalt hover:text-brand-cobalt/80' : 'text-gray-900'}>
-      {value}
-      {external && <FontAwesomeIcon icon={faExternalLinkAlt} className="ml-1 text-xs" />}
-    </span>
-  )
-
+function MetaItem({ label, value, href }: MetaItemProps): JSX.Element {
   return (
-    <div className="flex items-start py-3 border-b border-gray-100 last:border-0">
-      <div className="flex-shrink-0 w-8">
-        <FontAwesomeIcon icon={icon} className="text-gray-400" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-500 mb-0.5">{label}</p>
-        {href ? (
-          <a
-            href={href}
-            target={external ? '_blank' : undefined}
-            rel={external ? 'noopener noreferrer' : undefined}
-            className="text-sm font-medium"
-          >
-            {content}
-          </a>
-        ) : (
-          <p className="text-sm font-medium text-gray-900">{value}</p>
-        )}
-      </div>
+    <div className="min-w-0">
+      <div className="text-xs text-ink-soft">{label}</div>
+      {href ? (
+        <a
+          href={href}
+          className="block truncate text-[13px] font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
+        >
+          {value}
+        </a>
+      ) : (
+        <div className="truncate text-[13px] font-semibold text-ink">{value}</div>
+      )}
     </div>
   )
 }
@@ -154,12 +135,13 @@ function RequestDetailsContent(): JSX.Element {
 
   // Determine which list to go back to
   const backLink = request && ACTIVE_STATUSES.includes(request.status) ? '/mentor' : '/mentor/past'
+  const nextStatus = request ? getNextStatus(request.status) : null
 
   // Show loading while checking auth
   if (authLoading || !isAuthenticated) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-brand-cobalt text-2xl" />
+      <div className="flex min-h-screen items-center justify-center bg-surface">
+        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
       </div>
     )
   }
@@ -171,177 +153,167 @@ function RequestDetailsContent(): JSX.Element {
       </Head>
 
       <MentorAdminLayout>
-        {/* Back link */}
-        <div className="mb-6">
-          <Link
-            href={backLink}
-            className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900"
-          >
-            <FontAwesomeIcon icon={faArrowLeft} className="mr-2" />
-            Back to the list
-          </Link>
-        </div>
-
-        {/* Loading state */}
-        {isLoading && (
-          <div className="flex flex-col items-center justify-center py-12">
-            <FontAwesomeIcon
-              icon={faCircleNotch}
-              className="animate-spin text-brand-cobalt text-2xl mb-3"
-            />
-            <p className="text-gray-500">Loading request...</p>
-          </div>
-        )}
-
-        {/* Error state */}
-        {error && !isLoading && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-            <p className="text-red-800 mb-4">{error}</p>
+        <div className="max-w-[820px]">
+          {/* Back link */}
+          <div className="mb-4">
             <Link
-              href="/mentor"
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-brand-navy hover:bg-brand-navy/90"
+              href={backLink}
+              className="text-[13px] font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
             >
-              Back to requests
+              ← All requests
             </Link>
           </div>
-        )}
 
-        {/* Request details */}
-        {!isLoading && !error && request && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Main content */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Header */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-                  <div>
-                    <h1 className="text-xl font-semibold text-gray-900">{request.name}</h1>
+          {/* Loading state */}
+          {isLoading && (
+            <div className="flex flex-col items-center justify-center py-12">
+              <FontAwesomeIcon
+                icon={faCircleNotch}
+                className="mb-3 animate-spin text-2xl text-brand-cobalt"
+              />
+              <p className="my-0 text-sm text-ink-soft">Loading request...</p>
+            </div>
+          )}
+
+          {/* Error state */}
+          {error && !isLoading && (
+            <div className="rounded-panel border border-danger/40 bg-white p-6 text-center">
+              <p className="my-0 mb-4 text-sm font-medium text-danger">{error}</p>
+              <Link href="/mentor" className="button">
+                Back to requests
+              </Link>
+            </div>
+          )}
+
+          {/* Request details */}
+          {!isLoading && !error && request && (
+            <div className="flex animate-rise-in flex-col gap-3.5">
+              {/* Header card */}
+              <div className="flex items-center gap-5 rounded-panel border border-line bg-white p-5 sm:px-7 sm:py-6">
+                <div
+                  aria-hidden="true"
+                  className="flex h-14 w-14 flex-none items-center justify-center rounded-full bg-brand-navy font-name text-xl font-bold text-white"
+                >
+                  {nameInitials(request.name)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-3">
+                    <h1 className="font-name text-xl font-bold normal-case tracking-[-0.015em] text-ink sm:text-2xl">
+                      {request.name}
+                    </h1>
+                    <StatusBadge status={request.status} />
                   </div>
-                  <StatusBadge status={request.status} className="self-start" />
-                </div>
-
-                {/* Level badge */}
-                <div className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-sm">
-                  Level: {request.level}
+                  <div className="mt-1 truncate text-sm text-ink-soft">
+                    {request.email} · requested {formatRelativeTime(request.createdAt)}
+                  </div>
                 </div>
               </div>
 
-              {/* Details */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Request details</h2>
-                <p className="text-gray-700 whitespace-pre-wrap">{request.details}</p>
+              {/* Message card */}
+              <div className="rounded-panel border border-line bg-white p-5 sm:px-7 sm:py-6">
+                <div className="mb-2.5 font-display text-[13px] font-extrabold uppercase tracking-[0.03em] text-ink">
+                  Their message
+                </div>
+                <p className="my-0 max-w-[640px] whitespace-pre-wrap text-[14.5px] leading-relaxed text-ink">
+                  {request.details}
+                </p>
+
+                <div className="mt-4 grid grid-cols-2 gap-4 border-t border-line pt-4 sm:grid-cols-4 sm:gap-6">
+                  <MetaItem label="Level" value={request.level} />
+                  <MetaItem label="Email" value={request.email} href={`mailto:${request.email}`} />
+                  {request.contact && <MetaItem label="Contact" value={request.contact} />}
+                  <MetaItem label="Received" value={formatDateTime(request.createdAt)} />
+                </div>
               </div>
 
-              {/* Review (if exists) */}
+              {/* Review card (if exists) */}
               {request.review && (
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <FontAwesomeIcon icon={faStar} className="text-yellow-400" />
-                    <h2 className="text-lg font-medium text-gray-900">Review</h2>
+                <div className="rounded-panel border border-line bg-white p-5 sm:px-7 sm:py-6">
+                  <div className="mb-2.5 flex items-center gap-2 font-display text-[13px] font-extrabold uppercase tracking-[0.03em] text-ink">
+                    <FontAwesomeIcon icon={faStar} className="text-brand-mint" />
+                    Review
                   </div>
-                  <p className="text-gray-700 whitespace-pre-wrap mb-4">{request.review}</p>
+                  <p className="my-0 whitespace-pre-wrap text-[14.5px] leading-relaxed text-ink">
+                    {request.review}
+                  </p>
                 </div>
               )}
-            </div>
 
-            {/* Sidebar */}
-            <div className="space-y-6">
-              {/* Contact info */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Contact info</h2>
-                <div className="space-y-1">
-                  <InfoRow
-                    icon={faEnvelope}
-                    label="Email"
-                    value={request.email}
-                    href={`mailto:${request.email}`}
-                  />
-                  {request.contact && (
-                    <InfoRow icon={faPaperPlane} label="Contact" value={request.contact} />
-                  )}
+              {/* Status timeline card */}
+              <div className="rounded-panel border border-line bg-white p-5 sm:px-7 sm:py-6">
+                <div className="mb-2.5 font-display text-[13px] font-extrabold uppercase tracking-[0.03em] text-ink">
+                  Status
                 </div>
-              </div>
-
-              {/* Timestamps */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Dates</h2>
-                <div className="space-y-1">
-                  <InfoRow
-                    icon={faCalendar}
-                    label="Created"
-                    value={formatDateTime(request.createdAt)}
-                  />
-                  <InfoRow
-                    icon={faComment}
-                    label="Status changed"
-                    value={formatDateTime(request.statusChangedAt)}
-                  />
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
+                  <MetaItem label="Current status" value={STATUS_LABELS[request.status]} />
+                  <MetaItem label="Status changed" value={formatDateTime(request.statusChangedAt)} />
                   {request.scheduledAt && (
-                    <InfoRow
-                      icon={faCalendar}
-                      label="Scheduled"
-                      value={formatDateTime(request.scheduledAt)}
-                    />
+                    <MetaItem label="Scheduled" value={formatDateTime(request.scheduledAt)} />
                   )}
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Actions</h2>
+              {/* Actions card */}
+              <div className="rounded-panel border border-line bg-white p-5 sm:px-7 sm:py-6">
+                <div className="mb-2.5 font-display text-[13px] font-extrabold uppercase tracking-[0.03em] text-ink">
+                  Next steps
+                </div>
+
+                {(nextStatus || canDecline(request.status)) && (
+                  <p className="my-0 mb-3.5 text-[13px] leading-normal text-ink-soft">
+                    Reply to {request.name.split(' ')[0]} by email from your own inbox — status
+                    updates here keep your dashboard in sync and notify the mentee.
+                  </p>
+                )}
 
                 {/* Status error */}
                 {statusError && (
-                  <div className="mb-4 p-3 rounded-md bg-red-50 border border-red-200">
-                    <p className="text-sm text-red-600">{statusError}</p>
-                  </div>
+                  <p className="my-0 mb-3 animate-shake text-sm font-medium text-danger" role="alert">
+                    {statusError}
+                  </p>
                 )}
 
-                <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2.5">
                   {/* Next status button */}
-                  {(() => {
-                    const nextStatus = getNextStatus(request.status)
-                    if (!nextStatus) return null
-                    return (
-                      <button
-                        onClick={() => handleStatusChange(nextStatus)}
-                        disabled={isUpdatingStatus}
-                        className="w-full px-4 py-2 text-sm font-medium text-white bg-brand-navy rounded-md hover:bg-brand-navy/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-cobalt disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {isUpdatingStatus ? (
-                          <>
-                            <FontAwesomeIcon icon={faCircleNotch} className="animate-spin mr-2" />
-                            Updating...
-                          </>
-                        ) : (
-                          `Mark as "${STATUS_LABELS[nextStatus]}"`
-                        )}
-                      </button>
-                    )
-                  })()}
+                  {nextStatus && (
+                    <button
+                      onClick={() => handleStatusChange(nextStatus)}
+                      disabled={isUpdatingStatus}
+                      className={classNames('button', isUpdatingStatus && 'opacity-60')}
+                    >
+                      {isUpdatingStatus ? (
+                        <>
+                          <FontAwesomeIcon icon={faCircleNotch} className="mr-2 animate-spin" />
+                          Updating...
+                        </>
+                      ) : (
+                        `Mark as "${STATUS_LABELS[nextStatus]}"`
+                      )}
+                    </button>
+                  )}
 
                   {/* Decline button */}
                   {canDecline(request.status) && (
                     <button
                       onClick={() => setShowDeclineModal(true)}
                       disabled={isUpdatingStatus}
-                      className="w-full px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="button-destructive disabled:opacity-50"
                     >
-                      Decline request
+                      Decline…
                     </button>
                   )}
 
                   {/* No actions available */}
-                  {!getNextStatus(request.status) && !canDecline(request.status) && (
-                    <p className="text-sm text-gray-500 text-center py-2">
-                      The request is closed — no actions available
+                  {!nextStatus && !canDecline(request.status) && (
+                    <p className="my-0 py-1 text-sm text-ink-soft">
+                      The request is closed — no actions available.
                     </p>
                   )}
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Decline Modal */}
         {request && (

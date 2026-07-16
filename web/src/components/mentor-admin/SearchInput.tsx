@@ -1,7 +1,7 @@
 /**
  * Search Input component
  *
- * Client-side search for requests list.
+ * Client-side search for requests list (on-system .field styling).
  */
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -20,20 +20,20 @@ export default function SearchInput({
 }: SearchInputProps): JSX.Element {
   return (
     <div className="relative">
-      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-        <FontAwesomeIcon icon={faSearch} className="text-gray-400 text-sm" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+        <FontAwesomeIcon icon={faSearch} className="text-sm text-ink-soft" />
       </div>
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-brand-cobalt focus:border-brand-cobalt sm:text-sm"
+        className="field pl-10 pr-10"
       />
       {value && (
         <button
           onClick={() => onChange('')}
-          className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+          className="absolute inset-y-0 right-0 flex items-center pr-4 text-ink-soft transition-colors duration-120 hover:text-ink"
           aria-label="Clear search"
         >
           <FontAwesomeIcon icon={faTimes} className="text-sm" />

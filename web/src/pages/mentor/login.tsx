@@ -1,7 +1,9 @@
 /**
- * Mentor Login Page
+ * Mentor Login Page (design 06)
  *
- * Passwordless authentication using email + magic link/token.
+ * Passwordless authentication using email + magic link/token: centered
+ * white card over the paper backdrop with ring echoes; the card content
+ * swaps to a "check your inbox" state after the link is sent.
  */
 
 import { useState, useEffect } from 'react'
@@ -11,7 +13,8 @@ import Image from 'next/image'
 import { useRouter } from 'next/router'
 import { useForm } from 'react-hook-form'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCircleNotch, faEnvelope } from '@fortawesome/free-solid-svg-icons'
+import { faCircleNotch } from '@fortawesome/free-solid-svg-icons'
+import classNames from 'classnames'
 import { MentorAuthProvider, useMentorAuth } from '@/components/mentor-admin'
 import analytics from '@/lib/analytics'
 
@@ -25,6 +28,7 @@ function LoginForm(): JSX.Element {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [sentEmail, setSentEmail] = useState('')
   const { expired, callback_error } = router.query
 
   const {
@@ -56,6 +60,7 @@ function LoginForm(): JSX.Element {
     try {
       const result = await requestLogin(data.email)
       if (result.success) {
+        setSentEmail(data.email)
         setSubmitSuccess(true)
         analytics.event(analytics.events.MENTOR_AUTH_LOGIN_REQUESTED, {
           outcome: 'success',
@@ -81,38 +86,34 @@ function LoginForm(): JSX.Element {
   // Show loading while checking auth
   if (authLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-brand-cobalt text-2xl" />
+      <div className="flex min-h-screen items-center justify-center bg-surface">
+        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="relative flex min-h-screen flex-col justify-center overflow-hidden bg-surface px-5 py-12">
       <Head>
         <title>Mentor login — openmentor.io</title>
       </Head>
 
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <Link href="/" className="flex justify-center mb-6">
-          <Image
-            src="/brand/logo/svg/logo-horizontal.svg"
-            width={165}
-            height={45}
-            alt="openmentor.io"
-            unoptimized
-          />
-        </Link>
-        <h2 className="text-center text-2xl font-semibold text-gray-900">Mentor dashboard</h2>
-        <p className="mt-2 text-center text-sm text-gray-600">Sign in to manage your requests</p>
-      </div>
+      {/* Backdrop ring echoes */}
+      <div
+        aria-hidden="true"
+        className="absolute -right-36 -top-36 h-[480px] w-[480px] rounded-full border-[56px] border-brand-navy/5"
+      />
+      <div
+        aria-hidden="true"
+        className="absolute -bottom-24 -left-20 h-[340px] w-[340px] rounded-full border-[44px] border-brand-mint/[0.07]"
+      />
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow-lg sm:rounded-lg sm:px-10">
+      <div className="relative mx-auto w-full max-w-[440px]">
+        <div className="animate-rise-in rounded-[20px] border border-line bg-white p-7 shadow-[0_20px_50px_-24px_rgba(19,42,82,0.22)] sm:p-10">
           {/* Session expired message */}
           {expired === 'true' && (
-            <div className="mb-6 p-4 rounded-md bg-yellow-50 border border-yellow-200">
-              <p className="text-sm text-yellow-800">
+            <div className="mb-5 rounded-field border border-line bg-surface p-3.5">
+              <p className="my-0 text-sm text-ink">
                 Your session has expired. Please sign in again.
               </p>
             </div>
@@ -120,8 +121,8 @@ function LoginForm(): JSX.Element {
 
           {/* Callback error message */}
           {callback_error && (
-            <div className="mb-6 p-4 rounded-md bg-red-50 border border-red-200">
-              <p className="text-sm text-red-800">
+            <div className="mb-5 rounded-field border border-danger/40 bg-danger/5 p-3.5">
+              <p className="my-0 text-sm text-danger">
                 {callback_error === 'invalid_token'
                   ? 'The link is invalid or has expired. Please request a new one.'
                   : 'Something went wrong. Please try again.'}
@@ -130,39 +131,80 @@ function LoginForm(): JSX.Element {
           )}
 
           {submitSuccess ? (
-            /* Success state */
-            <div className="text-center">
-              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
-                <FontAwesomeIcon icon={faEnvelope} className="text-green-600" />
+            /* Sent state — card content swaps in place */
+            <div className="flex flex-col items-center gap-5 text-center">
+              {/* Logomark ring + mint check */}
+              <div aria-hidden="true" className="relative h-[76px] w-[76px]">
+                <div className="m-2 h-[60px] w-[60px] rounded-full border-8 border-brand-navy" />
+                <div className="absolute right-0 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand-mint">
+                  <svg width="10" height="8" viewBox="0 0 11 9" fill="none">
+                    <path
+                      d="M1 4.5L4 7.5L10 1"
+                      stroke="#fff"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Check your email</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                We&apos;ve sent a login link to the email you provided. Follow it to sign in to your
-                dashboard.
-              </p>
-              <p className="text-xs text-gray-500">
-                Didn&apos;t get the email? Check your spam folder or{' '}
-                <button
-                  onClick={() => setSubmitSuccess(false)}
-                  className="text-brand-cobalt hover:text-brand-cobalt/80"
-                >
-                  try again
-                </button>
-              </p>
+
+              <div>
+                <h2 className="text-2xl tracking-[-0.02em] text-ink">Check your inbox</h2>
+                <p className="my-0 mt-2.5 text-sm leading-relaxed text-ink-soft">
+                  We sent a sign-in link to
+                  <br />
+                  <b className="text-ink">{sentEmail || 'your email'}</b>
+                  <br />
+                  Follow it to open your dashboard.
+                </p>
+              </div>
+
+              <div className="flex w-full items-center justify-between rounded-field border border-line px-4 py-3">
+                <span className="text-[13px] text-ink-soft">Didn&apos;t arrive?</span>
+                <span className="text-[13px] font-semibold text-ink-soft">Check your spam</span>
+              </div>
+
+              <button
+                onClick={() => setSubmitSuccess(false)}
+                className="text-[13px] font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
+              >
+                Use a different email
+              </button>
             </div>
           ) : (
-            /* Login form */
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            /* Email step */
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center gap-2.5">
+                <Image
+                  src="/brand/logo/svg/logomark.svg"
+                  width={38}
+                  height={38}
+                  alt=""
+                  unoptimized
+                />
+                <span className="font-display text-lg font-extrabold uppercase tracking-[-0.02em] text-brand-navy">
+                  openmentor<span className="text-brand-cobalt">.io</span>
+                </span>
+              </div>
+
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                  Email
-                </label>
-                <div className="mt-1">
+                <h1 className="text-[26px] tracking-[-0.02em] text-ink">Mentor login</h1>
+                <p className="my-0 mt-2 text-sm leading-normal text-ink-soft">
+                  No password. We&apos;ll email you a magic link that signs you in.
+                </p>
+              </div>
+
+              <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5" noValidate>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="email" className="text-[13px] font-semibold text-ink">
+                    Email
+                  </label>
                   <input
                     id="email"
                     type="email"
                     autoComplete="email"
-                    placeholder="mentor@example.com"
+                    placeholder="you@example.com"
                     {...register('email', {
                       required: 'Enter your email',
                       pattern: {
@@ -170,45 +212,47 @@ function LoginForm(): JSX.Element {
                         message: 'Enter a valid email',
                       },
                     })}
-                    className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-brand-cobalt focus:border-brand-cobalt sm:text-sm"
+                    className={classNames('field', errors.email && 'field-error animate-shake')}
                   />
+                  {errors.email && (
+                    <p className="my-0 text-xs font-medium text-danger" role="alert">
+                      {errors.email.message}
+                    </p>
+                  )}
                 </div>
-                {errors.email && (
-                  <p className="mt-2 text-sm text-red-600">{errors.email.message}</p>
-                )}
-              </div>
 
-              {submitError && (
-                <div className="p-3 rounded-md bg-red-50 border border-red-200">
-                  <p className="text-sm text-red-600">{submitError}</p>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-brand-navy hover:bg-brand-navy/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-cobalt disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {isSubmitting ? (
-                  <>
-                    <FontAwesomeIcon icon={faCircleNotch} className="animate-spin mr-2" />
-                    Sending...
-                  </>
-                ) : (
-                  'Get a login link'
+                {submitError && (
+                  <p className="my-0 text-sm font-medium text-danger" role="alert">
+                    {submitError}
+                  </p>
                 )}
-              </button>
-            </form>
+
+                <button type="submit" disabled={isSubmitting} className="button w-full text-[15px]">
+                  {isSubmitting ? (
+                    <>
+                      <FontAwesomeIcon icon={faCircleNotch} className="mr-2 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    'Email me a magic link'
+                  )}
+                </button>
+              </form>
+
+              <p className="my-0 text-center text-xs leading-relaxed text-ink-soft">
+                Not a mentor yet?{' '}
+                <Link href="/bementor" className="font-semibold text-brand-cobalt">
+                  Create a profile
+                </Link>
+              </p>
+            </div>
           )}
 
           {/* Help text */}
-          <div className="mt-6 border-t border-gray-200 pt-6">
-            <p className="text-xs text-gray-500 text-center">
+          <div className="mt-6 border-t border-line pt-5">
+            <p className="my-0 text-center text-xs text-ink-soft">
               Use the email you provided when registering as a mentor. If you run into any issues,{' '}
-              <a
-                href="mailto:hello@openmentor.io"
-                className="text-brand-cobalt hover:text-brand-cobalt/80"
-              >
+              <a href="mailto:hello@openmentor.io" className="font-semibold text-brand-cobalt">
                 write to us
               </a>
               .

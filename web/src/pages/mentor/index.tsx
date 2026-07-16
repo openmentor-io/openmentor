@@ -1,24 +1,31 @@
 /**
- * Mentor Active Requests Page
+ * Mentor Active Requests Page (design 07 — requests inbox)
  *
- * Displays pending, contacted, and working requests.
+ * Displays pending, contacted, and working requests with status filter
+ * pills, search, sort, shimmer loading rows and the design empty state.
  */
 
 import { useState, useEffect, useMemo } from 'react'
 import Head from 'next/head'
+import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCircleNotch, faInbox } from '@fortawesome/free-solid-svg-icons'
-import type { MentorClientRequest, SortOrder } from '@/types'
+import { faCircleNotch } from '@fortawesome/free-solid-svg-icons'
+import type { MentorClientRequest, RequestStatus, SortOrder } from '@/types'
+import { ACTIVE_STATUSES, STATUS_LABELS } from '@/types'
 import {
   MentorAuthProvider,
   useMentorAuth,
   MentorAdminLayout,
   RequestCard,
+  RequestListSkeleton,
+  FilterPills,
   SearchInput,
   SortToggle,
 } from '@/components/mentor-admin'
 import { getActiveRequests } from '@/lib/mentor-admin-api'
+
+type StatusFilter = 'all' | RequestStatus
 
 /**
  * Filter requests by search query
@@ -56,6 +63,7 @@ function ActiveRequestsContent(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -84,17 +92,33 @@ function ActiveRequestsContent(): JSX.Element {
     loadRequests()
   }, [isAuthenticated])
 
-  // Filter and sort requests
-  const filteredRequests = useMemo(
-    () => sortRequests(filterRequests(requests, searchQuery), sortOrder),
-    [requests, searchQuery, sortOrder]
+  // Status filter pill options with counts
+  const pillOptions = useMemo(
+    () => [
+      { value: 'all' as StatusFilter, label: 'All', count: requests.length },
+      ...ACTIVE_STATUSES.map((status) => ({
+        value: status as StatusFilter,
+        label: STATUS_LABELS[status],
+        count: requests.filter((r) => r.status === status).length,
+      })),
+    ],
+    [requests]
   )
+
+  // Filter and sort requests
+  const filteredRequests = useMemo(() => {
+    let result = filterRequests(requests, searchQuery)
+    if (statusFilter !== 'all') {
+      result = result.filter((r) => r.status === statusFilter)
+    }
+    return sortRequests(result, sortOrder)
+  }, [requests, searchQuery, sortOrder, statusFilter])
 
   // Show loading while checking auth
   if (authLoading || !isAuthenticated) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-brand-cobalt text-2xl" />
+      <div className="flex min-h-screen items-center justify-center bg-surface">
+        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
       </div>
     )
   }
@@ -102,73 +126,99 @@ function ActiveRequestsContent(): JSX.Element {
   return (
     <>
       <Head>
-        <title>Active requests — openmentor.io</title>
+        <title>Requests — openmentor.io</title>
       </Head>
 
-      <MentorAdminLayout title="Active requests">
+      <MentorAdminLayout
+        title="Requests"
+        actions={
+          !isLoading && !error && requests.length > 0 ? (
+            <FilterPills options={pillOptions} value={statusFilter} onChange={setStatusFilter} />
+          ) : undefined
+        }
+      >
         {/* Search and Sort */}
-        <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="flex-1 max-w-md">
-            <SearchInput
-              value={searchQuery}
-              onChange={setSearchQuery}
-              placeholder="Search by name, email, contact..."
-            />
-          </div>
-          <SortToggle value={sortOrder} onChange={setSortOrder} />
-        </div>
-
-        {/* Loading state */}
-        {isLoading && (
-          <div className="flex flex-col items-center justify-center py-12">
-            <FontAwesomeIcon
-              icon={faCircleNotch}
-              className="animate-spin text-brand-cobalt text-2xl mb-3"
-            />
-            <p className="text-gray-500">Loading requests...</p>
+        {!isLoading && !error && requests.length > 0 && (
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="max-w-md flex-1">
+              <SearchInput
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search by name, email, contact..."
+              />
+            </div>
+            <SortToggle value={sortOrder} onChange={setSortOrder} />
           </div>
         )}
 
+        {/* Loading state — shimmer rows */}
+        {isLoading && <RequestListSkeleton />}
+
         {/* Error state */}
         {error && !isLoading && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <p className="text-red-800">{error}</p>
+          <div className="rounded-card border border-danger/40 bg-white p-5">
+            <p className="my-0 text-sm font-medium text-danger">{error}</p>
             <button
               onClick={() => window.location.reload()}
-              className="mt-2 text-sm text-red-600 hover:text-red-700 underline"
+              className="mt-2 text-sm font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
             >
               Try again
             </button>
           </div>
         )}
 
-        {/* Empty state */}
+        {/* Empty state (design 07) */}
         {!isLoading && !error && requests.length === 0 && (
-          <div className="text-center py-12">
-            <FontAwesomeIcon icon={faInbox} className="text-gray-300 text-5xl mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-1">No active requests</h3>
-            <p className="text-gray-500">New requests from mentees will appear here</p>
+          <div className="flex animate-rise-in flex-col items-center rounded-panel border border-line bg-white px-10 py-16 text-center">
+            <div aria-hidden="true" className="relative h-[88px] w-[88px]">
+              <div className="m-[9px] h-[70px] w-[70px] rounded-full border-[9px] border-line" />
+              <div className="absolute -left-3.5 bottom-3 h-[9px] w-10 -rotate-[35deg] rounded-full bg-brand-cobalt opacity-35" />
+            </div>
+            <h2 className="mt-5 text-[22px] tracking-[-0.01em] text-ink">No requests yet</h2>
+            <p className="my-0 mt-2.5 max-w-[400px] text-sm leading-relaxed text-ink-soft">
+              Most mentors get their first request within two weeks — complete profiles with a
+              photo get them noticeably faster.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-center gap-2.5">
+              <Link href="/mentor/profile/edit" className="button">
+                Improve my profile
+              </Link>
+              <Link href="/mentor/past" className="button-secondary">
+                View the archive
+              </Link>
+            </div>
           </div>
         )}
 
-        {/* No search results */}
+        {/* No search / filter results */}
         {!isLoading && !error && requests.length > 0 && filteredRequests.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-500">Nothing found for &quot;{searchQuery}&quot;</p>
+          <div className="rounded-panel border border-line bg-white py-12 text-center">
+            <p className="my-0 text-sm text-ink-soft">
+              {searchQuery ? `Nothing found for "${searchQuery}"` : 'Nothing here with this status'}
+            </p>
             <button
-              onClick={() => setSearchQuery('')}
-              className="mt-2 text-sm text-brand-cobalt hover:text-brand-cobalt/80"
+              onClick={() => {
+                setSearchQuery('')
+                setStatusFilter('all')
+              }}
+              className="mt-2 text-sm font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
             >
-              Clear search
+              Clear filters
             </button>
           </div>
         )}
 
         {/* Requests list */}
         {!isLoading && !error && filteredRequests.length > 0 && (
-          <div className="space-y-4">
-            {filteredRequests.map((request) => (
-              <RequestCard key={request.id} request={request} />
+          <div className="flex flex-col gap-2.5">
+            {filteredRequests.map((request, index) => (
+              <div
+                key={request.id}
+                className="animate-rise-in"
+                style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+              >
+                <RequestCard request={request} />
+              </div>
             ))}
           </div>
         )}

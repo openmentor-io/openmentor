@@ -190,6 +190,24 @@ export async function declineModerationMentor(mentorId: string): Promise<AdminMe
   return response.mentor
 }
 
+/**
+ * Return a pending mentor profile to draft with a required reviewer note.
+ * Throws ApiError with status 409 when the mentor has ever been activated.
+ */
+export async function returnModerationMentor(
+  mentorId: string,
+  reason: string
+): Promise<AdminMentorDetails> {
+  const response = await apiRequest<{ mentor: AdminMentorDetails }>(
+    `/api/admin/mentors/${encodeURIComponent(mentorId)}/return`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }
+  )
+  return response.mentor
+}
+
 export async function updateModerationMentorStatus(
   mentorId: string,
   payload: AdminStatusUpdateRequest
