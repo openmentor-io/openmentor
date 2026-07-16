@@ -87,7 +87,6 @@ infra/
 ├── deploy-dev.sh               # Same CLI/flow against the local docker stack
 ├── rollback.sh                 # Roll production back to previous image tags (per service)
 ├── alloy/config.alloy          # Grafana Alloy pipeline
-├── grafana/                    # Dashboards & alerts as code (jsonnet → dist/)
 ├── posthog/dashboards/         # Product analytics dashboards as code
 ├── migration/                  # One-off Yandex Object Storage → AWS S3 image copy (D15)
 ├── DEPLOYMENT.md               # Production deployment guide
@@ -306,8 +305,10 @@ Everything ships to **Grafana Cloud** through the `alloy` container
 - **DB observability**: `database_observability.postgres` +
   `prometheus.exporter.postgres` using `POSTGRES_OBS_DSN`
 
-Dashboards and alerts live as code in `grafana/` (jsonnet, `make build`);
-product analytics dashboards in `posthog/dashboards/` (`node sync.mjs`).
+Grafana dashboards live as plain JSON in the repo-root [`grafana/`](../grafana/)
+directory and sync to Grafana Cloud via Git Sync; alert rules are versioned in
+`grafana/alerting/alert-rules.yaml` (see `grafana/README.md`). Product analytics
+dashboards live in `posthog/dashboards/` (`node sync.mjs`).
 
 ## Database access
 

@@ -1,0 +1,364 @@
+# OpenMentor Grafana-managed alert rules — versioned source of record.
+#
+# These rules live in the Grafana Cloud stack (folder "OpenMentor", uid `openmentor`,
+# rule group `openmentor`, org 1). They were created via the Grafana Cloud MCP /
+# provisioning API and are editable in the UI (created with X-Disable-Provenance).
+#
+# How to (re-)apply:
+#   * Grafana provisioning API: POST each rule to
+#       https://<stack>.grafana.net/api/v1/provisioning/alert-rules
+#     with an editor/admin service-account token, or
+#     PUT the whole group to /api/v1/provisioning/folder/openmentor/rule-groups/openmentor.
+#     Add header `X-Disable-Provenance: true` to keep rules editable in the UI.
+#   * Or ask Claude/the Grafana MCP (`alerting_manage_rules`, operation `create`/`update`)
+#     to sync from this file.
+#   * This file also matches the file-provisioning format (`apiVersion: 1` / `groups:`)
+#     used by self-hosted Grafana (`/etc/grafana/provisioning/alerting/`).
+#
+# Notifications: rules route through the DEFAULT notification policy. No contact
+# points are provisioned here — see grafana/README.md for the manual Telegram/email
+# contact-point setup step.
+#
+# Datasource UID: grafanacloud-prom (Prometheus/Mimir).
+
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: openmentor
+    folder: OpenMentor
+    interval: 1m
+    rules:
+      - uid: om-service-down
+        title: ServiceDown
+        condition: B
+        for: 5m
+        noDataState: Alerting
+        execErrState: Error
+        labels: { severity: critical, team: openmentor }
+        annotations:
+          summary: "Scrape target {{ $labels.job }} is down"
+          description: "Prometheus scrape target {{ $labels.job }} (instance {{ $labels.instance }}) has been down for more than 5 minutes. All OpenMentor services and the observability agent are covered by this rule."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model: { expr: "up", instant: true, refId: A }
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+
+      - uid: om-high-error-rate
+        title: HighErrorRate
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: critical, team: openmentor }
+        annotations:
+          summary: "{{ $labels.service_name }} 5xx error rate above 5%"
+          description: "Service {{ $labels.service_name }} is returning {{ printf \"%.2f\" $values.A.Value }}% HTTP 5xx responses over the last 10 minutes (threshold 5%)."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: '100 * sum by (service_name) (rate(http_server_request_total{service_name=~"openmentor-.*", http_response_status_code=~"5.."}[10m])) / sum by (service_name) (rate(http_server_request_total{service_name=~"openmentor-.*"}[10m]))'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [5] } }]
+
+      - uid: om-high-latency-p99
+        title: HighLatencyP99
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "{{ $labels.service_name }} p99 latency above 2s"
+          description: "Service {{ $labels.service_name }} p99 HTTP request duration is {{ printf \"%.2f\" $values.A.Value }}s over the last 10 minutes (threshold 2s)."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'histogram_quantile(0.99, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{service_name=~"openmentor-.*"}[10m])))'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [2] } }]
+
+      - uid: om-container-high-cpu
+        title: ContainerHighCPU
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "Container {{ $labels.name }} CPU above 90%"
+          description: "Container {{ $labels.name }} is using {{ printf \"%.1f\" $values.A.Value }}% CPU (threshold 90%). Note: requires per-container cAdvisor metrics (name label)."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'sum by (name) (rate(container_cpu_usage_seconds_total{name=~"openmentor-.*|grafana-alloy"}[5m])) * 100'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [90] } }]
+
+      - uid: om-container-high-memory
+        title: ContainerHighMemory
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "Container {{ $labels.name }} memory above 1GiB"
+          description: "Container {{ $labels.name }} is using {{ humanize1024 $values.A.Value }}B of memory (threshold 1GiB). Note: requires per-container cAdvisor metrics (name label)."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'container_memory_usage_bytes{name=~"openmentor-.*|grafana-alloy"}'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [1073741824] } }]
+
+      - uid: om-goroutine-leak
+        title: GoroutineLeak
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "{{ $labels.service_name }} goroutine count above 1000"
+          description: "Service {{ $labels.service_name }} has {{ printf \"%.0f\" $values.A.Value }} goroutines, which may indicate a goroutine leak (threshold 1000)."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'process_runtime_go_goroutines{service_name=~"openmentor-.*"}'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [1000] } }]
+
+      - uid: om-cache-hit-ratio-low
+        title: CacheHitRatioLow
+        condition: B
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "API cache hit ratio below 80%"
+          description: "The overall cache hit ratio is {{ printf \"%.1f\" $values.A.Value }}%, below the 80% threshold. Low hit ratio increases database load."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: '100 * sum(rate(cache_hits_total[30m])) / (sum(rate(cache_hits_total[30m])) + sum(rate(cache_misses_total[30m])))'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: lt, params: [80] } }]
+
+      - uid: om-contact-form-failures
+        title: ContactFormFailures
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "Contact form submissions are failing"
+          description: "{{ printf \"%.0f\" $values.A.Value }} contact form submissions failed (status != success) in the last 30 minutes. Check captcha configuration and API errors."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'sum(increase(openmentor_contact_form_submissions_total{status!="success"}[30m]))'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: om-review-submission-failures
+        title: ReviewSubmissionFailures
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "Review submissions are failing"
+          description: "{{ printf \"%.0f\" $values.A.Value }} review submissions failed (status != success) in the last 30 minutes. Check captcha and database connectivity."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'sum(increase(openmentor_review_submissions_total{status!="success"}[30m]))'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: om-email-send-failures
+        title: EmailSendFailures
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "Worker email sends are failing"
+          description: "{{ printf \"%.0f\" $values.A.Value }} emails failed to send (outcome=error) in the last 30 minutes. Check the email provider and worker logs."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'sum(increase(openmentor_worker_email_sends_total{outcome="error"}[30m]))'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: om-postgres-down
+        title: PostgresDown
+        condition: B
+        for: 5m
+        # postgres_exporter is not deployed yet, so pg_up has no series; NoData=OK
+        # keeps this rule quiet until it ships. Switch noDataState to Alerting once
+        # pg_* metrics exist so "exporter absent" also pages.
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: critical, team: openmentor }
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "pg_up reports PostgreSQL as unreachable. NOTE: the postgres_exporter is not deployed yet, so this rule stays in Normal (NoData=OK) until pg_* metrics exist; once the exporter ships, consider switching NoData to Alerting."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model: { expr: "pg_up", instant: true, refId: A }
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+
+      - uid: om-db-error-rate
+        title: DBErrorRate
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "Database operation error rate above 5%"
+          description: "{{ printf \"%.2f\" $values.A.Value }}% of database client operations returned status=error over the last 10 minutes (threshold 5%)."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: '100 * sum(rate(db_client_operation_total{status="error"}[10m])) / sum(rate(db_client_operation_total[10m]))'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [5] } }]
+
+      - uid: om-db-latency-p95
+        title: DBLatencyP95
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "Database p95 latency above 0.5s"
+          description: "95th percentile database operation duration is {{ printf \"%.3f\" $values.A.Value }}s over the last 15 minutes (threshold 0.5s)."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'histogram_quantile(0.95, sum by (le) (rate(db_client_operation_duration_seconds_bucket[15m])))'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [0.5] } }]

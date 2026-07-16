@@ -105,7 +105,7 @@ Manual: PostHog, GTM.*
 
 - [ ] [console] Grafana Cloud (EU): note Prometheus/Loki/Tempo/Pyroscope endpoints + IDs, create RW
   API key → all `GCLOUD_*` vars
-- [ ] [terminal] Import dashboards: `cd infra/grafana && make build` → upload; alert rules after first deploy
+- [ ] [console] Dashboards: connect Grafana Git Sync to this repo, path `grafana/dashboards/` (one-time, see `grafana/README.md`); apply alert rules from `grafana/alerting/alert-rules.yaml` after first deploy
 - [ ] [console] PostHog (EU): project → `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST=https://eu.i.posthog.com`,
   `POSTHOG_API_KEY` (api/worker), `POSTHOG_HOST`; sync dashboards later (`infra/posthog/dashboards/sync.mjs`)
 - [ ] [console] **GTM (`GTM-NBGRPCZ`): remove the Mixpanel tag** (leftover manual task from D18)
