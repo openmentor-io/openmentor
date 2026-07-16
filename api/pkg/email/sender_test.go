@@ -58,7 +58,7 @@ func TestSendBuildsSESParams(t *testing.T) {
 	}
 
 	tplContent := input.Content.Template.TemplateContent
-	if got := aws.ToString(tplContent.Subject); got != "Your OpenMentor login link" {
+	if got := aws.ToString(tplContent.Subject); got != "Your OpenMentor sign-in link" {
 		t.Errorf("Subject = %q, want the mentor-login subject", got)
 	}
 	if aws.ToString(tplContent.Html) == "" || aws.ToString(tplContent.Text) == "" {

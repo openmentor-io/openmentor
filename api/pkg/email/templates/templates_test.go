@@ -10,8 +10,10 @@ import (
 // openmentor-func/lib/postbox/templates.ts: every template name that the
 // func app registers must resolve here, with the same placeholders.
 var expectedTemplates = map[string][]string{
+	"mentor-confirm-email":      {"first_name", "confirm_url"},
 	"new-mentor-approved":       {"first_name", "mentor_profile_url"},
 	"new-mentor-declined":       {"first_name"},
+	"new-mentor-returned":       {"first_name", "reviewer_note", "edit_url"},
 	"new-mentor":                {"first_name"},
 	"new-mentor-duplicate":      {"first_name"},
 	"new-request-calendly":      {"calendly_url", "first_name", "mentor_name", "request_details", "request_price"},
