@@ -589,15 +589,6 @@ export default function ProfileForm({
       <div>
         <label htmlFor="calendarUrl" className="block mb-2 font-medium text-ink">
           Booking link to your calendar (
-          <Link
-            href="https://calendlab.ru/signup?referral_code=for-mentors-6-months"
-            target="_blank"
-            className="link"
-            rel="noreferrer"
-          >
-            CalendLab
-          </Link>
-          ,{' '}
           <Link href="https://koalendar.com" target="_blank" className="link" rel="noreferrer">
             Koalendar
           </Link>
@@ -634,19 +625,6 @@ export default function ProfileForm({
           id="calendarUrl"
           className="field"
         />
-
-        <label htmlFor="calendarUrl" className="block mb-2 mt-1 font-small italic text-ink-soft">
-          🎉 You can get your first 6 months of CalendLab for free via{' '}
-          <Link
-            href="https://calendlab.ru/signup?referral_code=for-mentors-6-months"
-            target="_blank"
-            className="link"
-            rel="noreferrer"
-          >
-            this link
-          </Link>
-          .
-        </label>
       </div>
 
       {isError && (

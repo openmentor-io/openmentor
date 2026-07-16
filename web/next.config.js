@@ -100,7 +100,6 @@ const nextConfig = {
               "img-src 'self' https: data:; " +
               "font-src 'self' data: https://fonts.gstatic.com https://at.alicdn.com; " +
               "connect-src 'self' https://a.openmentor.io https://us.i.posthog.com https://eu.i.posthog.com https://eu.posthog.com https://openmentor.io https://www.google-analytics.com https://region1.analytics.google.com https://stats.g.doubleclick.net https://google.com https://www.google.com https://faro-collector-prod-eu-west-3.grafana.net https://region1.google-analytics.com; " +
-              // calendlab.ru kept in frame-src: CalendlabWidget still embeds
               // mentor calendars (CalendarType 'calendlab')
               'frame-src https://challenges.cloudflare.com https://calendly.com https://koalendar.com https://calendlab.ru https://docs.google.com; ' +
               "object-src 'none'; " +

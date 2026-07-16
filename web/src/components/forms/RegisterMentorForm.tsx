@@ -793,15 +793,6 @@ export default function RegisterMentorForm({
               <label htmlFor="calendarUrl" className={labelClass}>
                 Booking link to your calendar (
                 <Link
-                  href="https://calendlab.ru/signup?referral_code=for-mentors-6-months"
-                  target="_blank"
-                  className="link"
-                  rel="noreferrer"
-                >
-                  CalendLab
-                </Link>
-                ,{' '}
-                <Link
                   href="https://koalendar.com"
                   target="_blank"
                   className="link"
@@ -820,8 +811,8 @@ export default function RegisterMentorForm({
                 <Tooltip id="calendar-tip" place="right" className="z-50">
                   <span>
                     If you use a calendar scheduling tool, add your booking link here so mentees
-                    can book a session with you directly. We recommend Calendly, Koalendar, or
-                    CalendLab — they are integrated with our platform, and the booking form will
+                    can book a session with you directly. We recommend Calendly or Koalendar - they 
+                    are integrated with our platform, and the booking form will
                     appear right after a mentee submits a request.
                   </span>
                 </Tooltip>
@@ -840,19 +831,6 @@ export default function RegisterMentorForm({
               />
 
               {errors.calendarUrl && fieldError('This must be a valid URL')}
-
-              <p className="mb-0 mt-2 text-sm text-ink-soft">
-                🎉 You can get your first 6 months of CalendLab for free via{' '}
-                <Link
-                  href="https://calendlab.ru/signup?referral_code=for-mentors-6-months"
-                  target="_blank"
-                  className="link"
-                  rel="noreferrer"
-                >
-                  this link
-                </Link>
-                .
-              </p>
             </div>
 
             <div>
