@@ -27,6 +27,18 @@ npx prettier --write <file> # Format files with Prettier
 docker run -p 3000:3000 --env-file .env openmentor:multi-stage-test
 ```
 
+## Design System
+
+All UI work follows the 2026-07 redesign. **Read
+`../docs/design-reference/design-system.md` before touching interfaces** —
+it maps the type system (Archivo/Schibsted/Inter/Plex Mono), tokens,
+button/field classes, the mentor-card state set, motion spec and email
+rules to their source files. The authoritative mockups are
+`../docs/design-reference/redesign/*.dc.html` (open in a browser).
+Hard rules: no Tailwind `gray-*` (ink/surface/line family only), one
+button system (`.button*` classes), radii/shadows/pastels only via the
+tokens in `tailwind.config.js`.
+
 ## TypeScript Conventions
 
 ### File Extensions

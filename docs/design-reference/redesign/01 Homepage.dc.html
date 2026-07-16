@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600..900&family=Schibsted+Grotesk:wght@400..900&family=Inter:wght@400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#EDEBE4;font-family:Inter,sans-serif}a{color:#2F5EFF}a:hover{color:#132A52}</style>
+</helmet>
+<div style="display:flex;gap:40px;align-items:flex-start;padding:40px">
+
+<!-- ================= DESKTOP 1440 ================= -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">01 · HOMEPAGE · DESKTOP 1440</div>
+<div data-screen-label="Home desktop" style="width:1440px;background:#FFFFFF;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)">
+  <!-- nav -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 64px;border-bottom:1px solid #DEDBD1">
+    <div style="display:flex;align-items:center;gap:12px"><img src="brand/logomark.svg" alt="OpenMentor" style="height:40px"><span style="font:800 20px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor<span style="color:#2F5EFF">.io</span></span></div>
+    <div style="display:flex;align-items:center;gap:26px">
+      <a href="#d" style="font:600 14px Inter,sans-serif;color:#161A20;text-decoration:none">Support us</a>
+      <a href="#d" style="font:600 14px Inter,sans-serif;color:#161A20;text-decoration:none">Log in</a>
+      <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:12px 20px;border-radius:14px;cursor:pointer" style-hover="background:#1B3A6E">Become a mentor</span>
+    </div>
+  </div>
+  <!-- hero -->
+  <div style="padding:64px 64px 0;position:relative">
+    <h1 style="margin:0;font:800 72px/0.98 Archivo,sans-serif;letter-spacing:-0.03em;color:#161A20;text-transform:uppercase">Your mentorship<br>journey <span style="color:#2F5EFF">starts</span> <span style="position:relative;z-index:0">here<span style="position:absolute;left:0;right:0;bottom:4px;height:12px;background:#17C3B2;opacity:.55;z-index:-1"></span></span></h1>
+    <p style="margin:20px 0 0;font:400 17px/1.55 Inter,sans-serif;color:#5B6270;max-width:520px">An open community of 5,000+ tech mentors ready to share their experience one on one. Free to browse, zero commission.</p>
+    <div style="display:flex;gap:12px;align-items:center;margin-top:30px">
+      <div style="width:460px;display:flex;align-items:center;gap:10px;background:#F7F6F2;border:1.5px solid #DEDBD1;border-radius:14px;padding:15px 18px">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="#5B6270" stroke-width="2"></circle><path d="M11 11l3.5 3.5" stroke="#5B6270" stroke-width="2" stroke-linecap="round"></path></svg>
+        <span style="font:500 15px Inter,sans-serif;color:#5B6270">Role, skill, or company…</span>
+      </div>
+      <span style="font:700 15px Inter,sans-serif;color:#fff;background:#132A52;padding:16px 26px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);cursor:pointer" style-hover="transform:translate(-1px,-1px);box-shadow:4px 4px 0 rgba(47,94,255,.4)">Find a mentor</span>
+    </div>
+  </div>
+  <!-- filter tags: 10 top-level, one open with subcategories -->
+  <div style="padding:34px 64px 6px;position:relative">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;max-width:1100px">
+      <span style="font:700 13px Inter,sans-serif;color:#fff;background:#132A52;padding:10px 16px;border-radius:12px;display:flex;align-items:center;gap:7px;cursor:pointer">Development<svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 1l3.5 3.5L8 1" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></path></svg></span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 15px;border-radius:12px;display:flex;align-items:center;gap:7px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">Management<svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 1l3.5 3.5L8 1" stroke="#132A52" stroke-width="1.8" stroke-linecap="round"></path></svg></span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 15px;border-radius:12px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">Design</span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 15px;border-radius:12px;display:flex;align-items:center;gap:7px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">Data &amp; ML<svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 1l3.5 3.5L8 1" stroke="#132A52" stroke-width="1.8" stroke-linecap="round"></path></svg></span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 15px;border-radius:12px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">Product</span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 15px;border-radius:12px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">QA &amp; Testing</span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 15px;border-radius:12px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">DevOps &amp; SRE</span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 15px;border-radius:12px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">Marketing</span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 15px;border-radius:12px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">Career &amp; CV</span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 15px;border-radius:12px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">HR &amp; People</span>
+    </div>
+    <!-- open dropdown for the active tag -->
+    <div style="position:absolute;top:76px;left:64px;z-index:5;background:#fff;border:1px solid #DEDBD1;border-radius:14px;box-shadow:0 16px 36px -12px rgba(19,42,82,.25);padding:8px;display:flex;flex-direction:column;gap:2px;width:210px">
+      <span style="font:600 13px Inter,sans-serif;color:#fff;background:#2F5EFF;padding:9px 12px;border-radius:9px;display:flex;justify-content:space-between;align-items:center">Frontend<span style="font:500 11px 'IBM Plex Mono',monospace">1,204</span></span>
+      <span style="font:500 13px Inter,sans-serif;color:#161A20;padding:9px 12px;border-radius:9px;display:flex;justify-content:space-between;align-items:center" style-hover="background:#F7F6F2">Backend<span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">986</span></span>
+      <span style="font:500 13px Inter,sans-serif;color:#161A20;padding:9px 12px;border-radius:9px;display:flex;justify-content:space-between;align-items:center" style-hover="background:#F7F6F2">Mobile<span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">412</span></span>
+      <span style="font:500 13px Inter,sans-serif;color:#161A20;padding:9px 12px;border-radius:9px;display:flex;justify-content:space-between;align-items:center" style-hover="background:#F7F6F2">Embedded<span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">87</span></span>
+      <span style="font:500 13px Inter,sans-serif;color:#161A20;padding:9px 12px;border-radius:9px;display:flex;justify-content:space-between;align-items:center" style-hover="background:#F7F6F2">Games<span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">64</span></span>
+    </div>
+  </div>
+  <!-- results meta -->
+  <div style="display:flex;align-items:baseline;justify-content:space-between;padding:26px 64px 14px">
+    <span style="font:800 17px Archivo,sans-serif;letter-spacing:.02em;color:#161A20;text-transform:uppercase">1,204 mentors <span style="color:#2F5EFF">· Frontend</span></span>
+    <span style="font:500 12px 'IBM Plex Mono',monospace;color:#4A5160;letter-spacing:.04em">SORT: RELEVANCE ▾</span>
+  </div>
+  <!-- grid 4-up -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding:6px 64px 28px">
+    <!-- card 1: cut-out -->
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden;cursor:pointer;transition:transform .18s,box-shadow .18s" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.22);transform:translateY(-3px)">
+      <div style="position:relative;height:200px;background:linear-gradient(180deg,#F4E3C0 0%,#EED8AA 100%)">
+        <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=500&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:170px;height:180px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03)">
+        <span style="position:absolute;top:12px;left:12px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#132A52;background:rgba(255,255,255,.9);padding:4px 8px;border-radius:6px">23 SESSIONS</span>
+      </div>
+      <div style="padding:14px 16px 16px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Jonas Weber</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Engineering Manager · Zalando</div>
+        <div style="margin-top:10px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">8Y EXP · <span style="color:#132A52">$50</span></div>
+      </div>
+    </div>
+    <!-- card 2: cut-out + NEW -->
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden;cursor:pointer" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.22);transform:translateY(-3px)">
+      <div style="position:relative;height:200px;background:linear-gradient(180deg,#C9E6F2 0%,#B7DCEE 100%)">
+        <img src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=500&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:165px;height:175px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03)">
+        <span style="position:absolute;top:12px;left:12px;font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#fff;background:#2F5EFF;padding:4px 9px;border-radius:6px">NEW</span>
+      </div>
+      <div style="padding:14px 16px 16px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Amara Okafor</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Staff Engineer · Spotify</div>
+        <div style="margin-top:10px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">12Y EXP · <span style="color:#0E7A70">FREE</span></div>
+      </div>
+    </div>
+    <!-- card 3: fallback A (photo not cut out, masked tile) -->
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden;cursor:pointer" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.22);transform:translateY(-3px)">
+      <div style="position:relative;height:200px;background:linear-gradient(180deg,#CDE8C6 0%,#BCE0B4 100%);display:flex;align-items:flex-end;justify-content:center">
+        <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=500&q=80" alt="" style="width:150px;height:160px;object-fit:cover;object-position:center 20%;border-radius:16px 16px 0 0;border:3px solid rgba(255,255,255,.75);border-bottom:none;display:block">
+        <span style="position:absolute;top:12px;left:12px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#132A52;background:rgba(255,255,255,.9);padding:4px 8px;border-radius:6px">7 SESSIONS</span>
+      </div>
+      <div style="padding:14px 16px 16px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Ahmed Hassan</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Mobile Engineer · Careem</div>
+        <div style="margin-top:10px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">6Y EXP · $30</div>
+      </div>
+    </div>
+    <!-- card 4: fallback B (no photo) -->
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden;cursor:pointer" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.22);transform:translateY(-3px)">
+      <div style="position:relative;height:200px;background:linear-gradient(180deg,#DDD9F4 0%,#CFC9EE 100%);display:flex;align-items:center;justify-content:center">
+        <div style="width:92px;height:92px;border-radius:50%;background:#132A52;color:#fff;display:flex;align-items:center;justify-content:center;font:700 32px 'Schibsted Grotesk',sans-serif">IJ</div>
+        <span style="position:absolute;top:12px;left:12px;font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#fff;background:#2F5EFF;padding:4px 9px;border-radius:6px">NEW</span>
+      </div>
+      <div style="padding:14px 16px 16px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Ingrid Johansson</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">UX Researcher · Klarna</div>
+        <div style="margin-top:10px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">10Y EXP · NEGOTIABLE</div>
+      </div>
+    </div>
+    <!-- card 5: long role overflow -->
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden;cursor:pointer" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.22);transform:translateY(-3px)">
+      <div style="position:relative;height:200px;background:linear-gradient(180deg,#F6D4E2 0%,#F0C3D6 100%)">
+        <img src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=500&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:170px;height:180px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03)">
+        <span style="position:absolute;top:12px;left:12px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#132A52;background:rgba(255,255,255,.9);padding:4px 8px;border-radius:6px">40 SESSIONS</span>
+      </div>
+      <div style="padding:14px 16px 16px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Sean O'Brien</div>
+        <div style="margin-top:3px;font:400 13px/1.4 Inter,sans-serif;color:#5B6270;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">Principal Platform Infrastructure Architect · Stripe</div>
+        <div style="margin-top:10px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">15Y EXP · <span style="color:#132A52">$150</span></div>
+      </div>
+    </div>
+    <!-- card 6 -->
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden;cursor:pointer" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.22);transform:translateY(-3px)">
+      <div style="position:relative;height:200px;background:linear-gradient(180deg,#C9E6F2 0%,#B7DCEE 100%)">
+        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=500&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:168px;height:178px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03)">
+        <span style="position:absolute;top:12px;left:12px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#132A52;background:rgba(255,255,255,.9);padding:4px 8px;border-radius:6px">31 SESSIONS</span>
+      </div>
+      <div style="padding:14px 16px 16px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Priya Sharma</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Product Designer · Figma</div>
+        <div style="margin-top:10px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">6Y EXP · <span style="color:#0E7A70">FREE</span></div>
+      </div>
+    </div>
+    <!-- card 7 -->
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden;cursor:pointer" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.22);transform:translateY(-3px)">
+      <div style="position:relative;height:200px;background:linear-gradient(180deg,#F7F6F2 0%,#EDEBE4 100%);display:flex;align-items:center;justify-content:center">
+        <div style="width:92px;height:92px;border-radius:50%;background:#2F5EFF;color:#fff;display:flex;align-items:center;justify-content:center;font:700 32px 'Schibsted Grotesk',sans-serif">YT</div>
+      </div>
+      <div style="padding:14px 16px 16px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Yuki Tanaka</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Site Reliability Engineer · Mercari</div>
+        <div style="margin-top:10px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">11Y EXP · <span style="color:#132A52">$150</span></div>
+      </div>
+    </div>
+    <!-- card 8: fallback A variant -->
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden;cursor:pointer" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.22);transform:translateY(-3px)">
+      <div style="position:relative;height:200px;background:linear-gradient(180deg,#F4E3C0 0%,#EED8AA 100%);display:flex;align-items:flex-end;justify-content:center">
+        <img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=500&q=80" alt="" style="width:150px;height:160px;object-fit:cover;object-position:center 15%;border-radius:16px 16px 0 0;border:3px solid rgba(255,255,255,.75);border-bottom:none;display:block">
+        <span style="position:absolute;top:12px;left:12px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#132A52;background:rgba(255,255,255,.9);padding:4px 8px;border-radius:6px">18 SESSIONS</span>
+      </div>
+      <div style="padding:14px 16px 16px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Elif Kaya</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Product Manager · Getir</div>
+        <div style="margin-top:10px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">9Y EXP · NEGOTIABLE</div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:center;padding:0 0 44px"><span style="font:700 14px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:13px 30px;border-radius:14px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">Show more mentors</span></div>
+  <!-- how it works -->
+  <div style="background:#F7F6F2;border-top:1px solid #DEDBD1;padding:56px 64px">
+    <h2 style="margin:0 0 34px;font:800 34px/1 Archivo,sans-serif;letter-spacing:-0.02em;color:#161A20;text-transform:uppercase">How it works</h2>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:28px">
+      <div style="background:#fff;border:1px solid #DEDBD1;border-radius:16px;padding:26px">
+        <div style="width:40px;height:40px;border:5px solid #132A52;border-radius:50%;margin-bottom:16px"></div>
+        <div style="font:700 18px 'Schibsted Grotesk',sans-serif;color:#161A20">1 · Browse freely</div>
+        <p style="margin:8px 0 0;font:400 14px/1.55 Inter,sans-serif;color:#5B6270">No account needed. Search 5,000+ mentors by role, skill, or company and read their full profiles.</p>
+      </div>
+      <div style="background:#fff;border:1px solid #DEDBD1;border-radius:16px;padding:26px">
+        <div style="width:40px;height:8px;border-radius:999px;background:#2F5EFF;margin:16px 0 32px;transform:rotate(-35deg);transform-origin:left"></div>
+        <div style="font:700 18px 'Schibsted Grotesk',sans-serif;color:#161A20">2 · Send a request</div>
+        <p style="margin:8px 0 0;font:400 14px/1.55 Inter,sans-serif;color:#5B6270">Tell the mentor what you want to work on. They reply by email — usually within a couple of days.</p>
+      </div>
+      <div style="background:#fff;border:1px solid #DEDBD1;border-radius:16px;padding:26px">
+        <div style="width:16px;height:16px;border-radius:50%;background:#17C3B2;margin:14px 0 26px"></div>
+        <div style="font:700 18px 'Schibsted Grotesk',sans-serif;color:#161A20">3 · Meet &amp; grow</div>
+        <p style="margin:8px 0 0;font:400 14px/1.55 Inter,sans-serif;color:#5B6270">Agree on format and price together. Many mentors are free; none pay us commission.</p>
+      </div>
+    </div>
+  </div>
+  <!-- support us band -->
+  <div style="background:#fff;padding:56px 64px;border-top:1px solid #DEDBD1">
+    <div style="max-width:1100px;margin:0 auto;background:linear-gradient(180deg,#C9E6F2 0%,#B7DCEE 100%);border-radius:20px;padding:44px 52px;display:flex;gap:44px;align-items:center;position:relative;overflow:hidden">
+      <div style="position:absolute;top:-70px;right:-70px;width:260px;height:260px;border:34px solid rgba(19,42,82,.08);border-radius:50%"></div>
+      <div style="position:relative;width:96px;height:96px;flex:none">
+        <div style="width:78px;height:78px;border:10px solid #132A52;border-radius:50%;margin:9px"></div>
+        <div style="position:absolute;bottom:14px;left:-16px;width:44px;height:10px;border-radius:999px;background:#2F5EFF;transform:rotate(-35deg)"></div>
+        <div style="position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;background:#17C3B2"></div>
+      </div>
+      <div style="flex:1;position:relative">
+        <h2 style="margin:0;font:800 32px/1.02 Archivo,sans-serif;letter-spacing:-0.02em;color:#161A20;text-transform:uppercase">Free because <span style="color:#2F5EFF">you</span> keep it free</h2>
+        <p style="margin:10px 0 0;font:400 15px/1.55 Inter,sans-serif;color:#4A5160;max-width:520px">Donations are our only income — no ads, no commission, no premium tier. A few dollars covers servers and email for everyone.</p>
+      </div>
+      <div style="flex:none;display:flex;flex-direction:column;gap:10px;align-items:center;position:relative">
+        <a href="05 Donate.dc.html" style="font:700 15px Inter,sans-serif;color:#fff;background:#132A52;padding:16px 30px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-decoration:none" style-hover="transform:translate(-1px,-1px);box-shadow:4px 4px 0 rgba(47,94,255,.4)">Support us ↗</a>
+        <span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160;letter-spacing:.04em">VIA KO-FI · FROM $3</span>
+      </div>
+    </div>
+  </div>
+  <!-- footer -->
+  <div style="background:#132A52;padding:40px 64px;display:flex;justify-content:space-between;align-items:center">
+    <div style="display:flex;align-items:center;gap:10px"><img src="brand/logomark.svg" alt="" style="height:30px;filter:brightness(0) invert(1)"><span style="font:800 15px Archivo,sans-serif;letter-spacing:-0.02em;color:#fff;text-transform:uppercase">openmentor.io</span></div>
+    <div style="display:flex;gap:24px">
+      <a href="#d" style="font:500 13px Inter,sans-serif;color:rgba(255,255,255,.75);text-decoration:none">About</a>
+      <a href="#d" style="font:500 13px Inter,sans-serif;color:rgba(255,255,255,.75);text-decoration:none">Donate</a>
+      <a href="#d" style="font:500 13px Inter,sans-serif;color:rgba(255,255,255,.75);text-decoration:none">Become a mentor</a>
+      <a href="#d" style="font:500 13px Inter,sans-serif;color:rgba(255,255,255,.75);text-decoration:none">Privacy</a>
+    </div>
+    <span style="font:500 11px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.5)">MADE WITH ♥ FOR THE COMMUNITY</span>
+  </div>
+</div>
+<!-- motion annotations -->
+<div style="width:1440px;margin-top:14px;background:#fff;border:1px dashed #2F5EFF;border-radius:10px;padding:16px 20px;font:400 12.5px/1.7 Inter,sans-serif;color:#4A5160">
+  <b style="color:#2F5EFF">MOTION</b> — Cards: entrance fade+8px rise, staggered 40ms per card (max 12), 240ms ease-out. Hover: −3px lift + shadow, 180ms; portrait scales 1.03 inside the pastel block. Filter tag → dropdown: 140ms fade + 6px drop; active tag swap is instant, grid crossfades 200ms. Search focus: cobalt border + 3px ring, 120ms. All disabled under <code>prefers-reduced-motion</code> (opacity-only fallback).
+</div>
+</div>
+
+<!-- ================= MOBILE 390 ================= -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">01 · HOMEPAGE · MOBILE 390</div>
+<div data-screen-label="Home mobile" style="width:390px;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #DEDBD1">
+    <div style="display:flex;align-items:center;gap:8px"><img src="brand/logomark.svg" alt="OpenMentor" style="height:32px"><span style="font:800 15px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor<span style="color:#2F5EFF">.io</span></span></div>
+    <div style="width:44px;height:44px;display:flex;flex-direction:column;gap:5px;align-items:center;justify-content:center"><span style="width:20px;height:2px;background:#161A20;border-radius:2px"></span><span style="width:20px;height:2px;background:#161A20;border-radius:2px"></span><span style="width:20px;height:2px;background:#161A20;border-radius:2px"></span></div>
+  </div>
+  <div style="padding:28px 20px 0">
+    <h1 style="margin:0;font:800 38px/1 Archivo,sans-serif;letter-spacing:-0.03em;color:#161A20;text-transform:uppercase">Your mentorship journey <span style="color:#2F5EFF">starts</span> <span style="position:relative;z-index:0">here<span style="position:absolute;left:0;right:0;bottom:2px;height:8px;background:#17C3B2;opacity:.55;z-index:-1"></span></span></h1>
+    <p style="margin:12px 0 0;font:400 14px/1.5 Inter,sans-serif;color:#5B6270">5,000+ tech mentors. Free to browse, zero commission.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+      <div style="display:flex;align-items:center;gap:10px;background:#F7F6F2;border:1.5px solid #DEDBD1;border-radius:14px;padding:14px 16px">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="#5B6270" stroke-width="2"></circle><path d="M11 11l3.5 3.5" stroke="#5B6270" stroke-width="2" stroke-linecap="round"></path></svg>
+        <span style="font:500 14px Inter,sans-serif;color:#5B6270">Role, skill, or company…</span>
+      </div>
+      <span style="font:700 15px Inter,sans-serif;color:#fff;background:#132A52;padding:15px 0;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-align:center">Find a mentor</span>
+    </div>
+  </div>
+  <!-- horizontally scrollable tags -->
+  <div style="display:flex;gap:8px;padding:18px 20px 4px;overflow:hidden">
+    <span style="font:700 13px Inter,sans-serif;color:#fff;background:#132A52;padding:10px 15px;border-radius:12px;flex:none">Development ▾</span>
+    <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 14px;border-radius:12px;flex:none">Management</span>
+    <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 14px;border-radius:12px;flex:none">Design</span>
+    <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8.5px 14px;border-radius:12px;flex:none">Data…</span>
+  </div>
+  <div style="padding:2px 20px 0;font:500 10px 'IBM Plex Mono',monospace;color:#4A5160;letter-spacing:.04em">← SCROLLS · TAP TAG AGAIN FOR SUB-CATEGORIES (BOTTOM SHEET)</div>
+  <div style="display:flex;align-items:baseline;justify-content:space-between;padding:18px 20px 12px">
+    <span style="font:800 14px Archivo,sans-serif;color:#161A20;text-transform:uppercase">1,204 mentors</span>
+    <span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">SORT ▾</span>
+  </div>
+  <!-- 2-up grid -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 20px 20px">
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden">
+      <div style="position:relative;height:140px;background:linear-gradient(180deg,#F4E3C0 0%,#EED8AA 100%)">
+        <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=400&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:112px;height:122px;object-fit:cover;object-position:top;mix-blend-mode:multiply">
+      </div>
+      <div style="padding:11px 12px 13px;border-top:1px solid #DEDBD1">
+        <div style="font:700 15px/1.15 'Schibsted Grotesk',sans-serif;color:#161A20">Jonas Weber</div>
+        <div style="margin-top:2px;font:400 12px/1.35 Inter,sans-serif;color:#5B6270">Eng Manager · Zalando</div>
+        <div style="margin-top:8px;font:500 10px 'IBM Plex Mono',monospace;color:#4A5160">8Y · <span style="color:#132A52">$50</span></div>
+      </div>
+    </div>
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden">
+      <div style="position:relative;height:140px;background:linear-gradient(180deg,#C9E6F2 0%,#B7DCEE 100%)">
+        <img src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=400&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:108px;height:118px;object-fit:cover;object-position:top;mix-blend-mode:multiply">
+        <span style="position:absolute;top:10px;left:10px;font:700 9px 'IBM Plex Mono',monospace;color:#fff;background:#2F5EFF;padding:3px 7px;border-radius:5px">NEW</span>
+      </div>
+      <div style="padding:11px 12px 13px;border-top:1px solid #DEDBD1">
+        <div style="font:700 15px/1.15 'Schibsted Grotesk',sans-serif;color:#161A20">Amara Okafor</div>
+        <div style="margin-top:2px;font:400 12px/1.35 Inter,sans-serif;color:#5B6270">Staff Eng · Spotify</div>
+        <div style="margin-top:8px;font:500 10px 'IBM Plex Mono',monospace;color:#4A5160">12Y · <span style="color:#0E7A70">FREE</span></div>
+      </div>
+    </div>
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden">
+      <div style="position:relative;height:140px;background:linear-gradient(180deg,#DDD9F4 0%,#CFC9EE 100%);display:flex;align-items:center;justify-content:center">
+        <div style="width:64px;height:64px;border-radius:50%;background:#132A52;color:#fff;display:flex;align-items:center;justify-content:center;font:700 22px 'Schibsted Grotesk',sans-serif">IJ</div>
+      </div>
+      <div style="padding:11px 12px 13px;border-top:1px solid #DEDBD1">
+        <div style="font:700 15px/1.15 'Schibsted Grotesk',sans-serif;color:#161A20">Ingrid Johansson</div>
+        <div style="margin-top:2px;font:400 12px/1.35 Inter,sans-serif;color:#5B6270">UX Research · Klarna</div>
+        <div style="margin-top:8px;font:500 10px 'IBM Plex Mono',monospace;color:#4A5160">10Y · NEGOT.</div>
+      </div>
+    </div>
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden">
+      <div style="position:relative;height:140px;background:linear-gradient(180deg,#CDE8C6 0%,#BCE0B4 100%);display:flex;align-items:flex-end;justify-content:center">
+        <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80" alt="" style="width:100px;height:110px;object-fit:cover;object-position:center 20%;border-radius:12px 12px 0 0;border:3px solid rgba(255,255,255,.75);border-bottom:none">
+      </div>
+      <div style="padding:11px 12px 13px;border-top:1px solid #DEDBD1">
+        <div style="font:700 15px/1.15 'Schibsted Grotesk',sans-serif;color:#161A20">Ahmed Hassan</div>
+        <div style="margin-top:2px;font:400 12px/1.35 Inter,sans-serif;color:#5B6270">Mobile Eng · Careem</div>
+        <div style="margin-top:8px;font:500 10px 'IBM Plex Mono',monospace;color:#4A5160">6Y · $30</div>
+      </div>
+    </div>
+  </div>
+  <div style="padding:0 20px 24px"><span style="display:block;font:700 14px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:14px 0;border-radius:14px;text-align:center">Show more mentors</span></div>
+  <div style="background:#F7F6F2;border-top:1px solid #DEDBD1;padding:28px 20px">
+    <h2 style="margin:0 0 18px;font:800 24px/1 Archivo,sans-serif;color:#161A20;text-transform:uppercase">How it works</h2>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="background:#fff;border:1px solid #DEDBD1;border-radius:14px;padding:16px;display:flex;gap:14px;align-items:center"><div style="width:26px;height:26px;border:4px solid #132A52;border-radius:50%;flex:none"></div><div><b style="font:700 14px 'Schibsted Grotesk',sans-serif;color:#161A20">Browse freely</b><div style="font:400 12px/1.4 Inter,sans-serif;color:#5B6270">No account needed.</div></div></div>
+      <div style="background:#fff;border:1px solid #DEDBD1;border-radius:14px;padding:16px;display:flex;gap:14px;align-items:center"><div style="width:24px;height:6px;border-radius:999px;background:#2F5EFF;flex:none;transform:rotate(-35deg)"></div><div><b style="font:700 14px 'Schibsted Grotesk',sans-serif;color:#161A20">Send a request</b><div style="font:400 12px/1.4 Inter,sans-serif;color:#5B6270">Mentors reply by email.</div></div></div>
+      <div style="background:#fff;border:1px solid #DEDBD1;border-radius:14px;padding:16px;display:flex;gap:14px;align-items:center"><div style="width:12px;height:12px;border-radius:50%;background:#17C3B2;flex:none"></div><div><b style="font:700 14px 'Schibsted Grotesk',sans-serif;color:#161A20">Meet &amp; grow</b><div style="font:400 12px/1.4 Inter,sans-serif;color:#5B6270">Zero commission, ever.</div></div></div>
+    </div>
+  </div>
+  <div style="background:#fff;border-top:1px solid #DEDBD1;padding:24px 20px">
+    <div style="background:linear-gradient(180deg,#C9E6F2 0%,#B7DCEE 100%);border-radius:16px;padding:24px 20px;display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center">
+      <div style="position:relative;width:56px;height:56px">
+        <div style="width:44px;height:44px;border:6px solid #132A52;border-radius:50%;margin:6px"></div>
+        <div style="position:absolute;top:2px;right:0;width:13px;height:13px;border-radius:50%;background:#17C3B2"></div>
+      </div>
+      <h2 style="margin:0;font:800 20px/1.05 Archivo,sans-serif;color:#161A20;text-transform:uppercase">Free because <span style="color:#2F5EFF">you</span> keep it free</h2>
+      <p style="margin:0;font:400 13px/1.5 Inter,sans-serif;color:#4A5160">Donations are our only income. No ads, no commission.</p>
+      <a href="05 Donate.dc.html" style="display:block;width:100%;font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:15px 0;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-align:center;text-decoration:none;box-sizing:border-box">Support us ↗</a>
+    </div>
+  </div>
+  <div style="background:#132A52;padding:24px 20px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:center;gap:8px"><img src="brand/logomark.svg" alt="" style="height:24px;filter:brightness(0) invert(1)"><span style="font:800 13px Archivo,sans-serif;color:#fff;text-transform:uppercase">openmentor.io</span></div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap">
+      <a href="#d" style="font:500 13px Inter,sans-serif;color:rgba(255,255,255,.75);text-decoration:none">About</a>
+      <a href="#d" style="font:500 13px Inter,sans-serif;color:rgba(255,255,255,.75);text-decoration:none">Donate</a>
+      <a href="#d" style="font:500 13px Inter,sans-serif;color:rgba(255,255,255,.75);text-decoration:none">Privacy</a>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+
+</x-dc>
+</body>
+</html>

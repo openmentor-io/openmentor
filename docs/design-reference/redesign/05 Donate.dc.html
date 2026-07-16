@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600..900&family=Schibsted+Grotesk:wght@400..900&family=Inter:wght@400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#EDEBE4;font-family:Inter,sans-serif}a{color:#2F5EFF}a:hover{color:#132A52}</style>
+</helmet>
+<div style="display:flex;gap:40px;align-items:flex-start;padding:40px">
+
+<!-- ===== DESKTOP ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">05 · DONATE · DESKTOP 1440</div>
+<div data-screen-label="Donate desktop" style="width:1440px;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 64px;border-bottom:1px solid #DEDBD1">
+    <div style="display:flex;align-items:center;gap:12px"><img src="brand/logomark.svg" alt="OpenMentor" style="height:40px"><span style="font:800 20px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor<span style="color:#2F5EFF">.io</span></span></div>
+    <a href="01 Homepage.dc.html" style="font:600 14px Inter,sans-serif;color:#2F5EFF;text-decoration:none">← Back to mentors</a>
+  </div>
+  <div style="padding:64px;max-width:960px;margin:0 auto;display:flex;flex-direction:column;align-items:center;text-align:center">
+    <!-- ring/stroke/node echo -->
+    <div style="position:relative;width:96px;height:96px;margin-bottom:26px">
+      <div style="width:78px;height:78px;border:10px solid #132A52;border-radius:50%;margin:9px"></div>
+      <div style="position:absolute;bottom:14px;left:-16px;width:44px;height:10px;border-radius:999px;background:#2F5EFF;transform:rotate(-35deg)"></div>
+      <div style="position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;background:#17C3B2"></div>
+    </div>
+    <h1 style="margin:0;font:800 48px/1.02 Archivo,sans-serif;letter-spacing:-0.03em;color:#161A20;text-transform:uppercase">Keep mentorship<br><span style="color:#2F5EFF">free</span> for everyone</h1>
+    <p style="margin:18px 0 0;font:400 16px/1.6 Inter,sans-serif;color:#5B6270;max-width:520px">OpenMentor takes zero commission and shows no ads. Servers, email delivery, and background-removal magic are paid for by people like you.</p>
+    <!-- ko-fi card -->
+    <div style="margin-top:36px;width:520px;border:1px solid #DEDBD1;border-radius:18px;padding:28px;display:flex;flex-direction:column;gap:18px;box-shadow:0 10px 30px -16px rgba(19,42,82,.18);background:#fff">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font:800 15px Archivo,sans-serif;letter-spacing:.02em;color:#161A20;text-transform:uppercase">Buy us a coffee</span>
+        <span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160;letter-spacing:.04em">VIA KO-FI</span>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:center">
+        <span style="font:700 15px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:12px 22px;border-radius:14px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">$3</span>
+        <span style="font:700 15px Inter,sans-serif;color:#fff;background:#132A52;padding:13.5px 23px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4)">$10</span>
+        <span style="font:700 15px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:12px 22px;border-radius:14px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">$25</span>
+        <span style="font:700 15px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:12px 22px;border-radius:14px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">Custom</span>
+      </div>
+      <span style="font:700 15px Inter,sans-serif;color:#fff;background:#132A52;padding:16px 0;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);cursor:pointer" style-hover="transform:translate(-1px,-1px);box-shadow:4px 4px 0 rgba(47,94,255,.4)">Donate $10 on Ko-fi ↗</span>
+      <span style="font:400 12px/1.5 Inter,sans-serif;color:#5B6270">Opens ko-fi.com in a new tab · one-time or monthly · no account needed</span>
+    </div>
+    <!-- where money goes -->
+    <div style="margin-top:36px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;width:100%;max-width:760px">
+      <div style="border:1px solid #DEDBD1;border-radius:14px;padding:18px;text-align:left">
+        <div style="font:700 22px 'Schibsted Grotesk',sans-serif;color:#132A52">$41<span style="font:400 12px Inter,sans-serif;color:#5B6270">/mo</span></div>
+        <div style="margin-top:4px;font:400 13px/1.5 Inter,sans-serif;color:#5B6270">Servers &amp; database hosting</div>
+      </div>
+      <div style="border:1px solid #DEDBD1;border-radius:14px;padding:18px;text-align:left">
+        <div style="font:700 22px 'Schibsted Grotesk',sans-serif;color:#132A52">$28<span style="font:400 12px Inter,sans-serif;color:#5B6270">/mo</span></div>
+        <div style="margin-top:4px;font:400 13px/1.5 Inter,sans-serif;color:#5B6270">Transactional email delivery</div>
+      </div>
+      <div style="border:1px solid #DEDBD1;border-radius:14px;padding:18px;text-align:left">
+        <div style="font:700 22px 'Schibsted Grotesk',sans-serif;color:#0E7A70">100%</div>
+        <div style="margin-top:4px;font:400 13px/1.5 Inter,sans-serif;color:#5B6270">Of donations go to running costs — the team is volunteers</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div style="width:1440px;margin-top:14px;background:#fff;border:1px dashed #2F5EFF;border-radius:10px;padding:16px 20px;font:400 12.5px/1.7 Inter,sans-serif;color:#4A5160">
+  <b style="color:#2F5EFF">MOTION</b> — Logomark echo animates once on load: ring draws (stroke-dashoffset 400ms), cobalt stroke slides in from left 240ms, mint node pops last (scale 0→1 spring). Amount pills: selected pill gets navy fill + CTA label updates instantly. Reduced motion: static.
+</div>
+</div>
+
+<!-- ===== MOBILE ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">05 · DONATE · MOBILE 390</div>
+<div data-screen-label="Donate mobile" style="width:390px;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #DEDBD1">
+    <a href="01 Homepage.dc.html" style="font:600 13px Inter,sans-serif;color:#2F5EFF;text-decoration:none;padding:10px 0">← Mentors</a>
+    <img src="brand/logomark.svg" alt="" style="height:30px">
+    <span style="width:44px"></span>
+  </div>
+  <div style="padding:32px 20px 36px;display:flex;flex-direction:column;align-items:center;text-align:center">
+    <div style="position:relative;width:72px;height:72px;margin-bottom:18px">
+      <div style="width:58px;height:58px;border:8px solid #132A52;border-radius:50%;margin:7px"></div>
+      <div style="position:absolute;bottom:10px;left:-12px;width:34px;height:8px;border-radius:999px;background:#2F5EFF;transform:rotate(-35deg)"></div>
+      <div style="position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#17C3B2"></div>
+    </div>
+    <h1 style="margin:0;font:800 30px/1.05 Archivo,sans-serif;letter-spacing:-0.02em;color:#161A20;text-transform:uppercase">Keep mentorship <span style="color:#2F5EFF">free</span></h1>
+    <p style="margin:12px 0 0;font:400 14px/1.55 Inter,sans-serif;color:#5B6270">Zero commission, no ads. Donations cover servers and email.</p>
+    <div style="margin-top:24px;width:100%;border:1px solid #DEDBD1;border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;gap:8px;justify-content:center">
+        <span style="flex:1;font:700 14px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:12px 0;border-radius:12px;text-align:center">$3</span>
+        <span style="flex:1;font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:13.5px 0;border-radius:12px;text-align:center">$10</span>
+        <span style="flex:1;font:700 14px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:12px 0;border-radius:12px;text-align:center">$25</span>
+      </div>
+      <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:15px 0;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-align:center">Donate $10 on Ko-fi ↗</span>
+      <span style="font:400 11px/1.5 Inter,sans-serif;color:#5B6270">Opens ko-fi.com · one-time or monthly</span>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+
+</x-dc>
+</body>
+</html>

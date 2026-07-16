@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600..900&family=Schibsted+Grotesk:wght@400..900&family=Inter:wght@400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#EDEBE4;font-family:Inter,sans-serif}a{color:#2F5EFF}a:hover{color:#132A52}</style>
+</helmet>
+<div style="padding:40px;display:flex;flex-direction:column;gap:28px;max-width:1240px">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270">10 · COMPONENT SHEET + TOKEN DELTAS + MOTION SPEC</div>
+
+<!-- ============ TYPE SCALE ============ -->
+<div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:12px;padding:32px 36px">
+  <h2 style="margin:0 0 20px;font:800 18px Archivo,sans-serif;letter-spacing:.02em;color:#161A20;text-transform:uppercase">Type system</h2>
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:baseline;gap:24px"><span style="width:270px;font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">display-xl · Archivo 800 · 72/0.98 · -3% · CAPS</span><span style="font:800 72px/0.98 Archivo,sans-serif;letter-spacing:-0.03em;color:#161A20;text-transform:uppercase">Starts here</span></div>
+    <div style="display:flex;align-items:baseline;gap:24px"><span style="width:270px;font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">display-l · Archivo 800 · 34/1.05 · -2% · CAPS</span><span style="font:800 34px/1.05 Archivo,sans-serif;letter-spacing:-0.02em;color:#161A20;text-transform:uppercase">Section header</span></div>
+    <div style="display:flex;align-items:baseline;gap:24px"><span style="width:270px;font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">label · Archivo 800 · 13–15/1 · +3% · CAPS</span><span style="font:800 14px Archivo,sans-serif;letter-spacing:.03em;color:#161A20;text-transform:uppercase">Eyebrow / card section label</span></div>
+    <div style="display:flex;align-items:baseline;gap:24px"><span style="width:270px;font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">name-l · Schibsted 700 · 40/1.05 · -2%</span><span style="font:700 40px/1.05 'Schibsted Grotesk',sans-serif;letter-spacing:-0.02em;color:#161A20">Jonas Weber</span></div>
+    <div style="display:flex;align-items:baseline;gap:24px"><span style="width:270px;font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">name-m · Schibsted 700 · 17/1.15 · -1.5%</span><span style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Jonas Weber — card title</span></div>
+    <div style="display:flex;align-items:baseline;gap:24px"><span style="width:270px;font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">body · Inter 400 · 14–15/1.6</span><span style="font:400 15px/1.6 Inter,sans-serif;color:#161A20">Body copy stays Inter — quiet on purpose; the display faces carry the character.</span></div>
+    <div style="display:flex;align-items:baseline;gap:24px"><span style="width:270px;font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">meta · Plex Mono 500 · 10–12/1 · +4% · CAPS</span><span style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">8Y EXP · $50 · 23 SESSIONS</span></div>
+  </div>
+  <p style="margin:18px 0 0;font:400 13px/1.6 Inter,sans-serif;color:#5B6270">All OFL, self-hostable variable fonts via <code>next/font</code>: Archivo (display), Schibsted Grotesk (names/numbers), Inter (body), IBM Plex Mono (metadata).</p>
+</div>
+
+<!-- ============ BUTTONS ============ -->
+<div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:12px;padding:32px 36px">
+  <h2 style="margin:0 0 20px;font:800 18px Archivo,sans-serif;letter-spacing:.02em;color:#161A20;text-transform:uppercase">Buttons</h2>
+  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+    <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:14px 24px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);cursor:pointer" style-hover="transform:translate(-1px,-1px);box-shadow:4px 4px 0 rgba(47,94,255,.4)">Primary</span>
+    <span style="font:700 14px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:12.5px 22px;border-radius:14px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">Secondary</span>
+    <span style="font:700 14px Inter,sans-serif;color:#5B6270;padding:14px 12px;border-radius:14px;cursor:pointer" style-hover="background:#F7F6F2;color:#161A20">Ghost</span>
+    <span style="font:700 14px Inter,sans-serif;color:#B9BDC7;background:#F7F6F2;padding:14px 24px;border-radius:14px;cursor:not-allowed">Disabled</span>
+    <span style="font:700 14px Inter,sans-serif;color:#E5484D;background:#fff;border:1.5px solid rgba(229,72,77,.4);padding:12.5px 22px;border-radius:14px;cursor:pointer" style-hover="background:rgba(229,72,77,.05)">Destructive</span>
+    <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:14px 24px;border-radius:14px;box-shadow:0 0 0 3px #fff,0 0 0 5.5px #2F5EFF">Focus-visible</span>
+  </div>
+  <p style="margin:16px 0 0;font:400 13px/1.6 Inter,sans-serif;color:#5B6270">Primary: navy fill, 2px cobalt offset shadow → hover shifts −1,−1 and shadow grows to 4px (150ms); press returns to 0 (push feel). One button system everywhere — the old rounded-full/rounded-lg split is retired. Focus: double ring (white gap + cobalt), never outline:none.</p>
+</div>
+
+<!-- ============ FIELDS ============ -->
+<div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:12px;padding:32px 36px">
+  <h2 style="margin:0 0 20px;font:800 18px Archivo,sans-serif;letter-spacing:.02em;color:#161A20;text-transform:uppercase">Form fields</h2>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:18px">
+    <div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 13px Inter,sans-serif;color:#161A20">Default</label><div style="border:1.5px solid #DEDBD1;border-radius:12px;padding:13px 15px;font:400 14px Inter,sans-serif;color:#5B6270">Placeholder</div></div>
+    <div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 13px Inter,sans-serif;color:#161A20">Focus</label><div style="border:1.5px solid #2F5EFF;border-radius:12px;padding:13px 15px;font:400 14px Inter,sans-serif;color:#161A20;box-shadow:0 0 0 3px rgba(47,94,255,.13)">Typing|</div></div>
+    <div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 13px Inter,sans-serif;color:#161A20">Error</label><div style="border:1.5px solid #E5484D;border-radius:12px;padding:13px 15px;font:400 14px Inter,sans-serif;color:#161A20;box-shadow:0 0 0 3px rgba(229,72,77,.12)">daria@gmail</div><span style="font:500 12px Inter,sans-serif;color:#E5484D">Not a full email address</span></div>
+    <div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 13px Inter,sans-serif;color:#B9BDC7">Disabled</label><div style="border:1.5px solid #EDEBE4;background:#F7F6F2;border-radius:12px;padding:13px 15px;font:400 14px Inter,sans-serif;color:#B9BDC7">Unavailable</div></div>
+  </div>
+</div>
+
+<!-- ============ CARDS: ALL PHOTO STATES ============ -->
+<div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:12px;padding:32px 36px">
+  <h2 style="margin:0 0 20px;font:800 18px Archivo,sans-serif;letter-spacing:.02em;color:#161A20;text-transform:uppercase">Mentor card — full state set</h2>
+  <div style="display:grid;grid-template-columns:repeat(4,240px);gap:18px">
+    <div>
+      <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden">
+        <div style="position:relative;height:190px;background:linear-gradient(180deg,#F4E3C0 0%,#EED8AA 100%)">
+          <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=500&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:160px;height:170px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03)">
+          <span style="position:absolute;top:12px;left:12px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#132A52;background:rgba(255,255,255,.9);padding:4px 8px;border-radius:6px">23 SESSIONS</span>
+        </div>
+        <div style="padding:13px 15px 15px;border-top:1px solid #DEDBD1">
+          <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Jonas Weber</div>
+          <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Engineering Manager · Zalando</div>
+          <div style="margin-top:9px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">8Y EXP · <span style="color:#132A52">$50</span></div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font:500 10px 'IBM Plex Mono',monospace;color:#0E7A70;letter-spacing:.04em">HERO · CUT-OUT + MULTIPLY BLEND</div>
+    </div>
+    <div>
+      <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden">
+        <div style="position:relative;height:190px;background:linear-gradient(180deg,#CDE8C6 0%,#BCE0B4 100%);display:flex;align-items:flex-end;justify-content:center">
+          <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=500&q=80" alt="" style="width:145px;height:152px;object-fit:cover;object-position:center 20%;border-radius:16px 16px 0 0;border:3px solid rgba(255,255,255,.75);border-bottom:none;display:block">
+        </div>
+        <div style="padding:13px 15px 15px;border-top:1px solid #DEDBD1">
+          <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Ahmed Hassan</div>
+          <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Mobile Engineer · Careem</div>
+          <div style="margin-top:9px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">6Y EXP · $30</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font:500 10px 'IBM Plex Mono',monospace;color:#4A5160;letter-spacing:.04em">FALLBACK A · UNCUT PHOTO, ARCH MASK + WHITE KEYLINE</div>
+    </div>
+    <div>
+      <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden">
+        <div style="position:relative;height:190px;background:linear-gradient(180deg,#DDD9F4 0%,#CFC9EE 100%);display:flex;align-items:center;justify-content:center">
+          <div style="width:84px;height:84px;border-radius:50%;background:#132A52;color:#fff;display:flex;align-items:center;justify-content:center;font:700 30px 'Schibsted Grotesk',sans-serif">IJ</div>
+          <span style="position:absolute;top:12px;left:12px;font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#fff;background:#2F5EFF;padding:4px 9px;border-radius:6px">NEW</span>
+        </div>
+        <div style="padding:13px 15px 15px;border-top:1px solid #DEDBD1">
+          <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Ingrid Johansson</div>
+          <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">UX Researcher · Klarna</div>
+          <div style="margin-top:9px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">10Y EXP · NEGOTIABLE</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font:500 10px 'IBM Plex Mono',monospace;color:#4A5160;letter-spacing:.04em">FALLBACK B · INITIALS (NAVY/COBALT BY HASH) + NEW BADGE</div>
+    </div>
+    <div>
+      <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden">
+        <div style="height:190px;background:linear-gradient(90deg,#F7F6F2 25%,#EDEBE4 50%,#F7F6F2 75%)"></div>
+        <div style="padding:13px 15px 15px;border-top:1px solid #DEDBD1">
+          <div style="height:16px;width:60%;border-radius:6px;background:#EDEBE4"></div>
+          <div style="margin-top:8px;height:12px;width:85%;border-radius:6px;background:#F7F6F2"></div>
+          <div style="margin-top:10px;height:10px;width:40%;border-radius:6px;background:#F7F6F2"></div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font:500 10px 'IBM Plex Mono',monospace;color:#4A5160;letter-spacing:.04em">LOADING · SHIMMER 1.4S LINEAR LOOP (PAPER TONES ONLY)</div>
+    </div>
+  </div>
+  <p style="margin:18px 0 0;font:400 13px/1.6 Inter,sans-serif;color:#5B6270">Pastel assignment stays deterministic (hash of mentor id → 5 pastels + neutral). Gradient is base→hover pair, top→bottom. Long role titles clamp at 2 lines. Hover: −3px lift + shadow 180ms, portrait scale 1.03.</p>
+</div>
+
+<!-- ============ PILLS / BADGES / TOASTS / DROPDOWN / BANNER ============ -->
+<div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:12px;padding:32px 36px;display:flex;flex-direction:column;gap:24px">
+  <h2 style="margin:0;font:800 18px Archivo,sans-serif;letter-spacing:.02em;color:#161A20;text-transform:uppercase">Pills · badges · price · toasts · dropdown · cookie banner</h2>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:8px 15px;border-radius:999px">Tag pill</span>
+    <span style="font:700 13px Inter,sans-serif;color:#fff;background:#132A52;padding:9px 16px;border-radius:12px">Filter active ▾</span>
+    <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8px 15px;border-radius:12px">Filter idle</span>
+    <span style="font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#fff;background:#2F5EFF;padding:5px 10px;border-radius:6px">NEW</span>
+    <span style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#132A52;background:rgba(255,255,255,.9);border:1px solid #DEDBD1;padding:5px 9px;border-radius:6px">23 SESSIONS</span>
+    <span style="display:flex;align-items:center;gap:6px;font:500 11px 'IBM Plex Mono',monospace;color:#0E7A70"><span style="width:7px;height:7px;border-radius:50%;background:#17C3B2"></span>AVAILABLE</span>
+    <span style="font:700 12px 'IBM Plex Mono',monospace;color:#0E7A70;background:rgba(23,195,178,.14);padding:6px 11px;border-radius:999px">FREE</span>
+    <span style="font:700 12px 'IBM Plex Mono',monospace;color:#132A52;background:#F7F6F2;padding:6px 11px;border-radius:999px">$150</span>
+    <span style="font:500 12px 'IBM Plex Mono',monospace;color:#4A5160;background:#F7F6F2;padding:6px 11px;border-radius:999px">NEGOTIABLE</span>
+  </div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap">
+    <div style="background:#161A20;border-radius:14px;padding:14px 18px;display:flex;gap:12px;align-items:center;max-width:340px">
+      <div style="width:22px;height:22px;border-radius:50%;background:#17C3B2;display:flex;align-items:center;justify-content:center;flex:none"><svg width="10" height="8" viewBox="0 0 11 9" fill="none"><path d="M1 4.5L4 7.5L10 1" stroke="#161A20" stroke-width="2" stroke-linecap="round"></path></svg></div>
+      <span style="font:500 13px Inter,sans-serif;color:#fff">Success toast — mint check, ink surface</span>
+    </div>
+    <div style="background:#161A20;border-radius:14px;padding:14px 18px;display:flex;gap:12px;align-items:center;max-width:340px">
+      <div style="width:22px;height:22px;border-radius:50%;background:#E5484D;display:flex;align-items:center;justify-content:center;flex:none;color:#fff;font:700 13px Inter,sans-serif">!</div>
+      <span style="font:500 13px Inter,sans-serif;color:#fff">Error toast — sticks until dismissed</span>
+    </div>
+    <div style="background:#fff;border:1px solid #DEDBD1;border-radius:14px;box-shadow:0 16px 36px -12px rgba(19,42,82,.25);padding:8px;display:flex;flex-direction:column;gap:2px;width:190px">
+      <span style="font:600 13px Inter,sans-serif;color:#fff;background:#2F5EFF;padding:9px 12px;border-radius:9px">Selected item</span>
+      <span style="font:500 13px Inter,sans-serif;color:#161A20;padding:9px 12px;border-radius:9px" style-hover="background:#F7F6F2">Menu item</span>
+      <span style="font:500 13px Inter,sans-serif;color:#B9BDC7;padding:9px 12px">Disabled item</span>
+    </div>
+  </div>
+  <div style="border:1px solid #DEDBD1;border-radius:16px;padding:16px 22px;display:flex;gap:18px;align-items:center;box-shadow:0 12px 30px -14px rgba(19,42,82,.2);max-width:720px">
+    <span style="font:400 13px/1.5 Inter,sans-serif;color:#161A20;flex:1">We use one cookie to remember your login. No tracking, no analytics vendors. <a href="#c" style="font-weight:600">Details</a></span>
+    <span style="font:700 13px Inter,sans-serif;color:#fff;background:#132A52;padding:11px 18px;border-radius:12px;flex:none">Okay</span>
+  </div>
+</div>
+
+<!-- ============ TOKEN DELTAS ============ -->
+<div style="background:#132A52;border-radius:12px;padding:32px 36px">
+  <h2 style="margin:0 0 18px;font:800 18px Archivo,sans-serif;letter-spacing:.02em;color:#fff;text-transform:uppercase">Token deltas <span style="color:#17C3B2">(new or changed only)</span></h2>
+  <div style="font:400 13px/1.9 'IBM Plex Mono',monospace;color:rgba(255,255,255,.85);white-space:pre-wrap">--om-danger: #E5484D;          /* NEW — errors/destructive (AA on white) */
+--om-mint-ink: #0E7A70;        /* NEW — mint family text on light surfaces (AA 5.2:1) */
+--om-ink-faint: #B9BDC7;       /* NEW — disabled text/icons only, never body copy */
+--om-shadow-btn: 2px 2px 0 rgb(47 94 255 / .4);      /* NEW — primary button; hover 4px 4px */
+--om-shadow-card: 0 12px 26px -10px rgb(19 42 82 / .22); /* NEW — card hover */
+--om-ring-focus: 0 0 0 3px rgb(47 94 255 / .13);     /* NEW — field focus ring */
+--om-radius-card: 14px;  --om-radius-field: 12px;  --om-radius-btn: 14px;  --om-radius-panel: 16px;
+                               /* CHANGED — replaces mixed rounded-lg/xl/full */
+--om-pastel-*-grad: base → hover hex, 180deg;         /* CHANGED — pastels render as gradients */
+font-display: "Archivo";  font-names: "Schibsted Grotesk";  font-mono: "IBM Plex Mono";
+                               /* NEW — body stays Inter */</div>
+  <p style="margin:16px 0 0;font:400 13px/1.6 Inter,sans-serif;color:rgba(255,255,255,.75)">Everything else in §3 is unchanged. Every neutral on these screens comes from ink/paper/line — the Tailwind gray-* scale can be deleted from the config.</p>
+</div>
+
+<!-- ============ MOTION SPEC ============ -->
+<div style="background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:12px;padding:32px 36px">
+  <h2 style="margin:0 0 16px;font:800 18px Archivo,sans-serif;letter-spacing:.02em;color:#161A20;text-transform:uppercase">Motion spec (all CSS-only)</h2>
+  <div style="font:400 13.5px/1.85 Inter,sans-serif;color:#161A20;max-width:860px">
+    <b>Durations:</b> 120ms (focus/color) · 150–180ms (hover/press) · 200–240ms (entrances/crossfades) · 300ms max (one-off pops: mint node, toggle chip).<br>
+    <b>Easing:</b> ease-out for entrances, ease-in-out for state swaps; the two "spring" pops use <code>cubic-bezier(.34,1.56,.64,1)</code>.<br>
+    <b>Catalog entrance:</b> cards fade + rise 8px, 40ms stagger, first 12 only.<br>
+    <b>Card hover:</b> −3px translate + card shadow; portrait scale 1.03 (transform only, no layout).<br>
+    <b>Buttons:</b> primary −1,−1 shift + shadow 2→4px; press back to 0.<br>
+    <b>Filters:</b> dropdown 140ms fade + 6px drop; grid crossfade 180–200ms on tag change.<br>
+    <b>Forms:</b> focus ring 120ms; error shake ±3px ×2 (200ms) + message slides down 4px.<br>
+    <b>Toasts:</b> up 16px + fade 240ms in; auto-dismiss 5s with mint progress hairline; errors persist.<br>
+    <b>Reduced motion:</b> all transforms/staggers off; opacity-only fallbacks; shake replaced by ring flash.
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+</body>
+</html>

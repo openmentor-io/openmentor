@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600..900&family=Schibsted+Grotesk:wght@400..900&family=Inter:wght@400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#EDEBE4;font-family:Inter,sans-serif}a{color:#2F5EFF}a:hover{color:#132A52}</style>
+</helmet>
+<div style="display:flex;gap:40px;align-items:flex-start;padding:40px;flex-wrap:wrap">
+
+<!-- ===== DESKTOP: default state ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">03 · CONTACT A MENTOR · DESKTOP 1440 · DEFAULT + INLINE ERROR</div>
+<div data-screen-label="Contact desktop" style="width:1440px;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 64px;border-bottom:1px solid #DEDBD1">
+    <div style="display:flex;align-items:center;gap:12px"><img src="brand/logomark.svg" alt="OpenMentor" style="height:40px"><span style="font:800 20px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor<span style="color:#2F5EFF">.io</span></span></div>
+    <a href="02 Mentor Profile.dc.html" style="font:600 14px Inter,sans-serif;color:#2F5EFF;text-decoration:none">← Back to profile</a>
+  </div>
+  <div style="display:flex;gap:56px;padding:48px 64px 64px;max-width:1100px;margin:0 auto;align-items:flex-start">
+    <!-- form -->
+    <div style="flex:1;max-width:560px">
+      <h1 style="margin:0;font:800 34px/1.05 Archivo,sans-serif;letter-spacing:-0.02em;color:#161A20;text-transform:uppercase">Request a session</h1>
+      <p style="margin:10px 0 28px;font:400 15px/1.55 Inter,sans-serif;color:#5B6270">Jonas will get your message by email and reply directly to you. Be specific — mentors accept requests they can actually help with.</p>
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <div style="display:flex;gap:16px">
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+            <label style="font:600 13px Inter,sans-serif;color:#161A20">Your name</label>
+            <div style="background:#fff;border:1.5px solid #DEDBD1;border-radius:12px;padding:13px 15px;font:400 14px Inter,sans-serif;color:#161A20">Daria Kovalenko</div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+            <label style="font:600 13px Inter,sans-serif;color:#161A20">Email</label>
+            <div style="background:#fff;border:1.5px solid #E5484D;border-radius:12px;padding:13px 15px;font:400 14px Inter,sans-serif;color:#161A20;box-shadow:0 0 0 3px rgba(229,72,77,.12)">daria.kova@gmail</div>
+            <span style="font:500 12px Inter,sans-serif;color:#E5484D;display:flex;align-items:center;gap:5px"><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="6" fill="#E5484D"></circle><path d="M6 3v3.5M6 8.5v.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"></path></svg>That doesn't look like a full email address</span>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label style="font:600 13px Inter,sans-serif;color:#161A20">What do you want to work on?</label>
+          <div style="background:#fff;border:1.5px solid #2F5EFF;border-radius:12px;padding:13px 15px;font:400 14px/1.6 Inter,sans-serif;color:#161A20;min-height:96px;box-shadow:0 0 0 3px rgba(47,94,255,.13)">I'm a senior engineer at a fintech startup, and I've been offered a team-lead role. I'd like 2–3 sessions to decide whether to take it and how to negotiate the transition.|</div>
+          <div style="display:flex;justify-content:space-between"><span style="font:400 12px Inter,sans-serif;color:#5B6270">Focused state — cobalt border + soft ring</span><span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">214/1000</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label style="font:600 13px Inter,sans-serif;color:#161A20">Preferred format <span style="font:400 12px;color:#5B6270">(optional)</span></label>
+          <div style="display:flex;gap:8px">
+            <span style="font:600 13px Inter,sans-serif;color:#fff;background:#132A52;padding:9px 16px;border-radius:999px">One-off session</span>
+            <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:7.5px 15px;border-radius:999px">Ongoing mentorship</span>
+            <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:7.5px 15px;border-radius:999px">Not sure yet</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-top:6px">
+          <span style="font:700 15px Inter,sans-serif;color:#fff;background:#132A52;padding:15px 28px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);cursor:pointer" style-hover="transform:translate(-1px,-1px);box-shadow:4px 4px 0 rgba(47,94,255,.4)">Send request</span>
+          <span style="font:400 13px Inter,sans-serif;color:#5B6270">No account needed. We only share your email with Jonas.</span>
+        </div>
+      </div>
+    </div>
+    <!-- mentor recap card -->
+    <div style="width:300px;flex:none;border:1px solid #DEDBD1;border-radius:16px;overflow:hidden">
+      <div style="position:relative;height:180px;background:linear-gradient(180deg,#F4E3C0 0%,#EED8AA 100%)">
+        <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=500&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:150px;height:160px;object-fit:cover;object-position:top;mix-blend-mode:multiply">
+      </div>
+      <div style="padding:16px 18px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px 'Schibsted Grotesk',sans-serif;color:#161A20">Jonas Weber</div>
+        <div style="margin-top:2px;font:400 13px Inter,sans-serif;color:#5B6270">Engineering Manager · Zalando</div>
+        <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">23 SESSIONS · ★ 4.9</span>
+          <span style="font:700 15px 'Schibsted Grotesk',sans-serif;color:#132A52">$50</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div style="width:1440px;margin-top:14px;background:#fff;border:1px dashed #2F5EFF;border-radius:10px;padding:16px 20px;font:400 12.5px/1.7 Inter,sans-serif;color:#4A5160">
+  <b style="color:#2F5EFF">MOTION</b> — Field focus: border #DEDBD1→#2F5EFF + 3px cobalt ring, 120ms. Error appears: field shakes ±3px twice (200ms total) + red ring fades in; error text slides down 4px. Error color #E5484D (new token, AA on white). Submit: button → 60% width spinner state 180ms, then success view crossfade 240ms.
+</div>
+</div>
+
+<!-- ===== SUCCESS STATE (desktop, cropped) ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">03 · SUCCESS STATE (replaces form area)</div>
+<div data-screen-label="Contact success" style="width:640px;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:56px 48px;display:flex;flex-direction:column;align-items:center;text-align:center">
+  <div style="position:relative;width:88px;height:88px">
+    <div style="width:72px;height:72px;border:9px solid #132A52;border-radius:50%;margin:8px"></div>
+    <div style="position:absolute;top:6px;right:2px;width:22px;height:22px;border-radius:50%;background:#17C3B2;display:flex;align-items:center;justify-content:center"><svg width="11" height="9" viewBox="0 0 11 9" fill="none"><path d="M1 4.5L4 7.5L10 1" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
+  </div>
+  <h2 style="margin:22px 0 0;font:800 28px/1.1 Archivo,sans-serif;letter-spacing:-0.02em;color:#161A20;text-transform:uppercase">Request sent</h2>
+  <p style="margin:12px 0 0;font:400 15px/1.6 Inter,sans-serif;color:#5B6270;max-width:380px">Jonas got your message at <b style="color:#161A20">daria.kova@gmail.com</b> and usually replies within 2 days. We'll nudge him if it takes longer.</p>
+  <div style="display:flex;gap:10px;margin-top:26px">
+    <a href="01 Homepage.dc.html" style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:13px 24px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-decoration:none">Browse more mentors</a>
+    <a href="02 Mentor Profile.dc.html" style="font:700 14px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:11.5px 22px;border-radius:14px;text-decoration:none">Back to profile</a>
+  </div>
+  <div style="margin-top:26px;font:500 11px 'IBM Plex Mono',monospace;color:#4A5160;letter-spacing:.04em">MINT NODE "ARRIVES" ON THE RING — 300MS SPRING, ONCE</div>
+</div>
+</div>
+
+<!-- ===== MOBILE ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">03 · CONTACT · MOBILE 390</div>
+<div data-screen-label="Contact mobile" style="width:390px;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #DEDBD1">
+    <a href="02 Mentor Profile.dc.html" style="font:600 13px Inter,sans-serif;color:#2F5EFF;text-decoration:none;padding:10px 0">← Profile</a>
+    <img src="brand/logomark.svg" alt="" style="height:30px">
+    <span style="width:44px"></span>
+  </div>
+  <div style="display:flex;gap:12px;align-items:center;padding:16px 20px;background:#F7F6F2;border-bottom:1px solid #DEDBD1">
+    <div style="width:52px;height:52px;border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#F4E3C0,#EED8AA);position:relative;flex:none"><img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=200&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:44px;height:48px;object-fit:cover;object-position:top;mix-blend-mode:multiply"></div>
+    <div><div style="font:700 15px 'Schibsted Grotesk',sans-serif;color:#161A20">Jonas Weber</div><div style="font:400 12px Inter,sans-serif;color:#5B6270">EM · Zalando · $50/session</div></div>
+  </div>
+  <div style="padding:22px 20px 24px;display:flex;flex-direction:column;gap:16px">
+    <h1 style="margin:0;font:800 24px/1.05 Archivo,sans-serif;color:#161A20;text-transform:uppercase">Request a session</h1>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font:600 13px Inter,sans-serif;color:#161A20">Your name</label>
+      <div style="border:1.5px solid #DEDBD1;border-radius:12px;padding:14px 15px;font:400 14px Inter,sans-serif;color:#5B6270">Full name</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font:600 13px Inter,sans-serif;color:#161A20">Email</label>
+      <div style="border:1.5px solid #DEDBD1;border-radius:12px;padding:14px 15px;font:400 14px Inter,sans-serif;color:#5B6270">you@example.com</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font:600 13px Inter,sans-serif;color:#161A20">What do you want to work on?</label>
+      <div style="border:1.5px solid #DEDBD1;border-radius:12px;padding:14px 15px;font:400 14px/1.5 Inter,sans-serif;color:#5B6270;min-height:110px">Be specific — goals, timeline, current situation…</div>
+    </div>
+    <span style="font:700 15px Inter,sans-serif;color:#fff;background:#132A52;padding:16px 0;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-align:center">Send request</span>
+    <span style="font:400 12px/1.5 Inter,sans-serif;color:#5B6270;text-align:center">No account needed. We only share your email with the mentor.</span>
+  </div>
+</div>
+</div>
+
+</div>
+
+</x-dc>
+</body>
+</html>

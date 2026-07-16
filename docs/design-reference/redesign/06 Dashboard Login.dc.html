@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600..900&family=Schibsted+Grotesk:wght@400..900&family=Inter:wght@400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#EDEBE4;font-family:Inter,sans-serif}a{color:#2F5EFF}a:hover{color:#132A52}</style>
+</helmet>
+<div style="display:flex;gap:40px;align-items:flex-start;padding:40px;flex-wrap:wrap">
+
+<!-- ===== DESKTOP: email step ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">06 · DASHBOARD LOGIN · DESKTOP 1440 · EMAIL STEP</div>
+<div data-screen-label="Login desktop" style="width:1440px;height:800px;background:#F7F6F2;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative">
+  <!-- backdrop ring echo -->
+  <div style="position:absolute;top:-140px;right:-140px;width:480px;height:480px;border:56px solid rgba(19,42,82,.05);border-radius:50%"></div>
+  <div style="position:absolute;bottom:-100px;left:-80px;width:340px;height:340px;border:44px solid rgba(23,195,178,.07);border-radius:50%"></div>
+  <div style="width:440px;background:#fff;border:1px solid #DEDBD1;border-radius:20px;padding:40px;display:flex;flex-direction:column;gap:22px;box-shadow:0 20px 50px -24px rgba(19,42,82,.22)">
+    <div style="display:flex;align-items:center;gap:11px"><img src="brand/logomark.svg" alt="OpenMentor" style="height:38px"><span style="font:800 18px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor<span style="color:#2F5EFF">.io</span></span></div>
+    <div>
+      <h1 style="margin:0;font:800 26px/1.05 Archivo,sans-serif;letter-spacing:-0.02em;color:#161A20;text-transform:uppercase">Mentor login</h1>
+      <p style="margin:8px 0 0;font:400 14px/1.55 Inter,sans-serif;color:#5B6270">No password. We'll email you a magic link that signs you in.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font:600 13px Inter,sans-serif;color:#161A20">Email</label>
+      <div style="border:1.5px solid #2F5EFF;border-radius:12px;padding:14px 15px;font:400 14px Inter,sans-serif;color:#161A20;box-shadow:0 0 0 3px rgba(47,94,255,.13)">jonas.weber@posteo.de|</div>
+    </div>
+    <span style="font:700 15px Inter,sans-serif;color:#fff;background:#132A52;padding:16px 0;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-align:center;cursor:pointer" style-hover="transform:translate(-1px,-1px);box-shadow:4px 4px 0 rgba(47,94,255,.4)">Email me a magic link</span>
+    <span style="font:400 12px/1.55 Inter,sans-serif;color:#5B6270;text-align:center">Not a mentor yet? <a href="04 Mentor Registration.dc.html" style="font-weight:600">Create a profile</a></span>
+  </div>
+</div>
+</div>
+
+<!-- ===== DESKTOP: sent confirmation ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">06 · MAGIC LINK SENT (card swaps in place)</div>
+<div data-screen-label="Login sent" style="width:440px;background:#fff;border:1px solid #DEDBD1;border-radius:20px;padding:40px;display:flex;flex-direction:column;gap:20px;align-items:center;text-align:center;box-shadow:0 20px 50px -24px rgba(19,42,82,.22)">
+  <div style="position:relative;width:76px;height:76px">
+    <div style="width:60px;height:60px;border:8px solid #132A52;border-radius:50%;margin:8px"></div>
+    <div style="position:absolute;top:4px;right:0;width:20px;height:20px;border-radius:50%;background:#17C3B2;display:flex;align-items:center;justify-content:center"><svg width="10" height="8" viewBox="0 0 11 9" fill="none"><path d="M1 4.5L4 7.5L10 1" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
+  </div>
+  <div>
+    <h2 style="margin:0;font:800 24px/1.1 Archivo,sans-serif;letter-spacing:-0.02em;color:#161A20;text-transform:uppercase">Check your inbox</h2>
+    <p style="margin:10px 0 0;font:400 14px/1.6 Inter,sans-serif;color:#5B6270">We sent a sign-in link to<br><b style="color:#161A20">jonas.weber@posteo.de</b><br>It works for 15 minutes.</p>
+  </div>
+  <div style="width:100%;border:1px solid #DEDBD1;border-radius:12px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+    <span style="font:400 13px Inter,sans-serif;color:#5B6270">Didn't arrive?</span>
+    <span style="font:600 13px Inter,sans-serif;color:#B9BDC7">Resend in 0:42</span>
+  </div>
+  <a href="#s" style="font:600 13px Inter,sans-serif;color:#2F5EFF;text-decoration:none">Use a different email</a>
+</div>
+<div style="width:440px;margin-top:14px;background:#fff;border:1px dashed #2F5EFF;border-radius:10px;padding:14px 16px;font:400 12px/1.6 Inter,sans-serif;color:#4A5160">
+  <b style="color:#2F5EFF">MOTION</b> — Card content crossfades 200ms; mint check pops (scale spring 300ms). Resend counter ticks; button enables with color fade #B9BDC7→#2F5EFF.
+</div>
+</div>
+
+<!-- ===== MOBILE ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">06 · LOGIN · MOBILE 390</div>
+<div data-screen-label="Login mobile" style="width:390px;height:720px;background:#F7F6F2;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;justify-content:center;padding:0 20px;position:relative">
+  <div style="position:absolute;top:-90px;right:-90px;width:260px;height:260px;border:36px solid rgba(19,42,82,.05);border-radius:50%"></div>
+  <div style="background:#fff;border:1px solid #DEDBD1;border-radius:18px;padding:28px 24px;display:flex;flex-direction:column;gap:18px;box-shadow:0 16px 40px -20px rgba(19,42,82,.22)">
+    <div style="display:flex;align-items:center;gap:9px"><img src="brand/logomark.svg" alt="" style="height:32px"><span style="font:800 15px Archivo,sans-serif;color:#132A52;text-transform:uppercase">openmentor<span style="color:#2F5EFF">.io</span></span></div>
+    <div>
+      <h1 style="margin:0;font:800 22px/1.05 Archivo,sans-serif;color:#161A20;text-transform:uppercase">Mentor login</h1>
+      <p style="margin:6px 0 0;font:400 13px/1.5 Inter,sans-serif;color:#5B6270">No password — we'll email you a magic link.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font:600 13px Inter,sans-serif;color:#161A20">Email</label>
+      <div style="border:1.5px solid #DEDBD1;border-radius:12px;padding:14px 15px;font:400 14px Inter,sans-serif;color:#5B6270">you@example.com</div>
+    </div>
+    <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:15px 0;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-align:center">Email me a magic link</span>
+  </div>
+</div>
+</div>
+
+</div>
+
+</x-dc>
+</body>
+</html>

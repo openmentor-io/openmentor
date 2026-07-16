@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600..900&family=Schibsted+Grotesk:wght@400..900&family=Inter:wght@400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#EDEBE4;font-family:Inter,sans-serif}a{color:#2F5EFF}a:hover{color:#132A52}</style>
+</helmet>
+<div style="display:flex;gap:40px;align-items:flex-start;padding:40px;flex-wrap:wrap">
+
+<!-- ===== DESKTOP ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">09 · PROFILE EDIT · DESKTOP 1440 · VISIBLE STATE</div>
+<div data-screen-label="Profile edit desktop" style="width:1440px;background:#F7F6F2;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden;display:flex">
+  <div style="width:240px;flex:none;background:#fff;border-right:1px solid #DEDBD1;padding:24px 16px;display:flex;flex-direction:column;gap:2px;min-height:900px">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 10px 22px"><img src="brand/logomark.svg" alt="OpenMentor" style="height:34px"><span style="font:800 15px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor</span></div>
+    <span style="display:flex;align-items:center;justify-content:space-between;font:500 14px Inter,sans-serif;color:#4A5160;padding:12px 14px;border-radius:11px" style-hover="background:#F7F6F2">Requests<span style="font:700 11px 'IBM Plex Mono',monospace;color:#fff;background:#2F5EFF;padding:2px 7px;border-radius:999px">3</span></span>
+    <span style="font:600 14px Inter,sans-serif;color:#fff;background:#132A52;padding:12px 14px;border-radius:11px">My profile</span>
+    <span style="font:500 14px Inter,sans-serif;color:#4A5160;padding:12px 14px;border-radius:11px" style-hover="background:#F7F6F2">Reviews</span>
+  </div>
+  <div style="flex:1;padding:32px 40px;max-width:860px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h1 style="margin:0;font:800 28px Archivo,sans-serif;letter-spacing:-0.02em;color:#161A20;text-transform:uppercase">My profile</h1>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font:500 12px 'IBM Plex Mono',monospace;color:#4A5160">SAVED 2 MIN AGO</span>
+        <span style="font:700 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:10px 18px;border-radius:12px;cursor:pointer" style-hover="background:rgba(47,94,255,.06)">Preview public page ↗</span>
+      </div>
+    </div>
+    <!-- VISIBILITY TOGGLE CARD — visible state -->
+    <div style="background:#fff;border:1.5px solid #17C3B2;border-radius:16px;padding:22px 26px;display:flex;gap:20px;align-items:center;box-shadow:0 0 0 4px rgba(23,195,178,.08)">
+      <div style="width:52px;height:28px;border-radius:999px;background:#17C3B2;position:relative;flex:none;cursor:pointer"><span style="position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></span></div>
+      <div style="flex:1">
+        <div style="display:flex;gap:10px;align-items:baseline"><span style="font:700 16px 'Schibsted Grotesk',sans-serif;color:#161A20">Your profile is visible</span><span style="font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#0E7A70;background:rgba(23,195,178,.15);padding:4px 9px;border-radius:999px">LIVE IN SEARCH</span></div>
+        <div style="margin-top:3px;font:400 13px/1.5 Inter,sans-serif;color:#5B6270">Mentees can find you in the catalog and send requests. Turn this off any time — your data stays, you just disappear from search.</div>
+      </div>
+      <span style="font:500 12px 'IBM Plex Mono',monospace;color:#4A5160;flex:none">142 PROFILE VIEWS / 30D</span>
+    </div>
+    <!-- hidden-state variant, shown small -->
+    <div style="margin-top:12px;background:#fff;border:1.5px solid #DEDBD1;border-radius:16px;padding:22px 26px;display:flex;gap:20px;align-items:center;opacity:.92">
+      <div style="width:52px;height:28px;border-radius:999px;background:#DEDBD1;position:relative;flex:none;cursor:pointer"><span style="position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></span></div>
+      <div style="flex:1">
+        <div style="display:flex;gap:10px;align-items:baseline"><span style="font:700 16px 'Schibsted Grotesk',sans-serif;color:#161A20">Your profile is hidden</span><span style="font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#4A5160;background:#EDEBE4;padding:4px 9px;border-radius:999px">NOT IN SEARCH</span></div>
+        <div style="margin-top:3px;font:400 13px/1.5 Inter,sans-serif;color:#5B6270">Migrated profile — flip the switch when you're ready to appear in the catalog. Nothing is public until you do.</div>
+      </div>
+      <span style="font:700 13px Inter,sans-serif;color:#fff;background:#132A52;padding:11px 18px;border-radius:12px;box-shadow:2px 2px 0 rgba(47,94,255,.4);flex:none;cursor:pointer">Go live</span>
+    </div>
+    <div style="margin:8px 0 20px;font:500 10px 'IBM Plex Mono',monospace;color:#4A5160;letter-spacing:.04em">↑ BOTH TOGGLE STATES SHOWN — ONLY ONE RENDERS. THIS IS WHERE MIGRATED MENTORS "SWITCH THEMSELVES ON".</div>
+    <!-- edit form -->
+    <div style="background:#fff;border:1px solid #DEDBD1;border-radius:16px;padding:26px 28px;display:flex;flex-direction:column;gap:20px">
+      <div style="display:flex;gap:24px;align-items:flex-start">
+        <div style="width:150px;flex:none;display:flex;flex-direction:column;gap:8px">
+          <label style="font:600 13px Inter,sans-serif;color:#161A20">Photo</label>
+          <div style="position:relative;height:160px;border-radius:14px;overflow:hidden;background:linear-gradient(180deg,#F4E3C0,#EED8AA)">
+            <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=400&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:125px;height:135px;object-fit:cover;object-position:top;mix-blend-mode:multiply">
+            <span style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font:600 11px Inter,sans-serif;color:#132A52;background:rgba(255,255,255,.92);padding:5px 12px;border-radius:999px;white-space:nowrap;cursor:pointer">Replace</span>
+          </div>
+          <span style="font:500 10px 'IBM Plex Mono',monospace;color:#0E7A70;letter-spacing:.03em">✓ CUT-OUT OK</span>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;gap:16px">
+            <div style="flex:1;display:flex;flex-direction:column;gap:6px"><label style="font:600 13px Inter,sans-serif;color:#161A20">Role title</label><div style="border:1.5px solid #DEDBD1;border-radius:12px;padding:13px 15px;font:400 14px Inter,sans-serif;color:#161A20">Engineering Manager</div></div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:6px"><label style="font:600 13px Inter,sans-serif;color:#161A20">Company</label><div style="border:1.5px solid #DEDBD1;border-radius:12px;padding:13px 15px;font:400 14px Inter,sans-serif;color:#161A20">Zalando</div></div>
+          </div>
+          <div style="display:flex;gap:16px">
+            <div style="flex:1;display:flex;flex-direction:column;gap:6px"><label style="font:600 13px Inter,sans-serif;color:#161A20">Price</label><div style="display:flex;gap:6px"><span style="font:600 12px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:8px 14px;border-radius:999px">Free</span><span style="font:600 12px Inter,sans-serif;color:#fff;background:#132A52;padding:8px 14px;border-radius:999px">$50</span><span style="font:600 12px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:8px 14px;border-radius:999px">Negotiable</span></div></div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:6px"><label style="font:600 13px Inter,sans-serif;color:#161A20">Capacity</label><div style="border:1.5px solid #DEDBD1;border-radius:12px;padding:13px 15px;font:400 14px Inter,sans-serif;color:#161A20;display:flex;justify-content:space-between;align-items:center">Up to 2 mentees<svg width="10" height="7" viewBox="0 0 9 6" fill="none"><path d="M1 1l3.5 3.5L8 1" stroke="#5B6270" stroke-width="1.8" stroke-linecap="round"></path></svg></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font:600 13px Inter,sans-serif;color:#161A20">About</label>
+        <div style="border:1.5px solid #DEDBD1;border-radius:12px;overflow:hidden">
+          <div style="display:flex;gap:2px;padding:8px 10px;border-bottom:1px solid #DEDBD1;background:#F7F6F2">
+            <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:#4A5160;font:700 13px Inter,sans-serif" style-hover="background:#EDEBE4">B</span>
+            <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:#4A5160;font:italic 400 13px Georgia,serif" style-hover="background:#EDEBE4">I</span>
+            <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:#4A5160;font:600 12px Inter,sans-serif" style-hover="background:#EDEBE4">•≡</span>
+            <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:#2F5EFF;font:600 12px Inter,sans-serif" style-hover="background:#EDEBE4">🔗</span>
+          </div>
+          <div style="padding:14px 16px;font:400 14px/1.65 Inter,sans-serif;color:#161A20;min-height:90px">I've spent 8 years growing engineers into leads at Zalando, and before that at two Berlin startups…</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <label style="font:600 13px Inter,sans-serif;color:#161A20">Tags <span style="font:400 12px;color:#5B6270">(up to 6)</span></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span style="font:600 13px Inter,sans-serif;color:#fff;background:#132A52;padding:8px 15px;border-radius:999px">Leadership ×</span>
+          <span style="font:600 13px Inter,sans-serif;color:#fff;background:#132A52;padding:8px 15px;border-radius:999px">Career growth ×</span>
+          <span style="font:600 13px Inter,sans-serif;color:#fff;background:#132A52;padding:8px 15px;border-radius:999px">EM interviews ×</span>
+          <span style="font:600 13px Inter,sans-serif;color:#2F5EFF;background:#fff;border:1.5px dashed rgba(47,94,255,.5);padding:6.5px 14px;border-radius:999px;cursor:pointer">+ Add tag</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;padding-top:16px;border-top:1px solid #DEDBD1">
+        <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:14px 28px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);cursor:pointer" style-hover="transform:translate(-1px,-1px);box-shadow:4px 4px 0 rgba(47,94,255,.4)">Save changes</span>
+        <span style="font:700 14px Inter,sans-serif;color:#B9BDC7;background:#F7F6F2;padding:14px 24px;border-radius:14px;cursor:not-allowed">Save changes (disabled)</span>
+        <span style="font:400 12px Inter,sans-serif;color:#5B6270">Changes appear in the catalog within a minute.</span>
+      </div>
+    </div>
+  </div>
+</div>
+<div style="width:1440px;margin-top:14px;background:#fff;border:1px dashed #2F5EFF;border-radius:10px;padding:16px 20px;font:400 12.5px/1.7 Inter,sans-serif;color:#4A5160">
+  <b style="color:#2F5EFF">MOTION</b> — Visibility toggle: knob slides 180ms ease-out; card border+ring crossfade #DEDBD1→#17C3B2; "LIVE" chip pops in (scale 300ms spring). Going hidden shows a quiet confirm ("You'll disappear from search — data stays"). Save: button compresses on press, toast confirms.
+</div>
+</div>
+
+<!-- ===== MOBILE ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">09 · PROFILE EDIT · MOBILE 390</div>
+<div data-screen-label="Profile edit mobile" style="width:390px;background:#F7F6F2;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden">
+  <div style="background:#fff;display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #DEDBD1">
+    <img src="brand/logomark.svg" alt="" style="height:30px">
+    <span style="font:800 14px Archivo,sans-serif;color:#161A20;text-transform:uppercase">My profile</span>
+    <div style="width:32px;height:32px;border-radius:50%;background:#132A52;color:#fff;display:flex;align-items:center;justify-content:center;font:700 12px 'Schibsted Grotesk',sans-serif">JW</div>
+  </div>
+  <div style="padding:16px 14px;display:flex;flex-direction:column;gap:10px">
+    <div style="background:#fff;border:1.5px solid #17C3B2;border-radius:14px;padding:16px;display:flex;gap:14px;align-items:center">
+      <div style="width:48px;height:26px;border-radius:999px;background:#17C3B2;position:relative;flex:none"><span style="position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></span></div>
+      <div><div style="font:700 14px 'Schibsted Grotesk',sans-serif;color:#161A20">Profile visible</div><div style="font:400 12px Inter,sans-serif;color:#5B6270">Live in search · 142 views/30d</div></div>
+    </div>
+    <div style="background:#fff;border:1px solid #DEDBD1;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;gap:14px;align-items:center">
+        <div style="position:relative;width:72px;height:80px;border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#F4E3C0,#EED8AA);flex:none"><img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=200&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:60px;height:66px;object-fit:cover;object-position:top;mix-blend-mode:multiply"></div>
+        <div style="flex:1"><div style="font:700 15px 'Schibsted Grotesk',sans-serif;color:#161A20">Jonas Weber</div><div style="font:400 12px Inter,sans-serif;color:#5B6270">Engineering Manager · Zalando</div><span style="display:inline-block;margin-top:6px;font:600 12px Inter,sans-serif;color:#2F5EFF">Replace photo</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 13px Inter,sans-serif;color:#161A20">Price</label><div style="display:flex;gap:6px"><span style="flex:1;font:600 12px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:10px 0;border-radius:999px;text-align:center">Free</span><span style="flex:1;font:600 12px Inter,sans-serif;color:#fff;background:#132A52;padding:10px 0;border-radius:999px;text-align:center">$50</span><span style="flex:1;font:600 12px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:10px 0;border-radius:999px;text-align:center">Negot.</span></div></div>
+      <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:15px 0;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-align:center">Save changes</span>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+
+</x-dc>
+</body>
+</html>

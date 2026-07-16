@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Schibsted+Grotesk:wght@400..900&family=Archivo:wght@400..900&family=Gabarito:wght@400..900&family=Inter:wght@400..700&family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400..700&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#EDEBE4;font-family:Inter,system-ui,sans-serif}a{color:#2F5EFF}a:hover{color:#132A52}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)}.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}</style>
+</helmet>
+<section class="dv-turn" id="t3">
+<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Mentor profile page — 3 variants in the 2a language (buttons now live where they belong)</span></div>
+<div class="dv-opts">
+
+<!-- ===== 3a SIDEBAR ===== -->
+<div class="dv-opt" id="3a">
+<div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>Sidebar — pastel portrait panel left, content right; closest to the live site structure</div>
+<div class="dv-card" style="width:780px;background:#fff">
+  <div style="padding:18px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #DEDBD1">
+    <div style="display:flex;align-items:center;gap:10px"><img src="brand/logomark.svg" alt="" style="height:32px"><span style="font:800 16px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor<span style="color:#2F5EFF">.io</span></span></div>
+    <a href="#3a" style="font:600 13px Inter,sans-serif;color:#2F5EFF;text-decoration:none">← Back to mentors</a>
+  </div>
+  <div style="display:flex;gap:26px;padding:26px 28px 28px;align-items:flex-start">
+    <div style="width:240px;flex:none;display:flex;flex-direction:column;gap:14px">
+      <div style="border-radius:14px;overflow:hidden;border:1px solid #DEDBD1">
+        <div style="position:relative;height:230px;background:linear-gradient(180deg,#F4E3C0 0%,#EED8AA 100%)">
+          <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=500&q=80" alt="Jonas" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:195px;height:210px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03)">
+        </div>
+        <div style="padding:12px 14px;border-top:1px solid #DEDBD1;display:flex;justify-content:space-between;align-items:center">
+          <span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">23 SESSIONS</span>
+          <span style="display:flex;align-items:center;gap:5px;font:500 11px 'IBM Plex Mono',monospace;color:#0E7A70"><span style="width:6px;height:6px;border-radius:50%;background:#17C3B2"></span>AVAILABLE</span>
+        </div>
+      </div>
+      <div style="border:1px solid #DEDBD1;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:800 13px Archivo,sans-serif;text-transform:uppercase;letter-spacing:.02em;color:#161A20">Price</span><span style="font:700 20px 'Schibsted Grotesk',sans-serif;color:#132A52">$50<span style="font:400 12px Inter,sans-serif;color:#5B6270">/session</span></span></div>
+        <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:13px 0;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-align:center">Send request</span>
+        <span style="font:700 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:11px 0;border-radius:14px;text-align:center">Save for later</span>
+      </div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:18px">
+      <div>
+        <h2 style="margin:0;font:700 30px/1.05 'Schibsted Grotesk',sans-serif;letter-spacing:-0.02em;color:#161A20">Jonas Weber</h2>
+        <div style="margin-top:4px;font:400 15px Inter,sans-serif;color:#5B6270">Engineering Manager · Zalando · Berlin 🇩🇪</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:6px 12px;border-radius:999px">Leadership</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:6px 12px;border-radius:999px">Career growth</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:6px 12px;border-radius:999px">Backend · Java</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:6px 12px;border-radius:999px">Interviews</span>
+      </div>
+      <div>
+        <div style="font:800 13px Archivo,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#161A20;margin-bottom:8px">About</div>
+        <p style="margin:0;font:400 14px/1.6 Inter,sans-serif;color:#161A20">I've spent 8 years growing engineers into leads at Zalando and two startups before that. I can help you prepare for EM interviews, navigate your first months as a manager, or decide whether management is for you at all.</p>
+      </div>
+      <div>
+        <div style="font:800 13px Archivo,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#161A20;margin-bottom:10px">Reviews · 12</div>
+        <div style="border:1px solid #DEDBD1;border-radius:14px;padding:14px 16px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 13px 'Schibsted Grotesk',sans-serif;color:#161A20">Elif K.</span><span style="font:500 10px 'IBM Plex Mono',monospace;color:#4A5160">MAR 2026</span></div>
+          <div style="margin-top:2px;color:#17C3B2;font-size:12px;letter-spacing:2px">★★★★★</div>
+          <p style="margin:6px 0 0;font:400 13px/1.55 Inter,sans-serif;color:#5B6270">Jonas helped me restructure my promo case in two sessions. Direct, prepared, zero fluff.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ===== 3b HERO BAND ===== -->
+<div class="dv-opt" id="3b">
+<div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a>Hero band — full-width pastel header, portrait breaks out of it; most "designed", most .fig-like</div>
+<div class="dv-card" style="width:780px;background:#fff">
+  <div style="padding:18px 28px;display:flex;align-items:center;justify-content:space-between">
+    <div style="display:flex;align-items:center;gap:10px"><img src="brand/logomark.svg" alt="" style="height:32px"><span style="font:800 16px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor<span style="color:#2F5EFF">.io</span></span></div>
+    <a href="#3b" style="font:600 13px Inter,sans-serif;color:#2F5EFF;text-decoration:none">← Back to mentors</a>
+  </div>
+  <div style="position:relative;margin:8px 28px 0;height:190px;border-radius:18px;background:linear-gradient(180deg,#F4E3C0 0%,#EED8AA 100%)">
+    <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=500&q=80" alt="Jonas" style="position:absolute;bottom:0;left:44px;width:185px;height:215px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03)">
+    <div style="position:absolute;left:260px;bottom:24px">
+      <h2 style="margin:0;font:800 34px/1 Archivo,sans-serif;letter-spacing:-0.025em;color:#161A20;text-transform:uppercase">Jonas Weber</h2>
+      <div style="margin-top:6px;font:500 14px Inter,sans-serif;color:#4A5160">Engineering Manager · Zalando · Berlin</div>
+    </div>
+    <span style="position:absolute;top:16px;right:16px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#132A52;background:rgba(255,255,255,.9);padding:5px 10px;border-radius:8px">23 SESSIONS · 8Y EXP</span>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;padding:16px 28px;border-bottom:1px solid #DEDBD1">
+    <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:12px 22px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4)">Send request · $50</span>
+    <span style="font:700 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:10px 18px;border-radius:14px">Save</span>
+    <span style="flex:1"></span>
+    <span style="display:flex;align-items:center;gap:5px;font:500 11px 'IBM Plex Mono',monospace;color:#0E7A70"><span style="width:6px;height:6px;border-radius:50%;background:#17C3B2"></span>USUALLY REPLIES IN 2 DAYS</span>
+  </div>
+  <div style="display:flex;gap:30px;padding:20px 28px 26px">
+    <div style="flex:1.6">
+      <div style="font:800 13px Archivo,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#161A20;margin-bottom:8px">About</div>
+      <p style="margin:0;font:400 14px/1.6 Inter,sans-serif;color:#161A20">I've spent 8 years growing engineers into leads at Zalando and two startups before that. I can help with EM interviews, your first months as a manager, or deciding whether management is for you.</p>
+      <div style="font:800 13px Archivo,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#161A20;margin:18px 0 8px">Reviews · 12 <span style="color:#17C3B2">★ 4.9</span></div>
+      <p style="margin:0;font:400 13px/1.55 Inter,sans-serif;color:#5B6270">"Direct, prepared, zero fluff." — Elif K., Mar 2026</p>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+      <div style="font:800 13px Archivo,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#161A20">Can help with</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:6px 12px;border-radius:999px">Leadership</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:6px 12px;border-radius:999px">Career growth</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:6px 12px;border-radius:999px">Interviews</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ===== 3c STICKY RAIL ===== -->
+<div class="dv-opt" id="3c">
+<div class="dv-olabel"><a class="dv-oid" href="#3c">3c</a>Sticky rail — content left, compact action card right (stays visible on scroll); most conversion-focused</div>
+<div class="dv-card" style="width:780px;background:#fff">
+  <div style="padding:18px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #DEDBD1">
+    <div style="display:flex;align-items:center;gap:10px"><img src="brand/logomark.svg" alt="" style="height:32px"><span style="font:800 16px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor<span style="color:#2F5EFF">.io</span></span></div>
+    <a href="#3c" style="font:600 13px Inter,sans-serif;color:#2F5EFF;text-decoration:none">← Back to mentors</a>
+  </div>
+  <div style="display:flex;gap:26px;padding:26px 28px 28px;align-items:flex-start">
+    <div style="flex:1;display:flex;flex-direction:column;gap:18px">
+      <div style="display:flex;gap:16px;align-items:center">
+        <div style="width:88px;height:88px;border-radius:18px;overflow:hidden;background:linear-gradient(180deg,#F4E3C0 0%,#EED8AA 100%);flex:none;position:relative">
+          <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=300&q=80" alt="Jonas" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:78px;height:82px;object-fit:cover;object-position:top;mix-blend-mode:multiply">
+        </div>
+        <div>
+          <h2 style="margin:0;font:700 26px/1.05 'Schibsted Grotesk',sans-serif;letter-spacing:-0.02em;color:#161A20">Jonas Weber</h2>
+          <div style="margin-top:3px;font:400 14px Inter,sans-serif;color:#5B6270">Engineering Manager · Zalando · Berlin</div>
+          <div style="margin-top:6px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">23 SESSIONS · 8Y EXP · <span style="color:#17C3B2">★ 4.9</span></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:6px 12px;border-radius:999px">Leadership</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:6px 12px;border-radius:999px">Career growth</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:6px 12px;border-radius:999px">Backend · Java</span>
+      </div>
+      <div>
+        <div style="font:800 13px Archivo,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#161A20;margin-bottom:8px">About</div>
+        <p style="margin:0;font:400 14px/1.6 Inter,sans-serif;color:#161A20">I've spent 8 years growing engineers into leads at Zalando and two startups before that. I can help with EM interviews, your first months as a manager, or deciding whether management is for you.</p>
+      </div>
+      <div>
+        <div style="font:800 13px Archivo,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#161A20;margin-bottom:10px">Reviews · 12</div>
+        <div style="border:1px solid #DEDBD1;border-radius:14px;padding:14px 16px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 13px 'Schibsted Grotesk',sans-serif;color:#161A20">Elif K.</span><span style="font:500 10px 'IBM Plex Mono',monospace;color:#4A5160">MAR 2026</span></div>
+          <div style="margin-top:2px;color:#17C3B2;font-size:12px;letter-spacing:2px">★★★★★</div>
+          <p style="margin:6px 0 0;font:400 13px/1.55 Inter,sans-serif;color:#5B6270">Jonas helped me restructure my promo case in two sessions. Direct, prepared, zero fluff.</p>
+        </div>
+      </div>
+    </div>
+    <div style="width:225px;flex:none;border:1px solid #DEDBD1;border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:12px;box-shadow:0 8px 22px -12px rgba(19,42,82,.16)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:400 12px Inter,sans-serif;color:#5B6270">Per session</span><span style="font:700 22px 'Schibsted Grotesk',sans-serif;color:#132A52">$50</span></div>
+      <span style="display:flex;align-items:center;gap:5px;font:500 11px 'IBM Plex Mono',monospace;color:#0E7A70"><span style="width:6px;height:6px;border-radius:50%;background:#17C3B2"></span>AVAILABLE THIS WEEK</span>
+      <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:13px 0;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-align:center">Send request</span>
+      <span style="font:700 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:11px 0;border-radius:14px;text-align:center">Save for later</span>
+      <span style="font:400 11px/1.5 Inter,sans-serif;color:#5B6270;text-align:center">Free to contact · no commission</span>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Filters: noted — the catalog will get a scrollable tag row (≤10 top-level) with nested sub-categories in a dropdown; I'll design that in the full homepage. Pick a profile variant and say "go wide".</p>
+</section>
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Combined direction — 1c type + buttons, 1b card (name-first), grid catalog, bigger logomark presence</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Combined — Archivo caps display · Schibsted card system, name-first · 3-up grid · logomark + wordmark lockup</div>
+<div class="dv-card" style="width:860px;background:#FFFFFF">
+  <div style="padding:22px 32px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #DEDBD1">
+    <div style="display:flex;align-items:center;gap:12px">
+      <img src="brand/logomark.svg" alt="" style="height:40px;display:block">
+      <span style="font:800 19px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor<span style="color:#2F5EFF">.io</span></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:20px">
+      <a href="#2a" style="font:600 13px Inter,sans-serif;color:#161A20;text-decoration:none">Support us</a>
+      <a href="#2a" style="font:600 13px Inter,sans-serif;color:#161A20;text-decoration:none">Log in</a>
+      <span style="font:700 13px Inter,sans-serif;color:#fff;background:#132A52;padding:11px 18px;border-radius:14px">Become a mentor</span>
+    </div>
+  </div>
+  <div style="padding:36px 32px 26px">
+    <h1 style="margin:0;font:800 50px/0.98 Archivo,sans-serif;letter-spacing:-0.03em;color:#161A20;text-transform:uppercase">Your mentorship<br>journey <span style="color:#2F5EFF">starts</span> <span style="position:relative;z-index:0">here<span style="position:absolute;left:0;right:0;bottom:2px;height:8px;background:#17C3B2;opacity:.55;z-index:-1"></span></span></h1>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:26px">
+      <div style="flex:1;max-width:380px;background:#fff;border:1.5px solid #2F5EFF;border-radius:14px;padding:12px 16px;box-shadow:0 0 0 3px rgba(47,94,255,.13)">
+        <span style="font:500 14px Inter,sans-serif;color:#5B6270">Role, skill, or company…</span>
+      </div>
+      <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:14px 22px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4)">Find a mentor</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px;flex-wrap:wrap">
+      <span style="font:700 13px Inter,sans-serif;color:#fff;background:#132A52;padding:9px 16px;border-radius:12px">Development</span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8px 15px;border-radius:12px">Management</span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8px 15px;border-radius:12px">Design</span>
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:8px 15px;border-radius:12px">Data Science</span>
+    </div>
+  </div>
+  <div style="padding:4px 32px 8px;display:flex;align-items:baseline;justify-content:space-between">
+    <span style="font:800 15px Archivo,sans-serif;letter-spacing:.02em;color:#161A20;text-transform:uppercase">5,214 mentors</span>
+    <span style="font:500 12px Inter,sans-serif;color:#5B6270">Grid: 3-up at 1440 (4-up ultrawide, 2-up tablet, 1-up mobile)</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;padding:8px 32px 24px">
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.2);transform:translateY(-3px)">
+      <div style="position:relative;height:170px;background:linear-gradient(180deg,#F4E3C0 0%,#EED8AA 100%)">
+        <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=500&q=80" alt="Jonas" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:150px;height:155px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03)">
+        <span style="position:absolute;top:10px;left:10px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#132A52;background:rgba(255,255,255,.9);padding:4px 8px;border-radius:6px">23 SESSIONS</span>
+      </div>
+      <div style="padding:13px 15px 15px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Jonas Weber</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Engineering Manager · Zalando</div>
+        <div style="margin-top:9px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">8Y EXP · <span style="color:#132A52">$50</span></div>
+      </div>
+    </div>
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.2);transform:translateY(-3px)">
+      <div style="position:relative;height:170px;background:linear-gradient(180deg,#C9E6F2 0%,#B7DCEE 100%)">
+        <img src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=500&q=80" alt="Amara" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:145px;height:150px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03)">
+        <span style="position:absolute;top:10px;left:10px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#fff;background:#2F5EFF;padding:4px 8px;border-radius:6px">NEW</span>
+      </div>
+      <div style="padding:13px 15px 15px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Amara Okafor</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Staff Engineer · Spotify</div>
+        <div style="margin-top:9px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">12Y EXP · <span style="color:#0E7A70">FREE</span></div>
+      </div>
+    </div>
+    <div style="border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden" style-hover="box-shadow:0 12px 26px -10px rgba(19,42,82,.2);transform:translateY(-3px)">
+      <div style="position:relative;height:170px;background:linear-gradient(180deg,#DDD9F4 0%,#CFC9EE 100%);display:flex;align-items:center;justify-content:center">
+        <div style="width:84px;height:84px;border-radius:50%;background:#132A52;color:#fff;display:flex;align-items:center;justify-content:center;font:700 30px 'Schibsted Grotesk',sans-serif">MS</div>
+      </div>
+      <div style="padding:13px 15px 15px;border-top:1px solid #DEDBD1">
+        <div style="font:700 17px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Mateus Silva</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Data Scientist · Nubank</div>
+        <div style="margin-top:9px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">9Y EXP · $30</div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;gap:20px;align-items:center;padding:0 32px 26px;flex-wrap:wrap">
+    <span style="font:700 13px Inter,sans-serif;color:#fff;background:#132A52;padding:11px 18px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4)">Send request</span>
+    <span style="font:700 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:10px 17px;border-radius:14px">Secondary</span>
+    <span style="font:700 13px Inter,sans-serif;color:#5B6270;padding:11px 6px">Ghost</span>
+    <a href="#2a" style="font:600 13px Inter,sans-serif;color:#2F5EFF;text-decoration:underline;text-underline-offset:3px">Text link →</a>
+    <span style="font:400 12px/1.5 Inter,sans-serif;color:#5B6270;flex:1;min-width:220px">Archivo 800 caps display · Schibsted Grotesk names · Inter body · Plex Mono metadata. Cobalt outline = secondary buttons + focus; cobalt offset shadow = primary.</span>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">If this lands: say "go wide" and I'll build the full screen set. Tunable bits: shadow offset amount, mono vs Inter metadata, logomark size.</p>
+</section>
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">OpenMentor refresh — 4 style directions (same brand tokens, different execution)</span></div>
+<div class="dv-opts">
+
+<!-- ============ 1a SOFT ARCH ============ -->
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Soft Arch — Bricolage Grotesque · arch portraits · pill everything · warmest, closest to the .fig mood</div>
+<div class="dv-card" style="width:720px;background:#FFFFFF">
+  <div style="padding:24px 28px 0;display:flex;align-items:center;justify-content:space-between">
+    <img src="brand/logo-horizontal.svg" alt="openmentor.io" style="height:26px;display:block">
+    <div style="display:flex;align-items:center;gap:18px">
+      <a href="#1a" style="font:500 13px Inter,sans-serif;color:#161A20;text-decoration:none">Support us</a>
+      <a href="#1a" style="font:500 13px Inter,sans-serif;color:#161A20;text-decoration:none">Log in</a>
+      <span style="font:600 13px Inter,sans-serif;color:#FFFFFF;background:#132A52;padding:10px 18px;border-radius:999px">Become a mentor</span>
+    </div>
+  </div>
+  <div style="padding:36px 28px 28px">
+    <h1 style="margin:0;font:600 46px/1.04 'Bricolage Grotesque',sans-serif;letter-spacing:-0.02em;color:#161A20">Your mentorship<br>journey <span style="color:#2F5EFF">starts here</span></h1>
+    <p style="margin:14px 0 22px;font:400 15px/1.55 Inter,sans-serif;color:#5B6270;max-width:420px">An open community of tech mentors ready to share their experience one on one. Free to browse, always.</p>
+    <div style="display:flex;gap:10px;align-items:center">
+      <div style="flex:1;max-width:340px;display:flex;align-items:center;gap:10px;background:#F7F6F2;border:1.5px solid #DEDBD1;border-radius:999px;padding:12px 18px">
+        <span style="width:14px;height:14px;border:2px solid #5B6270;border-radius:50%;position:relative;flex:none"></span>
+        <span style="font:400 14px Inter,sans-serif;color:#5B6270">Role, skill, or company…</span>
+      </div>
+      <span style="font:600 14px Inter,sans-serif;color:#fff;background:#132A52;padding:13px 22px;border-radius:999px">Find a mentor</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
+      <span style="font:600 13px Inter,sans-serif;color:#fff;background:#132A52;padding:8px 16px;border-radius:999px">Development</span>
+      <span style="font:500 13px Inter,sans-serif;color:#161A20;background:#fff;border:1.5px solid #DEDBD1;padding:8px 16px;border-radius:999px">Management</span>
+      <span style="font:500 13px Inter,sans-serif;color:#161A20;background:#fff;border:1.5px solid #DEDBD1;padding:8px 16px;border-radius:999px">Design</span>
+      <span style="font:500 13px Inter,sans-serif;color:#161A20;background:#fff;border:1.5px solid #DEDBD1;padding:8px 16px;border-radius:999px">Data Science</span>
+    </div>
+  </div>
+  <div style="display:flex;gap:28px;padding:8px 28px 28px;align-items:flex-start">
+    <!-- mentor card -->
+    <div style="width:250px;flex:none;border-radius:26px;background:#fff;border:1px solid #DEDBD1;overflow:hidden;box-shadow:0 1px 2px rgba(19,42,82,.05)" style-hover="box-shadow:0 14px 30px -10px rgba(19,42,82,.22);transform:translateY(-4px) rotate(-0.4deg)">
+      <div style="position:relative;height:230px;background:linear-gradient(180deg,#C9E6F2 0%,#B7DCEE 100%);border-radius:26px 26px 120px 120px / 26px 26px 40px 40px">
+        <img src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=500&q=80" alt="Amara" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:190px;height:210px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03) saturate(1.02);border-radius:999px 999px 0 0">
+        <span style="position:absolute;top:14px;left:14px;font:600 11px Inter,sans-serif;color:#132A52;background:rgba(255,255,255,.85);padding:5px 10px;border-radius:999px;display:flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:#17C3B2"></span>Available</span>
+      </div>
+      <div style="padding:16px 18px 18px">
+        <div style="font:600 19px/1.15 'Bricolage Grotesque',sans-serif;letter-spacing:-0.01em;color:#161A20">Staff Engineer</div>
+        <div style="margin-top:4px;font:400 13px Inter,sans-serif;color:#5B6270">Amara Okafor · Spotify</div>
+        <div style="margin-top:12px;display:flex;gap:6px">
+          <span style="font:500 12px Inter,sans-serif;color:#4A5160;background:#F7F6F2;border-radius:999px;padding:5px 11px">12y experience</span>
+          <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;border-radius:999px;padding:5px 11px">$120</span>
+        </div>
+      </div>
+    </div>
+    <!-- system strip -->
+    <div style="flex:1;display:flex;flex-direction:column;gap:14px;padding-top:6px">
+      <div style="font:600 11px Inter,sans-serif;color:#5B6270;text-transform:uppercase;letter-spacing:.08em">System</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span style="font:600 13px Inter,sans-serif;color:#fff;background:#132A52;padding:10px 18px;border-radius:999px">Send request</span>
+        <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #132A52;padding:9px 17px;border-radius:999px">Secondary</span>
+        <span style="font:600 13px Inter,sans-serif;color:#5B6270;padding:10px 12px">Ghost</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;background:#fff;border:2px solid #2F5EFF;border-radius:999px;padding:10px 16px;max-width:280px;box-shadow:0 0 0 4px rgba(47,94,255,.14)">
+        <span style="font:400 14px Inter,sans-serif;color:#161A20">Focus state|</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font:700 12px Inter,sans-serif;color:#0E7A70;background:rgba(23,195,178,.14);padding:5px 11px;border-radius:999px">Free</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#F7F6F2;padding:5px 11px;border-radius:999px">$150</span>
+        <span style="font:500 12px Inter,sans-serif;color:#4A5160;background:#F7F6F2;padding:5px 11px;border-radius:999px">Negotiable</span>
+        <a href="#1a" style="font:500 13px Inter,sans-serif;color:#2F5EFF;text-decoration:underline;text-underline-offset:3px">Text link →</a>
+      </div>
+      <div style="font:400 12px/1.5 Inter,sans-serif;color:#5B6270;max-width:330px">Type: Bricolage Grotesque 600 display / Inter body. Radii 999 &amp; 26. Hover: −4px lift + −0.4° tilt + deep soft shadow, 180ms ease-out.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 1b SIGNAL MONO ============ -->
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Signal Mono — Schibsted Grotesk · mono metadata · hairlines &amp; squared radii · the Linear/Stripe-literate take</div>
+<div class="dv-card" style="width:720px;background:#FFFFFF">
+  <div style="padding:22px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #DEDBD1">
+    <img src="brand/logo-horizontal.svg" alt="openmentor.io" style="height:24px;display:block">
+    <div style="display:flex;align-items:center;gap:20px">
+      <a href="#1b" style="font:500 13px Inter,sans-serif;color:#161A20;text-decoration:none">Support us</a>
+      <a href="#1b" style="font:500 13px Inter,sans-serif;color:#161A20;text-decoration:none">Log in</a>
+      <span style="font:600 13px Inter,sans-serif;color:#fff;background:#132A52;padding:9px 16px;border-radius:8px">Become a mentor</span>
+    </div>
+  </div>
+  <div style="padding:36px 28px 26px">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;color:#2F5EFF;letter-spacing:.06em;margin-bottom:12px">2,000+ MENTORS · 0% COMMISSION</div>
+    <h1 style="margin:0;font:700 44px/1.05 'Schibsted Grotesk',sans-serif;letter-spacing:-0.025em;color:#161A20">Your mentorship journey starts here</h1>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:24px">
+      <div style="flex:1;max-width:360px;display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #DEDBD1;border-radius:10px;padding:12px 14px">
+        <span style="font:400 14px Inter,sans-serif;color:#5B6270">Search role, skill, or company…</span>
+      </div>
+      <span style="font:600 14px Inter,sans-serif;color:#fff;background:#132A52;padding:13px 20px;border-radius:10px">Find a mentor</span>
+    </div>
+    <div style="display:flex;gap:0;margin-top:20px;border-bottom:1px solid #DEDBD1">
+      <span style="font:600 13px Inter,sans-serif;color:#132A52;padding:10px 14px;border-bottom:2px solid #2F5EFF">Development</span>
+      <span style="font:500 13px Inter,sans-serif;color:#5B6270;padding:10px 14px">Management</span>
+      <span style="font:500 13px Inter,sans-serif;color:#5B6270;padding:10px 14px">Design</span>
+      <span style="font:500 13px Inter,sans-serif;color:#5B6270;padding:10px 14px">Data Science</span>
+    </div>
+  </div>
+  <div style="display:flex;gap:28px;padding:2px 28px 28px;align-items:flex-start">
+    <div style="width:250px;flex:none;border-radius:14px;background:#fff;border:1px solid #DEDBD1;overflow:hidden">
+      <div style="position:relative;height:225px;background:linear-gradient(180deg,#F4E3C0 0%,#EED8AA 100%)">
+        <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=500&q=80" alt="Jonas" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:200px;height:205px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.03)">
+        <span style="position:absolute;top:12px;left:12px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#132A52;background:rgba(255,255,255,.9);padding:4px 8px;border-radius:6px">23 SESSIONS</span>
+      </div>
+      <div style="padding:14px 16px 16px;border-top:1px solid #DEDBD1">
+        <div style="font:700 18px/1.15 'Schibsted Grotesk',sans-serif;letter-spacing:-0.015em;color:#161A20">Engineering Manager</div>
+        <div style="margin-top:3px;font:400 13px Inter,sans-serif;color:#5B6270">Jonas Weber · Zalando</div>
+        <div style="margin-top:10px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.04em;color:#4A5160">8Y EXP · <span style="color:#132A52;font-weight:500">$50</span> · BERLIN</div>
+      </div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:14px;padding-top:4px">
+      <div style="font:500 11px 'IBM Plex Mono',monospace;color:#5B6270;letter-spacing:.08em">SYSTEM</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span style="font:600 13px Inter,sans-serif;color:#fff;background:#132A52;padding:10px 16px;border-radius:8px">Send request</span>
+        <span style="font:600 13px Inter,sans-serif;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:9px 15px;border-radius:8px">Secondary</span>
+        <span style="font:600 13px Inter,sans-serif;color:#5B6270;padding:10px 10px">Ghost</span>
+      </div>
+      <div style="background:#fff;border:1.5px solid #2F5EFF;border-radius:10px;padding:11px 14px;max-width:280px;box-shadow:0 0 0 3px rgba(47,94,255,.16)">
+        <span style="font:400 14px Inter,sans-serif;color:#161A20">Focus state|</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font:500 11px 'IBM Plex Mono',monospace;color:#0E7A70;background:rgba(23,195,178,.14);padding:5px 9px;border-radius:6px">FREE</span>
+        <span style="font:500 11px 'IBM Plex Mono',monospace;color:#132A52;background:#F7F6F2;border:1px solid #DEDBD1;padding:5px 9px;border-radius:6px">$150</span>
+        <span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160;background:#F7F6F2;border:1px solid #DEDBD1;padding:5px 9px;border-radius:6px">NEGOTIABLE</span>
+        <a href="#1b" style="font:500 13px Inter,sans-serif;color:#2F5EFF;text-decoration:none;border-bottom:1px solid #2F5EFF">Text link ↗</a>
+      </div>
+      <div style="font:400 12px/1.5 Inter,sans-serif;color:#5B6270;max-width:330px">Type: Schibsted Grotesk 700 display / Inter body / IBM Plex Mono metadata. Radii 8–14. Flat pastel; gradient deepens on hover, portrait scales 1.03, 160ms.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 1c POSTER ============ -->
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Poster — Archivo Black-weight · oversized role titles overlapping the portrait · boldest, most memorable</div>
+<div class="dv-card" style="width:720px;background:#FFFFFF">
+  <div style="padding:24px 28px 0;display:flex;align-items:center;justify-content:space-between">
+    <img src="brand/logo-horizontal.svg" alt="openmentor.io" style="height:26px;display:block">
+    <div style="display:flex;align-items:center;gap:18px">
+      <a href="#1c" style="font:600 13px Inter,sans-serif;color:#161A20;text-decoration:none">Support us</a>
+      <a href="#1c" style="font:600 13px Inter,sans-serif;color:#161A20;text-decoration:none">Log in</a>
+      <span style="font:700 13px Inter,sans-serif;color:#fff;background:#132A52;padding:11px 18px;border-radius:14px">Become a mentor</span>
+    </div>
+  </div>
+  <div style="padding:38px 28px 26px">
+    <h1 style="margin:0;font:800 54px/0.98 Archivo,sans-serif;letter-spacing:-0.03em;color:#161A20;text-transform:uppercase">Your mentorship<br>journey <span style="color:#2F5EFF">starts</span> <span style="position:relative">here<span style="position:absolute;left:0;right:0;bottom:2px;height:8px;background:#17C3B2;opacity:.55;z-index:-1"></span></span></h1>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:26px">
+      <div style="flex:1;max-width:350px;background:#F7F6F2;border:2px solid #161A20;border-radius:16px;padding:12px 16px">
+        <span style="font:500 14px Inter,sans-serif;color:#5B6270">Role, skill, or company…</span>
+      </div>
+      <span style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:14px 22px;border-radius:16px;box-shadow:3px 3px 0 #17C3B2">Find a mentor</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px;flex-wrap:wrap">
+      <span style="font:700 13px Inter,sans-serif;color:#fff;background:#161A20;padding:9px 16px;border-radius:12px">Development</span>
+      <span style="font:600 13px Inter,sans-serif;color:#161A20;background:#fff;border:2px solid #161A20;padding:7px 14px;border-radius:12px">Management</span>
+      <span style="font:600 13px Inter,sans-serif;color:#161A20;background:#fff;border:2px solid #161A20;padding:7px 14px;border-radius:12px">Design</span>
+    </div>
+  </div>
+  <div style="display:flex;gap:28px;padding:6px 28px 28px;align-items:flex-start">
+    <div style="width:250px;flex:none;border-radius:20px;background:#fff;border:2px solid #161A20;overflow:hidden">
+      <div style="position:relative;height:240px;background:linear-gradient(180deg,#CDE8C6 0%,#BCE0B4 100%)">
+        <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=500&q=80" alt="Priya" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:205px;height:215px;object-fit:cover;object-position:top;mix-blend-mode:multiply;filter:contrast(1.04)">
+        <div style="position:absolute;left:0;right:0;bottom:-2px;padding:0 14px;font:800 26px/0.95 Archivo,sans-serif;letter-spacing:-0.02em;text-transform:uppercase;color:#FFFFFF;text-shadow:0 1px 0 #161A20,1px 0 0 #161A20,0 -1px 0 #161A20,-1px 0 0 #161A20,1px 1px 0 #161A20,-1px 1px 0 #161A20,1px -1px 0 #161A20,-1px -1px 0 #161A20,0 3px 10px rgba(22,26,32,.35)">Product<br>Designer</div>
+      </div>
+      <div style="padding:14px 16px 16px;border-top:2px solid #161A20">
+        <div style="font:600 13px Inter,sans-serif;color:#161A20">Priya Sharma · Figma</div>
+        <div style="margin-top:9px;display:flex;gap:6px;align-items:center">
+          <span style="font:700 12px Inter,sans-serif;color:#0E7A70;background:rgba(23,195,178,.16);padding:5px 11px;border-radius:999px">Free</span>
+          <span style="font:600 12px Inter,sans-serif;color:#4A5160">6y experience</span>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:14px;padding-top:4px">
+      <div style="font:800 11px Archivo,sans-serif;color:#5B6270;text-transform:uppercase;letter-spacing:.1em">System</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span style="font:700 13px Inter,sans-serif;color:#fff;background:#132A52;padding:11px 18px;border-radius:14px;box-shadow:2px 2px 0 #17C3B2">Send request</span>
+        <span style="font:700 13px Inter,sans-serif;color:#161A20;background:#fff;border:2px solid #161A20;padding:9px 16px;border-radius:14px">Secondary</span>
+        <span style="font:700 13px Inter,sans-serif;color:#5B6270;padding:11px 10px">Ghost</span>
+      </div>
+      <div style="background:#fff;border:2px solid #2F5EFF;border-radius:14px;padding:11px 15px;max-width:280px;box-shadow:2px 2px 0 rgba(47,94,255,.35)">
+        <span style="font:500 14px Inter,sans-serif;color:#161A20">Focus state|</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font:700 12px Inter,sans-serif;color:#0E7A70;background:rgba(23,195,178,.16);padding:5px 11px;border-radius:999px">Free</span>
+        <span style="font:700 12px Inter,sans-serif;color:#fff;background:#132A52;padding:5px 11px;border-radius:999px">$150</span>
+        <span style="font:600 12px Inter,sans-serif;color:#161A20;border:2px solid #DEDBD1;padding:3px 9px;border-radius:999px">Negotiable</span>
+        <a href="#1c" style="font:700 13px Inter,sans-serif;color:#2F5EFF;text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px">Text link →</a>
+      </div>
+      <div style="font:400 12px/1.5 Inter,sans-serif;color:#5B6270;max-width:330px">Type: Archivo 800 uppercase display / Inter body. Hard 2px ink borders, offset mint shadows. Hover: card shifts −2,−2px and shadow grows to 5px, 140ms.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 1d ORBIT ============ -->
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Orbit — Gabarito · circular portraits echoing the ring logomark · cobalt directional strokes as the graphic system</div>
+<div class="dv-card" style="width:720px;background:#FFFFFF">
+  <div style="padding:24px 28px 0;display:flex;align-items:center;justify-content:space-between">
+    <img src="brand/logo-horizontal.svg" alt="openmentor.io" style="height:26px;display:block">
+    <div style="display:flex;align-items:center;gap:18px">
+      <a href="#1d" style="font:500 13px 'Public Sans',sans-serif;color:#161A20;text-decoration:none">Support us</a>
+      <a href="#1d" style="font:500 13px 'Public Sans',sans-serif;color:#161A20;text-decoration:none">Log in</a>
+      <span style="font:600 13px 'Public Sans',sans-serif;color:#fff;background:#132A52;padding:10px 18px;border-radius:999px">Become a mentor</span>
+    </div>
+  </div>
+  <div style="padding:36px 28px 26px;position:relative">
+    <div style="position:absolute;top:30px;right:28px;width:120px;height:120px;border:10px solid #132A52;border-radius:50%;opacity:.07"></div>
+    <h1 style="margin:0;font:700 46px/1.05 Gabarito,sans-serif;letter-spacing:-0.02em;color:#161A20">Your mentorship<br>journey starts here<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#17C3B2;margin-left:8px"></span></h1>
+    <div style="width:120px;height:5px;border-radius:999px;background:linear-gradient(90deg,#2F5EFF 70%,#17C3B2 70%);margin:18px 0 22px"></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <div style="flex:1;max-width:350px;background:#F7F6F2;border:1.5px solid #DEDBD1;border-radius:999px;padding:12px 18px">
+        <span style="font:400 14px 'Public Sans',sans-serif;color:#5B6270">Role, skill, or company…</span>
+      </div>
+      <span style="font:600 14px 'Public Sans',sans-serif;color:#fff;background:#132A52;padding:13px 22px;border-radius:999px">Find a mentor</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
+      <span style="font:600 13px 'Public Sans',sans-serif;color:#2F5EFF;background:rgba(47,94,255,.1);border:1.5px solid #2F5EFF;padding:8px 16px;border-radius:999px">Development</span>
+      <span style="font:500 13px 'Public Sans',sans-serif;color:#161A20;background:#fff;border:1.5px solid #DEDBD1;padding:8px 16px;border-radius:999px">Management</span>
+      <span style="font:500 13px 'Public Sans',sans-serif;color:#161A20;background:#fff;border:1.5px solid #DEDBD1;padding:8px 16px;border-radius:999px">Design</span>
+    </div>
+  </div>
+  <div style="display:flex;gap:28px;padding:6px 28px 28px;align-items:flex-start">
+    <div style="width:250px;flex:none;border-radius:22px;background:linear-gradient(180deg,#DDD9F4 0%,#CFC9EE 100%);overflow:hidden;position:relative">
+      <span style="position:absolute;top:14px;right:14px;font:700 11px 'Public Sans',sans-serif;color:#fff;background:#2F5EFF;padding:5px 11px;border-radius:999px">New</span>
+      <div style="padding:26px 18px 0;display:flex;justify-content:center">
+        <div style="width:150px;height:150px;border-radius:50%;border:5px solid #132A52;padding:5px;position:relative">
+          <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80" alt="Mateus" style="width:100%;height:100%;border-radius:50%;object-fit:cover;display:block">
+          <span style="position:absolute;top:8px;right:2px;width:16px;height:16px;border-radius:50%;background:#17C3B2;border:3px solid #DDD9F4"></span>
+        </div>
+      </div>
+      <div style="padding:16px 20px 20px;text-align:center">
+        <div style="font:700 20px/1.1 Gabarito,sans-serif;letter-spacing:-0.01em;color:#161A20">Data Scientist</div>
+        <div style="margin-top:4px;font:400 13px 'Public Sans',sans-serif;color:#4A5160">Mateus Silva · Nubank</div>
+        <div style="margin-top:12px;display:inline-flex;gap:6px">
+          <span style="font:600 12px 'Public Sans',sans-serif;color:#132A52;background:rgba(255,255,255,.75);border-radius:999px;padding:5px 11px">9y</span>
+          <span style="font:600 12px 'Public Sans',sans-serif;color:#132A52;background:rgba(255,255,255,.75);border-radius:999px;padding:5px 11px">$30</span>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:14px;padding-top:4px">
+      <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border:2.5px solid #132A52;border-radius:50%"></span><span style="font:700 11px Gabarito,sans-serif;color:#5B6270;text-transform:uppercase;letter-spacing:.08em">System</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span style="font:600 13px 'Public Sans',sans-serif;color:#fff;background:#132A52;padding:10px 18px;border-radius:999px">Send request</span>
+        <span style="font:600 13px 'Public Sans',sans-serif;color:#132A52;background:rgba(19,42,82,.06);padding:10px 18px;border-radius:999px">Secondary</span>
+        <span style="font:600 13px 'Public Sans',sans-serif;color:#5B6270;padding:10px 10px">Ghost</span>
+      </div>
+      <div style="background:#fff;border:1.5px solid #2F5EFF;border-radius:999px;padding:11px 16px;max-width:280px;box-shadow:0 0 0 4px rgba(47,94,255,.15)">
+        <span style="font:400 14px 'Public Sans',sans-serif;color:#161A20">Focus state|</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font:700 12px 'Public Sans',sans-serif;color:#0E7A70;background:rgba(23,195,178,.14);padding:5px 11px;border-radius:999px">Free</span>
+        <span style="font:600 12px 'Public Sans',sans-serif;color:#132A52;background:#F7F6F2;padding:5px 11px;border-radius:999px">$150</span>
+        <span style="font:500 12px 'Public Sans',sans-serif;color:#4A5160;background:#F7F6F2;padding:5px 11px;border-radius:999px">Negotiable</span>
+        <a href="#1d" style="font:600 13px 'Public Sans',sans-serif;color:#2F5EFF;text-decoration:none">Text link ○→</a>
+      </div>
+      <div style="font:400 12px/1.5 'Public Sans',sans-serif;color:#5B6270;max-width:330px">Type: Gabarito 700 display / Public Sans body. Ring-framed circular portraits (works with ANY photo — no cut-out needed), node dot = availability. Hover: ring rotates dash gap, card lifts 3px, 200ms.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "go wide with <a class="dv-oid" href="#1a">1a</a>" · "<a class="dv-oid" href="#1b">1b</a> but with <a class="dv-oid" href="#1a">1a</a>'s arch portraits" · "show mobile cards for two of these"</p>
+</section>
+
+</x-dc>
+</body>
+</html>

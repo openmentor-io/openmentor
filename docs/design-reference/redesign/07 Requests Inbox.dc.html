@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600..900&family=Schibsted+Grotesk:wght@400..900&family=Inter:wght@400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#EDEBE4;font-family:Inter,sans-serif}a{color:#2F5EFF}a:hover{color:#132A52}</style>
+</helmet>
+<div style="display:flex;gap:40px;align-items:flex-start;padding:40px;flex-wrap:wrap">
+
+<!-- ===== DESKTOP ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">07 · REQUESTS INBOX · DESKTOP 1440</div>
+<div data-screen-label="Inbox desktop" style="width:1440px;background:#F7F6F2;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden;display:flex">
+  <!-- dashboard sidebar -->
+  <div style="width:240px;flex:none;background:#fff;border-right:1px solid #DEDBD1;padding:24px 16px;display:flex;flex-direction:column;gap:2px;min-height:820px">
+    <div style="display:flex;align-items:center;gap:10px;padding:0 10px 22px"><img src="brand/logomark.svg" alt="OpenMentor" style="height:34px"><span style="font:800 15px Archivo,sans-serif;letter-spacing:-0.02em;color:#132A52;text-transform:uppercase">openmentor</span></div>
+    <span style="display:flex;align-items:center;justify-content:space-between;font:600 14px Inter,sans-serif;color:#fff;background:#132A52;padding:12px 14px;border-radius:11px">Requests<span style="font:700 11px 'IBM Plex Mono',monospace;background:#2F5EFF;padding:2px 7px;border-radius:999px">3</span></span>
+    <span style="font:500 14px Inter,sans-serif;color:#4A5160;padding:12px 14px;border-radius:11px;cursor:pointer" style-hover="background:#F7F6F2">My profile</span>
+    <span style="font:500 14px Inter,sans-serif;color:#4A5160;padding:12px 14px;border-radius:11px;cursor:pointer" style-hover="background:#F7F6F2">Reviews</span>
+    <div style="flex:1"></div>
+    <div style="border-top:1px solid #DEDBD1;padding-top:14px;display:flex;align-items:center;gap:10px;padding-left:10px">
+      <div style="width:34px;height:34px;border-radius:50%;overflow:hidden;background:linear-gradient(180deg,#F4E3C0,#EED8AA);position:relative;flex:none"><img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=100&q=80" alt="" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:30px;height:32px;object-fit:cover;object-position:top;mix-blend-mode:multiply"></div>
+      <div><div style="font:600 13px Inter,sans-serif;color:#161A20">Jonas Weber</div><div style="font:400 11px Inter,sans-serif;color:#5B6270">Log out</div></div>
+    </div>
+  </div>
+  <!-- main -->
+  <div style="flex:1;padding:32px 40px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:20px">
+      <h1 style="margin:0;font:800 28px Archivo,sans-serif;letter-spacing:-0.02em;color:#161A20;text-transform:uppercase">Requests</h1>
+      <div style="display:flex;gap:6px">
+        <span style="font:600 12px Inter,sans-serif;color:#fff;background:#132A52;padding:8px 14px;border-radius:999px">All · 7</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:6.5px 13px;border-radius:999px" style-hover="border-color:rgba(47,94,255,.45)">Pending · 3</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:6.5px 13px;border-radius:999px" style-hover="border-color:rgba(47,94,255,.45)">Active · 2</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:6.5px 13px;border-radius:999px" style-hover="border-color:rgba(47,94,255,.45)">Done · 1</span>
+        <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:6.5px 13px;border-radius:999px" style-hover="border-color:rgba(47,94,255,.45)">Declined · 1</span>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <!-- pending, unread -->
+      <a href="08 Request Detail.dc.html" style="text-decoration:none;background:#fff;border:1px solid #DEDBD1;border-left:4px solid #2F5EFF;border-radius:14px;padding:18px 22px;display:flex;gap:18px;align-items:center;cursor:pointer" style-hover="box-shadow:0 8px 20px -10px rgba(19,42,82,.18)">
+        <div style="width:44px;height:44px;border-radius:50%;background:#132A52;color:#fff;display:flex;align-items:center;justify-content:center;font:700 16px 'Schibsted Grotesk',sans-serif;flex:none">DK</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="font:700 16px 'Schibsted Grotesk',sans-serif;color:#161A20">Daria Kovalenko</span><span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">2H AGO</span></div>
+          <div style="margin-top:3px;font:400 13.5px/1.45 Inter,sans-serif;color:#5B6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">I'm a senior engineer at a fintech startup and I've been offered a team-lead role. I'd like 2–3 sessions to decide…</div>
+        </div>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#fff;background:#2F5EFF;padding:6px 12px;border-radius:999px;flex:none">PENDING</span>
+      </a>
+      <!-- pending -->
+      <a href="08 Request Detail.dc.html" style="text-decoration:none;background:#fff;border:1px solid #DEDBD1;border-left:4px solid #2F5EFF;border-radius:14px;padding:18px 22px;display:flex;gap:18px;align-items:center" style-hover="box-shadow:0 8px 20px -10px rgba(19,42,82,.18)">
+        <div style="width:44px;height:44px;border-radius:50%;background:#2F5EFF;color:#fff;display:flex;align-items:center;justify-content:center;font:700 16px 'Schibsted Grotesk',sans-serif;flex:none">RN</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="font:700 16px 'Schibsted Grotesk',sans-serif;color:#161A20">Rahul Nair</span><span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">1D AGO</span></div>
+          <div style="margin-top:3px;font:400 13.5px/1.45 Inter,sans-serif;color:#5B6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Preparing for EM interviews at FAANG-adjacent companies, would love mock interviews…</div>
+        </div>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#fff;background:#2F5EFF;padding:6px 12px;border-radius:999px;flex:none">PENDING</span>
+      </a>
+      <!-- active -->
+      <a href="08 Request Detail.dc.html" style="text-decoration:none;background:#fff;border:1px solid #DEDBD1;border-radius:14px;padding:18px 22px;display:flex;gap:18px;align-items:center" style-hover="box-shadow:0 8px 20px -10px rgba(19,42,82,.18)">
+        <div style="width:44px;height:44px;border-radius:50%;background:#17C3B2;color:#fff;display:flex;align-items:center;justify-content:center;font:700 16px 'Schibsted Grotesk',sans-serif;flex:none">LM</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="font:700 16px 'Schibsted Grotesk',sans-serif;color:#161A20">Lucía Martínez</span><span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">SINCE FEB · 4 SESSIONS</span></div>
+          <div style="margin-top:3px;font:400 13.5px/1.45 Inter,sans-serif;color:#5B6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Ongoing — first 90 days as a manager. Next session: May 12.</div>
+        </div>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#0E7A70;background:rgba(23,195,178,.15);padding:6px 12px;border-radius:999px;flex:none">ACTIVE</span>
+      </a>
+      <!-- done -->
+      <a href="08 Request Detail.dc.html" style="text-decoration:none;background:#fff;border:1px solid #DEDBD1;border-radius:14px;padding:18px 22px;display:flex;gap:18px;align-items:center;opacity:.75" style-hover="opacity:1">
+        <div style="width:44px;height:44px;border-radius:50%;background:#5B6270;color:#fff;display:flex;align-items:center;justify-content:center;font:700 16px 'Schibsted Grotesk',sans-serif;flex:none">EK</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="font:700 16px 'Schibsted Grotesk',sans-serif;color:#161A20">Elif Kaya</span><span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">MAR 2026 · LEFT ★★★★★</span></div>
+          <div style="margin-top:3px;font:400 13.5px/1.45 Inter,sans-serif;color:#5B6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Promotion case — wrapped after 2 sessions. She got it.</div>
+        </div>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#132A52;background:#EDEBE4;padding:6px 12px;border-radius:999px;flex:none">DONE</span>
+      </a>
+      <!-- declined -->
+      <a href="08 Request Detail.dc.html" style="text-decoration:none;background:#fff;border:1px solid #DEDBD1;border-radius:14px;padding:18px 22px;display:flex;gap:18px;align-items:center;opacity:.6" style-hover="opacity:1">
+        <div style="width:44px;height:44px;border-radius:50%;background:#DEDBD1;color:#4A5160;display:flex;align-items:center;justify-content:center;font:700 16px 'Schibsted Grotesk',sans-serif;flex:none">TB</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="font:700 16px 'Schibsted Grotesk',sans-serif;color:#161A20">Tom Becker</span><span style="font:500 11px 'IBM Plex Mono',monospace;color:#4A5160">FEB 2026</span></div>
+          <div style="margin-top:3px;font:400 13.5px/1.45 Inter,sans-serif;color:#5B6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Crypto trading advice — outside my expertise, declined with a referral.</div>
+        </div>
+        <span style="font:700 11px 'IBM Plex Mono',monospace;letter-spacing:.05em;color:#4A5160;background:#EDEBE4;padding:6px 12px;border-radius:999px;flex:none">DECLINED</span>
+      </a>
+    </div>
+  </div>
+</div>
+<div style="width:1440px;margin-top:14px;background:#fff;border:1px dashed #2F5EFF;border-radius:10px;padding:16px 20px;font:400 12.5px/1.7 Inter,sans-serif;color:#4A5160">
+  <b style="color:#2F5EFF">MOTION</b> — Rows: entrance stagger 30ms, rise 6px, 200ms. Hover: shadow only, no lift (list stays calm). Unread = 4px cobalt left border; it fades to hairline once opened (300ms). Filter pill swap: list crossfades 180ms. Status chips never animate.
+</div>
+</div>
+
+<!-- ===== EMPTY STATE ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">07 · EMPTY STATE (new mentor, no requests yet)</div>
+<div data-screen-label="Inbox empty" style="width:760px;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:64px 40px;display:flex;flex-direction:column;align-items:center;text-align:center">
+  <div style="position:relative;width:88px;height:88px">
+    <div style="width:70px;height:70px;border:9px solid #DEDBD1;border-radius:50%;margin:9px"></div>
+    <div style="position:absolute;bottom:12px;left:-14px;width:40px;height:9px;border-radius:999px;background:#2F5EFF;transform:rotate(-35deg);opacity:.35"></div>
+  </div>
+  <h2 style="margin:20px 0 0;font:800 22px Archivo,sans-serif;letter-spacing:-0.01em;color:#161A20;text-transform:uppercase">No requests yet</h2>
+  <p style="margin:10px 0 0;font:400 14px/1.6 Inter,sans-serif;color:#5B6270;max-width:400px">Your profile went live 3 days ago. Most mentors get their first request within two weeks — complete profiles with a photo get them 4× faster.</p>
+  <div style="display:flex;gap:10px;margin-top:24px">
+    <a href="09 Profile Edit.dc.html" style="font:700 14px Inter,sans-serif;color:#fff;background:#132A52;padding:13px 24px;border-radius:14px;box-shadow:2px 2px 0 rgba(47,94,255,.4);text-decoration:none">Improve my profile</a>
+    <a href="02 Mentor Profile.dc.html" style="font:700 14px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid rgba(47,94,255,.45);padding:11.5px 22px;border-radius:14px;text-decoration:none">Preview public profile</a>
+  </div>
+</div>
+</div>
+
+<!-- ===== MOBILE ===== -->
+<div style="flex:none">
+<div style="font:600 12px ui-monospace,monospace;color:#5B6270;margin-bottom:10px">07 · INBOX · MOBILE 390</div>
+<div data-screen-label="Inbox mobile" style="width:390px;background:#F7F6F2;border:1px solid rgba(0,0,0,.08);border-radius:8px;overflow:hidden">
+  <div style="background:#fff;display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #DEDBD1">
+    <img src="brand/logomark.svg" alt="" style="height:30px">
+    <span style="font:800 14px Archivo,sans-serif;color:#161A20;text-transform:uppercase">Requests</span>
+    <div style="width:32px;height:32px;border-radius:50%;background:#132A52;color:#fff;display:flex;align-items:center;justify-content:center;font:700 12px 'Schibsted Grotesk',sans-serif">JW</div>
+  </div>
+  <div style="display:flex;gap:6px;padding:14px 20px 10px;overflow:hidden">
+    <span style="font:600 12px Inter,sans-serif;color:#fff;background:#132A52;padding:8px 14px;border-radius:999px;flex:none">All · 7</span>
+    <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:6.5px 13px;border-radius:999px;flex:none">Pending · 3</span>
+    <span style="font:600 12px Inter,sans-serif;color:#132A52;background:#fff;border:1.5px solid #DEDBD1;padding:6.5px 13px;border-radius:999px;flex:none">Active · 2</span>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px;padding:4px 14px 20px">
+    <div style="background:#fff;border:1px solid #DEDBD1;border-left:4px solid #2F5EFF;border-radius:12px;padding:14px 16px;display:flex;gap:12px;align-items:center">
+      <div style="width:40px;height:40px;border-radius:50%;background:#132A52;color:#fff;display:flex;align-items:center;justify-content:center;font:700 14px 'Schibsted Grotesk',sans-serif;flex:none">DK</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 14px 'Schibsted Grotesk',sans-serif;color:#161A20">Daria Kovalenko</span><span style="font:500 10px 'IBM Plex Mono',monospace;color:#4A5160">2H</span></div>
+        <div style="margin-top:2px;font:400 12px/1.4 Inter,sans-serif;color:#5B6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Team-lead offer, 2–3 sessions to decide…</div>
+      </div>
+    </div>
+    <div style="background:#fff;border:1px solid #DEDBD1;border-left:4px solid #2F5EFF;border-radius:12px;padding:14px 16px;display:flex;gap:12px;align-items:center">
+      <div style="width:40px;height:40px;border-radius:50%;background:#2F5EFF;color:#fff;display:flex;align-items:center;justify-content:center;font:700 14px 'Schibsted Grotesk',sans-serif;flex:none">RN</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 14px 'Schibsted Grotesk',sans-serif;color:#161A20">Rahul Nair</span><span style="font:500 10px 'IBM Plex Mono',monospace;color:#4A5160">1D</span></div>
+        <div style="margin-top:2px;font:400 12px/1.4 Inter,sans-serif;color:#5B6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">EM interview prep, mock interviews…</div>
+      </div>
+    </div>
+    <div style="background:#fff;border:1px solid #DEDBD1;border-radius:12px;padding:14px 16px;display:flex;gap:12px;align-items:center">
+      <div style="width:40px;height:40px;border-radius:50%;background:#17C3B2;color:#fff;display:flex;align-items:center;justify-content:center;font:700 14px 'Schibsted Grotesk',sans-serif;flex:none">LM</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 14px 'Schibsted Grotesk',sans-serif;color:#161A20">Lucía Martínez</span><span style="font:700 9px 'IBM Plex Mono',monospace;color:#0E7A70;background:rgba(23,195,178,.15);padding:3px 8px;border-radius:999px">ACTIVE</span></div>
+        <div style="margin-top:2px;font:400 12px/1.4 Inter,sans-serif;color:#5B6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Next session: May 12</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+
+</x-dc>
+</body>
+</html>

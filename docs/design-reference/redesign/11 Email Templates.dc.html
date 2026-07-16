@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>body{margin:0;background:#EDEBE4;font-family:Arial,Helvetica,sans-serif}a{color:#2F5EFF}a:hover{color:#132A52}.em-label{font:600 12px ui-monospace,monospace;color:#5B6270;margin:0 0 10px}</style>
+</helmet>
+<div style="padding:40px;display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+<div style="width:100%;font:400 13px/1.6 Arial,sans-serif;color:#4A5160;max-width:900px">11 · EMAIL TEMPLATES — table-based, 600px, inline styles only, web-safe fonts (Arial stack; Archivo/Schibsted are NOT loaded in email clients). Buttons are bulletproof padded table cells. All colors from brand tokens. Preheader text noted per email.</div>
+
+<!-- ============ E1 REGISTRATION CONFIRMATION ============ -->
+<div>
+<p class="em-label">E1 · MENTOR REGISTRATION CONFIRMATION · preheader: "One click left — confirm your email"</p>
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#FFFFFF;border-radius:14px;border:1px solid #DEDBD1">
+  <tr><td style="padding:28px 40px 0" align="center"><img src="brand/logomark.svg" width="44" height="44" alt="OpenMentor" style="display:block"></td></tr>
+  <tr><td style="padding:22px 40px 0" align="center">
+    <div style="font:bold 26px/1.15 Arial,sans-serif;color:#161A20;text-transform:uppercase;letter-spacing:-0.5px">Confirm your email</div>
+    <div style="padding-top:12px;font:normal 15px/1.6 Arial,sans-serif;color:#5B6270">Hi Priya — thanks for creating a mentor profile on OpenMentor. One click and we'll send it to review.</div>
+  </td></tr>
+  <tr><td style="padding:26px 40px 0" align="center">
+    <table cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#132A52" style="border-radius:12px" align="center"><a href="#e1" style="display:inline-block;padding:15px 34px;font:bold 15px Arial,sans-serif;color:#FFFFFF;text-decoration:none">Confirm &amp; submit for review</a></td></tr></table>
+  </td></tr>
+  <tr><td style="padding:18px 40px 0" align="center"><div style="font:normal 12px/1.6 Arial,sans-serif;color:#5B6270">The link works for 24 hours. Didn't sign up? Ignore this email and nothing happens.</div></td></tr>
+  <tr><td style="padding:26px 40px 28px" align="center">
+    <div style="border-top:1px solid #DEDBD1;padding-top:16px;font:normal 11px/1.6 Arial,sans-serif;color:#5B6270">openmentor.io · free mentorship for the tech community<br><a href="#e1" style="color:#2F5EFF">Unsubscribe</a> · <a href="#e1" style="color:#2F5EFF">Privacy</a></div>
+  </td></tr>
+</table>
+</div>
+
+<!-- ============ E2 APPROVAL ============ -->
+<div>
+<p class="em-label">E2 · MENTOR APPROVED · preheader: "Your profile is live — here's how to get your first request"</p>
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#FFFFFF;border-radius:14px;border:1px solid #DEDBD1">
+  <tr><td bgcolor="#CDE8C6" style="padding:30px 40px;border-radius:14px 14px 0 0" align="center">
+    <img src="brand/logomark.svg" width="44" height="44" alt="OpenMentor" style="display:block;margin:0 auto">
+    <div style="padding-top:16px;font:bold 26px/1.15 Arial,sans-serif;color:#161A20;text-transform:uppercase;letter-spacing:-0.5px">You're live 🎉</div>
+  </td></tr>
+  <tr><td style="padding:24px 40px 0">
+    <div style="font:normal 15px/1.6 Arial,sans-serif;color:#161A20">Hi Priya,</div>
+    <div style="padding-top:10px;font:normal 15px/1.6 Arial,sans-serif;color:#5B6270">Your mentor profile passed review and is now visible in the catalog. Mentees can find you under <b style="color:#161A20">Design → Design systems, Portfolio review</b>.</div>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:18px"><tr>
+      <td width="4" bgcolor="#17C3B2" style="border-radius:2px"></td>
+      <td style="padding:12px 16px;font:normal 13px/1.6 Arial,sans-serif;color:#4A5160;background:#F7F6F2;border-radius:0 10px 10px 0">Profiles with a photo and 3+ tags get their first request about 4× faster. Yours has both — nice.</td>
+    </tr></table>
+  </td></tr>
+  <tr><td style="padding:24px 40px 0" align="center">
+    <table cellpadding="0" cellspacing="0" border="0"><tr>
+      <td bgcolor="#132A52" style="border-radius:12px" align="center"><a href="#e2" style="display:inline-block;padding:15px 30px;font:bold 15px Arial,sans-serif;color:#FFFFFF;text-decoration:none">See your public profile</a></td>
+      <td width="10"></td>
+      <td style="border:2px solid #2F5EFF;border-radius:12px" align="center"><a href="#e2" style="display:inline-block;padding:13px 24px;font:bold 15px Arial,sans-serif;color:#132A52;text-decoration:none">Open dashboard</a></td>
+    </tr></table>
+  </td></tr>
+  <tr><td style="padding:26px 40px 28px" align="center"><div style="border-top:1px solid #DEDBD1;padding-top:16px;font:normal 11px/1.6 Arial,sans-serif;color:#5B6270">openmentor.io · <a href="#e2" style="color:#2F5EFF">Unsubscribe</a></div></td></tr>
+</table>
+</div>
+
+<!-- ============ E3 DECLINE ============ -->
+<div>
+<p class="em-label">E3 · MENTOR PROFILE DECLINED · preheader: "Your profile needs a couple of changes before going live"</p>
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#FFFFFF;border-radius:14px;border:1px solid #DEDBD1">
+  <tr><td style="padding:28px 40px 0" align="center"><img src="brand/logomark.svg" width="44" height="44" alt="OpenMentor" style="display:block"></td></tr>
+  <tr><td style="padding:22px 40px 0">
+    <div style="font:bold 24px/1.2 Arial,sans-serif;color:#161A20;text-transform:uppercase;letter-spacing:-0.5px" align="center">Almost there</div>
+    <div style="padding-top:12px;font:normal 15px/1.6 Arial,sans-serif;color:#5B6270">Hi Tom — thanks for applying to mentor on OpenMentor. We couldn't approve your profile as submitted:</div>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:16px"><tr>
+      <td width="4" bgcolor="#E5484D" style="border-radius:2px"></td>
+      <td style="padding:14px 16px;background:#F7F6F2;border-radius:0 10px 10px 0">
+        <div style="font:bold 13px/1.5 Arial,sans-serif;color:#161A20">Reviewer note</div>
+        <div style="padding-top:4px;font:normal 13px/1.6 Arial,sans-serif;color:#4A5160">The "About" section reads as a service ad rather than a mentoring offer. Describe what you'll help mentees with and remove the pricing links — your listed price field covers that.</div>
+      </td>
+    </tr></table>
+    <div style="padding-top:16px;font:normal 15px/1.6 Arial,sans-serif;color:#5B6270">Edit and resubmit any time — most fixes get approved within a day.</div>
+  </td></tr>
+  <tr><td style="padding:22px 40px 0" align="center">
+    <table cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#132A52" style="border-radius:12px" align="center"><a href="#e3" style="display:inline-block;padding:15px 34px;font:bold 15px Arial,sans-serif;color:#FFFFFF;text-decoration:none">Edit my profile</a></td></tr></table>
+  </td></tr>
+  <tr><td style="padding:26px 40px 28px" align="center"><div style="border-top:1px solid #DEDBD1;padding-top:16px;font:normal 11px/1.6 Arial,sans-serif;color:#5B6270">Questions? Just reply to this email. · openmentor.io</div></td></tr>
+</table>
+</div>
+
+<!-- ============ E4 REQUEST CONFIRMATION (MENTEE) ============ -->
+<div>
+<p class="em-label">E4 · REQUEST SENT — MENTEE CONFIRMATION · preheader: "Your request is with Jonas — expect a reply within ~2 days"</p>
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#FFFFFF;border-radius:14px;border:1px solid #DEDBD1">
+  <tr><td style="padding:28px 40px 0" align="center"><img src="brand/logomark.svg" width="44" height="44" alt="OpenMentor" style="display:block"></td></tr>
+  <tr><td style="padding:22px 40px 0" align="center">
+    <div style="font:bold 24px/1.2 Arial,sans-serif;color:#161A20;text-transform:uppercase;letter-spacing:-0.5px">Request sent</div>
+    <div style="padding-top:12px;font:normal 15px/1.6 Arial,sans-serif;color:#5B6270">Hi Daria — your message is on its way to Jonas. He usually replies within <b style="color:#161A20">2 days</b>, straight to this address.</div>
+  </td></tr>
+  <tr><td style="padding:20px 40px 0">
+    <!-- mentor recap row -->
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F7F6F2;border-radius:12px"><tr>
+      <td width="64" style="padding:14px 0 14px 16px"><img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=128&q=80" width="52" height="52" alt="Jonas" style="border-radius:26px;display:block;object-fit:cover"></td>
+      <td style="padding:14px 16px">
+        <div style="font:bold 15px Arial,sans-serif;color:#161A20">Jonas Weber</div>
+        <div style="font:normal 12px/1.5 Arial,sans-serif;color:#5B6270">Engineering Manager · Zalando · $50/session</div>
+      </td>
+    </tr></table>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:12px"><tr>
+      <td width="4" bgcolor="#DEDBD1" style="border-radius:2px"></td>
+      <td style="padding:10px 16px;font:italic normal 13px/1.6 Arial,sans-serif;color:#5B6270">"I'm a senior engineer at a fintech startup, and I've been offered a team-lead role…"</td>
+    </tr></table>
+  </td></tr>
+  <tr><td style="padding:20px 40px 0" align="center"><div style="font:normal 13px/1.6 Arial,sans-serif;color:#5B6270">No reply after 5 days? We'll nudge him automatically. Meanwhile, <a href="#e4" style="color:#2F5EFF;font-weight:bold">browse similar mentors</a>.</div></td></tr>
+  <tr><td style="padding:24px 40px 28px" align="center"><div style="border-top:1px solid #DEDBD1;padding-top:16px;font:normal 11px/1.6 Arial,sans-serif;color:#5B6270">openmentor.io · we only shared your email with Jonas</div></td></tr>
+</table>
+</div>
+
+<!-- ============ E5 REQUEST NOTIFICATION (MENTOR) ============ -->
+<div>
+<p class="em-label">E5 · NEW REQUEST — MENTOR NOTIFICATION · preheader: "Daria K. wants 2–3 sessions on a team-lead decision"</p>
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#FFFFFF;border-radius:14px;border:1px solid #DEDBD1">
+  <tr><td bgcolor="#C9E6F2" style="padding:26px 40px;border-radius:14px 14px 0 0">
+    <table cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+      <td><img src="brand/logomark.svg" width="40" height="40" alt="OpenMentor" style="display:block"></td>
+      <td align="right"><span style="font:bold 11px Arial,sans-serif;color:#FFFFFF;background:#2F5EFF;padding:6px 12px;border-radius:999px;letter-spacing:1px">NEW REQUEST</span></td>
+    </tr></table>
+    <div style="padding-top:14px;font:bold 24px/1.2 Arial,sans-serif;color:#161A20;text-transform:uppercase;letter-spacing:-0.5px">Someone picked you</div>
+  </td></tr>
+  <tr><td style="padding:24px 40px 0">
+    <div style="font:normal 15px/1.6 Arial,sans-serif;color:#5B6270">Hi Jonas — <b style="color:#161A20">Daria Kovalenko</b> (daria.kova@gmail.com) sent you a mentorship request:</div>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:16px"><tr>
+      <td width="4" bgcolor="#2F5EFF" style="border-radius:2px"></td>
+      <td style="padding:14px 16px;background:#F7F6F2;border-radius:0 10px 10px 0;font:normal 14px/1.65 Arial,sans-serif;color:#161A20">I'm a senior engineer at a fintech startup, and I've been offered a team-lead role. I'd like 2–3 sessions to decide whether to take it and how to negotiate the transition.</td>
+    </tr></table>
+    <div style="padding-top:12px;font:normal 12px/1.6 Arial,sans-serif;color:#5B6270">Format: one-off session(s) · Your listed price: $50 · Their timezone: ~UTC+2</div>
+  </td></tr>
+  <tr><td style="padding:22px 40px 0" align="center">
+    <table cellpadding="0" cellspacing="0" border="0"><tr>
+      <td bgcolor="#132A52" style="border-radius:12px" align="center"><a href="#e5" style="display:inline-block;padding:15px 28px;font:bold 15px Arial,sans-serif;color:#FFFFFF;text-decoration:none">Accept &amp; reply</a></td>
+      <td width="10"></td>
+      <td style="border:2px solid #DEDBD1;border-radius:12px" align="center"><a href="#e5" style="display:inline-block;padding:13px 22px;font:bold 15px Arial,sans-serif;color:#5B6270;text-decoration:none">Decline</a></td>
+    </tr></table>
+  </td></tr>
+  <tr><td style="padding:24px 40px 28px" align="center"><div style="border-top:1px solid #DEDBD1;padding-top:16px;font:normal 11px/1.6 Arial,sans-serif;color:#5B6270">Replying by email goes straight to Daria. Managing status happens in <a href="#e5" style="color:#2F5EFF">your dashboard</a>.</div></td></tr>
+</table>
+</div>
+
+<!-- ============ E6 STATUS REPORT (MENTEE) — 3 variants ============ -->
+<div>
+<p class="em-label">E6 · SESSION STATUS FOR MENTEE · 3 variants — accepted / declined / completed (+review CTA)</p>
+<table cellpadding="0" cellspacing="0" border="0"><tr><td valign="top">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#FFFFFF;border-radius:14px;border:1px solid #DEDBD1">
+  <tr><td style="padding:26px 40px 0" align="center"><img src="brand/logomark.svg" width="40" height="40" alt="OpenMentor" style="display:block"></td></tr>
+  <tr><td style="padding:18px 40px 0" align="center">
+    <span style="font:bold 11px Arial,sans-serif;color:#0E7A70;background:#D7F4F0;padding:6px 14px;border-radius:999px;letter-spacing:1px">ACCEPTED</span>
+    <div style="padding-top:12px;font:bold 24px/1.2 Arial,sans-serif;color:#161A20;text-transform:uppercase;letter-spacing:-0.5px">Jonas said yes</div>
+    <div style="padding-top:10px;font:normal 15px/1.6 Arial,sans-serif;color:#5B6270">He accepted your request and will follow up by email to schedule your first session. You two take it from here — we step out of the way.</div>
+  </td></tr>
+  <tr><td style="padding:22px 40px 28px" align="center">
+    <table cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#132A52" style="border-radius:12px"><a href="#e6" style="display:inline-block;padding:14px 28px;font:bold 14px Arial,sans-serif;color:#FFFFFF;text-decoration:none">View Jonas's profile</a></td></tr></table>
+    <div style="padding-top:18px;border-top:1px solid #DEDBD1;margin-top:20px;font:normal 11px/1.6 Arial,sans-serif;color:#5B6270">openmentor.io</div>
+  </td></tr>
+</table>
+<div style="height:24px"></div>
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#FFFFFF;border-radius:14px;border:1px solid #DEDBD1">
+  <tr><td style="padding:26px 40px 0" align="center"><img src="brand/logomark.svg" width="40" height="40" alt="OpenMentor" style="display:block"></td></tr>
+  <tr><td style="padding:18px 40px 0" align="center">
+    <span style="font:bold 11px Arial,sans-serif;color:#4A5160;background:#EDEBE4;padding:6px 14px;border-radius:999px;letter-spacing:1px">DECLINED</span>
+    <div style="padding-top:12px;font:bold 24px/1.2 Arial,sans-serif;color:#161A20;text-transform:uppercase;letter-spacing:-0.5px">Not this time</div>
+    <div style="padding-top:10px;font:normal 15px/1.6 Arial,sans-serif;color:#5B6270">Jonas can't take your request right now — usually a capacity thing, not about you. His note:</div>
+  </td></tr>
+  <tr><td style="padding:14px 40px 0">
+    <table cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td width="4" bgcolor="#DEDBD1" style="border-radius:2px"></td><td style="padding:12px 16px;background:#F7F6F2;border-radius:0 10px 10px 0;font:italic normal 13px/1.6 Arial,sans-serif;color:#4A5160">"At capacity until July — try Amara Okafor, she's great on exactly this."</td></tr></table>
+  </td></tr>
+  <tr><td style="padding:20px 40px 28px" align="center">
+    <table cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#132A52" style="border-radius:12px"><a href="#e6" style="display:inline-block;padding:14px 28px;font:bold 14px Arial,sans-serif;color:#FFFFFF;text-decoration:none">Find similar mentors</a></td></tr></table>
+    <div style="padding-top:18px;border-top:1px solid #DEDBD1;margin-top:20px;font:normal 11px/1.6 Arial,sans-serif;color:#5B6270">openmentor.io</div>
+  </td></tr>
+</table>
+<div style="height:24px"></div>
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#FFFFFF;border-radius:14px;border:1px solid #DEDBD1">
+  <tr><td bgcolor="#CDE8C6" style="padding:26px 40px;border-radius:14px 14px 0 0" align="center">
+    <img src="brand/logomark.svg" width="40" height="40" alt="OpenMentor" style="display:block;margin:0 auto">
+    <div style="padding-top:12px;font:bold 24px/1.2 Arial,sans-serif;color:#161A20;text-transform:uppercase;letter-spacing:-0.5px">Mentorship completed</div>
+  </td></tr>
+  <tr><td style="padding:22px 40px 0" align="center">
+    <div style="font:normal 15px/1.6 Arial,sans-serif;color:#5B6270">Jonas marked your mentorship as completed after <b style="color:#161A20">3 sessions</b>. We hope it moved the needle, Daria.</div>
+    <div style="padding-top:14px;font:normal 15px/1.6 Arial,sans-serif;color:#161A20"><b>Got 60 seconds?</b> A review helps the next mentee decide — and it's the only "payment" free mentors ever get.</div>
+    <div style="padding-top:10px;font:normal 22px Arial,sans-serif;color:#17C3B2;letter-spacing:4px">★★★★★</div>
+  </td></tr>
+  <tr><td style="padding:18px 40px 28px" align="center">
+    <table cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#132A52" style="border-radius:12px"><a href="#e6" style="display:inline-block;padding:15px 32px;font:bold 15px Arial,sans-serif;color:#FFFFFF;text-decoration:none">Leave a review for Jonas</a></td></tr></table>
+    <div style="padding-top:18px;border-top:1px solid #DEDBD1;margin-top:20px;font:normal 11px/1.6 Arial,sans-serif;color:#5B6270">openmentor.io · reviews are public, your email never is</div>
+  </td></tr>
+</table>
+</td></tr></table>
+</div>
+
+<!-- ============ E7 MAGIC LINK ============ -->
+<div>
+<p class="em-label">E7 · MENTOR LOGIN — MAGIC LINK · preheader: "Your sign-in link (valid 15 minutes)"</p>
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background:#FFFFFF;border-radius:14px;border:1px solid #DEDBD1">
+  <tr><td style="padding:28px 40px 0" align="center"><img src="brand/logomark.svg" width="44" height="44" alt="OpenMentor" style="display:block"></td></tr>
+  <tr><td style="padding:20px 40px 0" align="center">
+    <div style="font:bold 24px/1.2 Arial,sans-serif;color:#161A20;text-transform:uppercase;letter-spacing:-0.5px">Your sign-in link</div>
+    <div style="padding-top:10px;font:normal 15px/1.6 Arial,sans-serif;color:#5B6270">Click below to open your mentor dashboard. No password needed.</div>
+  </td></tr>
+  <tr><td style="padding:24px 40px 0" align="center">
+    <table cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#132A52" style="border-radius:12px" align="center"><a href="#e7" style="display:inline-block;padding:16px 40px;font:bold 15px Arial,sans-serif;color:#FFFFFF;text-decoration:none">Sign in to OpenMentor</a></td></tr></table>
+  </td></tr>
+  <tr><td style="padding:18px 40px 0" align="center">
+    <div style="font:normal 12px/1.7 Arial,sans-serif;color:#5B6270">Valid for <b style="color:#161A20">15 minutes</b> and works once.<br>Didn't request this? Ignore it — no one can sign in without this email.</div>
+  </td></tr>
+  <tr><td style="padding:24px 40px 28px" align="center"><div style="border-top:1px solid #DEDBD1;padding-top:16px;font:normal 11px/1.6 Arial,sans-serif;color:#5B6270">Sent because someone entered jonas.weber@posteo.de at openmentor.io/login</div></td></tr>
+</table>
+</div>
+
+</div>
+
+</x-dc>
+</body>
+</html>
