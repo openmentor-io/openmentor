@@ -75,7 +75,7 @@ function MyApp({ Component, pageProps }: AppProps): JSX.Element {
 
   return (
     <div
-      className={`${inter.variable} ${archivo.variable} ${schibsted.variable} ${plexMono.variable} font-sans`}
+      className={`${inter.variable} ${archivo.variable} ${schibsted.variable} ${plexMono.variable} flex min-h-screen flex-col font-sans`}
     >
       <Component {...pageProps} />
       <CookieConsentBanner />

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import classNames from 'classnames'
 import Link from 'next/link'
 import Image from 'next/image'
+import GitHubIcon from '../ui/GitHubIcon'
 
 /**
  * Redesign header (design 01–09): logomark + Archivo wordmark on the left,
@@ -58,6 +59,15 @@ export default function NavHeader({ className, backLink }: NavHeaderProps): JSX.
             </Link>
           ) : (
             <>
+              <Link
+                href="https://github.com/openmentor-io/openmentor"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="OpenMentor on GitHub"
+                className="text-ink-soft transition-colors duration-120 hover:text-ink"
+              >
+                <GitHubIcon className="h-5 w-5" />
+              </Link>
               <Link href="/donate" className="text-sm font-semibold text-ink hover:text-brand-cobalt">
                 Support us
               </Link>
@@ -118,6 +128,16 @@ export default function NavHeader({ className, backLink }: NavHeaderProps): JSX.
               ← {backLink.label}
             </Link>
           )}
+          <Link
+            href="https://github.com/openmentor-io/openmentor"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 rounded-field px-3 py-3 text-sm font-semibold text-ink hover:bg-surface"
+            onClick={() => setOpen(false)}
+          >
+            <GitHubIcon className="h-[18px] w-[18px] text-ink-soft" />
+            GitHub
+          </Link>
           <Link
             href="/donate"
             className="rounded-field px-3 py-3 text-sm font-semibold text-ink hover:bg-surface"

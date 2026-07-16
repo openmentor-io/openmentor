@@ -1,13 +1,16 @@
 import Link from 'next/link'
 import Image from 'next/image'
+import GitHubIcon from '../ui/GitHubIcon'
 
 /**
  * Redesign footer (design 01): navy band, white logomark + wordmark,
- * inline links, mono sign-off.
+ * inline links, GitHub link + mono sign-off. `mt-auto` pins it to the
+ * bottom of the viewport on short pages (the _app wrapper is a
+ * min-h-screen flex column).
  */
 export default function Footer(): JSX.Element {
   return (
-    <footer className="bg-brand-navy" data-section="footer">
+    <footer className="mt-auto bg-brand-navy" data-section="footer">
       <div className="flex flex-col gap-4 px-5 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-8 sm:py-10 lg:px-16">
         <Link href="/" className="flex items-center gap-2.5">
           <Image
@@ -42,7 +45,18 @@ export default function Footer(): JSX.Element {
             Terms
           </Link>
         </nav>
-        <span className="meta-mono text-white/50">Made with ♥ for the community</span>
+        <span className="flex items-center gap-3">
+          <Link
+            href="https://github.com/openmentor-io/openmentor"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="OpenMentor on GitHub"
+            className="text-white/50 transition-colors duration-120 hover:text-white"
+          >
+            <GitHubIcon className="h-[18px] w-[18px]" />
+          </Link>
+          <span className="meta-mono text-white/50">Made with ♥ for the community</span>
+        </span>
       </div>
     </footer>
   )
