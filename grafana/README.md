@@ -15,7 +15,8 @@ grafana/
 │   ├── om-worker.json          # OpenMentor · Worker & Email
 │   └── om-database-infra.json  # OpenMentor · Database & Infra
 ├── alerting/
-│   └── alert-rules.yaml        # Alert rules — versioned source of record
+│   ├── alert-rules.yaml            # Alert rules — versioned source of record
+│   └── notification-policies.yaml  # Routing tree — versioned source of record
 └── README.md
 ```
 
@@ -82,22 +83,33 @@ Notes:
   stay quiet until per-container metrics appear; the Host row on
   `om-database-infra` covers the gap meanwhile.
 
-## Notifications (manual, one-time)
+## Notifications
 
-Alerts route through the **default notification policy**. As of the last
-audit the stack has **no contact points configured** (default receiver is the
-placeholder "empty") — until one is added, alerts fire silently.
+Three contact points exist on the stack (created manually in the UI, since
+they hold secrets and are never provisioned from this repo): **telegram**,
+**slack**, **email**.
 
-To add Telegram (the intended channel):
+Alerts route through the **default notification policy**. The intended tree —
+every alert fans out to all three contact points — is versioned in
+[`alerting/notification-policies.yaml`](alerting/notification-policies.yaml):
 
-1. **Alerting → Contact points → + Add contact point**, integration
-   **Telegram**; paste the bot token (create via @BotFather) and the chat ID
-   (add the bot to a chat, then `getUpdates` to find the ID). Optionally add an
-   **Email** integration to the same contact point.
-2. **Alerting → Notification policies → Edit default policy** and set its
-   contact point to the one you just created.
+```
+Root: email  [group_by: grafana_folder, alertname | wait 30s · interval 5m · repeat 4h]
+├─ (catch-all) → telegram   continue: true
+├─ (catch-all) → slack      continue: true
+└─ (catch-all) → email
+```
 
-No contact points are provisioned from this repo (tokens are secrets).
+The catch-all children chained with `continue: true` are what make every
+alert hit all three receivers (the parent receiver only applies when no child
+matches).
+
+Apply changes via `PUT /api/v1/provisioning/policies` with
+`X-Disable-Provenance: true` (exact curl in the YAML file), or edit in the UI
+at **Alerting → Notification policies** and mirror the change back into the
+YAML. Note the Grafana Cloud MCP **cannot** write notification policies (its
+write scope covers dashboards and alert rules only), so unlike alert rules
+this piece is applied by hand.
 
 ## Datasource UIDs (stack `openmentor`)
 

@@ -1,0 +1,47 @@
+# Notification policy tree — versioned source of record (Grafana alerting
+# provisioning format). Routes every alert to all three contact points.
+#
+# Contact points (telegram / slack / email) are created manually in the UI —
+# they hold secrets (bot token, webhook URL) and are never provisioned from
+# this repo. This file only records how alerts are routed to them.
+#
+# Route semantics: the parent receiver applies only when NO child route
+# matches, so fan-out to all three = three catch-all child routes (no
+# matchers) chained with `continue: true` so each subsequent sibling still
+# matches.
+#
+# Apply via the provisioning API (Grafana Cloud MCP cannot write policies —
+# its write scope covers dashboards and alert rules only):
+#
+#   curl -X PUT "https://openmentor.grafana.net/api/v1/provisioning/policies" \
+#     -H "Authorization: Bearer $GRAFANA_SA_TOKEN" \
+#     -H "Content-Type: application/json" \
+#     -H "X-Disable-Provenance: true" \
+#     -d '{"receiver":"email","group_by":["grafana_folder","alertname"],
+#          "group_wait":"30s","group_interval":"5m","repeat_interval":"4h",
+#          "routes":[{"receiver":"telegram","continue":true},
+#                    {"receiver":"slack","continue":true},
+#                    {"receiver":"email"}]}'
+#
+# (X-Disable-Provenance keeps the tree editable in the UI afterwards.)
+# Or edit by hand at https://openmentor.grafana.net/alerting/routes — see
+# grafana/README.md §Notifications. If you change routing in the UI, mirror
+# the change here.
+
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: email
+    group_by:
+      - grafana_folder
+      - alertname
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      - receiver: telegram
+        continue: true
+      - receiver: slack
+        continue: true
+      - receiver: email
