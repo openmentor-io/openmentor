@@ -1,7 +1,7 @@
 import Head from 'next/head'
 import { useEffect, useState } from 'react'
 import type { GetServerSideProps } from 'next'
-import { Footer, MetaHeader, NavHeader, Section } from '@/components'
+import { Footer, MetaHeader, NavHeader } from '@/components'
 import RegisterMentorForm from '@/components/forms/RegisterMentorForm'
 import analytics from '@/lib/analytics'
 import { captureException } from '@/lib/posthog'
@@ -59,6 +59,7 @@ export default function Bementor(): JSX.Element {
 
       if (response.ok && result.success) {
         setSubmitStatus('success')
+        window.scrollTo({ top: 0 })
         analytics.event(analytics.events.MENTOR_REGISTRATION_SUBMITTED, {
           outcome: 'success',
           mentor_id: result.mentorId,
@@ -89,70 +90,80 @@ export default function Bementor(): JSX.Element {
     }
   }
 
-  const title = 'Join our team | ' + seo.title
+  const title = 'Become a mentor | ' + seo.title
 
   return (
     <>
       <Head>
         <title>{title}</title>
-        <MetaHeader customTitle="Join our team" />
+        <MetaHeader customTitle="Become a mentor" />
       </Head>
 
-      <NavHeader />
+      <NavHeader backLink={{ href: '/', label: 'Back to mentors' }} />
 
-      <Section className="bg-primary-100" id="header">
-        <div className="text-center py-4 lg:w-3/4 mx-auto">
-          <h1>Join our team</h1>
+      <main className="mx-auto w-full max-w-[1160px] px-5 pb-16 pt-6 sm:px-8 sm:pt-8 lg:px-10 lg:pb-20 lg:pt-12">
+        {/* Desktop shows the small-caps rail title instead (design 04);
+            mobile gets the display heading. */}
+        <h1 className="mb-6 text-2xl lg:sr-only">Become a mentor</h1>
 
-          <p>
-            Helping others is honorable and cool. Thank you for wanting to do it.
-            <br />
-            Fill out the form below and we&apos;ll review your application as soon as we can.
-          </p>
-        </div>
-      </Section>
-
-      <Section>
-        <div className="max-w-3xl mx-auto">
-          {submitStatus === 'success' && (
-            <div className="mb-8 p-6 bg-green-50 border border-green-200 rounded-2xl">
-              <p className="font-bold text-green-800 mb-2">Thank you for your application!</p>
-              <p className="text-green-700">
-                Thanks! We&apos;ve received your application. A confirmation email is on its way. If
-                it doesn&apos;t arrive, please check your spam folder and write to us at{' '}
-                <a href="mailto:hello@openmentor.io">hello@openmentor.io</a>.
-                <br />
-                <br />
-                IMPORTANT! Check your inbox and click the link in the confirmation email — your
-                application goes to review only after you confirm your email address. Once
-                confirmed, we try to review new applications as quickly as we can, but the process
-                can take up to 2 weeks. If you don&apos;t hear from us,{' '}
-                <a href="mailto:hello@openmentor.io">drop us a line</a> and we&apos;ll sort it out.
-                <br />
-                <br />
-                Good luck!
-              </p>
+        {submitStatus === 'success' && (
+          <div className="mx-auto max-w-[620px] animate-rise-in rounded-panel border border-line bg-white p-6 shadow-card-hover sm:p-10">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-brand-mint">
+              <svg width="18" height="14" viewBox="0 0 11 9" fill="none" aria-hidden="true">
+                <path
+                  d="M1 4.5L4 7.5L10 1"
+                  stroke="#161A20"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
             </div>
-          )}
 
-          {submitStatus === 'error' && (
-            <div className="mb-8 p-6 bg-red-50 border border-red-200 rounded-2xl">
-              <p className="font-bold text-red-800 mb-2">Failed to submit your application</p>
-              <p className="text-red-700">{errorMessage}</p>
-            </div>
-          )}
+            <h2 className="mb-0 mt-5 text-[22px] leading-[1.1] tracking-[-0.01em]">
+              Thank you for your application!
+            </h2>
 
-          {submitStatus !== 'success' && (
-            <div className="rounded-2xl bg-surface p-6 sm:p-10">
-              <RegisterMentorForm
-                isLoading={isSubmitting}
-                isError={submitStatus === 'error'}
-                onSubmit={handleSubmit}
-              />
-            </div>
-          )}
-        </div>
-      </Section>
+            <p className="mt-4 leading-[1.6] text-ink-soft">
+              Thanks! We&apos;ve received your application. A confirmation email is on its way. If
+              it doesn&apos;t arrive, please check your spam folder and write to us at{' '}
+              <a className="link" href="mailto:hello@openmentor.io">
+                hello@openmentor.io
+              </a>
+              .
+            </p>
+
+            <p className="rounded-field border border-brand-mint/60 bg-brand-mint/10 px-4 py-3 leading-[1.6] text-ink">
+              IMPORTANT! Check your inbox and click the link in the confirmation email — your
+              application goes to review only after you confirm your email address. Once confirmed,
+              we try to review new applications as quickly as we can, but the process can take up
+              to 2 weeks. If you don&apos;t hear from us,{' '}
+              <a className="link" href="mailto:hello@openmentor.io">
+                drop us a line
+              </a>{' '}
+              and we&apos;ll sort it out.
+            </p>
+
+            <p className="mb-0 font-semibold text-ink">Good luck!</p>
+          </div>
+        )}
+
+        {submitStatus !== 'success' && (
+          <>
+            {submitStatus === 'error' && (
+              <div className="mb-8 rounded-panel border-[1.5px] border-danger/40 bg-danger/5 p-5 sm:p-6 lg:ml-[276px] lg:max-w-[620px]">
+                <p className="my-0 font-bold text-danger">Failed to submit your application</p>
+                <p className="mb-0 mt-1.5 text-sm leading-[1.6] text-ink">{errorMessage}</p>
+              </div>
+            )}
+
+            <RegisterMentorForm
+              isLoading={isSubmitting}
+              isError={submitStatus === 'error'}
+              onSubmit={handleSubmit}
+            />
+          </>
+        )}
+      </main>
 
       <Footer />
     </>

@@ -68,13 +68,14 @@ export default function Migrate(): JSX.Element {
       <NavHeader />
 
       <Section id="migrate">
-        <div className="mx-auto max-w-2xl pt-10">
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+        <div className="mx-auto max-w-2xl pt-4 sm:pt-10">
+          <p className="meta-mono my-0 text-ink-mute">getmentor.dev → openmentor.io</p>
+          <h1 className="mt-3 text-[26px] leading-[1.08] sm:text-[34px]">
             Move your getmentor.dev profile to OpenMentor
           </h1>
 
           {router.isReady && !slug && (
-            <div className="mt-8 rounded-2xl bg-surface p-6 sm:p-8">
+            <div className="mt-8 rounded-panel border border-line bg-white p-6 sm:p-8">
               <p className="mt-0">
                 This page schedules the migration of a getmentor.dev mentor profile, but the link
                 you opened doesn&apos;t point at one.
@@ -91,9 +92,9 @@ export default function Migrate(): JSX.Element {
           )}
 
           {router.isReady && slug && (state === 'idle' || state === 'loading' || state === 'error') && (
-            <div className="mt-8 rounded-2xl bg-surface p-6 sm:p-8">
+            <div className="mt-8 rounded-panel border border-line bg-white p-6 sm:p-8">
               <p className="mt-0">You&apos;re about to migrate this getmentor.dev profile:</p>
-              <p className="rounded-xl bg-white px-4 py-3 font-medium text-ink">
+              <p className="rounded-field border border-line bg-surface px-4 py-3 font-mono text-sm font-medium text-ink">
                 getmentor.dev/mentor/{slug}
               </p>
 
@@ -121,7 +122,7 @@ export default function Migrate(): JSX.Element {
               />
 
               {state === 'error' && (
-                <div className="mt-4 text-red-700">
+                <div className="mt-4 rounded-field border-[1.5px] border-danger/40 bg-danger/5 px-4 py-3 text-sm font-medium text-danger">
                   Something went wrong — please try again in a minute, or write to us at{' '}
                   <a className="link" href="mailto:hello@openmentor.io">
                     hello@openmentor.io
@@ -142,8 +143,20 @@ export default function Migrate(): JSX.Element {
           )}
 
           {state === 'scheduled' && (
-            <div className="mt-8 rounded-2xl bg-surface p-6 sm:p-8">
-              <p className="mt-0 text-lg font-medium text-ink">🎉 You&apos;re on the list!</p>
+            <div className="mt-8 animate-rise-in rounded-panel border border-line bg-white p-6 shadow-card-hover sm:p-8">
+              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-brand-mint">
+                <svg width="16" height="13" viewBox="0 0 11 9" fill="none" aria-hidden="true">
+                  <path
+                    d="M1 4.5L4 7.5L10 1"
+                    stroke="#161A20"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+              <p className="mt-0 font-display text-lg font-extrabold uppercase tracking-[-0.01em] text-ink">
+                🎉 You&apos;re on the list!
+              </p>
               <p>
                 We&apos;ll migrate <span className="font-medium">{slug}</span> in the next batch
                 and email you when your OpenMentor profile is ready to review. Nothing else to do
@@ -160,8 +173,10 @@ export default function Migrate(): JSX.Element {
           )}
 
           {state === 'already' && (
-            <div className="mt-8 rounded-2xl bg-surface p-6 sm:p-8">
-              <p className="mt-0 text-lg font-medium text-ink">Already scheduled ✔</p>
+            <div className="mt-8 animate-rise-in rounded-panel border border-line bg-white p-6 sm:p-8">
+              <p className="mt-0 font-display text-lg font-extrabold uppercase tracking-[-0.01em] text-ink">
+                Already scheduled ✔
+              </p>
               <p>
                 <span className="font-medium">{slug}</span> is already on the migration list (or
                 migrated). You&apos;ll get — or already got — an email when the profile is ready.

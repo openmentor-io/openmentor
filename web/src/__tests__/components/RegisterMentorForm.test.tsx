@@ -95,6 +95,18 @@ describe('RegisterMentorForm', () => {
     expect(screen.getByLabelText(/Profile photo/i)).toBeInTheDocument()
   })
 
+  it('renders the section progress rail with the magic-link helper text', () => {
+    render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
+
+    const rail = screen.getByRole('navigation', { name: /form sections/i })
+    expect(rail).toBeInTheDocument()
+    expect(rail).toHaveTextContent('Contact details')
+    expect(rail).toHaveTextContent('Your profile')
+    expect(rail).toHaveTextContent('Your expertise')
+    expect(rail).toHaveTextContent('Scheduling')
+    expect(screen.getByText(/no password to remember/i)).toBeInTheDocument()
+  })
+
   it('renders optional calendar URL field', () => {
     render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
@@ -104,7 +116,7 @@ describe('RegisterMentorForm', () => {
   it('renders submit button', () => {
     render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
-    expect(screen.getByRole('button', { name: /Submit application/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Create my profile/i })).toBeInTheDocument()
   })
 
   it('disables submit button when isLoading is true', () => {
@@ -127,7 +139,7 @@ describe('RegisterMentorForm', () => {
       fireEvent.click(screen.getByTestId('turnstile'))
     })
 
-    const submitButton = screen.getByRole('button', { name: /Submit application/i })
+    const submitButton = screen.getByRole('button', { name: /Create my profile/i })
 
     await act(async () => {
       fireEvent.click(submitButton)
@@ -158,7 +170,7 @@ describe('RegisterMentorForm', () => {
     })
 
     // Submit form
-    const submitButton = screen.getByRole('button', { name: /Submit application/i })
+    const submitButton = screen.getByRole('button', { name: /Create my profile/i })
     await act(async () => {
       fireEvent.click(submitButton)
     })
@@ -188,7 +200,7 @@ describe('RegisterMentorForm', () => {
   it('disables submit button without a captcha token', async () => {
     render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
-    const submitButton = screen.getByRole('button', { name: /Submit application/i })
+    const submitButton = screen.getByRole('button', { name: /Create my profile/i })
 
     // Submit button should be disabled without a captcha token
     expect(submitButton).toBeDisabled()
@@ -197,7 +209,7 @@ describe('RegisterMentorForm', () => {
   it('enables submit button after captcha completion', async () => {
     render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
-    const submitButton = screen.getByRole('button', { name: /Submit application/i })
+    const submitButton = screen.getByRole('button', { name: /Create my profile/i })
 
     // Initially disabled
     expect(submitButton).toBeDisabled()
@@ -258,7 +270,7 @@ describe('RegisterMentorForm', () => {
       fireEvent.click(screen.getByTestId('turnstile'))
     })
 
-    const submitButton = screen.getByRole('button', { name: /Submit application/i })
+    const submitButton = screen.getByRole('button', { name: /Create my profile/i })
     await act(async () => {
       fireEvent.click(submitButton)
     })

@@ -32,16 +32,16 @@ export default function Terms(): JSX.Element {
 
       <NavHeader />
 
-      <Section className="bg-primary-100" id="header">
-        <div className="text-center py-14 lg:w-3/4 mx-auto">
-          <h1>Terms of Service</h1>
+      <Section className="border-b border-line bg-surface" id="header">
+        <div className="mx-auto max-w-[720px] py-4 text-center sm:py-8">
+          <p className="meta-mono my-0 text-ink-mute">OpenMentor.io · Legal</p>
+          <h1 className="my-0 mt-3 text-3xl sm:text-[40px]">Terms of Service</h1>
+          <p className="mb-0 mt-3 text-[15px] text-ink-soft">for the OpenMentor.io service</p>
         </div>
       </Section>
 
       <Section className="bg-white py-12">
-        <div className="prose max-w-4xl mx-auto px-4">
-          <p className="text-center text-lg">for the OpenMentor.io service</p>
-
+        <div className="prose mx-auto max-w-[720px] px-4 prose-headings:font-display prose-headings:font-extrabold prose-headings:uppercase prose-h2:text-xl prose-h2:tracking-[-0.01em] prose-h3:text-base prose-hr:border-line">
           <p>
             <strong>Last updated:</strong> 9 July 2026
           </p>
