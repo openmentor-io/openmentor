@@ -1,0 +1,35 @@
+/*
+  Redesign token deltas — new or changed tokens introduced by the 2026-07
+  Claude Design redesign (docs/design-reference — component sheet §token
+  deltas). Brand hues stay in brand-tokens.css (copied verbatim from the
+  brand pack); everything here is design-system level, not brand level.
+
+  Tailwind consumes these as hex literals in tailwind.config.js; the custom
+  properties exist for non-Tailwind consumers (email previews, portaled
+  content, plain CSS).
+*/
+
+:root {
+  /* errors / destructive (AA on white) */
+  --om-danger: #e5484d;
+  /* mint family text on light surfaces (AA 5.2:1) */
+  --om-mint-ink: #0e7a70;
+  /* disabled text/icons only, never body copy */
+  --om-ink-faint: #b9bdc7;
+  /* deep paper: skeletons, neutral gradient stop */
+  --om-paper-deep: #edebe4;
+
+  /* primary button offset shadow; hover doubles the offset */
+  --om-shadow-btn: 2px 2px 0 rgb(47 94 255 / 0.4);
+  --om-shadow-btn-hover: 4px 4px 0 rgb(47 94 255 / 0.4);
+  /* card hover */
+  --om-shadow-card: 0 12px 26px -10px rgb(19 42 82 / 0.22);
+  /* field focus ring */
+  --om-ring-focus: 0 0 0 3px rgb(47 94 255 / 0.13);
+
+  /* radius scale — replaces the old mixed rounded-lg/xl/full */
+  --om-radius-card: 14px;
+  --om-radius-field: 12px;
+  --om-radius-btn: 14px;
+  --om-radius-panel: 16px;
+}

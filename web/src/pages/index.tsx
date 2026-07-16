@@ -9,6 +9,7 @@ import {
   MentorsFilters,
   MentorsList,
   MetaHeader,
+  MentorsSearch,
   NavHeader,
   Section,
   useMentors,
@@ -95,7 +96,7 @@ export default function Home({
         <MetaHeader />
       </Head>
 
-      <NavHeader searchValue={searchInput} onSearchChange={setSearchInput} />
+      <NavHeader />
 
       <Section id="header">
         {/* Mobile frame in the design left-aligns the hero; desktop centers it. */}
@@ -110,6 +111,10 @@ export default function Home({
             OpenMentor is an open community of tech mentors ready to share their knowledge and
             experience one on one.
           </p>
+
+          <div className="mx-auto mt-6 max-w-xl">
+            <MentorsSearch value={searchInput} onChange={setSearchInput} />
+          </div>
         </div>
       </Section>
 

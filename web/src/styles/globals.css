@@ -3,23 +3,33 @@
 @tailwind utilities;
 
 @layer base {
-  /* Fallback for elements rendered outside the _app font wrapper (portals).
-     Inside the wrapper, next/font redefines --font-inter with the
-     self-hosted Inter family. */
+  /* Fallbacks for elements rendered outside the _app font wrapper
+     (portals). Inside the wrapper, next/font redefines these variables
+     with the self-hosted families. */
   :root {
     --font-inter: 'Inter', system-ui, sans-serif;
+    --font-archivo: 'Archivo', system-ui, sans-serif;
+    --font-schibsted: 'Schibsted Grotesk', system-ui, sans-serif;
+    --font-plex-mono: 'IBM Plex Mono', ui-monospace, monospace;
   }
 
   html {
     @apply text-ink antialiased;
   }
 
+  /* Display headings: Archivo 800, CAPS, tight tracking (type system —
+     display-xl 72/0.98 -3%, display-l 34/1.05 -2%). Pages size h1
+     responsively; these set family/weight/case so headings are on-system
+     by default. */
   h1 {
-    @apply text-5xl font-bold tracking-tight;
+    @apply font-display font-extrabold uppercase leading-none;
+    letter-spacing: -0.03em;
   }
 
   h2 {
-    @apply text-4xl font-bold tracking-tight mb-7;
+    @apply font-display font-extrabold uppercase;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
   }
 
   p {
@@ -29,53 +39,131 @@
   .link,
   .prose a {
     color: var(--om-bar); /* brand cobalt */
-    border-bottom: 2px solid;
+    font-weight: 600;
     text-decoration: none !important;
+  }
+  .link:hover,
+  .prose a:hover {
+    color: var(--om-ring); /* brand navy */
+  }
+
+  /* Focus: double ring (white gap + cobalt), never outline:none. */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px #fff, 0 0 0 5.5px var(--om-bar);
+    border-radius: var(--om-radius-btn);
   }
 }
 
 @layer components {
+  /* ── One button system everywhere (component sheet §buttons). ─────────
+     Primary: navy fill + 2px cobalt offset shadow; hover shifts −1,−1 and
+     the shadow grows to 4px (push feel); press returns to 0. */
   .button {
-    color: white;
-    padding: .87em 1.7em;
-    border-radius: 9999px;
-    background: var(--om-ring); /* brand navy #132A52 */
+    @apply inline-block cursor-pointer border-0 bg-brand-navy text-center font-sans text-sm font-bold text-white;
+    padding: 14px 24px;
+    border-radius: var(--om-radius-btn);
+    box-shadow: var(--om-shadow-btn);
     text-decoration: none;
     box-sizing: border-box;
-    transition: transform .3s cubic-bezier(.374, .019, .035, 1.861), -webkit-transform .3s cubic-bezier(.374, .019, .035, 1.861), background-color .2s ease;
-    display: inline-block;
-    border: none;
-    cursor: pointer;
-    outline: 0
-  }
-  .button[disabled] {
-    opacity: .5;
-    pointer-events: none;
+    transition: transform 150ms ease-in-out, box-shadow 150ms ease-in-out,
+      background-color 150ms ease-in-out;
   }
   .button:not([disabled]):hover {
-    transform: scale(1.05);
-    background: #1c3b70; /* --om-ring lightened one step for hover */
-    opacity: 1
+    transform: translate(-1px, -1px);
+    box-shadow: var(--om-shadow-btn-hover);
+  }
+  .button:not([disabled]):active {
+    transform: translate(0, 0);
+    box-shadow: var(--om-shadow-btn);
+  }
+  .button[disabled] {
+    @apply cursor-not-allowed bg-surface text-ink-faint;
+    box-shadow: none;
+    pointer-events: none;
   }
 
-  /* Shared form control styling (redesign Phase B): rounded fields on
-     white, cobalt focus ring, consistent across contact/registration. */
+  .button-secondary {
+    @apply inline-block cursor-pointer bg-white text-center font-sans text-sm font-bold text-brand-navy;
+    padding: 12.5px 22px;
+    border: 1.5px solid rgb(47 94 255 / 0.45);
+    border-radius: var(--om-radius-btn);
+    text-decoration: none;
+    box-sizing: border-box;
+    transition: background-color 150ms ease-in-out;
+  }
+  .button-secondary:not([disabled]):hover {
+    background: rgb(47 94 255 / 0.06);
+  }
+  .button-secondary[disabled] {
+    @apply cursor-not-allowed border-line text-ink-faint;
+    pointer-events: none;
+  }
+
+  .button-ghost {
+    @apply inline-block cursor-pointer border-0 bg-transparent text-center font-sans text-sm font-bold text-ink-soft;
+    padding: 14px 12px;
+    border-radius: var(--om-radius-btn);
+    text-decoration: none;
+    transition: background-color 150ms ease-in-out, color 150ms ease-in-out;
+  }
+  .button-ghost:hover {
+    @apply bg-surface text-ink;
+  }
+
+  .button-destructive {
+    @apply inline-block cursor-pointer bg-white text-center font-sans text-sm font-bold text-danger;
+    padding: 12.5px 22px;
+    border: 1.5px solid rgb(229 72 77 / 0.4);
+    border-radius: var(--om-radius-btn);
+    text-decoration: none;
+    transition: background-color 150ms ease-in-out;
+  }
+  .button-destructive:hover {
+    background: rgb(229 72 77 / 0.05);
+  }
+
+  /* ── Form fields (component sheet §fields): 1.5px line border, 12px
+     radius, cobalt border + soft ring on focus, danger variants. ──────── */
   .field {
-    @apply block w-full rounded-xl border-line bg-white shadow-sm focus:border-brand-cobalt focus:ring-brand-cobalt sm:text-sm;
+    @apply block w-full bg-white font-sans text-sm text-ink placeholder:text-ink-soft;
+    border: 1.5px solid var(--om-line);
+    border-radius: var(--om-radius-field);
+    padding: 13px 15px;
+    transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+  }
+  .field:focus {
+    border-color: var(--om-bar);
+    box-shadow: var(--om-ring-focus);
+    outline: none;
+  }
+  .field[disabled] {
+    @apply bg-surface text-ink-faint;
+    border-color: var(--om-paper-deep);
+  }
+  .field-error {
+    border-color: var(--om-danger);
+    box-shadow: 0 0 0 3px rgb(229 72 77 / 0.12);
   }
 
   .multiSelectContainer .searchWrapper {
-    @apply border border-gray-300 shadow-sm rounded-md focus-within:border-opacity-0 focus-within:ring-2 focus-within:ring-brand-cobalt focus-within:border-brand-cobalt;
+    border: 1.5px solid var(--om-line);
+    border-radius: var(--om-radius-field);
+    @apply focus-within:border-brand-cobalt;
+  }
+  .multiSelectContainer .searchWrapper:focus-within {
+    box-shadow: var(--om-ring-focus);
   }
   .multiSelectContainer input:focus {
     border: none !important;
     box-shadow: none !important;
   }
   .multiSelectContainer .optionListContainer {
-    @apply shadow-lg mt-1 z-20;
+    @apply z-20 mt-1 shadow-dropdown;
+    border-radius: var(--om-radius-field);
   }
   .multiSelectContainer .optionListContainer li:hover {
-    @apply bg-gray-100 text-current;
+    @apply bg-surface text-current;
   }
 }
 
@@ -105,5 +193,23 @@
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Metadata rows: Plex Mono 500, CAPS, +4% tracking ("8Y EXP · $50"). */
+  .meta-mono {
+    @apply font-mono text-[11px] font-medium uppercase;
+    letter-spacing: 0.04em;
+  }
+}
+
+/* Motion spec: all transforms/staggers off under prefers-reduced-motion;
+   opacity-only fallbacks, shake replaced by the focus ring flash. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

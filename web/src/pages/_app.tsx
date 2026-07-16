@@ -1,8 +1,9 @@
 import '../styles/brand-tokens.css'
+import '../styles/design-tokens.css'
 import '../styles/globals.css'
 import '@fortawesome/fontawesome-svg-core/styles.css'
 import { useEffect } from 'react'
-import { Inter } from 'next/font/google'
+import { Archivo, IBM_Plex_Mono, Inter, Schibsted_Grotesk } from 'next/font/google'
 import TagManager from 'react-gtm-module'
 import { CookieConsentBanner } from '@/components'
 import { onAnalyticsConsentGranted } from '@/lib/consent'
@@ -18,6 +19,30 @@ const inter = Inter({
   subsets: ['latin', 'cyrillic'],
   display: 'swap',
   variable: '--font-inter',
+})
+
+// Redesign display faces (component sheet type system): Archivo carries the
+// CAPS headlines, Schibsted Grotesk the names/numbers, IBM Plex Mono the
+// metadata rows. Inter stays the quiet body face.
+const archivo = Archivo({
+  subsets: ['latin'],
+  weight: 'variable',
+  display: 'swap',
+  variable: '--font-archivo',
+})
+
+const schibsted = Schibsted_Grotesk({
+  subsets: ['latin'],
+  weight: 'variable',
+  display: 'swap',
+  variable: '--font-schibsted',
+})
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  display: 'swap',
+  variable: '--font-plex-mono',
 })
 
 // Initialize observability on client-side only (outside component to run once).
@@ -49,7 +74,9 @@ function MyApp({ Component, pageProps }: AppProps): JSX.Element {
   }, [])
 
   return (
-    <div className={`${inter.variable} font-sans`}>
+    <div
+      className={`${inter.variable} ${archivo.variable} ${schibsted.variable} ${plexMono.variable} font-sans`}
+    >
       <Component {...pageProps} />
       <CookieConsentBanner />
     </div>
