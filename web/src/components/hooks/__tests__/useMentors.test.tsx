@@ -57,6 +57,15 @@ describe('useMentors', () => {
     const mentors = result.current[0]
     expect(mentors).toHaveLength(1)
     expect(mentors[0].slug).toBe('frontend-mentor')
+    expect(result.current[6]).toBe(1) // filteredCount
+  })
+
+  it('reports the total filtered count independently of pagination', () => {
+    const { result } = renderHook(() => useMentors(baseMentors, 1))
+
+    expect(result.current[0]).toHaveLength(1) // visible page
+    expect(result.current[6]).toBe(2) // total matching
+    expect(result.current[2]).toBe(true) // hasMoreMentors
   })
 
   it('filters by tags and experience mapping', () => {

@@ -3,13 +3,15 @@ import type { FiltersConfig } from '@/types'
 /**
  * Extract a numeric amount from a free-text price (e.g. "$100 / hour" -> 100).
  * Returns null when no number is present.
+ * Exported for the mentor card meta row ("$50" / "FREE" / "NEGOTIABLE").
  */
-function parsePriceAmount(price: string): number | null {
+export function parsePriceAmount(price: string): number | null {
   const match = price.replace(/[,\s]/g, '').match(/(\d+(?:\.\d+)?)/)
   return match ? parseFloat(match[1]) : null
 }
 
-function isFree(price: string): boolean {
+/** Whether a free-text price means "free" (see DECISIONS D3). */
+export function isPriceFree(price: string): boolean {
   return /free/i.test(price) || parsePriceAmount(price) === 0
 }
 
@@ -84,9 +86,9 @@ const filters: FiltersConfig = {
   // Price filter buckets (DECISIONS D3). `mentors.price` is free text, so
   // each bucket is a predicate that classifies a price string.
   byPrice: {
-    Free: (price) => isFree(price),
+    Free: (price) => isPriceFree(price),
     '≤$50': (price) => {
-      if (isFree(price)) return true
+      if (isPriceFree(price)) return true
       const amount = parsePriceAmount(price)
       return amount !== null && amount <= 50
     },
@@ -103,7 +105,7 @@ const filters: FiltersConfig = {
       return amount !== null && amount > 200
     },
     Negotiable: (price) =>
-      /negotiable/i.test(price) || (parsePriceAmount(price) === null && !isFree(price)),
+      /negotiable/i.test(price) || (parsePriceAmount(price) === null && !isPriceFree(price)),
   },
 }
 

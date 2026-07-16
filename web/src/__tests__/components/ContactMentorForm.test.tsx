@@ -7,7 +7,11 @@ jest.mock('@marsidev/react-turnstile', () => ({
   __esModule: true,
   Turnstile: function MockTurnstile({ onSuccess }: { onSuccess?: (token: string) => void }) {
     return (
-      <button type="button" data-testid="turnstile" onClick={() => onSuccess?.('mock-turnstile-token')}>
+      <button
+        type="button"
+        data-testid="turnstile"
+        onClick={() => onSuccess?.('mock-turnstile-token')}
+      >
         Complete Turnstile
       </button>
     )
@@ -173,6 +177,69 @@ describe('ContactMentorForm', () => {
       }),
       expect.anything()
     )
+  })
+
+  it('shows a pattern error for an invalid email address', async () => {
+    const user = userEvent.setup()
+    render(<ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
+
+    await user.type(screen.getByLabelText(/Your email/i), 'not-an-email')
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Send request/i }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/That doesn't look like a full email address/i)).toBeInTheDocument()
+    })
+
+    expect(mockOnSubmit).not.toHaveBeenCalled()
+  })
+
+  it('applies the error field style to invalid fields on submit', async () => {
+    render(<ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Send request/i }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Your email/i)).toHaveClass('field-error')
+    })
+    expect(screen.getByLabelText(/Your full name/i)).toHaveClass('field-error')
+    expect(screen.getByLabelText(/What would you like to talk about/i)).toHaveClass('field-error')
+    // Valid (optional) field keeps the default style
+    expect(screen.getByLabelText(/How can your mentor reach you/i)).not.toHaveClass('field-error')
+  })
+
+  it('shows a live character counter for the intro field', async () => {
+    const user = userEvent.setup()
+    render(<ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
+
+    expect(screen.getByText('0/4000')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/What would you like to talk about/i), 'Hello')
+
+    expect(screen.getByText('5/4000')).toBeInTheDocument()
+  })
+
+  it('mentions the mentor first name in the consent fine print', () => {
+    render(
+      <ContactMentorForm
+        isLoading={false}
+        isError={false}
+        onSubmit={mockOnSubmit}
+        mentorFirstName="Jonas"
+      />
+    )
+
+    expect(screen.getByText(/We only share your email with\s+Jonas/i)).toBeInTheDocument()
+  })
+
+  it('falls back to a generic consent fine print without a mentor name', () => {
+    render(<ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
+
+    expect(screen.getByText(/We only share your email with\s+the mentor/i)).toBeInTheDocument()
   })
 
   it('does not submit without a captcha token', async () => {

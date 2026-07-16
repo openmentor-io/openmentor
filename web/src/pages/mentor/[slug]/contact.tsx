@@ -1,25 +1,18 @@
 import Head from 'next/head'
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCheck, faExclamationTriangle } from '@fortawesome/free-solid-svg-icons'
-import Image from 'next/image'
 import { InlineWidget } from 'react-calendly'
 import type { GetServerSideProps, InferGetServerSidePropsType } from 'next'
-import {
-  CalendlabWidget,
-  ContactMentorForm,
-  Footer,
-  Koalendar,
-  NavHeader,
-  Section,
-} from '@/components'
+import { CalendlabWidget, ContactMentorForm, Footer, Koalendar, NavHeader } from '@/components'
+import MentorPortrait from '@/components/ui/MentorPortrait'
+import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
 import seo from '@/config/seo'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import analytics from '@/lib/analytics'
 import { captureException } from '@/lib/posthog'
-import { imageLoader } from '@/lib/image-loader'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
+import pluralize from '@/lib/pluralize'
 import type { MentorBase } from '@/types'
 
 // Rate limiting configuration
@@ -74,6 +67,70 @@ const _getServerSideProps: GetServerSideProps<{ mentor: MentorContact }> = async
 
 export const getServerSideProps = withSSRObservability(_getServerSideProps, 'mentor-contact')
 
+/** Small inline price for the recap card / mobile strip. */
+function RecapPrice({ price }: { price: string }): JSX.Element {
+  const { kind } = classifyPrice(price)
+  if (kind === 'free' || kind === 'negotiable') {
+    return <PriceBadge price={price} />
+  }
+  return <span className="font-name text-[15px] font-bold text-brand-navy">{price}</span>
+}
+
+/** Desktop mentor recap card (design 03, right column). */
+function MentorRecapCard({ mentor }: { mentor: MentorContact }): JSX.Element {
+  const metaLead =
+    mentor.sessionsCount && mentor.sessionsCount > 0
+      ? `${mentor.sessionsCount} ${pluralize(mentor.sessionsCount, 'session')}`
+      : `${mentor.experience}y exp`
+
+  return (
+    <div className="hidden w-[300px] flex-none overflow-hidden rounded-panel border border-line lg:block">
+      <MentorPortrait
+        mentor={mentor}
+        quality="large"
+        sizes="300px"
+        className="h-[180px]"
+        heroBoxClassName="h-[89%] w-1/2 max-w-[150px]"
+        frameBoxClassName="h-[80%] w-[42%] max-w-[130px]"
+        initialsClassName="h-16 w-16 text-2xl"
+      />
+      <div className="border-t border-line px-[18px] py-4">
+        <div className="font-name text-[17px] font-bold leading-tight text-ink">{mentor.name}</div>
+        <div className="mt-0.5 text-[13px] text-ink-soft">
+          {mentor.job} · {mentor.workplace}
+        </div>
+        <div className="mt-2.5 flex items-center justify-between gap-2">
+          <span className="meta-mono text-ink-mute">{metaLead}</span>
+          <RecapPrice price={mentor.price} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Mobile mentor recap strip under the header (design 03 · 390). */
+function MentorRecapStrip({ mentor }: { mentor: MentorContact }): JSX.Element {
+  return (
+    <div className="flex items-center gap-3 border-b border-line bg-surface px-5 py-4 lg:hidden">
+      <MentorPortrait
+        mentor={mentor}
+        quality="small"
+        sizes="52px"
+        className="h-[52px] w-[52px] flex-none rounded-field"
+        heroBoxClassName="h-[92%] w-[85%]"
+        frameBoxClassName="h-[85%] w-[80%] rounded-t-[8px] border-2"
+        initialsClassName="h-8 w-8 text-xs"
+      />
+      <div className="min-w-0">
+        <div className="truncate font-name text-[15px] font-bold text-ink">{mentor.name}</div>
+        <div className="truncate text-xs text-ink-soft">
+          {mentor.job} · {mentor.workplace} · {mentor.price}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function OrderMentor({
   mentor,
 }: InferGetServerSidePropsType<typeof getServerSideProps>): JSX.Element {
@@ -83,6 +140,7 @@ export default function OrderMentor({
 
   const today = new Date().toISOString().slice(0, 10)
   const title = 'Contact a mentor | ' + mentor.name + ' | ' + seo.title
+  const firstName = mentor.name.split(' ')[0]
 
   // Helper function to get current request count from localStorage
   const getRequestsToday = (): number => {
@@ -222,77 +280,55 @@ export default function OrderMentor({
       })
   }
 
+  const showForm = mentor.isVisible && readyStatus !== 'success' && readyStatus !== 'limit'
+
   return (
     <>
       <Head>
         <title>{title}</title>
       </Head>
 
-      <NavHeader />
+      <NavHeader backLink={{ href: '/mentor/' + mentor.slug, label: 'Back to profile' }} />
 
-      <Section>
-        <h1 className="text-center">Contact a mentor</h1>
-      </Section>
+      {showForm && <MentorRecapStrip mentor={mentor} />}
 
-      <Section>
-        <div className="mx-auto flex max-w-xl items-center gap-5">
-          <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl sm:h-28 sm:w-28">
-            <Image
-              src={imageLoader({ src: mentor.slug, quality: 'large' })}
-              alt={mentor.name}
-              fill
-              sizes="112px"
-              style={{
-                objectFit: 'cover',
-              }}
-            />
+      <main className="mx-auto flex w-full max-w-[1100px] animate-rise-in items-start gap-14 px-5 pb-16 pt-9 md:px-8 md:pt-12 lg:px-16">
+        {!mentor.isVisible && (
+          <div className="flex-1 py-10 text-center text-ink-soft">
+            This mentor is temporarily not accepting new requests.
           </div>
+        )}
 
-          <div className="min-w-0" style={{ wordBreak: 'break-word' }}>
-            <h2 className="mb-0 text-2xl">{mentor.name}</h2>
-            <div className="mt-1 text-ink-soft">
-              {mentor.job} @ {mentor.workplace}
-            </div>
-            <div className="mt-1 text-sm text-ink-soft">
-              {mentor.experience} years · {mentor.price}
-            </div>
-          </div>
-        </div>
-      </Section>
-
-      {!mentor.isVisible && (
-        <Section>
-          <div className="flex justify-center">
-            <div className="text-gray-500 mb-6">
-              This mentor is temporarily not accepting new requests.
-            </div>
-          </div>
-        </Section>
-      )}
-
-      {mentor.isVisible && readyStatus === 'success' && (
-        <Section>
+        {mentor.isVisible && readyStatus === 'success' && (
           <SuccessMessage mentor={mentor} formData={formData} requestId={submissionRequestId} />
-        </Section>
-      )}
+        )}
 
-      {mentor.isVisible && readyStatus !== 'success' && readyStatus === 'limit' && (
-        <Section>
-          <LimitMessage />
-        </Section>
-      )}
+        {mentor.isVisible && readyStatus === 'limit' && <LimitMessage />}
 
-      {mentor.isVisible && readyStatus !== 'success' && readyStatus !== 'limit' && (
-        <Section>
-          <div className="mx-auto max-w-xl rounded-2xl bg-surface p-6 sm:p-8">
-            <ContactMentorForm
-              isLoading={readyStatus === 'loading'}
-              isError={readyStatus === 'error'}
-              onSubmit={onSubmit}
-            />
-          </div>
-        </Section>
-      )}
+        {showForm && (
+          <>
+            <div className="min-w-0 max-w-[560px] flex-1">
+              <h1 className="text-[24px] leading-[1.05] tracking-[-0.02em] md:text-[34px]">
+                Request a session
+              </h1>
+              <p className="mb-7 mt-2.5 text-[15px] leading-relaxed text-ink-soft">
+                {firstName} will get your message by email and reply directly to you. Be specific —
+                mentors accept requests they can actually help with.
+              </p>
+
+              <ContactMentorForm
+                isLoading={readyStatus === 'loading'}
+                isError={readyStatus === 'error'}
+                onSubmit={onSubmit}
+                mentorFirstName={firstName}
+              />
+            </div>
+
+            <MentorRecapCard mentor={mentor} />
+          </>
+        )}
+      </main>
+
       <Footer />
     </>
   )
@@ -304,64 +340,95 @@ interface SuccessMessageProps {
   requestId?: string
 }
 
-function SuccessMessage({ mentor, formData, requestId }: SuccessMessageProps) {
-  return (
-    <div className="text-center">
-      <div className="inline-flex justify-center items-center rounded-full h-24 w-24 bg-brand-mint/15 text-brand-mint">
-        <FontAwesomeIcon icon={faCheck} size="2x" />
-      </div>
-      <p className="text-xl mt-6">Your request has been received</p>
-      {requestId && <p className="mt-2 text-sm text-gray-500">Request ID: {requestId}</p>}
+/** Success state (design 03): open ring + mint node, CAPS header, CTAs. */
+function SuccessMessage({ mentor, formData, requestId }: SuccessMessageProps): JSX.Element {
+  const firstName = mentor.name.split(' ')[0]
 
-      <div className="flex justify-center">
-        {mentor.calendarType !== 'none' ? (
-          <div className="max-w-screen-md justify-center space-y-7 flex-wrap sm:flex-nowrap sm:space-y-0 sm:space-x-5">
-            <p className="text-xl mt-6">
-              The mentor has received your request and will contact you soon. You can also pick a
-              convenient time for the session right now using the form below.
-            </p>
-            <br />
-            {mentor.calendarType === 'calendly' ? (
-              <InlineWidget
-                url={mentor.calendarUrl ?? ''}
-                prefill={{
-                  name: formData?.name,
-                  email: formData?.email,
-                  customAnswers: {
-                    a1: formData?.intro,
-                  },
-                }}
-              />
-            ) : mentor.calendarType === 'koalendar' ? (
-              <Koalendar url={mentor.calendarUrl ?? ''} />
-            ) : mentor.calendarType === 'calendlab' ? (
-              <CalendlabWidget url={mentor.calendarUrl ?? ''} />
-            ) : (
-              <a
-                className="button"
-                href={mentor.calendarUrl ?? ''}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Book a session
-              </a>
-            )}
-          </div>
-        ) : (
-          <p>The mentor will contact you soon.</p>
-        )}
+  return (
+    <div className="flex flex-1 animate-rise-in flex-col items-center text-center">
+      {/* Brand mark: open navy ring, mint node "arrives" top-right. */}
+      <div className="relative h-[88px] w-[88px]" aria-hidden="true">
+        <div className="m-2 h-[72px] w-[72px] rounded-full border-[9px] border-brand-navy" />
+        <div className="absolute right-0.5 top-1.5 flex h-[22px] w-[22px] items-center justify-center rounded-full bg-brand-mint">
+          <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+            <path
+              d="M1 4.5L4 7.5L10 1"
+              stroke="#fff"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
       </div>
+
+      <h2 className="mt-[22px] text-[28px] tracking-[-0.02em] text-ink">Request sent</h2>
+
+      <p className="mb-0 mt-3 max-w-[380px] text-[15px] leading-relaxed text-ink-soft">
+        {firstName} got your message and will reply directly to{' '}
+        {formData?.email ? (
+          <b className="font-semibold text-ink">{formData.email}</b>
+        ) : (
+          'your email'
+        )}
+        .
+      </p>
+
+      {requestId && <p className="meta-mono mb-0 mt-3 text-ink-mute">Request ID: {requestId}</p>}
+
+      <div className="mt-6 flex flex-wrap justify-center gap-2.5">
+        <Link href="/" className="button">
+          Browse more mentors
+        </Link>
+        <Link href={'/mentor/' + mentor.slug} className="button-secondary">
+          Back to profile
+        </Link>
+      </div>
+
+      {mentor.calendarType !== 'none' && (
+        <div className="mt-10 w-full max-w-screen-md">
+          <p className="text-[15px] leading-relaxed text-ink-soft">
+            You can also pick a convenient time for the session right now using the form below.
+          </p>
+
+          {mentor.calendarType === 'calendly' ? (
+            <InlineWidget
+              url={mentor.calendarUrl ?? ''}
+              prefill={{
+                name: formData?.name,
+                email: formData?.email,
+                customAnswers: {
+                  a1: formData?.intro,
+                },
+              }}
+            />
+          ) : mentor.calendarType === 'koalendar' ? (
+            <Koalendar url={mentor.calendarUrl ?? ''} />
+          ) : mentor.calendarType === 'calendlab' ? (
+            <CalendlabWidget url={mentor.calendarUrl ?? ''} />
+          ) : (
+            <a className="button" href={mentor.calendarUrl ?? ''} target="_blank" rel="noreferrer">
+              Book a session
+            </a>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
 function LimitMessage(): JSX.Element {
   return (
-    <div className="text-center">
-      <div className="inline-flex justify-center items-center rounded-full h-24 w-24 bg-red-100 text-red-500">
-        <FontAwesomeIcon icon={faExclamationTriangle} size="2x" />
+    <div className="flex flex-1 animate-rise-in flex-col items-center py-10 text-center">
+      <div
+        className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-danger/10 text-danger"
+        aria-hidden="true"
+      >
+        <svg width="28" height="28" viewBox="0 0 12 12" fill="none">
+          <path d="M6 2v5M6 9.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
       </div>
-      <p className="text-xl mt-6">
+      <p className="mt-6 max-w-[420px] text-lg text-ink">
         You&apos;ve reached the daily request limit. Come back tomorrow to contact another mentor.
       </p>
     </div>

@@ -21,7 +21,8 @@ export { default as CalendlabWidget } from './calendar/CalendlabWidget'
 export { default as MentorsList } from './mentors/MentorsList'
 export { default as MentorsFilters } from './mentors/MentorsFilters'
 export { default as MentorsSearch } from './mentors/MentorsSearch'
-export { default as FilterGroupDropdown } from './mentors/FilterGroupDropdown'
+export { default as MentorsSort, sortMentors } from './mentors/MentorsSort'
+export type { MentorsSortOption } from './mentors/MentorsSort'
 
 // Form Components
 export { default as ContactMentorForm } from './forms/ContactMentorForm'

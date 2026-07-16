@@ -1,71 +1,71 @@
 import { forwardRef, type ForwardedRef, type ReactNode } from 'react'
 
+/**
+ * Toast (component sheet §toasts): ink surface, 14px radius, white text,
+ * mint check circle for success / danger "!" circle for error, rises in.
+ */
 interface NotificationProps {
   title?: ReactNode
   content: ReactNode
+  /** Visual tone. Defaults to 'success' (mint check). */
+  variant?: 'success' | 'error'
   onClose: () => void
 }
 
 function NotificationInner(
-  { title, content, onClose }: NotificationProps,
+  { title, content, variant = 'success', onClose }: NotificationProps,
   ref: ForwardedRef<HTMLDivElement>
 ): JSX.Element {
   return (
     <div
-      className="max-w-sm w-full bg-white shadow-lg rounded-lg pointer-events-auto ring-1 ring-black ring-opacity-5 overflow-hidden"
+      className="pointer-events-auto flex w-full max-w-sm animate-toast-in items-center gap-3 rounded-card bg-ink px-[18px] py-3.5 shadow-dropdown"
       ref={ref}
     >
-      <div className="p-4">
-        <div className="flex items-start">
-          <div className="flex-shrink-0">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-6 w-6 text-green-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-          </div>
-
-          <div className="ml-3 w-0 flex-1 pt-0.5">
-            {!!title && <div className="text-sm font-semibold text-gray-900 mb-1">{title}</div>}
-
-            <div className="text-sm text-gray-500">{content}</div>
-          </div>
-
-          <div className="ml-4 flex-shrink-0 flex">
-            <button
-              className="bg-white rounded-md inline-flex text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-cobalt"
-              onClick={() => onClose()}
-            >
-              <span className="sr-only">Close</span>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                aria-hidden={true}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          </div>
+      {variant === 'success' ? (
+        <div
+          className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full bg-brand-mint"
+          aria-hidden="true"
+        >
+          <svg width="10" height="8" viewBox="0 0 11 9" fill="none">
+            <path d="M1 4.5L4 7.5L10 1" stroke="#161A20" strokeWidth="2" strokeLinecap="round" />
+          </svg>
         </div>
+      ) : (
+        <div
+          className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full bg-danger text-[13px] font-bold text-white"
+          aria-hidden="true"
+        >
+          !
+        </div>
+      )}
+
+      <div className="min-w-0 flex-1">
+        {!!title && <div className="text-[13px] font-semibold text-white">{title}</div>}
+
+        <div className="text-[13px] font-medium text-white">{content}</div>
       </div>
+
+      <button
+        className="flex-none rounded-md text-white/60 transition-colors duration-120 hover:text-white"
+        onClick={() => onClose()}
+      >
+        <span className="sr-only">Close</span>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="h-4 w-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          aria-hidden={true}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M6 18L18 6M6 6l12 12"
+          />
+        </svg>
+      </button>
     </div>
   )
 }

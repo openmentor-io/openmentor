@@ -26,7 +26,7 @@ export default function useMentors(
   // reset pagination on filters change
   useEffect(() => {
     setMentorsCount(pageSize)
-  }, [searchInput, selectedTags, selectedCategory, pageSize])
+  }, [searchInput, selectedTags, selectedCategory, selectedExperience, selectedPrice, pageSize])
 
   const showMoreMentors = (): void => {
     setMentorsCount(mentorsCount + pageSize)
@@ -192,7 +192,15 @@ export default function useMentors(
     },
   }
 
-  return [mentors, searchInput, hasMoreMentors, setSearchInput, showMoreMentors, appliedFilters]
+  return [
+    mentors,
+    searchInput,
+    hasMoreMentors,
+    setSearchInput,
+    showMoreMentors,
+    appliedFilters,
+    filteredMentors.length,
+  ]
 }
 
 function hasAllInArray(needles: string[], haystack: string): boolean {

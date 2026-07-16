@@ -69,10 +69,11 @@ export interface AppliedFilters {
  * useMentors hook return type
  */
 export type UseMentorsReturn = [
-  MentorListItem[], // mentors
+  MentorListItem[], // mentors (visible page)
   string, // searchInput
   boolean, // hasMoreMentors
   (value: string) => void, // setSearchInput
   () => void, // showMoreMentors
-  AppliedFilters // appliedFilters
+  AppliedFilters, // appliedFilters
+  number // filteredCount (total matching mentors before pagination)
 ]
