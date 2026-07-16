@@ -27,7 +27,7 @@ VALUES
    '<ul><li><p>preparing for your first engineering-management role;</p></li><li><p>running 1:1s, feedback and delegation that actually works;</p></li><li><p>navigating promotion cases and org politics.</p></li></ul>',
    'Engineering management, team topologies, feedback, delegation, backend architecture',
    '5-10', '$50', 'active', 'jonas.weber@example.com', 'Telegram: @jonasweber', false, 10,
-   'hero', now() - interval '200 days', now() - interval '199 days', 'dev-login-active', now() + interval '365 days', NULL),
+   'frame', now() - interval '200 days', now() - interval '199 days', 'dev-login-active', now() + interval '365 days', NULL),
 
   (1002, 'amara-okafor-1002', 'Amara Okafor', 'Staff Engineer', 'Spotify',
    '<p>Staff engineer on Spotify''s core infrastructure. I care about technical strategy, design docs that persuade, and helping senior engineers find their staff+ path.</p>',
@@ -55,14 +55,14 @@ VALUES
    '<ul><li><p>platform and infrastructure architecture reviews;</p></li><li><p>reliability culture and incident learning;</p></li><li><p>influencing without authority at principal level.</p></li></ul>',
    'Platform engineering, Kubernetes, reliability, architecture reviews, technical influence',
    '10+', '$150', 'active', 'sean.obrien@example.com', NULL, false, 50,
-   'hero', now() - interval '300 days', now() - interval '299 days', NULL, NULL, NULL),
+   'frame', now() - interval '300 days', now() - interval '299 days', NULL, NULL, NULL),
 
   (1006, 'priya-sharma-1006', 'Priya Sharma', 'Product Designer', 'Figma',
    '<p>Product designer at Figma, previously design systems lead at two scale-ups. I mentor designers on craft, portfolios and the systems side of design.</p>',
    '<ul><li><p>portfolio reviews that get interviews;</p></li><li><p>design systems from scratch;</p></li><li><p>working effectively with engineers.</p></li></ul>',
    'Product design, design systems, prototyping, portfolio coaching',
    '5-10', 'Free', 'active', 'priya.sharma@example.com', NULL, false, 60,
-   'hero', now() - interval '90 days', now() - interval '89 days', NULL, NULL, NULL),
+   'frame', now() - interval '90 days', now() - interval '89 days', NULL, NULL, NULL),
 
   (1007, 'yuki-tanaka-1007', 'Yuki Tanaka', 'Site Reliability Engineer', 'Mercari',
    '<p>SRE at Mercari focused on observability and on-call health. I like helping ops-minded engineers modernize their practice and their careers.</p>',

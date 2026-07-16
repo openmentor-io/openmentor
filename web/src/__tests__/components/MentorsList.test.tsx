@@ -190,12 +190,19 @@ describe('MentorsList', () => {
       expect(within(getCard(/John Doe/i)).getByRole('presentation')).toHaveClass('rounded-t-panel')
     })
 
-    it('renders hash-colored initials (fallback B) when there is no photo', () => {
+    it('falls back to hash-colored initials (fallback B) when the photo fails to load', () => {
+      // The payload carries no photo URL — the card always attempts the
+      // slug-keyed image and swaps to initials on load error.
       render(<MentorsList mentors={[baseMentor]} hasMore={false} onClickMore={() => {}} />)
+
+      const card = getCard(/John Doe/i)
+      const img = card.querySelector('img')
+      expect(img).not.toBeNull()
+      fireEvent.error(img as HTMLImageElement)
 
       const initials = screen.getByText('JD')
       expect(initials).toHaveClass(mentorInitialsClass('john-doe'))
-      expect(within(getCard(/John Doe/i)).queryByRole('presentation')).not.toBeInTheDocument()
+      expect(card.querySelector('img')).toBeNull()
     })
   })
 

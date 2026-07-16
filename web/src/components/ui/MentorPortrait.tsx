@@ -1,5 +1,6 @@
 import Image from 'next/image'
 import classNames from 'classnames'
+import { useState } from 'react'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
 import { mentorInitialsClass, mentorPastelGradClass } from '@/lib/mentor-pastel'
 import type { MentorBase } from '@/types'
@@ -25,7 +26,7 @@ export function mentorInitials(name: string): string {
 }
 
 interface MentorPortraitProps {
-  mentor: Pick<MentorBase, 'slug' | 'name' | 'photo_url' | 'photoStyle' | 'updatedAt'>
+  mentor: Pick<MentorBase, 'slug' | 'name' | 'photoStyle' | 'updatedAt'>
   /** Image quality passed to the storage loader. */
   quality?: 'small' | 'large' | 'full'
   /** `sizes` for next/image. */
@@ -51,6 +52,10 @@ export default function MentorPortrait({
   frameBoxClassName = 'h-[80%] w-[60%] max-w-[200px]',
   initialsClassName = 'h-[84px] w-[84px] text-3xl',
 }: MentorPortraitProps): JSX.Element {
+  // Photos are keyed by slug in object storage; the payload carries no
+  // explicit photo URL, so always attempt the image and fall back to the
+  // initials circle when it doesn't exist.
+  const [photoFailed, setPhotoFailed] = useState(false)
   const src = imageLoader({
     src: mentor.slug,
     quality,
@@ -65,7 +70,7 @@ export default function MentorPortrait({
         className
       )}
     >
-      {!mentor.photo_url ? (
+      {photoFailed ? (
         <div className="flex h-full items-center justify-center">
           <div
             aria-hidden="true"
@@ -89,6 +94,7 @@ export default function MentorPortrait({
             sizes={sizes}
             priority={priority}
             unoptimized
+            onError={() => setPhotoFailed(true)}
             className="mix-blend-multiply [filter:contrast(1.03)]"
             style={{ objectFit: 'cover', objectPosition: 'top' }}
           />
@@ -107,6 +113,7 @@ export default function MentorPortrait({
             sizes={sizes}
             priority={priority}
             unoptimized
+            onError={() => setPhotoFailed(true)}
             style={{ objectFit: 'cover', objectPosition: 'center 20%' }}
           />
         </div>

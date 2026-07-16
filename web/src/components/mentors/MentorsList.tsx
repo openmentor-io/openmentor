@@ -1,7 +1,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import classNames from 'classnames'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
 import { mentorInitialsClass, mentorPastelGradClass } from '@/lib/mentor-pastel'
 import { isPriceFree, parsePriceAmount } from '@/config/filters'
@@ -57,14 +57,18 @@ function MentorCard({
   /** 0-based stagger slot for the first-mount rise-in, or null for none. */
   entranceIndex: number | null
 }): JSX.Element {
-  const hasPhoto = Boolean(mentor.photo_url)
-  const photoSrc = hasPhoto
-    ? imageLoader({
+  // Photos are keyed by slug in object storage and the API payload carries
+  // no explicit photo URL (uploading one is part of registration), so the
+  // card always attempts the slug-based image and falls back to initials
+  // when it doesn't exist (migrated/edge-case profiles).
+  const [photoFailed, setPhotoFailed] = useState(false)
+  const photoSrc = photoFailed
+    ? null
+    : imageLoader({
         src: mentor.slug,
         quality: 'large',
         version: updatedAtToVersion(mentor.updatedAt),
       })
-    : null
 
   const sessions = mentor.sessionsCount ?? 0
 
@@ -99,6 +103,7 @@ function MentorCard({
             width={170}
             height={180}
             unoptimized
+            onError={() => setPhotoFailed(true)}
             className="absolute bottom-0 left-1/2 h-[122px] w-[112px] -translate-x-1/2 object-cover object-top contrast-[1.03] transition-transform duration-180 mix-blend-multiply group-hover:scale-[1.03] sm:h-[180px] sm:w-[170px]"
           />
         )}
@@ -110,6 +115,7 @@ function MentorCard({
             width={150}
             height={160}
             unoptimized
+            onError={() => setPhotoFailed(true)}
             className="block h-[110px] w-[100px] rounded-t-panel border-[3px] border-b-0 border-white/75 object-cover object-[center_20%] transition-transform duration-180 group-hover:scale-[1.03] sm:h-[160px] sm:w-[150px]"
           />
         )}
