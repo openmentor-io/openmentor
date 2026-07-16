@@ -85,6 +85,8 @@ func TestScanMentor(t *testing.T) {
 	createdAt := time.Now().AddDate(0, 0, -7) // 7 days ago (should be IsNew)
 	updatedAt := time.Now()
 	doneSessions := 4 // Count of client_requests with status='done'
+	photoStyle := "hero"
+	moderationNote := "Please expand your bio"
 
 	// Create mock row
 	row := &mockRow{
@@ -107,7 +109,9 @@ func TestScanMentor(t *testing.T) {
 			sortOrder,
 			createdAt,
 			updatedAt,
-			doneSessions, // mentee_count: aggregate of done client_requests
+			doneSessions,   // mentee_count: aggregate of done client_requests
+			photoStyle,     // photo_style
+			moderationNote, // moderation_note (nullable, scanned as *string)
 		},
 	}
 
@@ -167,6 +171,14 @@ func TestScanMentor(t *testing.T) {
 	if mentor.SessionsCount != doneSessions {
 		t.Errorf("expected SessionsCount %d, got %d", doneSessions, mentor.SessionsCount)
 	}
+
+	// Verify draft-workflow fields
+	if mentor.PhotoStyle != photoStyle {
+		t.Errorf("expected PhotoStyle %s, got %s", photoStyle, mentor.PhotoStyle)
+	}
+	if mentor.ModerationNote != moderationNote {
+		t.Errorf("expected ModerationNote %q, got %q", moderationNote, mentor.ModerationNote)
+	}
 }
 
 // TestScanMentor_InactiveMentor verifies IsVisible computation for inactive mentors
@@ -195,6 +207,8 @@ func TestScanMentor_InactiveMentor(t *testing.T) {
 			createdAt,     // created_at
 			createdAt,     // updated_at
 			0,             // mentee_count (no done client_requests)
+			"frame",       // photo_style
+			nil,           // moderation_note (null)
 		},
 	}
 

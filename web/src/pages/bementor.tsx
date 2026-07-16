@@ -123,10 +123,10 @@ export default function Bementor(): JSX.Element {
                 <a href="mailto:hello@openmentor.io">hello@openmentor.io</a>.
                 <br />
                 <br />
-                IMPORTANT! We&apos;ll review your application within a few days. You&apos;ll then
-                get an email with further instructions — don&apos;t miss it, it explains how to
-                complete your registration. We try to review new applications as quickly as we can,
-                but the process can take up to 2 weeks. If you don&apos;t hear from us,{' '}
+                IMPORTANT! Check your inbox and click the link in the confirmation email — your
+                application goes to review only after you confirm your email address. Once
+                confirmed, we try to review new applications as quickly as we can, but the process
+                can take up to 2 weeks. If you don&apos;t hear from us,{' '}
                 <a href="mailto:hello@openmentor.io">drop us a line</a> and we&apos;ll sort it out.
                 <br />
                 <br />

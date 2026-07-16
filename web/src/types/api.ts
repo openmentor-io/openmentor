@@ -60,6 +60,26 @@ export interface ScheduleMigrationResponse {
 }
 
 /**
+ * Confirm a mentor's email address (public /mentor/confirm page,
+ * draft-status registration flow). The same payload is used by the
+ * confirmation resend endpoint.
+ */
+export interface ConfirmMentorEmailRequest {
+  token: string
+}
+
+/**
+ * Confirm mentor email response. `code` distinguishes an expired link
+ * (offer a resend) from a dead one.
+ */
+export interface ConfirmMentorEmailResponse {
+  success: boolean
+  already?: boolean
+  error?: string
+  code?: 'invalid_token' | 'token_expired'
+}
+
+/**
  * Save profile request
  */
 export interface SaveProfileRequest {

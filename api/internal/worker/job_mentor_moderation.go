@@ -61,9 +61,9 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payload: missing moderator_id"})
 		return
 	}
-	if payload.Action != "approve" && payload.Action != "decline" {
+	if payload.Action != "approve" && payload.Action != "decline" && payload.Action != "return" {
 		trackOutcome("invalid_action", false)
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payload: action must be approve or decline"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payload: action must be approve, decline or return"})
 		return
 	}
 
@@ -99,9 +99,14 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 
 	// Idempotency check: the API already wrote the status before firing the
 	// trigger. Repair it (and warn) only if it doesn't match the action.
+	// (For 'return' the repair write is guarded in SQL: it never moves an
+	// ever-activated mentor back to draft.)
 	expectedStatus := "active"
-	if payload.Action == "decline" {
+	switch payload.Action {
+	case "decline":
 		expectedStatus = "declined"
+	case "return":
+		expectedStatus = "draft"
 	}
 	if mentor.Status != expectedStatus {
 		logger.Warn("[Mentor Moderation Action] Mentor status does not match moderation action; updating",
@@ -122,9 +127,13 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 
 	// Moderation results are visible in the admin portal; the mentor is
 	// notified by email. The approved email links to the mentor's public
-	// profile (with login-link guidance baked into the template copy).
+	// profile (with login-link guidance baked into the template copy); the
+	// returned email carries the reviewer's note (written to
+	// mentors.moderation_note by the API before the trigger fired) and a
+	// link to the profile editor.
 	var message email.Message
-	if payload.Action == "approve" {
+	switch payload.Action {
+	case "approve":
 		message = email.Message{
 			TemplateName: "new-mentor-approved",
 			Recipient:    mentor.Email,
@@ -133,7 +142,17 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 				"mentor_profile_url": h.mentorProfileURL(mentor.Slug),
 			},
 		}
-	} else {
+	case "return":
+		message = email.Message{
+			TemplateName: "new-mentor-returned",
+			Recipient:    mentor.Email,
+			Props: map[string]interface{}{
+				"first_name":    mentor.Name,
+				"reviewer_note": mentor.ModerationNote,
+				"edit_url":      h.baseURL + "/mentor/profile/edit",
+			},
+		}
+	default:
 		message = email.Message{
 			TemplateName: "new-mentor-declined",
 			Recipient:    mentor.Email,

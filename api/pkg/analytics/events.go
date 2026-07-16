@@ -17,15 +17,25 @@ const (
 	EventMentorRequestStatusUpdated   = "mentor_request_status_updated"
 	EventMentorRequestDeclined        = "mentor_request_declined"
 
+	// Draft-status workflow: registration email confirmation and the
+	// mentor's own draft -> pending resubmission from the portal.
+	EventMentorEmailConfirmed     = "mentor_email_confirmed"
+	EventMentorProfileResubmitted = "mentor_profile_resubmitted"
+
 	EventAdminMentorModerationAction = "admin_mentor_moderation_action"
 	EventAdminMentorStatusUpdated    = "admin_mentor_status_updated"
 	EventAdminMentorProfileUpdated   = "admin_mentor_profile_updated"
 	EventAdminMentorPictureUploaded  = "admin_mentor_picture_uploaded"
+	// EventAdminMentorReturned fires when a moderator returns a pending
+	// profile to draft with a reviewer note.
+	EventAdminMentorReturned = "admin_mentor_returned"
 
 	// Worker job events (ported from openmentor-func's legacy analytics
 	// event catalog; names kept verbatim).
 	EventNewMentorWatcherProcessed      = "new_mentor_watcher_processed"
 	EventNewRequestWatcherProcessed     = "new_request_watcher_processed"
+	EventMentorConfirmedProcessed       = "mentor_confirmed_processed"
+	EventMentorConfirmEmailSent         = "mentor_confirm_email_sent"
 	EventMentorAuthLoginEmailSent       = "mentor_auth_login_email_sent"
 	EventAdminAuthLoginEmailSent        = "admin_auth_login_email_sent"
 	EventRequestProcessFinishedNotified = "request_process_finished_notified"

@@ -38,13 +38,14 @@ import (
 func registerAPIRoutes(
 	group *gin.RouterGroup,
 	cfg *config.Config,
-	generalRateLimiter, contactRateLimiter, registrationRateLimiter *middleware.RateLimiter,
+	generalRateLimiter, contactRateLimiter, registrationRateLimiter, confirmResendRateLimiter *middleware.RateLimiter,
 	mentorHandler *handlers.MentorHandler,
 	contactHandler *handlers.ContactHandler,
 	logsHandler *handlers.LogsHandler,
 	registrationHandler *handlers.RegistrationHandler,
 	reviewHandler *handlers.ReviewHandler,
 	migrationIntentHandler *handlers.MigrationIntentHandler,
+	mentorConfirmationHandler *handlers.MentorConfirmationHandler,
 ) {
 
 	group.GET("/mentors", generalRateLimiter.Middleware(), middleware.TokenAuthMiddleware(cfg.Auth.MentorsAPIToken), mentorHandler.GetPublicMentors)
@@ -53,6 +54,11 @@ func registerAPIRoutes(
 	group.POST("/contact-mentor", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), contactHandler.ContactMentor)
 	group.POST("/register-mentor", registrationRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024*1024), registrationHandler.RegisterMentor)
 	group.POST("/logs", generalRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(1*1024*1024), logsHandler.ReceiveFrontendLogs)
+
+	// Mentor email confirmation (public, draft-status registration flow).
+	// The resend endpoint issues fresh tokens and emails - login-tier limits.
+	group.POST("/mentors/confirm", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024), mentorConfirmationHandler.Confirm)
+	group.POST("/mentors/confirm/resend", confirmResendRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024), mentorConfirmationHandler.Resend)
 
 	// Review routes (public - uses captcha for protection)
 	group.GET("/reviews/:requestId/check", generalRateLimiter.Middleware(), reviewHandler.CheckReview)
@@ -100,6 +106,7 @@ func registerMentorAdminRoutes(
 	mentor.GET("/profile", mentorProfileHandler.GetProfile)
 	mentor.POST("/profile", profileRateLimiter.Middleware(), mentorProfileHandler.UpdateProfile)
 	mentor.POST("/profile/status", profileRateLimiter.Middleware(), mentorProfileHandler.UpdateProfileStatus)
+	mentor.POST("/profile/submit", profileRateLimiter.Middleware(), mentorProfileHandler.SubmitProfile)
 	mentor.POST("/profile/picture", profileRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024*1024), mentorProfileHandler.UploadPicture)
 }
 
@@ -132,6 +139,7 @@ func registerAdminModerationRoutes(
 	admin.POST("/mentors/:id", profileRateLimiter.Middleware(), adminMentorsHandler.UpdateMentor)
 	admin.POST("/mentors/:id/approve", adminMentorsHandler.ApproveMentor)
 	admin.POST("/mentors/:id/decline", adminMentorsHandler.DeclineMentor)
+	admin.POST("/mentors/:id/return", adminMentorsHandler.ReturnMentor)
 	admin.POST("/mentors/:id/status", adminMentorsHandler.UpdateMentorStatus)
 	admin.POST("/mentors/:id/picture", profileRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024*1024), adminMentorsHandler.UploadMentorPicture)
 }
@@ -317,6 +325,7 @@ func main() { //nolint:gocyclo
 	reviewService := services.NewReviewService(reviewRepo, cfg, httpClient, analyticsTracker)
 	adminMentorsService := services.NewAdminMentorsService(mentorRepo, profileService, cfg, httpClient, analyticsTracker)
 	migrationIntentService := services.NewMigrationIntentService(migrationIntentRepo, cfg, httpClient, analyticsTracker)
+	mentorConfirmationService := services.NewMentorConfirmationService(mentorRepo, cfg, httpClient, analyticsTracker)
 
 	// Initialize handlers
 	mentorHandler := handlers.NewMentorHandler(mentorService, cfg.Server.BaseURL)
@@ -324,6 +333,7 @@ func main() { //nolint:gocyclo
 	registrationHandler := handlers.NewRegistrationHandler(registrationService)
 	reviewHandler := handlers.NewReviewHandler(reviewService)
 	migrationIntentHandler := handlers.NewMigrationIntentHandler(migrationIntentService)
+	mentorConfirmationHandler := handlers.NewMentorConfirmationHandler(mentorConfirmationService)
 	// Health check: If cache is disabled, always return true for cache readiness
 	cacheReadyFunc := mentorCache.IsReady
 	if cfg.Cache.DisableMentorsCache {
@@ -365,12 +375,13 @@ func main() { //nolint:gocyclo
 
 	// SECURITY: Rate limiters to prevent abuse and DoS attacks
 	// Different limits for different endpoint types
-	generalRateLimiter := middleware.NewRateLimiter(100, 200)        // 100 req/sec, burst of 200
-	contactRateLimiter := middleware.NewRateLimiter(5, 10)           // 5 req/sec, burst of 10 (prevent spam)
-	profileRateLimiter := middleware.NewRateLimiter(10, 20)          // 10 req/sec, burst of 20
-	registrationRateLimiter := middleware.NewRateLimiter(0.00667, 3) // 2 req/5min (0.00667 req/sec), burst of 3
-	mentorAuthRateLimiter := middleware.NewRateLimiter(0.00667, 2)   // 2 req/5min (0.00667 req/sec), burst of 2 (login abuse prevention)
-	adminAuthRateLimiter := middleware.NewRateLimiter(0.00667, 2)    // 2 req/5min (0.00667 req/sec), burst of 2 (login abuse prevention)
+	generalRateLimiter := middleware.NewRateLimiter(100, 200)         // 100 req/sec, burst of 200
+	contactRateLimiter := middleware.NewRateLimiter(5, 10)            // 5 req/sec, burst of 10 (prevent spam)
+	profileRateLimiter := middleware.NewRateLimiter(10, 20)           // 10 req/sec, burst of 20
+	registrationRateLimiter := middleware.NewRateLimiter(0.00667, 3)  // 2 req/5min (0.00667 req/sec), burst of 3
+	mentorAuthRateLimiter := middleware.NewRateLimiter(0.00667, 2)    // 2 req/5min (0.00667 req/sec), burst of 2 (login abuse prevention)
+	adminAuthRateLimiter := middleware.NewRateLimiter(0.00667, 2)     // 2 req/5min (0.00667 req/sec), burst of 2 (login abuse prevention)
+	confirmResendRateLimiter := middleware.NewRateLimiter(0.00667, 2) // 2 req/5min, burst of 2 (confirmation resend abuse prevention, login tier)
 
 	// API routes
 	api := router.Group("/api")
@@ -381,8 +392,9 @@ func main() { //nolint:gocyclo
 	// API v1 routes
 	// SECURITY: Apply body size limits to prevent DoS attacks
 	v1 := router.Group("/api/v1")
-	registerAPIRoutes(v1, cfg, generalRateLimiter, contactRateLimiter, registrationRateLimiter,
-		mentorHandler, contactHandler, logsHandler, registrationHandler, reviewHandler, migrationIntentHandler)
+	registerAPIRoutes(v1, cfg, generalRateLimiter, contactRateLimiter, registrationRateLimiter, confirmResendRateLimiter,
+		mentorHandler, contactHandler, logsHandler, registrationHandler, reviewHandler, migrationIntentHandler,
+		mentorConfirmationHandler)
 
 	// Mentor admin routes (authentication, request management, and profile)
 	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, mentorAuthService.GetTokenManager())

@@ -22,29 +22,33 @@ func TestNewMentorWatcherHappyPath(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	// DB write: trimmed fields, pending status, login token + ~100 day expiry.
+	// DB write: trimmed fields, draft status, login token + ~100 day
+	// expiry, single-use email confirmation token + 24h expiry.
 	require.Len(t, env.repo.finalized, 1)
 	update := env.repo.finalized[0]
 	assert.Equal(t, "m1", update.MentorID)
 	assert.Equal(t, "John Doe", update.Name)
 	assert.Equal(t, "@johndoe", update.PreferredContact)
-	assert.Equal(t, "pending", update.Status)
+	assert.Equal(t, "draft", update.Status, "mentor stays draft until the email is confirmed")
 	assert.Equal(t, "john-doe-42", update.Slug, "existing slug must be kept, not regenerated")
 	assert.NotEmpty(t, update.LoginToken)
 	assert.WithinDuration(t, time.Now().AddDate(0, 0, 100), update.LoginTokenExpiresAt, time.Minute)
 	assert.GreaterOrEqual(t, update.SortOrder, 0)
 	assert.Less(t, update.SortOrder, 1000)
+	require.NotNil(t, update.EmailConfirmationToken)
+	assert.NotEmpty(t, *update.EmailConfirmationToken)
+	require.NotNil(t, update.EmailConfirmationExpiresAt)
+	assert.WithinDuration(t, time.Now().Add(24*time.Hour), *update.EmailConfirmationExpiresAt, time.Minute)
 
-	// Emails: moderator notification + mentor welcome.
-	require.Equal(t, []string{"new-mentor-moderator", "new-mentor"}, env.sender.templates())
-	moderatorMsg := env.sender.attempts[0]
-	assert.Equal(t, testModeratorsEmail, moderatorMsg.Recipient)
-	assert.Equal(t, "John Doe", moderatorMsg.Props["mentor_name"])
-	assert.Equal(t, "john@example.com", moderatorMsg.Props["mentor_email"])
-	assert.Equal(t, "Engineer @ Acme", moderatorMsg.Props["mentor_job"])
-	mentorMsg := env.sender.attempts[1]
-	assert.Equal(t, "john@example.com", mentorMsg.Recipient)
-	assert.Equal(t, "John Doe", mentorMsg.Props["first_name"])
+	// Email: only the confirmation request — the mentor welcome and the
+	// moderator notification move to the mentor-confirmed job.
+	require.Equal(t, []string{"mentor-confirm-email"}, env.sender.templates())
+	confirmMsg := env.sender.attempts[0]
+	assert.Equal(t, "john@example.com", confirmMsg.Recipient)
+	assert.Equal(t, "John Doe", confirmMsg.Props["first_name"])
+	assert.Equal(t,
+		"https://openmentor.io/mentor/confirm?token="+*update.EmailConfirmationToken,
+		confirmMsg.Props["confirm_url"])
 
 	// Analytics: success event with duplicates_count.
 	event := env.tracker.last()
@@ -52,7 +56,7 @@ func TestNewMentorWatcherHappyPath(t *testing.T) {
 	assert.Equal(t, analytics.EventNewMentorWatcherProcessed, event.event)
 	assert.Equal(t, "mentor:m1", event.distinctID)
 	assert.Equal(t, "success", event.props["outcome"])
-	assert.Equal(t, "pending", event.props["status"])
+	assert.Equal(t, "draft", event.props["status"])
 	assert.Equal(t, 0, event.props["duplicates_count"])
 }
 
@@ -67,6 +71,7 @@ func TestNewMentorWatcherDuplicateEmailDeclines(t *testing.T) {
 
 	require.Len(t, env.repo.finalized, 1)
 	assert.Equal(t, "declined", env.repo.finalized[0].Status)
+	assert.Nil(t, env.repo.finalized[0].EmailConfirmationToken, "declined duplicates get no confirmation token")
 
 	require.Equal(t, []string{"new-mentor-duplicate"}, env.sender.templates())
 	assert.Equal(t, "john@example.com", env.sender.attempts[0].Recipient)
@@ -122,13 +127,13 @@ func TestNewMentorWatcherMissingRecord(t *testing.T) {
 func TestNewMentorWatcherEmailFailureResilience(t *testing.T) {
 	env := newJobsTestEnv()
 	env.repo.mentors["m1"] = testMentor("m1")
-	env.sender.failTemplates["new-mentor-moderator"] = true
+	env.sender.failTemplates["mentor-confirm-email"] = true
 
 	w := env.do(http.MethodPost, "/jobs/new-mentor-watcher?mentorId=m1", nil)
 
-	// One failed send must not skip the other, and the DB write stays.
+	// A failed send reports an error, but the DB write stays.
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-	assert.Equal(t, []string{"new-mentor-moderator", "new-mentor"}, env.sender.templates())
+	assert.Equal(t, []string{"mentor-confirm-email"}, env.sender.templates())
 	assert.Len(t, env.repo.finalized, 1)
 
 	event := env.tracker.last()

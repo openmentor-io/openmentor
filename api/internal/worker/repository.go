@@ -31,6 +31,11 @@ type JobMentor struct {
 	Workplace        string
 	Price            string
 	CalendarURL      string // "Calendly Url" in the func app
+	// Draft-status workflow columns (openmentor-only, no func-app
+	// counterpart): the reviewer note from a moderation 'return' and the
+	// registration email confirmation token.
+	ModerationNote         string
+	EmailConfirmationToken string
 }
 
 // JobRequest is the client_requests row shape the job handlers need,
@@ -68,7 +73,8 @@ type JobModerator struct {
 
 // FinalizeNewMentorParams is the single UPDATE new-mentor-watcher performs
 // after processing a fresh registration (mirrors the UPDATE in
-// openmentor-func/new-mentor-watcher/index.ts).
+// openmentor-func/new-mentor-watcher/index.ts, extended with the email
+// confirmation token of the draft-status workflow).
 type FinalizeNewMentorParams struct {
 	MentorID            string
 	Name                string
@@ -78,6 +84,9 @@ type FinalizeNewMentorParams struct {
 	Slug                string
 	Status              string
 	SortOrder           int
+	// Email confirmation token (nil for declined duplicates).
+	EmailConfirmationToken     *string
+	EmailConfirmationExpiresAt *time.Time
 }
 
 // JobReminderRequest is the trimmed client_requests row the cron reminder
@@ -140,7 +149,8 @@ func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*Jo
 	query := `
 		SELECT id, legacy_id, name, COALESCE(email::text, ''), status,
 			COALESCE(preferred_contact, ''), COALESCE(slug, ''), COALESCE(job_title, ''),
-			COALESCE(workplace, ''), COALESCE(price, ''), COALESCE(calendar_url, '')
+			COALESCE(workplace, ''), COALESCE(price, ''), COALESCE(calendar_url, ''),
+			COALESCE(moderation_note, ''), COALESCE(email_confirmation_token, '')
 		FROM mentors
 		WHERE id = $1
 	`
@@ -150,6 +160,7 @@ func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*Jo
 		&m.ID, &m.LegacyID, &m.Name, &m.Email, &m.Status,
 		&m.PreferredContact, &m.Slug, &m.JobTitle,
 		&m.Workplace, &m.Price, &m.CalendarURL,
+		&m.ModerationNote, &m.EmailConfirmationToken,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -176,7 +187,8 @@ func (r *Repository) CountActiveMentorsByEmail(ctx context.Context, email string
 }
 
 // FinalizeNewMentor performs the single UPDATE from new-mentor-watcher:
-// trimmed fields, login token, slug, status and randomized sort order.
+// trimmed fields, login token, slug, status, randomized sort order and the
+// email confirmation token (draft-status workflow).
 func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorParams) error {
 	query := `
 		UPDATE mentors SET
@@ -187,12 +199,15 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 			slug = $5,
 			status = $6,
 			sort_order = $7,
+			email_confirmation_token = $8,
+			email_confirmation_expires_at = $9,
 			updated_at = NOW()
-		WHERE id = $8
+		WHERE id = $10
 	`
 	_, err := r.pool.Exec(ctx, query,
 		p.Name, p.PreferredContact, p.LoginToken, p.LoginTokenExpiresAt,
-		p.Slug, p.Status, p.SortOrder, p.MentorID,
+		p.Slug, p.Status, p.SortOrder,
+		p.EmailConfirmationToken, p.EmailConfirmationExpiresAt, p.MentorID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to finalize new mentor %s: %w", p.MentorID, err)
@@ -202,9 +217,12 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 
 // SetMentorStatus updates a mentor's status (used by the moderation job's
 // idempotency check when the API's status write is missing/stale).
+// HARD GUARD: a mentor that has ever been activated (activated_at IS NOT
+// NULL) can never be moved back to 'draft'.
 func (r *Repository) SetMentorStatus(ctx context.Context, mentorID, status string) error {
 	_, err := r.pool.Exec(ctx,
-		`UPDATE mentors SET status = $1, updated_at = NOW() WHERE id = $2`,
+		`UPDATE mentors SET status = $1, updated_at = NOW()
+		 WHERE id = $2 AND NOT ($1 = 'draft' AND activated_at IS NOT NULL)`,
 		status, mentorID,
 	)
 	if err != nil {

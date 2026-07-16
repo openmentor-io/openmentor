@@ -85,6 +85,36 @@ func (h *AdminMentorsHandler) DeclineMentor(c *gin.Context) {
 	h.withAdminMentor(c, h.service.DeclineMentor)
 }
 
+// ReturnMentor handles POST /api/v1/admin/mentors/:id/return
+// Body: {reason}. Returns a pending profile to draft with a reviewer note.
+func (h *AdminMentorsHandler) ReturnMentor(c *gin.Context) {
+	session, err := middleware.GetAdminSession(c)
+	if err != nil {
+		respondError(c, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+
+	mentorID := c.Param("id")
+	if mentorID == "" {
+		respondError(c, http.StatusBadRequest, "Invalid mentor ID", errors.New("missing route param: id"))
+		return
+	}
+
+	var req models.AdminMentorReturnRequest
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		respondErrorWithDetails(c, http.StatusBadRequest, "Invalid request body", gin.H{"message": bindErr.Error()}, bindErr)
+		return
+	}
+
+	mentor, err := h.service.ReturnMentor(c.Request.Context(), session, mentorID, req.Reason)
+	if err != nil {
+		h.respondServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, models.AdminMentorResponse{Mentor: mentor})
+}
+
 func (h *AdminMentorsHandler) withAdminMentor(
 	c *gin.Context,
 	action func(context.Context, *models.AdminSession, string) (*models.AdminMentorDetails, error),
@@ -177,13 +207,18 @@ func (h *AdminMentorsHandler) respondServiceError(c *gin.Context, err error) {
 		return
 	}
 
+	if errors.Is(err, services.ErrMentorAlreadyActivated) {
+		respondError(c, http.StatusConflict, "Mentor has already been activated and cannot be returned to draft", err)
+		return
+	}
+
 	msg := strings.ToLower(err.Error())
 	if strings.Contains(msg, "not found") {
 		respondError(c, http.StatusNotFound, "Mentor not found", err)
 		return
 	}
 
-	if strings.Contains(msg, "unsupported") || strings.Contains(msg, "required") || strings.Contains(msg, "available only") {
+	if strings.Contains(msg, "unsupported") || strings.Contains(msg, "required") || strings.Contains(msg, "available only") || strings.Contains(msg, "at most") {
 		respondError(c, http.StatusBadRequest, "Invalid request", err)
 		return
 	}

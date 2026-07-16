@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	mentorStatusDraft    = "draft"
 	mentorStatusPending  = "pending"
 	mentorStatusActive   = "active"
 	mentorStatusInactive = "inactive"
@@ -22,14 +23,38 @@ const (
 
 	moderationActionApprove = "approve"
 	moderationActionDecline = "decline"
+	moderationActionReturn  = "return"
+
+	// moderationReasonMaxLength caps the reviewer note stored in
+	// mentors.moderation_note for the 'return' action.
+	moderationReasonMaxLength = 2000
 )
 
 var (
 	ErrAdminForbiddenAction = errors.New("forbidden action for current role")
+	// ErrMentorAlreadyActivated guards the 'return' action: a mentor that
+	// has ever been active can never be moved back to draft.
+	ErrMentorAlreadyActivated = errors.New("mentor has already been activated and cannot be returned to draft")
 )
 
+// AdminMentorsRepository is the mentor repository surface the admin
+// moderation service needs. *repository.MentorRepository satisfies it;
+// tests substitute a fake.
+type AdminMentorsRepository interface {
+	ListForModeration(ctx context.Context, statuses []string) ([]models.AdminMentorListItem, error)
+	GetForModerationByID(ctx context.Context, mentorID string) (*models.AdminMentorDetails, error)
+	GetTagIDByName(ctx context.Context, tagName string) (string, error)
+	Update(ctx context.Context, mentorID string, updates map[string]interface{}) error
+	UpdateMentorTags(ctx context.Context, mentorID string, tagIDs []string) error
+	SetMentorStatus(ctx context.Context, mentorID, status string) error
+	ApproveMentorModeration(ctx context.Context, mentorID string) error
+	ReturnMentorToDraft(ctx context.Context, mentorID, note string) error
+}
+
+var _ AdminMentorsRepository = (*repository.MentorRepository)(nil)
+
 type AdminMentorsService struct {
-	mentorRepo     *repository.MentorRepository
+	mentorRepo     AdminMentorsRepository
 	profileService ProfileServiceInterface
 	config         *config.Config
 	httpClient     httpclient.Client
@@ -37,7 +62,7 @@ type AdminMentorsService struct {
 }
 
 func NewAdminMentorsService(
-	mentorRepo *repository.MentorRepository,
+	mentorRepo AdminMentorsRepository,
 	profileService ProfileServiceInterface,
 	cfg *config.Config,
 	httpClient httpclient.Client,
@@ -277,6 +302,67 @@ func (s *AdminMentorsService) UploadMentorPicture(
 	return uploadURL, nil
 }
 
+// ReturnMentor implements the 'return' moderation action: a pending
+// profile goes back to 'draft' with the reviewer's note saved to
+// mentors.moderation_note; the worker emails the mentor (template
+// new-mentor-returned). HARD GUARD: a mentor that has ever been active can
+// never be returned to draft.
+func (s *AdminMentorsService) ReturnMentor(
+	ctx context.Context,
+	session *models.AdminSession,
+	mentorID string,
+	reason string,
+) (*models.AdminMentorDetails, error) {
+
+	trackReturn := func(outcome string) {
+		s.tracker.Track(ctx, analytics.EventAdminMentorReturned, analytics.ModeratorDistinctID(session.ModeratorID), map[string]interface{}{
+			"moderator_id":     session.ModeratorID,
+			"moderator_role":   string(session.Role),
+			"target_mentor_id": mentorID,
+			"reason_length":    len(reason),
+			"outcome":          outcome,
+		})
+	}
+
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		trackReturn("invalid_reason")
+		return nil, fmt.Errorf("a reason is required to return a profile")
+	}
+	if len(reason) > moderationReasonMaxLength {
+		trackReturn("invalid_reason")
+		return nil, fmt.Errorf("reason must be at most %d characters", moderationReasonMaxLength)
+	}
+
+	mentor, err := s.GetMentor(ctx, session, mentorID)
+	if err != nil {
+		trackReturn("mentor_not_found_or_forbidden")
+		return nil, err
+	}
+	if mentor.Status != mentorStatusPending {
+		trackReturn("invalid_transition")
+		return nil, fmt.Errorf("return is available only for pending mentors")
+	}
+	if mentor.ActivatedAt != nil {
+		trackReturn("forbidden_already_activated")
+		return nil, ErrMentorAlreadyActivated
+	}
+
+	if err := s.mentorRepo.ReturnMentorToDraft(ctx, mentorID, reason); err != nil {
+		if errors.Is(err, repository.ErrMentorWasActivated) {
+			trackReturn("forbidden_already_activated")
+			return nil, ErrMentorAlreadyActivated
+		}
+		trackReturn("update_failed")
+		return nil, err
+	}
+
+	trackReturn("success")
+	s.triggerModerationAction(ctx, moderationActionReturn, session, mentorID)
+
+	return s.mentorRepo.GetForModerationByID(ctx, mentorID)
+}
+
 func (s *AdminMentorsService) setModerationStatus(
 	ctx context.Context,
 	session *models.AdminSession,
@@ -295,7 +381,15 @@ func (s *AdminMentorsService) setModerationStatus(
 		return nil, ErrAdminForbiddenAction
 	}
 
-	if err := s.mentorRepo.SetMentorStatus(ctx, mentorID, targetStatus); err != nil {
+	if action == moderationActionApprove {
+		// Approve also stamps activated_at on the first activation (the
+		// hard guard against future returns to draft) and clears any
+		// moderation note from a previous 'return'.
+		err = s.mentorRepo.ApproveMentorModeration(ctx, mentorID)
+	} else {
+		err = s.mentorRepo.SetMentorStatus(ctx, mentorID, targetStatus)
+	}
+	if err != nil {
 		s.trackModerationAction(ctx, session, mentorID, action, "update_failed")
 		return nil, err
 	}

@@ -20,8 +20,12 @@ import (
 )
 
 // ErrProfileStatusNotToggleable is returned when a mentor whose profile is not
-// yet approved (pending) or was declined tries to change visibility status.
+// yet approved (draft/pending) or was declined tries to change visibility status.
 var ErrProfileStatusNotToggleable = errors.New("only active or inactive profiles can change visibility status")
+
+// ErrProfileNotSubmittable is returned when a mentor tries to submit a
+// profile for review that is not in 'draft' status.
+var ErrProfileNotSubmittable = errors.New("only draft profiles can be submitted for review")
 
 // ProfileMentorRepository defines the mentor repository methods used by ProfileService.
 // *repository.MentorRepository satisfies this interface.
@@ -68,8 +72,9 @@ func NewProfileService(
 
 // SaveProfileByMentorId updates a mentor's profile using Mentor ID (UUID) for session-based auth
 func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID string, req *models.SaveProfileRequest) error {
-	// Ensure the mentor exists before applying updates
-	if _, err := s.mentorRepo.GetByMentorId(ctx, mentorID, models.FilterOptions{ShowHidden: true}); err != nil {
+	// Ensure the mentor exists before applying updates (AllowAnyStatus:
+	// draft/pending mentors edit their own profile too)
+	if _, err := s.mentorRepo.GetByMentorId(ctx, mentorID, models.FilterOptions{ShowHidden: true, AllowAnyStatus: true}); err != nil {
 		s.tracker.Track(ctx, analytics.EventMentorProfileUpdated, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id": mentorID,
 			"outcome":   "mentor_not_found",
@@ -165,6 +170,17 @@ func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID s
 	//	 _ = trigger.CallAsync                              // Keep for future use
 	// }()
 
+	// Auto-detect the photo display style ('hero' on light uniform
+	// backgrounds, 'frame' otherwise) and store it on the mentor row.
+	// Classification failures never fail the upload — default to 'frame'.
+	photoStyle := classifyPhotoStyle(req.Image)
+	if err := s.mentorRepo.Update(ctx, mentorID, map[string]interface{}{"photo_style": photoStyle}); err != nil {
+		logger.Error("Failed to store photo style after picture upload",
+			zap.Error(err),
+			zap.String("mentor_id", mentorID),
+			zap.String("photo_style", photoStyle))
+	}
+
 	if err := s.mentorRepo.TouchUpdatedAt(ctx, mentorID); err != nil {
 		logger.Error("Failed to touch updated_at after picture upload",
 			zap.Error(err),
@@ -175,6 +191,7 @@ func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID s
 	s.tracker.Track(ctx, analytics.EventMentorProfilePictureUploaded, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 		"mentor_id":    mentorID,
 		"content_type": req.ContentType,
+		"photo_style":  photoStyle,
 		"url_returned": strings.TrimSpace(fullImageURL) != "",
 		"outcome":      "success",
 	})
@@ -207,7 +224,9 @@ func (s *ProfileService) SetProfileStatusByMentorId(ctx context.Context, mentorI
 		return apperrors.InvalidInputError("status", "must be active or inactive")
 	}
 
-	mentor, err := s.mentorRepo.GetByMentorId(ctx, mentorID, models.FilterOptions{ShowHidden: true})
+	// AllowAnyStatus so draft/pending/declined mentors get the explicit
+	// "not toggleable" rejection below instead of a generic not-found.
+	mentor, err := s.mentorRepo.GetByMentorId(ctx, mentorID, models.FilterOptions{ShowHidden: true, AllowAnyStatus: true})
 	if err != nil {
 		trackStatusChange("", "mentor_not_found")
 		return apperrors.NotFoundError("mentor")
@@ -243,6 +262,53 @@ func (s *ProfileService) SetProfileStatusByMentorId(ctx context.Context, mentorI
 		zap.String("mentor_id", mentorID),
 		zap.String("from_status", mentor.Status),
 		zap.String("status", status))
+
+	return nil
+}
+
+// SubmitProfileByMentorId resubmits a returned (draft) profile for review:
+// draft -> pending, then the mentor-confirmed worker job notifies the
+// moderators and sends the mentor the "in review" email. The moderation
+// note is intentionally KEPT until approve so the mentor can still see what
+// was asked. Only valid from 'draft'.
+func (s *ProfileService) SubmitProfileByMentorId(ctx context.Context, mentorID string) error {
+	track := func(fromStatus, outcome string) {
+		properties := map[string]interface{}{
+			"mentor_id": mentorID,
+			"outcome":   outcome,
+		}
+		if fromStatus != "" {
+			properties["from_status"] = fromStatus
+		}
+		s.tracker.Track(ctx, analytics.EventMentorProfileResubmitted, analytics.MentorDistinctID(mentorID), properties)
+	}
+
+	mentor, err := s.mentorRepo.GetByMentorId(ctx, mentorID, models.FilterOptions{ShowHidden: true, AllowAnyStatus: true})
+	if err != nil {
+		track("", "mentor_not_found")
+		return apperrors.NotFoundError("mentor")
+	}
+
+	if mentor.Status != mentorStatusDraft {
+		track(mentor.Status, "invalid_transition")
+		return ErrProfileNotSubmittable
+	}
+
+	if err := s.mentorRepo.SetMentorStatus(ctx, mentorID, mentorStatusPending); err != nil {
+		track(mentor.Status, "update_failed")
+		logger.Error("Failed to resubmit mentor profile",
+			zap.Error(err),
+			zap.String("mentor_id", mentorID))
+		return fmt.Errorf("failed to submit profile for review")
+	}
+
+	// Notify moderators + send the mentor the "in review" email (same
+	// worker job as the email-confirmation step).
+	trigger.CallAsync(ctx, s.config.EventTriggers.MentorConfirmedTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
+
+	track(mentor.Status, "success")
+	logger.Info("Mentor profile resubmitted for review",
+		zap.String("mentor_id", mentorID))
 
 	return nil
 }

@@ -84,8 +84,9 @@ func (s *MentorAuthService) RequestLogin(ctx context.Context, email string) (*mo
 		return nil, ErrMentorNotFound
 	}
 
-	// Check if mentor is eligible for login (only active or inactive status allowed)
-	if mentor.Status != "active" && mentor.Status != "inactive" {
+	// Check if mentor is eligible for login (draft/pending mentors may log
+	// in to finish or fix their profile; declined mentors stay blocked)
+	if !isLoginEligibleStatus(mentor.Status) {
 		s.tracker.Track(ctx, analytics.EventMentorAuthLoginRequested, analytics.MentorDistinctID(mentor.MentorID), map[string]interface{}{
 			"mentor_id":     mentor.MentorID,
 			"mentor_status": mentor.Status,
@@ -207,7 +208,7 @@ func (s *MentorAuthService) VerifyLogin(ctx context.Context, token string) (*mod
 	}
 
 	// Re-check mentor eligibility (status may have changed since token was issued)
-	if mentor.Status != "active" && mentor.Status != "inactive" {
+	if !isLoginEligibleStatus(mentor.Status) {
 		s.tracker.Track(ctx, analytics.EventMentorAuthLoginVerified, analytics.MentorDistinctID(mentor.MentorID), map[string]interface{}{
 			"mentor_id":     mentor.MentorID,
 			"mentor_status": mentor.Status,
@@ -288,6 +289,18 @@ func (s *MentorAuthService) GetCookieSecure() bool {
 // GetTokenManager returns the JWT token manager
 func (s *MentorAuthService) GetTokenManager() *jwt.TokenManager {
 	return s.tokenManager
+}
+
+// isLoginEligibleStatus reports whether a mentor with this status may use
+// the magic-link login. Draft and pending mentors need portal access to
+// complete/fix their profile; declined mentors stay blocked.
+func isLoginEligibleStatus(status string) bool {
+	switch status {
+	case "draft", "pending", "active", "inactive":
+		return true
+	default:
+		return false
+	}
 }
 
 // generateLoginToken creates a secure random login token

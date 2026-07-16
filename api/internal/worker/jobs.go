@@ -79,10 +79,13 @@ func parseHighlightedMentors(raw string) []string {
 	return strings.Split(raw, ",")
 }
 
-// RegisterJobRoutes registers the seven ported event handlers under /jobs,
-// with the same methods the stage-1 stubs advertised.
+// RegisterJobRoutes registers the ported event handlers under /jobs,
+// with the same methods the stage-1 stubs advertised, plus the
+// draft-status workflow jobs (mentor-confirmed, mentor-confirm-email).
 func (s *Server) RegisterJobRoutes(h *Handlers) {
 	s.RegisterHandler("/new-mentor-watcher", h.NewMentorWatcher, "POST", "GET")
+	s.RegisterHandler("/mentor-confirmed", h.MentorConfirmed, "POST", "GET")
+	s.RegisterHandler("/mentor-confirm-email", h.MentorConfirmEmail, "POST", "GET")
 	s.RegisterHandler("/new-request-watcher", h.NewRequestWatcher, "POST", "GET")
 	s.RegisterHandler("/mentor-login-email", h.MentorLoginEmail)
 	s.RegisterHandler("/moderator-login-email", h.ModeratorLoginEmail)

@@ -37,8 +37,16 @@ type Mentor struct {
 	// Status field for login eligibility checks
 	Status string `json:"status"`
 
+	// PhotoStyle is the auto-detected profile picture display style
+	// ('hero' for light uniform backgrounds, 'frame' otherwise).
+	PhotoStyle string `json:"photoStyle"`
+
 	// Secure fields (cleared by repository unless ShowHidden is true)
 	CalendarURL string `json:"calendarUrl"`
+	// ModerationNote is the reviewer note left when a profile is returned
+	// to draft. Exposed only on the authenticated own-profile payload
+	// (ShowHidden) — never on public payloads.
+	ModerationNote string `json:"moderationNote,omitempty"`
 
 	// Internal fields (not exposed in JSON)
 	CreatedAt time.Time `json:"-"` // Used for IsNew computation
@@ -59,6 +67,7 @@ type PublicMentorResponse struct {
 	SessionsCount int       `json:"sessionsCount"`
 	Tags          string    `json:"tags"`
 	Link          string    `json:"link"`
+	PhotoStyle    string    `json:"photoStyle"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
@@ -78,6 +87,7 @@ func (m *Mentor) ToPublicResponse(baseURL string) PublicMentorResponse {
 		SessionsCount: m.SessionsCount,
 		Tags:          strings.Join(m.Tags, ","),
 		Link:          baseURL + "/mentor/" + m.Slug,
+		PhotoStyle:    m.PhotoStyle,
 		UpdatedAt:     m.UpdatedAt,
 	}
 }
@@ -88,6 +98,10 @@ type FilterOptions struct {
 	ShowHidden     bool
 	DropLongFields bool
 	ForceRefresh   bool
+	// AllowAnyStatus disables the public-side status filter (which hides
+	// everything but active/inactive). Used only by session-authenticated
+	// own-profile flows so draft/pending mentors can access their profile.
+	AllowAnyStatus bool
 }
 
 // ScanMentor scans a single PostgreSQL row into a Mentor struct
@@ -101,6 +115,7 @@ func ScanMentor(row pgx.Row) (*Mentor, error) {
 	var about *string
 	var description *string
 	var competencies *string
+	var moderationNote *string
 
 	err := row.Scan(
 		&m.MentorID,
@@ -122,6 +137,8 @@ func ScanMentor(row pgx.Row) (*Mentor, error) {
 		&m.CreatedAt,
 		&m.UpdatedAt,
 		&m.MenteeCount,
+		&m.PhotoStyle,
+		&moderationNote,
 	)
 	if err != nil {
 		return nil, err
@@ -131,6 +148,9 @@ func ScanMentor(row pgx.Row) (*Mentor, error) {
 	m.AirtableID = airtableID
 	if calendarURL != nil {
 		m.CalendarURL = *calendarURL
+	}
+	if moderationNote != nil {
+		m.ModerationNote = *moderationNote
 	}
 	if job != nil {
 		m.Job = *job

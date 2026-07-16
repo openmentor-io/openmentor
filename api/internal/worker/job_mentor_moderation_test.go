@@ -64,6 +64,46 @@ func TestMentorModerationActionDecline(t *testing.T) {
 	assert.Equal(t, "John Doe", env.sender.attempts[0].Props["first_name"])
 }
 
+func TestMentorModerationActionReturn(t *testing.T) {
+	// The API already wrote status=draft + moderation_note before firing
+	// the trigger: the worker only sends the new-mentor-returned email
+	// with the reviewer's note and the profile editor link.
+	env := newModerationEnv("draft")
+	env.repo.mentors["m1"].ModerationNote = "Please add a real photo and expand the about section."
+
+	w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody("return"))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, env.repo.statusUpdates, "status already matches: no double-write")
+
+	require.Equal(t, []string{"new-mentor-returned"}, env.sender.templates())
+	msg := env.sender.attempts[0]
+	assert.Equal(t, "john@example.com", msg.Recipient)
+	assert.Equal(t, "John Doe", msg.Props["first_name"])
+	assert.Equal(t, "Please add a real photo and expand the about section.", msg.Props["reviewer_note"])
+	assert.Equal(t, "https://openmentor.io/mentor/profile/edit", msg.Props["edit_url"])
+
+	event := env.tracker.last()
+	require.NotNil(t, event)
+	assert.Equal(t, analytics.EventAdminMentorModerationAction, event.event)
+	assert.Equal(t, "success", event.props["outcome"])
+	assert.Equal(t, "return", event.props["action"])
+}
+
+func TestMentorModerationActionReturnRepairsStaleStatus(t *testing.T) {
+	// A replayed 'return' trigger against a row still 'pending' repairs
+	// the status to draft (the repository write is guarded in SQL against
+	// ever-activated mentors) and still sends the email.
+	env := newModerationEnv("pending")
+	env.repo.mentors["m1"].ModerationNote = "Fix the photo."
+
+	w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody("return"))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, map[string]string{"m1": "draft"}, env.repo.statusUpdates)
+	assert.Equal(t, []string{"new-mentor-returned"}, env.sender.templates())
+}
+
 func TestMentorModerationActionRepairsStaleStatus(t *testing.T) {
 	// If the API's status write is missing/stale (e.g. replayed trigger),
 	// the worker repairs it, logs a warning and still sends the email.

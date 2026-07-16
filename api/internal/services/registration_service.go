@@ -10,6 +10,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/internal/repository"
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
+	"github.com/openmentor-io/openmentor/api/pkg/imageclass"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
@@ -19,7 +20,10 @@ import (
 )
 
 const (
-	registrationStatusPending  = "pending"
+	// New registrations start as 'draft' until the mentor confirms their
+	// email address (the new-mentor-watcher worker job sends the
+	// confirmation link; the confirm endpoint moves draft -> pending).
+	registrationStatusDraft    = "draft"
 	registrationOutcomeSuccess = "success"
 )
 
@@ -54,6 +58,21 @@ func NewRegistrationService(
 		captchaVerifier: turnstile.NewVerifier(cfg.Turnstile.SecretKey, httpClient),
 		tracker:         tracker,
 	}
+}
+
+// classifyPhotoStyle auto-detects the profile picture display style at
+// upload time (pkg/imageclass). Classification failures (or no picture)
+// fall back to the safe default 'frame'.
+func classifyPhotoStyle(imageData string) string {
+	if imageData == "" {
+		return imageclass.StyleFrame
+	}
+	style, err := imageclass.ClassifyBase64(imageData)
+	if err != nil {
+		logger.Warn("Failed to classify profile picture style, defaulting to frame", zap.Error(err))
+		return imageclass.StyleFrame
+	}
+	return style
 }
 
 // RegisterMentor handles the complete mentor registration flow
@@ -106,7 +125,8 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		"about":             req.About,
 		"details":           req.Description,
 		"competencies":      req.Competencies,
-		"status":            registrationStatusPending,
+		"status":            registrationStatusDraft,
+		"photo_style":       classifyPhotoStyle(req.ProfilePicture.Image),
 	}
 
 	if req.CalendarURL != "" {
@@ -158,7 +178,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 	}
 	successProperties["mentor_id"] = mentorID
 	successProperties["legacy_mentor_id"] = legacyID
-	successProperties["status"] = registrationStatusPending
+	successProperties["status"] = registrationStatusDraft
 	successProperties["outcome"] = registrationOutcomeSuccess
 	s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.MentorDistinctID(mentorID), successProperties)
 

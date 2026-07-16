@@ -1,6 +1,8 @@
 package worker
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"math/rand/v2"
 	"net/http"
 	"strings"
@@ -22,20 +24,38 @@ import (
 // makes the expiry more precise.
 const loginTokenTTLDays = 100
 
+// confirmationTokenTTL is the validity window of the email confirmation
+// link (must match internal/services/mentor_confirmation_service.go).
+const confirmationTokenTTL = 24 * time.Hour
+
+// generateConfirmationToken creates a secure random single-use email
+// confirmation token (same format as the API's resend flow).
+func generateConfirmationToken() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := cryptorand.Read(bytes); err != nil {
+		return "", err
+	}
+	return "mcf_" + hex.EncodeToString(bytes), nil
+}
+
 // NewMentorWatcher ports openmentor-func/new-mentor-watcher/index.ts:
-// finalize a fresh mentor registration.
+// finalize a fresh mentor registration (adapted for the draft-status
+// workflow).
 //
 // Division of labor with the API (documented per stage-2 spec):
 //   - The API's registration flow (internal/services/registration_service.go)
-//     already trims the name and contact details, sets status=pending and
+//     already trims the name and contact details, sets status=draft and
 //     ALWAYS generates the slug at INSERT time (repository.CreateMentor via
 //     pkg/slug). The func app generated a slug only when the record had none.
 //   - This handler therefore keeps the existing slug and only generates one
 //     (same pkg/slug algorithm, same {name}-{legacy_id} format as the func's
 //     getAlias) as a defensive fallback for records that somehow miss it.
-//   - What only THIS handler does: duplicate-email check, login_token
-//     generation (+100 day expiry), sort_order randomization, the final
-//     status write (pending, or declined for duplicates) and the emails.
+//   - What only THIS handler does: duplicate-email check (auto-decline),
+//     login_token generation (+100 day expiry), email confirmation token
+//     generation (24h), sort_order randomization and the emails. The mentor
+//     stays 'draft' until they confirm their email address
+//     (POST /api/v1/mentors/confirm -> the mentor-confirmed job); only
+//     duplicates get the final 'declined' status here.
 func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 	ctx := c.Request.Context()
 	const job = "new-mentor-watcher"
@@ -70,7 +90,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		return
 	}
 
-	newStatus := "pending"
+	newStatus := "draft"
 
 	duplicates, err := h.repo.CountActiveMentorsByEmail(ctx, mentor.Email)
 	if err != nil {
@@ -97,15 +117,39 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		mentor.Slug = slug.GenerateMentorSlug(mentor.Name, mentor.LegacyID)
 	}
 
+	// A fresh (non-duplicate) registration gets a single-use email
+	// confirmation token: the mentor stays 'draft' until they click the
+	// link. Duplicates are declined and get no token.
+	var confirmToken *string
+	var confirmExpiresAt *time.Time
+	if newStatus == "draft" {
+		token, tokenErr := generateConfirmationToken()
+		if tokenErr != nil {
+			logger.Error("[New Mentor] Failed to generate confirmation token", zap.String("mentor_id", mentorID), zap.Error(tokenErr))
+			h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
+				"mentor_id":  mentorID,
+				"outcome":    "error",
+				"error_type": "token_generation_failed",
+			})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to generate confirmation token"})
+			return
+		}
+		expiresAt := time.Now().Add(confirmationTokenTTL)
+		confirmToken = &token
+		confirmExpiresAt = &expiresAt
+	}
+
 	err = h.repo.FinalizeNewMentor(ctx, FinalizeNewMentorParams{
-		MentorID:            mentor.ID,
-		Name:                mentor.Name,
-		PreferredContact:    mentor.PreferredContact,
-		LoginToken:          uuid.NewString(),
-		LoginTokenExpiresAt: time.Now().AddDate(0, 0, loginTokenTTLDays),
-		Slug:                mentor.Slug,
-		Status:              newStatus,
-		SortOrder:           rand.IntN(1000), // Math.floor(Math.random() * 1000)
+		MentorID:                   mentor.ID,
+		Name:                       mentor.Name,
+		PreferredContact:           mentor.PreferredContact,
+		LoginToken:                 uuid.NewString(),
+		LoginTokenExpiresAt:        time.Now().AddDate(0, 0, loginTokenTTLDays),
+		Slug:                       mentor.Slug,
+		Status:                     newStatus,
+		SortOrder:                  rand.IntN(1000), // Math.floor(Math.random() * 1000)
+		EmailConfirmationToken:     confirmToken,
+		EmailConfirmationExpiresAt: confirmExpiresAt,
 	})
 	if err != nil {
 		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), zap.Error(err))
@@ -118,24 +162,19 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		return
 	}
 
+	// A fresh registration only gets the email confirmation request; the
+	// "application received" mentor email and the moderator notification
+	// move to the mentor-confirmed job (after the mentor clicks the link).
 	var sendErr error
-	if newStatus == "pending" {
-		sendErr = h.sendEmails(ctx, job,
-			email.Message{
-				TemplateName: "new-mentor-moderator",
-				Recipient:    h.moderatorsEmail,
-				Props: map[string]interface{}{
-					"mentor_name":  mentor.Name,
-					"mentor_email": mentor.Email,
-					"mentor_job":   valueOrDash(mentor.JobTitle) + " @ " + valueOrDash(mentor.Workplace),
-				},
+	if newStatus == "draft" {
+		sendErr = h.sendEmail(ctx, job, email.Message{
+			TemplateName: "mentor-confirm-email",
+			Recipient:    mentor.Email,
+			Props: map[string]interface{}{
+				"first_name":  mentor.Name,
+				"confirm_url": h.baseURL + "/mentor/confirm?token=" + *confirmToken,
 			},
-			email.Message{
-				TemplateName: "new-mentor",
-				Recipient:    mentor.Email,
-				Props:        map[string]interface{}{"first_name": mentor.Name},
-			},
-		)
+		})
 	} else {
 		sendErr = h.sendEmail(ctx, job, email.Message{
 			TemplateName: "new-mentor-duplicate",

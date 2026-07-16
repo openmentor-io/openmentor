@@ -25,6 +25,8 @@ export type {
   ContactMentorResponse,
   ScheduleMigrationRequest,
   ScheduleMigrationResponse,
+  ConfirmMentorEmailRequest,
+  ConfirmMentorEmailResponse,
   SaveProfileRequest,
   SaveProfileResponse,
   UploadProfilePictureRequest,

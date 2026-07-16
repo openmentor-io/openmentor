@@ -40,13 +40,45 @@ func (h *MentorProfileHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	mentor, err := h.mentorService.GetMentorByMentorId(c.Request.Context(), session.MentorID, models.FilterOptions{ShowHidden: true})
+	// AllowAnyStatus: draft/pending mentors can view their own profile
+	// (it exposes status + moderationNote so they can act on a return).
+	mentor, err := h.mentorService.GetMentorByMentorId(c.Request.Context(), session.MentorID, models.FilterOptions{ShowHidden: true, AllowAnyStatus: true})
 	if err != nil {
 		respondError(c, http.StatusNotFound, "Profile not found", err)
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"mentor": mentor})
+}
+
+// SubmitProfile handles POST /api/v1/mentor/profile/submit
+// Resubmits a returned (draft) profile for review: draft -> pending and the
+// moderators are notified. Only valid while the profile is in 'draft'.
+func (h *MentorProfileHandler) SubmitProfile(c *gin.Context) {
+	session, err := middleware.GetMentorSession(c)
+	if err != nil {
+		respondError(c, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+
+	err = h.profileService.SubmitProfileByMentorId(c.Request.Context(), session.MentorID)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrProfileNotSubmittable):
+			respondError(c, http.StatusForbidden, "Only draft profiles can be submitted for review", err)
+		case errors.Is(err, apperrors.ErrNotFound):
+			respondError(c, http.StatusNotFound, "Profile not found", err)
+		default:
+			respondError(c, http.StatusInternalServerError, "Failed to submit profile", err)
+		}
+		return
+	}
+
+	logger.Info("Profile submitted for review via session",
+		zap.String("mentor_id", session.MentorID),
+		zap.String("mentor_name", session.Name))
+
+	c.JSON(http.StatusOK, models.SubmitProfileResponse{Success: true, Status: "pending"})
 }
 
 // UpdateProfile handles POST /api/v1/mentor/profile
@@ -128,7 +160,7 @@ func (h *MentorProfileHandler) UploadPicture(c *gin.Context) {
 		return
 	}
 
-	mentor, err := h.mentorService.GetMentorByMentorId(c.Request.Context(), session.MentorID, models.FilterOptions{ShowHidden: true})
+	mentor, err := h.mentorService.GetMentorByMentorId(c.Request.Context(), session.MentorID, models.FilterOptions{ShowHidden: true, AllowAnyStatus: true})
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "Failed to fetch mentor", err)
 		return

@@ -84,25 +84,33 @@ type AdminMentorListItem struct {
 }
 
 type AdminMentorDetails struct {
-	MentorID         string    `json:"mentorId"`
-	LegacyID         int       `json:"id"`
-	Slug             string    `json:"slug"`
-	Name             string    `json:"name"`
-	Email            string    `json:"email"`
-	PreferredContact string    `json:"contact"`
-	Job              string    `json:"job"`
-	Workplace        string    `json:"workplace"`
-	Experience       string    `json:"experience"`
-	Price            string    `json:"price"`
-	Tags             []string  `json:"tags"`
-	About            string    `json:"about"`
-	Description      string    `json:"description"`
-	Competencies     string    `json:"competencies"`
-	CalendarURL      string    `json:"calendarUrl"`
-	Status           string    `json:"status"`
-	SortOrder        int       `json:"sortOrder"`
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
+	MentorID         string   `json:"mentorId"`
+	LegacyID         int      `json:"id"`
+	Slug             string   `json:"slug"`
+	Name             string   `json:"name"`
+	Email            string   `json:"email"`
+	PreferredContact string   `json:"contact"`
+	Job              string   `json:"job"`
+	Workplace        string   `json:"workplace"`
+	Experience       string   `json:"experience"`
+	Price            string   `json:"price"`
+	Tags             []string `json:"tags"`
+	About            string   `json:"about"`
+	Description      string   `json:"description"`
+	Competencies     string   `json:"competencies"`
+	CalendarURL      string   `json:"calendarUrl"`
+	Status           string   `json:"status"`
+	SortOrder        int      `json:"sortOrder"`
+	// ModerationNote is the reviewer note written when the profile was
+	// returned to draft (cleared on approve).
+	ModerationNote string `json:"moderationNote,omitempty"`
+	// PhotoStyle is the auto-detected profile picture display style.
+	PhotoStyle string `json:"photoStyle"`
+	// ActivatedAt is set on the first approve; once set the mentor can
+	// never be returned to draft.
+	ActivatedAt *time.Time `json:"activatedAt,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 type AdminMentorsListResponse struct {
@@ -134,6 +142,12 @@ type AdminMentorProfileUpdateRequest struct {
 
 type AdminMentorStatusUpdateRequest struct {
 	Status string `json:"status" binding:"required,oneof=active inactive"`
+}
+
+// AdminMentorReturnRequest carries the reviewer note for the 'return'
+// moderation action (pending -> draft).
+type AdminMentorReturnRequest struct {
+	Reason string `json:"reason" binding:"required,max=2000"`
 }
 
 type AdminModerationTriggerPayload struct {

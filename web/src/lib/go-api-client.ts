@@ -21,6 +21,8 @@ import type {
   ContactMentorResponse,
   ScheduleMigrationRequest,
   ScheduleMigrationResponse,
+  ConfirmMentorEmailRequest,
+  ConfirmMentorEmailResponse,
   SaveProfileRequest,
   SaveProfileResponse,
   UploadProfilePictureRequest,
@@ -225,6 +227,27 @@ class GoApiClient {
   async registerMentor(registrationData: RegisterMentorRequest): Promise<RegisterMentorResponse> {
     return this.request<RegisterMentorResponse>('POST', '/api/v1/register-mentor', {
       body: registrationData as unknown as Record<string, unknown>,
+    })
+  }
+
+  /**
+   * Confirm a mentor's email address (public /mentor/confirm page,
+   * draft-status registration flow)
+   */
+  async confirmMentorEmail(data: ConfirmMentorEmailRequest): Promise<ConfirmMentorEmailResponse> {
+    return this.request<ConfirmMentorEmailResponse>('POST', '/api/v1/mentors/confirm', {
+      body: data as unknown as Record<string, unknown>,
+    })
+  }
+
+  /**
+   * Re-send the confirmation email for an expired confirmation token
+   */
+  async resendMentorConfirmation(
+    data: ConfirmMentorEmailRequest
+  ): Promise<ConfirmMentorEmailResponse> {
+    return this.request<ConfirmMentorEmailResponse>('POST', '/api/v1/mentors/confirm/resend', {
+      body: data as unknown as Record<string, unknown>,
     })
   }
 

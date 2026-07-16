@@ -33,6 +33,14 @@ type UpdateProfileStatusResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// SubmitProfileResponse represents the response after resubmitting a draft
+// profile for review (POST /api/v1/mentor/profile/submit)
+type SubmitProfileResponse struct {
+	Success bool   `json:"success"`
+	Status  string `json:"status,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
 // UploadProfilePictureRequest represents a profile picture upload request
 type UploadProfilePictureRequest struct {
 	Image       string `json:"image" binding:"required"`

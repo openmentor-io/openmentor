@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openmentor-io/openmentor/api/internal/cache"
 	"github.com/openmentor-io/openmentor/api/internal/models"
@@ -155,7 +157,8 @@ func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId
 				 WHERE cr.mentor_id = m.id
 				 AND cr.status = 'done'),
 				0
-			) AS mentee_count
+			) AS mentee_count,
+			m.photo_style, m.moderation_note
 		FROM mentors m
 		LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
 		LEFT JOIN tags t ON t.id = mt.tag_id
@@ -182,6 +185,7 @@ var allowedUpdateColumns = map[string]bool{
 	"calendar_url":      true,
 	"slug":              true,
 	"status":            true,
+	"photo_style":       true,
 	"updated_at":        true,
 }
 
@@ -249,10 +253,18 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 	}
 	mentorSlug := slug.GenerateMentorSlug(name, nextLegacyID)
 
+	// photo_style has a NOT NULL DEFAULT 'frame'; fall back to it when the
+	// caller did not classify a profile picture.
+	photoStyle, ok := fields["photo_style"].(string)
+	if !ok || photoStyle == "" {
+		photoStyle = "frame"
+	}
+
 	query := `
 		INSERT INTO mentors (legacy_id, slug, name, email, job_title, workplace, about, details,
-			competencies, experience, price, status, preferred_contact, calendar_url, sort_order)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+			competencies, experience, price, status, preferred_contact, calendar_url, sort_order,
+			photo_style)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING id
 	`
 
@@ -274,6 +286,7 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 		fields["preferred_contact"],
 		fields["calendar_url"],
 		fields["sort_order"],
+		photoStyle,
 	).Scan(&mentorId)
 
 	if err != nil {
@@ -333,14 +346,23 @@ func (r *MentorRepository) GetAllTags(ctx context.Context) (map[string]string, e
 	return r.tagsCache.Get()
 }
 
-// GetByEmail retrieves a mentor by email address
+// GetByEmail retrieves a mentor by email address. Draft and pending
+// mentors can log in too (to finish/fix their profile); declined mentors
+// stay excluded. When several rows share an email (only active emails are
+// unique), the most "advanced" profile wins.
 func (r *MentorRepository) GetByEmail(ctx context.Context, email string) (*models.Mentor, error) {
 	query := `
 		SELECT id, airtable_id, legacy_id, slug, name, job_title, workplace, about, details,
 			competencies, experience, price, status, '' as tags, calendar_url,
-			sort_order, created_at, updated_at, 0 as mentee_count
+			sort_order, created_at, updated_at, 0 as mentee_count, photo_style, moderation_note
 		FROM mentors
-		WHERE email = $1 AND status IN ('active', 'inactive')
+		WHERE email = $1 AND status IN ('active', 'inactive', 'pending', 'draft')
+		ORDER BY CASE status
+			WHEN 'active' THEN 0
+			WHEN 'inactive' THEN 1
+			WHEN 'pending' THEN 2
+			ELSE 3
+		END
 		LIMIT 1
 	`
 
@@ -470,7 +492,8 @@ func (r *MentorRepository) FetchAllMentorsFromDB(ctx context.Context) ([]*models
 				 WHERE cr.mentor_id = m.id
 				 AND cr.status = 'done'),
 				0
-			) AS mentee_count
+			) AS mentee_count,
+			m.photo_style, m.moderation_note
 		FROM mentors m
 		LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
 		LEFT JOIN tags t ON t.id = mt.tag_id
@@ -500,7 +523,8 @@ func (r *MentorRepository) FetchSingleMentorFromDB(ctx context.Context, mentorSl
 				 WHERE cr.mentor_id = m.id
 				 AND cr.status = 'done'),
 				0
-			) AS mentee_count
+			) AS mentee_count,
+			m.photo_style, m.moderation_note
 		FROM mentors m
 		LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
 		LEFT JOIN tags t ON t.id = mt.tag_id
@@ -611,6 +635,9 @@ func (r *MentorRepository) GetForModerationByID(ctx context.Context, mentorID st
 			COALESCE(m.calendar_url, ''),
 			m.status,
 			COALESCE(m.sort_order, 0),
+			COALESCE(m.moderation_note, ''),
+			m.photo_style,
+			m.activated_at,
 			m.created_at,
 			m.updated_at
 		FROM mentors m
@@ -640,6 +667,9 @@ func (r *MentorRepository) GetForModerationByID(ctx context.Context, mentorID st
 		&mentor.CalendarURL,
 		&mentor.Status,
 		&mentor.SortOrder,
+		&mentor.ModerationNote,
+		&mentor.PhotoStyle,
+		&mentor.ActivatedAt,
 		&mentor.CreatedAt,
 		&mentor.UpdatedAt,
 	); err != nil {
@@ -650,15 +680,124 @@ func (r *MentorRepository) GetForModerationByID(ctx context.Context, mentorID st
 	return &mentor, nil
 }
 
+// SetMentorStatus updates a mentor's status. HARD GUARD: a mentor that has
+// ever been activated (activated_at IS NOT NULL) can never be moved back
+// to 'draft' — the WHERE clause blocks that transition on every write path.
 func (r *MentorRepository) SetMentorStatus(ctx context.Context, mentorID, status string) error {
 	query := `
 		UPDATE mentors
 		SET status = $1, updated_at = NOW()
 		WHERE id = $2
+			AND NOT ($1 = 'draft' AND activated_at IS NOT NULL)
 	`
 	commandTag, err := r.pool.Exec(ctx, query, status, mentorID)
 	if err != nil {
 		return fmt.Errorf("failed to update mentor status: %w", err)
+	}
+	if commandTag.RowsAffected() == 0 {
+		return fmt.Errorf("mentor with ID %s not found (or transition to draft forbidden)", mentorID)
+	}
+	return nil
+}
+
+// ApproveMentorModeration activates a mentor: status 'active', first-time
+// activation timestamp (kept on re-approves) and the moderation note from
+// any previous 'return' is cleared.
+func (r *MentorRepository) ApproveMentorModeration(ctx context.Context, mentorID string) error {
+	query := `
+		UPDATE mentors
+		SET status = 'active',
+			activated_at = COALESCE(activated_at, NOW()),
+			moderation_note = NULL,
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	commandTag, err := r.pool.Exec(ctx, query, mentorID)
+	if err != nil {
+		return fmt.Errorf("failed to approve mentor: %w", err)
+	}
+	if commandTag.RowsAffected() == 0 {
+		return fmt.Errorf("mentor with ID %s not found", mentorID)
+	}
+	return nil
+}
+
+// ErrMentorWasActivated is returned when a moderation 'return' is attempted
+// on a mentor that has already been active at least once (hard guard).
+var ErrMentorWasActivated = fmt.Errorf("mentor has already been activated and cannot be returned to draft")
+
+// ReturnMentorToDraft moves a pending mentor back to 'draft' with the
+// reviewer's note. Guarded in SQL: never applies to a mentor that has ever
+// been activated.
+func (r *MentorRepository) ReturnMentorToDraft(ctx context.Context, mentorID, note string) error {
+	query := `
+		UPDATE mentors
+		SET status = 'draft', moderation_note = $2, updated_at = NOW()
+		WHERE id = $1 AND activated_at IS NULL
+	`
+	commandTag, err := r.pool.Exec(ctx, query, mentorID, note)
+	if err != nil {
+		return fmt.Errorf("failed to return mentor to draft: %w", err)
+	}
+	if commandTag.RowsAffected() == 0 {
+		return ErrMentorWasActivated
+	}
+	return nil
+}
+
+// SetEmailConfirmation stores a fresh email confirmation token and expiry.
+func (r *MentorRepository) SetEmailConfirmation(ctx context.Context, mentorID, token string, expiresAt time.Time) error {
+	query := `
+		UPDATE mentors
+		SET email_confirmation_token = $1, email_confirmation_expires_at = $2, updated_at = NOW()
+		WHERE id = $3
+	`
+	_, err := r.pool.Exec(ctx, query, token, expiresAt, mentorID)
+	if err != nil {
+		return fmt.Errorf("failed to set email confirmation token: %w", err)
+	}
+	return nil
+}
+
+// GetByConfirmationToken looks a mentor up by email confirmation token
+// (expired tokens included — the caller decides between confirm and
+// resend). Returns (nil, nil) when no row matches.
+func (r *MentorRepository) GetByConfirmationToken(ctx context.Context, token string) (*models.MentorConfirmation, error) {
+	query := `
+		SELECT id, name, COALESCE(email::text, ''), status,
+			COALESCE(email_confirmation_expires_at, to_timestamp(0))
+		FROM mentors
+		WHERE email_confirmation_token = $1
+		LIMIT 1
+	`
+
+	var mc models.MentorConfirmation
+	err := r.pool.QueryRow(ctx, query, token).Scan(
+		&mc.MentorID, &mc.Name, &mc.Email, &mc.Status, &mc.ExpiresAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch mentor by confirmation token: %w", err)
+	}
+	return &mc, nil
+}
+
+// ConfirmMentorEmail finishes email confirmation: draft -> pending, the
+// single-use token is cleared.
+func (r *MentorRepository) ConfirmMentorEmail(ctx context.Context, mentorID string) error {
+	query := `
+		UPDATE mentors
+		SET status = 'pending',
+			email_confirmation_token = NULL,
+			email_confirmation_expires_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	commandTag, err := r.pool.Exec(ctx, query, mentorID)
+	if err != nil {
+		return fmt.Errorf("failed to confirm mentor email: %w", err)
 	}
 	if commandTag.RowsAffected() == 0 {
 		return fmt.Errorf("mentor with ID %s not found", mentorID)
@@ -683,9 +822,11 @@ func (r *MentorRepository) applyFilters(mentors []*models.Mentor, opts models.Fi
 // applySingleMentorFilters applies filtering options to a single mentor
 // Returns nil if mentor should be filtered out
 func (r *MentorRepository) applySingleMentorFilters(mentor *models.Mentor, opts models.FilterOptions) *models.Mentor {
-	// Filter out mentors with unknown statuses — only 'active' and 'inactive' are
-	// valid on the public side of the app (pending/declined are admin-only)
-	if mentor.Status != "active" && mentor.Status != "inactive" {
+	// Filter out mentors with non-public statuses — only 'active' and
+	// 'inactive' are valid on the public side of the app (draft/pending/
+	// declined are visible only to their owner via AllowAnyStatus, which is
+	// set exclusively by session-authenticated own-profile flows).
+	if !opts.AllowAnyStatus && mentor.Status != "active" && mentor.Status != "inactive" {
 		return nil
 	}
 
@@ -705,6 +846,7 @@ func (r *MentorRepository) applySingleMentorFilters(mentor *models.Mentor, opts 
 
 		if !opts.ShowHidden {
 			m.CalendarURL = ""
+			m.ModerationNote = ""
 		}
 
 		return &m

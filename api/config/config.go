@@ -93,6 +93,31 @@ type EventTriggerFunctionsConfig struct {
 	ReviewCreatedTriggerURL          string
 }
 
+// derivedMentorTriggerURL rewrites MENTOR_CREATED_TRIGGER_URL
+// (…/jobs/new-mentor-watcher?mentorId=) to point at a sibling worker job
+// with the same ?mentorId= calling convention. This keeps the env contract
+// unchanged: new jobs on the same worker need no new env vars. Returns ""
+// (trigger skipped) when MENTOR_CREATED_TRIGGER_URL is unset.
+func (c EventTriggerFunctionsConfig) derivedMentorTriggerURL(job string) string {
+	if !strings.Contains(c.MentorCreatedTriggerURL, "new-mentor-watcher") {
+		return ""
+	}
+	return strings.Replace(c.MentorCreatedTriggerURL, "new-mentor-watcher", job, 1)
+}
+
+// MentorConfirmedTriggerURL is the worker trigger fired when a mentor
+// confirms their email (or resubmits a draft profile): the worker sends the
+// "in review" mentor email plus the moderator notification.
+func (c EventTriggerFunctionsConfig) MentorConfirmedTriggerURL() string {
+	return c.derivedMentorTriggerURL("mentor-confirmed")
+}
+
+// MentorConfirmEmailTriggerURL is the worker trigger that (re)sends the
+// mentor-confirm-email using the confirmation token stored on the row.
+func (c EventTriggerFunctionsConfig) MentorConfirmEmailTriggerURL() string {
+	return c.derivedMentorTriggerURL("mentor-confirm-email")
+}
+
 type LoggingConfig struct {
 	Level string
 	Dir   string

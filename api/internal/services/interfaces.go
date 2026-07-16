@@ -25,6 +25,14 @@ type ProfileServiceInterface interface {
 	SaveProfileByMentorId(ctx context.Context, mentorId string, req *models.SaveProfileRequest) error
 	UploadPictureByMentorId(ctx context.Context, mentorId string, mentorSlug string, req *models.UploadProfilePictureRequest) (string, error)
 	SetProfileStatusByMentorId(ctx context.Context, mentorId string, status string) error
+	SubmitProfileByMentorId(ctx context.Context, mentorId string) error
+}
+
+// MentorConfirmationServiceInterface defines the public email-confirmation
+// flow of the draft-status registration workflow.
+type MentorConfirmationServiceInterface interface {
+	ConfirmEmail(ctx context.Context, token string) (already bool, err error)
+	ResendConfirmation(ctx context.Context, token string) (already bool, err error)
 }
 
 // RegistrationServiceInterface defines the interface for registration service operations
@@ -72,6 +80,7 @@ type AdminMentorsServiceInterface interface {
 	UpdateMentorProfile(ctx context.Context, session *models.AdminSession, mentorID string, req *models.AdminMentorProfileUpdateRequest) (*models.AdminMentorDetails, error)
 	ApproveMentor(ctx context.Context, session *models.AdminSession, mentorID string) (*models.AdminMentorDetails, error)
 	DeclineMentor(ctx context.Context, session *models.AdminSession, mentorID string) (*models.AdminMentorDetails, error)
+	ReturnMentor(ctx context.Context, session *models.AdminSession, mentorID string, reason string) (*models.AdminMentorDetails, error)
 	UpdateMentorStatus(ctx context.Context, session *models.AdminSession, mentorID string, status string) (*models.AdminMentorDetails, error)
 	UploadMentorPicture(ctx context.Context, session *models.AdminSession, mentorID string, req *models.UploadProfilePictureRequest) (string, error)
 }
@@ -86,3 +95,4 @@ var _ AdminAuthServiceInterface = (*AdminAuthService)(nil)
 var _ MentorRequestsServiceInterface = (*MentorRequestsService)(nil)
 var _ ReviewServiceInterface = (*ReviewService)(nil)
 var _ AdminMentorsServiceInterface = (*AdminMentorsService)(nil)
+var _ MentorConfirmationServiceInterface = (*MentorConfirmationService)(nil)
