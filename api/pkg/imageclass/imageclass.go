@@ -25,6 +25,8 @@ import (
 	_ "image/png"
 
 	_ "golang.org/x/image/webp"
+
+	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 )
 
 // Photo styles stored in mentors.photo_style.
@@ -45,13 +47,27 @@ const (
 	heroMaxStdDev = 0.12
 )
 
+// recordClassification increments the photo classification counter with the
+// given result (hero|frame|error). It is a no-op when metrics are not
+// initialized (e.g. in tests or tooling that never calls metrics.Init).
+func recordClassification(result string) {
+	if metrics.PhotoClassifications != nil {
+		metrics.PhotoClassifications.WithLabelValues(result).Inc()
+	}
+}
+
 // Classify decodes an image (jpeg, png or webp) from r and classifies it.
+// This is the shared core of ClassifyBytes/ClassifyBase64: every
+// classification attempt is counted here exactly once.
 func Classify(r io.Reader) (string, error) {
 	img, _, err := image.Decode(r)
 	if err != nil {
+		recordClassification("error")
 		return "", fmt.Errorf("failed to decode image: %w", err)
 	}
-	return ClassifyImage(img), nil
+	style := ClassifyImage(img)
+	recordClassification(style)
+	return style, nil
 }
 
 // ClassifyBytes classifies raw (already decoded from base64) image bytes.
@@ -66,12 +82,14 @@ func ClassifyBase64(imageData string) (string, error) {
 	if strings.HasPrefix(imageData, "data:") {
 		parts := strings.SplitN(imageData, ",", 2)
 		if len(parts) != 2 {
+			recordClassification("error")
 			return "", fmt.Errorf("invalid data URI format")
 		}
 		imageData = parts[1]
 	}
 	raw, err := base64.StdEncoding.DecodeString(imageData)
 	if err != nil {
+		recordClassification("error")
 		return "", fmt.Errorf("failed to decode base64 image: %w", err)
 	}
 	return ClassifyBytes(raw)

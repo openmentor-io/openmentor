@@ -1,10 +1,18 @@
 import Head from 'next/head'
 import Link from 'next/link'
+import { useEffect } from 'react'
 import { Footer, MetaHeader, NavHeader } from '@/components'
+import analytics from '@/lib/analytics'
 import seo from '@/config/seo'
 
 export default function NotFound(): JSX.Element {
   const title = '404 – Page not found | ' + seo.title
+
+  useEffect(() => {
+    analytics.event(analytics.events.NOT_FOUND_VIEWED, {
+      path: window.location.pathname,
+    })
+  }, [])
 
   return (
     <>

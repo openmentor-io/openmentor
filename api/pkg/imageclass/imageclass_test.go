@@ -9,6 +9,9 @@ import (
 	"image/png"
 	"math/rand"
 	"testing"
+
+	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // solidImage returns a w x h image filled with a single color.
@@ -146,6 +149,49 @@ func TestClassifyBase64(t *testing.T) {
 				t.Errorf("ClassifyBase64() = %q, want %q", got, StyleHero)
 			}
 		})
+	}
+}
+
+func TestClassificationMetrics(t *testing.T) {
+	metrics.Init("imageclass-test")
+
+	var heroBuf bytes.Buffer
+	if err := png.Encode(&heroBuf, solidImage(32, 32, color.White)); err != nil {
+		t.Fatalf("png encode: %v", err)
+	}
+	var frameBuf bytes.Buffer
+	if err := png.Encode(&frameBuf, solidImage(32, 32, color.Black)); err != nil {
+		t.Fatalf("png encode: %v", err)
+	}
+
+	// hero via ClassifyBytes; hero again via ClassifyBase64 (counts once per
+	// classification, not once per layer).
+	if _, err := ClassifyBytes(heroBuf.Bytes()); err != nil {
+		t.Fatalf("ClassifyBytes() error: %v", err)
+	}
+	if _, err := ClassifyBase64(base64.StdEncoding.EncodeToString(heroBuf.Bytes())); err != nil {
+		t.Fatalf("ClassifyBase64() error: %v", err)
+	}
+	// frame
+	if _, err := ClassifyBytes(frameBuf.Bytes()); err != nil {
+		t.Fatalf("ClassifyBytes() error: %v", err)
+	}
+	// errors: undecodable bytes, invalid base64
+	if _, err := ClassifyBytes([]byte("not an image")); err == nil {
+		t.Fatal("ClassifyBytes() expected error, got nil")
+	}
+	if _, err := ClassifyBase64("!!!not-base64!!!"); err == nil {
+		t.Fatal("ClassifyBase64() expected error, got nil")
+	}
+
+	if got := testutil.ToFloat64(metrics.PhotoClassifications.WithLabelValues(StyleHero)); got != 2 {
+		t.Errorf("hero classifications = %v, want 2", got)
+	}
+	if got := testutil.ToFloat64(metrics.PhotoClassifications.WithLabelValues(StyleFrame)); got != 1 {
+		t.Errorf("frame classifications = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(metrics.PhotoClassifications.WithLabelValues("error")); got != 2 {
+		t.Errorf("error classifications = %v, want 2", got)
 	}
 }
 

@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import MentorsSort, { sortMentors } from '@/components/mentors/MentorsSort'
+import analytics from '@/lib/analytics'
 import type { MentorListItem } from '@/types'
 
 function makeMentor(overrides: Partial<MentorListItem>): MentorListItem {
@@ -71,5 +72,20 @@ describe('MentorsSort', () => {
     render(<MentorsSort value="newest" onChange={() => {}} />)
 
     expect(screen.getByRole('button', { name: /SORT: NEWEST/ })).toBeInTheDocument()
+  })
+
+  it('fires mentors_sort_changed with the picked and previous option', () => {
+    const eventSpy = jest.spyOn(analytics, 'event').mockImplementation(() => {})
+    render(<MentorsSort value="relevance" onChange={() => {}} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /SORT: RELEVANCE/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Most sessions' }))
+
+    expect(eventSpy).toHaveBeenCalledWith(analytics.events.MENTORS_SORT_CHANGED, {
+      sort_option: 'sessions',
+      previous_option: 'relevance',
+    })
+
+    eventSpy.mockRestore()
   })
 })

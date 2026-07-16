@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openmentor-io/openmentor/api/config"
 )
@@ -42,6 +43,15 @@ func NewPool(ctx context.Context, dbCfg config.DatabaseConfig) (*pgxpool.Pool, e
 	poolConfig.HealthCheckPeriod = 30 * time.Second
 	poolConfig.MaxConnLifetime = 1 * time.Hour
 	poolConfig.MaxConnIdleTime = 30 * time.Minute
+
+	// Observability: pgx v5 allows a single Tracer, so fan out to both the
+	// OpenTelemetry tracer (spans per query, span names trimmed to the first
+	// SQL keyword to keep them bounded) and the Prometheus metrics tracer
+	// (db_client_operation_duration_seconds / db_client_operation_total).
+	poolConfig.ConnConfig.Tracer = NewMultiQueryTracer(
+		otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName()),
+		MetricsQueryTracer{},
+	)
 
 	// Create pool with config
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)

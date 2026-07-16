@@ -1,5 +1,6 @@
 import type { GetServerSideProps } from 'next'
 import { getAllMentors } from '@/server/mentors-data'
+import { withSSRObservability } from '@/lib/with-ssr-observability'
 import constants from '@/config/constants'
 
 const baseUrl = constants.BASE_URL
@@ -15,7 +16,7 @@ function sitemapItem(path: string): string {
     `
 }
 
-export const getServerSideProps: GetServerSideProps = async ({ res }) => {
+const _getServerSideProps: GetServerSideProps = async ({ res }) => {
   const allMentors = await getAllMentors({ onlyVisible: true })
 
   const staticPages = [{ page: '' }, { page: 'bementor' }, { page: 'donate' }]
@@ -35,6 +36,8 @@ export const getServerSideProps: GetServerSideProps = async ({ res }) => {
     props: {},
   }
 }
+
+export const getServerSideProps = withSSRObservability(_getServerSideProps, 'sitemap')
 
 export default function Sitemap(): null {
   return null

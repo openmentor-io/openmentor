@@ -43,7 +43,8 @@ export const getTraceContext = (): Pick<LogMetadata, 'trace_id' | 'span_id' | 't
   return {
     trace_id: spanContext.traceId,
     span_id: spanContext.spanId,
-    trace_flags: spanContext.traceFlags?.toString(16) || '00',
+    // 2-char zero-padded hex (e.g. "01"), matching the Go logger's format
+    trace_flags: spanContext.traceFlags?.toString(16).padStart(2, '0') || '00',
   }
 }
 

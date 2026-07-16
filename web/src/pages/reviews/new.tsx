@@ -17,6 +17,7 @@ import {
   faCheckCircle,
   faExclamationTriangle,
 } from '@fortawesome/free-solid-svg-icons'
+import analytics from '@/lib/analytics'
 
 interface ReviewFormData {
   mentorReview: string
@@ -41,6 +42,16 @@ export default function NewReviewPage(): JSX.Element {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [mentorName, setMentorName] = useState<string>('')
   const turnstileRef = useRef<TurnstileInstance>(null)
+  const viewTracked = useRef(false)
+
+  // Page-view analytics — once per mount, after the router query is ready.
+  useEffect(() => {
+    if (!router.isReady || viewTracked.current) return
+    viewTracked.current = true
+    analytics.event(analytics.events.REVIEW_PAGE_VIEWED, {
+      has_request_id: Boolean(request_id),
+    })
+  }, [router.isReady, request_id])
 
   const {
     register,

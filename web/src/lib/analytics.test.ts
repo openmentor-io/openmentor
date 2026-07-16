@@ -205,4 +205,28 @@ describe('analytics', () => {
 
     expect(capture).toHaveBeenCalledTimes(0)
   })
+
+  describe('event registry', () => {
+    it('contains unique snake_case event names', async () => {
+      const { analyticsEvents } = await import('@/lib/analytics')
+      const names = Object.values(analyticsEvents)
+
+      for (const name of names) {
+        expect(name).toMatch(/^[a-z0-9]+(_[a-z0-9]+)*$/)
+      }
+      expect(new Set(names).size).toBe(names.length)
+    })
+
+    it('includes the observability-review events', async () => {
+      const { analyticsEvents } = await import('@/lib/analytics')
+
+      expect(analyticsEvents.MENTORS_SORT_CHANGED).toBe('mentors_sort_changed')
+      expect(analyticsEvents.MENTOR_CARD_CLICKED).toBe('mentor_card_clicked')
+      expect(analyticsEvents.DONATE_PAGE_VIEWED).toBe('donate_page_viewed')
+      expect(analyticsEvents.DONATE_CTA_CLICKED).toBe('donate_cta_clicked')
+      expect(analyticsEvents.MENTOR_CONFIRM_PAGE_VIEWED).toBe('mentor_confirm_page_viewed')
+      expect(analyticsEvents.REVIEW_PAGE_VIEWED).toBe('review_page_viewed')
+      expect(analyticsEvents.NOT_FOUND_VIEWED).toBe('not_found_viewed')
+    })
+  })
 })

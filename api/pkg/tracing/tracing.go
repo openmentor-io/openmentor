@@ -22,6 +22,14 @@ var tracer trace.Tracer
 
 // InitTracer initializes the OpenTelemetry tracer provider
 func InitTracer(serviceName, serviceNamespace, serviceVersion, serviceInstanceID, environment, alloyEndpoint string) (func(context.Context) error, error) {
+	// Register the W3C trace context + baggage propagator unconditionally:
+	// inbound traceparent extraction and outbound injection must keep working
+	// even when trace export is disabled (no ALLOY_ENDPOINT).
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
 	if alloyEndpoint == "" {
 		logger.Info("Tracing disabled: ALLOY_ENDPOINT not set")
 		return func(context.Context) error { return nil }, nil
@@ -76,12 +84,9 @@ func InitTracer(serviceName, serviceNamespace, serviceVersion, serviceInstanceID
 		sdktrace.WithSampler(sdktrace.AlwaysSample()), // Sample all traces in production
 	)
 
-	// Set global tracer provider and propagator
+	// Set global tracer provider (propagator is registered above,
+	// unconditionally)
 	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
 
 	// Get tracer instance
 	tracer = tp.Tracer(serviceName)

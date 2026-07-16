@@ -27,9 +27,19 @@ export const analyticsEvents = {
 
   MENTORS_SEARCH_USED: 'mentors_search_used',
   MENTORS_LIST_LOAD_MORE_CLICKED: 'mentors_list_load_more_clicked',
+  MENTORS_SORT_CHANGED: 'mentors_sort_changed',
+  MENTOR_CARD_CLICKED: 'mentor_card_clicked',
   MENTOR_FILTERS_INITIALIZED_FROM_URL: 'mentor_filters_initialized_from_url',
   MENTOR_FILTERS_RESET: 'mentor_filters_reset',
   MENTOR_FILTER_CHANGED: 'mentor_filter_changed',
+
+  MENTOR_CONFIRM_PAGE_VIEWED: 'mentor_confirm_page_viewed',
+  REVIEW_PAGE_VIEWED: 'review_page_viewed',
+
+  DONATE_PAGE_VIEWED: 'donate_page_viewed',
+  DONATE_CTA_CLICKED: 'donate_cta_clicked',
+
+  NOT_FOUND_VIEWED: 'not_found_viewed',
 
   MENTOR_AUTH_LOGIN_REQUESTED: 'mentor_auth_login_requested',
   MENTOR_AUTH_LOGIN_VERIFIED: 'mentor_auth_login_verified',

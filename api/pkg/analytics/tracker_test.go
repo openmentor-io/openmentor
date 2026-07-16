@@ -12,6 +12,7 @@ import (
 
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/stretchr/testify/assert"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestMain(m *testing.M) {
@@ -142,6 +143,60 @@ func TestPostHogTracker_Track_SanitizesAndAddsCommonProps(t *testing.T) {
 	assert.Contains(t, body, `"outcome":"success"`)
 	assert.NotContains(t, body, "private@openmentor.io")
 	assert.NotContains(t, body, "Private Name")
+}
+
+func TestPostHogTracker_Track_AddsTraceIDFromContext(t *testing.T) {
+	t.Parallel()
+
+	transport := &captureTransport{}
+	client := &http.Client{Transport: transport}
+	tracker := NewTracker(&Config{
+		Provider:      "posthog",
+		PostHogAPIKey: "ph-test-key",
+		PostHogHost:   "https://us.i.posthog.com",
+		SourceSystem:  "api",
+		Environment:   "staging",
+		EventVersion:  "v9",
+		HTTPClient:    client,
+	})
+
+	traceID := trace.TraceID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10}
+	spanID := trace.SpanID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID,
+		SpanID:  spanID,
+	})
+	ctx := trace.ContextWithSpanContext(context.Background(), spanCtx)
+
+	tracker.Track(ctx, EventMenteeContactSubmitted, MentorDistinctID("mentor-123"), map[string]interface{}{
+		"mentor_id": "mentor-123",
+	})
+
+	requests := waitForRequests(t, transport, 1)
+	assert.Contains(t, requests[0].Body, `"trace_id":"0102030405060708090a0b0c0d0e0f10"`)
+}
+
+func TestPostHogTracker_Track_NoTraceIDWithoutActiveSpan(t *testing.T) {
+	t.Parallel()
+
+	transport := &captureTransport{}
+	client := &http.Client{Transport: transport}
+	tracker := NewTracker(&Config{
+		Provider:      "posthog",
+		PostHogAPIKey: "ph-test-key",
+		PostHogHost:   "https://us.i.posthog.com",
+		SourceSystem:  "api",
+		Environment:   "staging",
+		EventVersion:  "v9",
+		HTTPClient:    client,
+	})
+
+	tracker.Track(context.Background(), EventMenteeContactSubmitted, MentorDistinctID("mentor-123"), map[string]interface{}{
+		"mentor_id": "mentor-123",
+	})
+
+	requests := waitForRequests(t, transport, 1)
+	assert.NotContains(t, requests[0].Body, `"trace_id"`)
 }
 
 func TestPostHogTracker_ImplicitProvider_UsesPostHogWhenEnabled(t *testing.T) {

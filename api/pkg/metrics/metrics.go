@@ -36,6 +36,7 @@ var (
 	ProfileUpdates         *prometheus.CounterVec
 	ProfilePictureUploads  *prometheus.CounterVec
 	MentorRegistrations    *prometheus.CounterVec
+	PhotoClassifications   *prometheus.CounterVec
 
 	// Mentor Auth Metrics
 	MentorAuthLoginRequests     *prometheus.CounterVec
@@ -205,6 +206,14 @@ func Init(serviceName string) {
 			Help: "Total mentor registration attempts",
 		},
 		[]string{"status"},
+	)
+
+	PhotoClassifications = factory.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "openmentor_photo_classifications_total",
+			Help: "Total number of profile photo style classifications",
+		},
+		[]string{"result"}, // result: hero | frame | error
 	)
 
 	// Mentor Auth Metrics

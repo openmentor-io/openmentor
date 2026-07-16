@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import MentorsList from '@/components/mentors/MentorsList'
+import analytics from '@/lib/analytics'
 import { mentorInitialsClass, mentorPastelGradClass } from '@/lib/mentor-pastel'
 import type { MentorListItem } from '@/types'
 
@@ -42,14 +43,16 @@ jest.mock('next/link', () => ({
     href,
     className,
     style,
+    onClick,
   }: {
     children: React.ReactNode
     href: string
     className?: string
     style?: React.CSSProperties
+    onClick?: React.MouseEventHandler<HTMLAnchorElement>
   }) {
     return (
-      <a href={href} className={className} style={style}>
+      <a href={href} className={className} style={style} onClick={onClick}>
         {children}
       </a>
     )
@@ -299,6 +302,64 @@ describe('MentorsList', () => {
 
     expect(getCard(/John Doe/i)).toHaveAttribute('href', '/mentor/john-doe')
     expect(getCard(/Jane Smith/i)).toHaveAttribute('href', '/mentor/jane-smith')
+  })
+
+  describe('card click analytics', () => {
+    it('fires mentor_card_clicked with position and card state on click', () => {
+      const eventSpy = jest.spyOn(analytics, 'event').mockImplementation(() => {})
+      render(
+        <MentorsList
+          mentors={[
+            { ...baseMentor, sessionsCount: 5, photoStyle: 'hero' },
+            mockMentors[1],
+          ]}
+          hasMore={false}
+          onClickMore={() => {}}
+        />
+      )
+
+      fireEvent.click(getCard(/Jane Smith/i))
+
+      expect(eventSpy).toHaveBeenCalledWith(analytics.events.MENTOR_CARD_CLICKED, {
+        mentor_id: 2,
+        mentor_slug: 'jane-smith',
+        position: 1,
+        has_photo: true,
+        photo_style: 'frame',
+        is_new: true,
+        sessions_count: 0,
+      })
+
+      fireEvent.click(getCard(/John Doe/i))
+
+      expect(eventSpy).toHaveBeenLastCalledWith(analytics.events.MENTOR_CARD_CLICKED, {
+        mentor_id: 1,
+        mentor_slug: 'john-doe',
+        position: 0,
+        has_photo: true,
+        photo_style: 'hero',
+        is_new: false,
+        sessions_count: 5,
+      })
+
+      eventSpy.mockRestore()
+    })
+
+    it('reports has_photo: false after the photo failed to load', () => {
+      const eventSpy = jest.spyOn(analytics, 'event').mockImplementation(() => {})
+      render(<MentorsList mentors={[baseMentor]} hasMore={false} onClickMore={() => {}} />)
+
+      const card = getCard(/John Doe/i)
+      fireEvent.error(card.querySelector('img') as HTMLImageElement)
+      fireEvent.click(card)
+
+      expect(eventSpy).toHaveBeenCalledWith(
+        analytics.events.MENTOR_CARD_CLICKED,
+        expect.objectContaining({ has_photo: false })
+      )
+
+      eventSpy.mockRestore()
+    })
   })
 
   it('shows "Show more mentors" button when hasMore is true', () => {

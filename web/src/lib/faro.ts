@@ -10,6 +10,30 @@ import { TracingInstrumentation } from '@grafana/faro-web-tracing'
 
 let faroInstance: Faro | null = null
 
+/** Escape a string for literal use inside a RegExp. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * URLs that receive the W3C traceparent header on cross-origin requests.
+ * Same-origin /api/* fetches get traceparent by default (no CORS list is
+ * needed for them) — this list only matters for direct cross-origin calls
+ * to the Go API.
+ */
+function buildTraceHeaderCorsUrls(): RegExp[] {
+  const urls: RegExp[] = [/localhost:8081/, /backend:8081/]
+
+  const goApiUrl = (process.env.NEXT_PUBLIC_GO_API_URL || '').trim()
+  if (goApiUrl) {
+    // Escape and anchor so the env value matches literally as a URL prefix.
+    // (An unescaped `new RegExp('')` would match every URL.)
+    urls.push(new RegExp('^' + escapeRegExp(goApiUrl)))
+  }
+
+  return urls
+}
+
 export function initializeFaro(): Faro | null {
   // Prevent double initialization and server-side execution
   if (faroInstance || typeof window === 'undefined') {
@@ -64,11 +88,7 @@ export function initializeFaro(): Faro | null {
         // OpenTelemetry tracing integration
         new TracingInstrumentation({
           instrumentationOptions: {
-            propagateTraceHeaderCorsUrls: [
-              /localhost:8081/,
-              /backend:8081/,
-              new RegExp(process.env.NEXT_PUBLIC_GO_API_URL || ''),
-            ],
+            propagateTraceHeaderCorsUrls: buildTraceHeaderCorsUrls(),
           },
         }) as Instrumentation,
       ],
@@ -86,6 +106,22 @@ export function initializeFaro(): Faro | null {
 
 export function getFaro(): Faro | null {
   return faroInstance
+}
+
+/**
+ * Track an SPA route change (Next Router client-side navigation).
+ * Faro only captures the initial hard load by itself — this updates the
+ * current view meta and emits a route_change event so client-side
+ * navigations show up in Frontend Observability.
+ * No-op when Faro is not initialized (collector URL unset).
+ */
+export function trackRouteChange(url: string): void {
+  if (!faroInstance) {
+    return
+  }
+
+  faroInstance.api.setView({ name: url })
+  faroInstance.api.pushEvent('route_change', { url })
 }
 
 // Helper to push custom events

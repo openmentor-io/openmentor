@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { Footer, MetaHeader, NavHeader, Section } from '@/components'
 import seo from '@/config/seo'
+import analytics from '@/lib/analytics'
 import type { ConfirmMentorEmailResponse } from '@/types'
 
 type ConfirmState =
@@ -31,6 +32,11 @@ export default function ConfirmMentorEmail(): JSX.Element {
       return
     }
     confirmStarted.current = true
+
+    // Page-view only — confirmation outcomes are tracked by the backend.
+    analytics.event(analytics.events.MENTOR_CONFIRM_PAGE_VIEWED, {
+      has_token: token.length > 0,
+    })
 
     if (!token) {
       setState('invalid')

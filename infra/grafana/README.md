@@ -104,7 +104,7 @@ Alert rules are grouped by category:
 | **Availability** | Frontend/Backend service down |
 | **Performance** | High error rate (>5%), high latency (P99) |
 | **Infrastructure** | High CPU (>90%), high memory (>1GB), high goroutines, event loop lag |
-| **Dependencies** | PostgreSQL high latency/errors, low cache hit ratio |
+| **Dependencies** | low cache hit ratio (PostgreSQL latency/error alerts are a TODO — not yet in alerts.jsonnet) |
 
 Alert severity levels:
 - `critical`: Requires immediate attention

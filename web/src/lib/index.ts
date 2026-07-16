@@ -29,7 +29,6 @@ export {
   serverSideRenderDuration,
   pageViews,
   mentorProfileViews,
-  mentorSearches,
 } from './metrics'
 export { withObservability, measureAsync, measureSync } from './with-observability'
 export { withSSRObservability, withStaticPropsObservability } from './with-ssr-observability'

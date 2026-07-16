@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -149,7 +150,7 @@ func NewTracker(cfg *Config) Tracker {
 	return tracker
 }
 
-func (t *AnalyticsTracker) Track(_ context.Context, event string, distinctID string, properties map[string]interface{}) {
+func (t *AnalyticsTracker) Track(ctx context.Context, event string, distinctID string, properties map[string]interface{}) {
 	event = strings.TrimSpace(event)
 	if event == "" {
 		return
@@ -164,6 +165,12 @@ func (t *AnalyticsTracker) Track(_ context.Context, event string, distinctID str
 	cleanProperties["source_system"] = t.sourceSystem
 	cleanProperties["environment"] = t.environment
 	cleanProperties["event_version"] = t.eventVersion
+
+	// Correlate the analytics event with the active trace so PostHog events
+	// can be joined against backend traces.
+	if spanCtx := trace.SpanContextFromContext(ctx); spanCtx.IsValid() {
+		cleanProperties["trace_id"] = spanCtx.TraceID().String()
+	}
 
 	item := queuedEvent{
 		event:      event,

@@ -3,11 +3,12 @@ import '../styles/design-tokens.css'
 import '../styles/globals.css'
 import '@fortawesome/fontawesome-svg-core/styles.css'
 import { useEffect } from 'react'
+import { useRouter } from 'next/router'
 import { Archivo, IBM_Plex_Mono, Inter, Schibsted_Grotesk } from 'next/font/google'
 import TagManager from 'react-gtm-module'
 import { CookieConsentBanner } from '@/components'
 import { onAnalyticsConsentGranted } from '@/lib/consent'
-import { initializeFaro } from '@/lib/faro'
+import { initializeFaro, trackRouteChange } from '@/lib/faro'
 import { initializePostHog } from '@/lib/posthog'
 import type { AppProps } from 'next/app'
 
@@ -67,11 +68,27 @@ function initializeAnalytics(): void {
 }
 
 function MyApp({ Component, pageProps }: AppProps): JSX.Element {
+  const router = useRouter()
+
   useEffect(() => {
     // Runs immediately if consent was already given, or retroactively (without
     // a page reload) when the user accepts the banner. Never runs on decline.
     return onAnalyticsConsentGranted(initializeAnalytics)
   }, [])
+
+  useEffect(() => {
+    // Faro only instruments the initial hard load — track SPA navigations
+    // (client-side route changes) as view updates + route_change events.
+    // trackRouteChange is a no-op when Faro is not initialized.
+    const handleRouteChangeComplete = (url: string): void => {
+      trackRouteChange(url)
+    }
+
+    router.events.on('routeChangeComplete', handleRouteChangeComplete)
+    return () => {
+      router.events.off('routeChangeComplete', handleRouteChangeComplete)
+    }
+  }, [router.events])
 
   return (
     <div

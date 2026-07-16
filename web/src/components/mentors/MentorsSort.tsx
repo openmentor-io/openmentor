@@ -1,5 +1,6 @@
 import classNames from 'classnames'
 import { Menu } from '@headlessui/react'
+import analytics from '@/lib/analytics'
 import type { MentorListItem } from '@/types'
 
 export type MentorsSortOption = 'relevance' | 'sessions' | 'newest'
@@ -38,6 +39,14 @@ interface MentorsSortProps {
  * dropdown panel in the shared panel style.
  */
 export default function MentorsSort({ value, onChange }: MentorsSortProps): JSX.Element {
+  const handleSelect = (option: MentorsSortOption): void => {
+    analytics.event(analytics.events.MENTORS_SORT_CHANGED, {
+      sort_option: option,
+      previous_option: value,
+    })
+    onChange(option)
+  }
+
   return (
     <Menu as="div" className="relative shrink-0">
       <Menu.Button className="meta-mono whitespace-nowrap text-ink-mute transition-colors duration-120 hover:text-ink">
@@ -56,7 +65,7 @@ export default function MentorsSort({ value, onChange }: MentorsSortProps): JSX.
                     ? 'bg-brand-cobalt font-semibold text-white'
                     : classNames('font-medium text-ink', active && 'bg-surface')
                 )}
-                onClick={() => onChange(option)}
+                onClick={() => handleSelect(option)}
               >
                 {SORT_LABELS[option]}
               </button>

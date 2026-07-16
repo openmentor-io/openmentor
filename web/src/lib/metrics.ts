@@ -131,12 +131,5 @@ export const mentorProfileViews: Counter<string> = getOrCreateCounter({
   registers: [register],
 })
 
-export const mentorSearches: Counter<string> = getOrCreateCounter({
-  name: 'openmentor_mentor_searches_total',
-  help: 'Total number of mentor searches performed (client-side)',
-  labelNames: ['has_filters', 'search_type'],
-  registers: [register],
-})
-
 // Export the register for Prometheus to scrape
 export default register

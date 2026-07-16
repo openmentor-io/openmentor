@@ -1,10 +1,11 @@
 import Head from 'next/head'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { GetServerSideProps } from 'next'
 import classNames from 'classnames'
 import { Footer, MetaHeader, NavHeader } from '@/components'
 import donates from '@/config/donates'
 import seo from '@/config/seo'
+import analytics from '@/lib/analytics'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
 
@@ -29,6 +30,16 @@ export default function Donate(): JSX.Element {
   const title = 'Support us | ' + seo.title
   const kofi = donates[0]
   const [amount, setAmount] = useState<Amount>('$10')
+
+  useEffect(() => {
+    analytics.event(analytics.events.DONATE_PAGE_VIEWED)
+  }, [])
+
+  const handleDonateClick = (): void => {
+    analytics.event(analytics.events.DONATE_CTA_CLICKED, {
+      amount_option: amount,
+    })
+  }
 
   return (
     <>
@@ -101,6 +112,7 @@ export default function Donate(): JSX.Element {
             href={kofi.linkUrl}
             target="_blank"
             rel="noreferrer"
+            onClick={handleDonateClick}
             className="button w-full py-4 text-[15px]"
           >
             {amount === 'Custom' ? 'Donate on Ko-fi ↗' : `Donate ${amount} on Ko-fi ↗`}

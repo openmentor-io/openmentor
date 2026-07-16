@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
 import { mentorInitialsClass, mentorPastelGradClass } from '@/lib/mentor-pastel'
 import { isPriceFree, parsePriceAmount } from '@/config/filters'
+import analytics from '@/lib/analytics'
 import pluralize from '@/lib/pluralize'
 import type { MentorListItem } from '@/types'
 
@@ -51,9 +52,12 @@ function PriceMeta({ price }: { price: string }): JSX.Element {
 
 function MentorCard({
   mentor,
+  position,
   entranceIndex,
 }: {
   mentor: MentorListItem
+  /** 0-based index of the card in the visible list. */
+  position: number
   /** 0-based stagger slot for the first-mount rise-in, or null for none. */
   entranceIndex: number | null
 }): JSX.Element {
@@ -72,10 +76,25 @@ function MentorCard({
 
   const sessions = mentor.sessionsCount ?? 0
 
+  // Fire-and-forget analytics on click — never blocks navigation.
+  const handleCardClick = (): void => {
+    analytics.event(analytics.events.MENTOR_CARD_CLICKED, {
+      mentor_id: mentor.id,
+      mentor_slug: mentor.slug,
+      position,
+      has_photo: !photoFailed,
+      // Absent photoStyle renders as the frame treatment (see photo block).
+      photo_style: mentor.photoStyle ?? 'frame',
+      is_new: mentor.isNew,
+      sessions_count: sessions,
+    })
+  }
+
   return (
     <Link
       href={'/mentor/' + mentor.slug}
       target="_blank"
+      onClick={handleCardClick}
       className={classNames(
         'group block overflow-hidden rounded-card border border-line bg-white transition-[transform,box-shadow] duration-180 hover:-translate-y-[3px] hover:shadow-card-hover',
         entranceIndex !== null && 'animate-rise-in'
@@ -179,6 +198,7 @@ export default function MentorsList({
           <MentorCard
             key={mentor.id}
             mentor={mentor}
+            position={index}
             entranceIndex={isFirstRender.current && index < ENTRANCE_CARD_COUNT ? index : null}
           />
         ))}

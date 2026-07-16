@@ -236,6 +236,16 @@ loki.process "parse_json_logs" {
     }
   }
 
+  // Trace correlation: promote trace/span ids to Loki structured metadata
+  // (queryable + usable by Grafana logs->traces derived links without the
+  // cardinality cost of labels).
+  stage.structured_metadata {
+    values = {
+      trace_id = "trace_id",
+      span_id  = "span_id",
+    }
+  }
+
   // Set message as output
   // stage.output {
   //   source = "message"
