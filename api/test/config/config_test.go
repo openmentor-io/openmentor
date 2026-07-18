@@ -348,11 +348,14 @@ func TestLoad_WithDefaults(t *testing.T) {
 	// Clean environment
 	os.Clearenv()
 
-	// Set only required fields
+	// Set only required fields (APP_ENV defaults to production, which also
+	// requires JWT_SECRET >= 32 chars and WORKER_AUTH_TOKEN).
 	os.Setenv("DB_WORK_OFFLINE", "true")
 	os.Setenv("INTERNAL_MENTORS_API", "test-token")
 	os.Setenv("MENTORS_API_LIST_AUTH_TOKEN", "public-token")
 	os.Setenv("TURNSTILE_SECRET_KEY", "turnstile-secret")
+	os.Setenv("JWT_SECRET", "test-jwt-secret-at-least-32-chars-long")
+	os.Setenv("WORKER_AUTH_TOKEN", "worker-secret")
 
 	cfg, err := config.Load()
 

@@ -15,6 +15,12 @@ type RequestLoginRequest struct {
 	Email string `json:"email" binding:"required,email,max=255"`
 }
 
+// GenericLoginMessage is the account-agnostic reply used by both the mentor
+// and admin request-login endpoints. SECURITY: success, unknown-account and
+// ineligible-account responses must be byte-identical so the endpoints can't
+// be used to enumerate registered mentors/moderators.
+const GenericLoginMessage = "If an account exists for that email, a login link has been sent."
+
 // RequestLoginResponse is returned after requesting login
 type RequestLoginResponse struct {
 	Success bool   `json:"success"`

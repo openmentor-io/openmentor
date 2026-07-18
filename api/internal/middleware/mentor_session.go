@@ -52,6 +52,18 @@ func MentorSessionMiddleware(tokenManager *jwt.TokenManager, cookieDomain string
 			return
 		}
 
+		// SECURITY: reject moderator/admin tokens presented in the mentor
+		// cookie. Both realms share a signing key, so without this an admin
+		// token would validate here (M13). Empty token_type is treated as a
+		// legacy mentor token (issued before this claim existed).
+		if claims.TokenType == jwt.TokenTypeAdmin {
+			_ = c.Error(fmt.Errorf("admin token presented on mentor session")) //nolint:errcheck
+			clearSessionCookie(c, cookieDomain, cookieSecure)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
 		// Create session from claims
 		session := &models.MentorSession{
 			LegacyID:  claims.LegacyID,

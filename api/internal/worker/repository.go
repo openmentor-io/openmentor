@@ -76,14 +76,12 @@ type JobModerator struct {
 // openmentor-func/new-mentor-watcher/index.ts, extended with the email
 // confirmation token of the draft-status workflow).
 type FinalizeNewMentorParams struct {
-	MentorID            string
-	Name                string
-	PreferredContact    string
-	LoginToken          string
-	LoginTokenExpiresAt time.Time
-	Slug                string
-	Status              string
-	SortOrder           int
+	MentorID         string
+	Name             string
+	PreferredContact string
+	Slug             string
+	Status           string
+	SortOrder        int
 	// Email confirmation token (nil for declined duplicates).
 	EmailConfirmationToken     *string
 	EmailConfirmationExpiresAt *time.Time
@@ -190,22 +188,25 @@ func (r *Repository) CountActiveMentorsByEmail(ctx context.Context, email string
 // trimmed fields, login token, slug, status, randomized sort order and the
 // email confirmation token (draft-status workflow).
 func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorParams) error {
+	// SECURITY: new registrations get NO usable login token (L2). A token is
+	// only ever minted on demand by RequestLogin; leaving a standing long-lived
+	// credential here would widen the blast radius of a DB leak.
 	query := `
 		UPDATE mentors SET
 			name = $1,
 			preferred_contact = $2,
-			login_token = $3,
-			login_token_expires_at = $4,
-			slug = $5,
-			status = $6,
-			sort_order = $7,
-			email_confirmation_token = $8,
-			email_confirmation_expires_at = $9,
+			login_token = NULL,
+			login_token_expires_at = NULL,
+			slug = $3,
+			status = $4,
+			sort_order = $5,
+			email_confirmation_token = $6,
+			email_confirmation_expires_at = $7,
 			updated_at = NOW()
-		WHERE id = $10
+		WHERE id = $8
 	`
 	_, err := r.pool.Exec(ctx, query,
-		p.Name, p.PreferredContact, p.LoginToken, p.LoginTokenExpiresAt,
+		p.Name, p.PreferredContact,
 		p.Slug, p.Status, p.SortOrder,
 		p.EmailConfirmationToken, p.EmailConfirmationExpiresAt, p.MentorID,
 	)

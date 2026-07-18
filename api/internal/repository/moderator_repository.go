@@ -51,7 +51,8 @@ func (r *ModeratorRepository) GetByLoginToken(ctx context.Context, token string)
 	var moderator models.Moderator
 	var role string
 	var expiresAt *time.Time
-	if err := r.pool.QueryRow(ctx, query, token).Scan(
+	// SECURITY: tokens are stored hashed (L1); look up by hash.
+	if err := r.pool.QueryRow(ctx, query, HashLoginToken(token)).Scan(
 		&moderator.ID,
 		&moderator.Name,
 		&moderator.Email,
@@ -75,7 +76,8 @@ func (r *ModeratorRepository) SetLoginToken(ctx context.Context, moderatorID, to
 		SET login_token = $1, login_token_expires_at = $2, updated_at = NOW()
 		WHERE id = $3
 	`
-	_, err := r.pool.Exec(ctx, query, token, exp, moderatorID)
+	// SECURITY: store the hash, never the plaintext token (L1).
+	_, err := r.pool.Exec(ctx, query, HashLoginToken(token), exp, moderatorID)
 	return err
 }
 

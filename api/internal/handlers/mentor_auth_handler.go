@@ -3,7 +3,6 @@ package handlers
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +10,16 @@ import (
 	"github.com/openmentor-io/openmentor/api/internal/models"
 	"github.com/openmentor-io/openmentor/api/internal/services"
 )
+
+// genericLoginResponse is the account-agnostic reply returned by both the
+// mentor and admin request-login handlers regardless of whether the account
+// exists or is eligible. SECURITY: prevents account enumeration (M3).
+func genericLoginResponse() models.RequestLoginResponse {
+	return models.RequestLoginResponse{
+		Success: true,
+		Message: models.GenericLoginMessage,
+	}
+}
 
 // MentorAuthHandler handles mentor authentication endpoints
 type MentorAuthHandler struct {
@@ -37,12 +46,13 @@ func (h *MentorAuthHandler) RequestLogin(c *gin.Context) {
 
 	resp, err := h.service.RequestLogin(c.Request.Context(), req.Email)
 	if err != nil {
-		if errors.Is(err, services.ErrMentorNotFound) {
-			respondError(c, http.StatusNotFound, "Mentor not found", fmt.Errorf("email %q not found", req.Email))
-			return
-		}
-		if errors.Is(err, services.ErrMentorNotEligible) {
-			respondError(c, http.StatusForbidden, "Login not available for this account", fmt.Errorf("mentor with email %q is not eligible for login", req.Email))
+		// SECURITY: return an identical generic response for unknown and
+		// ineligible accounts so the endpoint can't be used to enumerate
+		// registered mentors. The real outcome is recorded in logs/metrics
+		// by the service. Only genuine server errors surface as 5xx.
+		if errors.Is(err, services.ErrMentorNotFound) || errors.Is(err, services.ErrMentorNotEligible) {
+			attachError(c, err)
+			c.JSON(http.StatusOK, genericLoginResponse())
 			return
 		}
 		respondError(c, http.StatusInternalServerError, "Error while sending auth link", err)

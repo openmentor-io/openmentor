@@ -15,13 +15,23 @@ var (
 	ErrInvalidClaim = errors.New("invalid token claims")
 )
 
+// Token type values, carried in the token_type claim to bind a token to an
+// audience. SECURITY: prevents a moderator (admin) token from being accepted
+// by the mentor session middleware and vice-versa, even though both realms are
+// signed with the same key (M13).
+const (
+	TokenTypeMentor = "mentor"
+	TokenTypeAdmin  = "admin"
+)
+
 // MentorClaims represents the JWT claims for a mentor session
 type MentorClaims struct {
 	MentorUUID string `json:"mentor_uuid"` // Primary identifier (UUID)
 	LegacyID   int    `json:"legacy_id"`   // For backwards compatibility
 	Email      string `json:"email"`
 	Name       string `json:"name"`
-	Role       string `json:"role,omitempty"` // Used by moderator/admin sessions
+	Role       string `json:"role,omitempty"`       // Used by moderator/admin sessions
+	TokenType  string `json:"token_type,omitempty"` // "mentor" | "admin" (see M13)
 	jwt.RegisteredClaims
 }
 
@@ -41,17 +51,18 @@ func NewTokenManager(secret string, issuer string, ttlHours int) *TokenManager {
 	}
 }
 
-// GenerateToken creates a new JWT token for a mentor
+// GenerateToken creates a new JWT token for a mentor session.
 func (tm *TokenManager) GenerateToken(mentorUUID string, legacyID int, email, name string) (string, error) {
-	return tm.generateToken(mentorUUID, legacyID, email, name, "")
+	return tm.generateToken(mentorUUID, legacyID, email, name, "", TokenTypeMentor)
 }
 
-// GenerateTokenWithRole creates a JWT token with an explicit role claim.
+// GenerateTokenWithRole creates a JWT token for a moderator/admin session with
+// an explicit role claim.
 func (tm *TokenManager) GenerateTokenWithRole(subjectID string, legacyID int, email, name, role string) (string, error) {
-	return tm.generateToken(subjectID, legacyID, email, name, role)
+	return tm.generateToken(subjectID, legacyID, email, name, role, TokenTypeAdmin)
 }
 
-func (tm *TokenManager) generateToken(subjectID string, legacyID int, email, name, role string) (string, error) {
+func (tm *TokenManager) generateToken(subjectID string, legacyID int, email, name, role, tokenType string) (string, error) {
 	now := time.Now()
 	expiresAt := now.Add(tm.ttl)
 
@@ -61,6 +72,7 @@ func (tm *TokenManager) generateToken(subjectID string, legacyID int, email, nam
 		Email:      email,
 		Name:       name,
 		Role:       role,
+		TokenType:  tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),

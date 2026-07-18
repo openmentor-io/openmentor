@@ -40,6 +40,12 @@ type ServerConfig struct {
 	AppEnv         string
 	BaseURL        string
 	AllowedOrigins []string
+	// TrustedProxies is the CIDR/IP allowlist Gin uses to resolve the real
+	// client IP from X-Forwarded-For. Only these hops may set the forwarded
+	// address; anything else is ignored (prevents X-Forwarded-For spoofing of
+	// the rate limiter). Defaults to private/loopback ranges because the API
+	// is only reachable over the internal Docker network via Traefik/BFF.
+	TrustedProxies []string
 }
 
 type DatabaseConfig struct {
@@ -193,6 +199,9 @@ func Load() (*Config, error) {
 	v.SetDefault("APP_ENV", "production")
 	v.SetDefault("BASE_URL", "https://openmentor.io")
 	v.SetDefault("ALLOWED_CORS_ORIGINS", "https://openmentor.io,https://www.openmentor.io")
+	// Private + loopback ranges: the API sits behind Traefik/BFF on the
+	// internal Docker network and is never reached directly from the internet.
+	v.SetDefault("TRUSTED_PROXIES", "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16")
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("LOG_DIR", "/app/logs")
 	v.SetDefault("O11Y_EXPORTER_ENDPOINT", "alloy:4318") // OTLP over HTTP
@@ -250,6 +259,14 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// Parse trusted proxy CIDRs/IPs (comma-separated)
+	trustedProxies := []string{}
+	for _, p := range strings.Split(v.GetString("TRUSTED_PROXIES"), ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			trustedProxies = append(trustedProxies, p)
+		}
+	}
+
 	analyticsProvider := strings.ToLower(strings.TrimSpace(v.GetString("ANALYTICS_PROVIDER")))
 	analyticsEventVersion := strings.TrimSpace(v.GetString("ANALYTICS_EVENT_VERSION"))
 
@@ -260,6 +277,7 @@ func Load() (*Config, error) {
 			AppEnv:         v.GetString("APP_ENV"),
 			BaseURL:        v.GetString("BASE_URL"),
 			AllowedOrigins: allowedOrigins,
+			TrustedProxies: trustedProxies,
 		},
 		Database: DatabaseConfig{
 			URL:         v.GetString("DATABASE_URL"),
@@ -376,7 +394,42 @@ func (c *Config) Validate() error {
 	if err := c.validateServerConfig(); err != nil {
 		return err
 	}
+	if err := c.validateSessionConfig(); err != nil {
+		return err
+	}
+	if err := c.validateWorkerConfig(); err != nil {
+		return err
+	}
 	return c.validateProfilingConfig()
+}
+
+// minJWTSecretLength is the minimum accepted JWT_SECRET length in bytes. A
+// short secret makes the HS256 signature brute-forceable offline, which would
+// let an attacker forge mentor AND moderator sessions (one secret signs both).
+const minJWTSecretLength = 32
+
+// validateSessionConfig enforces JWT_SECRET presence/length in production.
+// In non-production an empty secret is allowed (auth routes self-disable with
+// a warning), but a set-but-too-short secret is always rejected.
+func (c *Config) validateSessionConfig() error {
+	secret := c.MentorSession.JWTSecret
+	if c.IsProduction() && secret == "" {
+		return fmt.Errorf("JWT_SECRET is required in production")
+	}
+	if secret != "" && len(secret) < minJWTSecretLength {
+		return fmt.Errorf("JWT_SECRET must be at least %d characters", minJWTSecretLength)
+	}
+	return nil
+}
+
+// validateWorkerConfig enforces WORKER_AUTH_TOKEN in production so the
+// worker's /jobs/* endpoints (email dispatch, moderation actions) can never
+// fail open to an unauthenticated caller on the internal network.
+func (c *Config) validateWorkerConfig() error {
+	if c.IsProduction() && c.Worker.AuthToken == "" {
+		return fmt.Errorf("WORKER_AUTH_TOKEN is required in production")
+	}
+	return nil
 }
 
 func (c *Config) validateDatabaseConfig() error {
@@ -434,6 +487,13 @@ func (c *Config) validateServerConfig() error {
 	}
 	if len(c.Server.AllowedOrigins) == 0 {
 		return fmt.Errorf("ALLOWED_CORS_ORIGINS is required")
+	}
+	// A wildcard origin combined with AllowCredentials:true (see main.go)
+	// would let any site make credentialed cross-origin requests. Reject it.
+	for _, origin := range c.Server.AllowedOrigins {
+		if origin == "*" {
+			return fmt.Errorf("ALLOWED_CORS_ORIGINS must not contain '*' (credentials are enabled)")
+		}
 	}
 	return nil
 }

@@ -53,7 +53,10 @@ func registerAPIRoutes(
 	group.POST("/internal/mentors", generalRateLimiter.Middleware(), middleware.InternalAPIAuthMiddleware(cfg.Auth.InternalMentorsAPI), mentorHandler.GetInternalMentors)
 	group.POST("/contact-mentor", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), contactHandler.ContactMentor)
 	group.POST("/register-mentor", registrationRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024*1024), registrationHandler.RegisterMentor)
-	group.POST("/logs", generalRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(1*1024*1024), logsHandler.ReceiveFrontendLogs)
+	// SECURITY: /logs appends to a file on disk, so it is gated behind the
+	// internal API token (server-to-server only, same as /internal/mentors) to
+	// prevent unauthenticated log injection / disk-fill DoS.
+	group.POST("/logs", generalRateLimiter.Middleware(), middleware.InternalAPIAuthMiddleware(cfg.Auth.InternalMentorsAPI), middleware.BodySizeLimitMiddleware(1*1024*1024), logsHandler.ReceiveFrontendLogs)
 
 	// Mentor email confirmation (public, draft-status registration flow).
 	// The resend endpoint issues fresh tokens and emails - login-tier limits.
@@ -351,6 +354,15 @@ func main() { //nolint:gocyclo
 	gin.SetMode(cfg.Server.GinMode)
 	router := gin.New()
 
+	// SECURITY: Only resolve the client IP from X-Forwarded-For for these
+	// trusted hops (private/loopback by default — the API is internal-only,
+	// reached via Traefik/BFF). Without this Gin trusts every proxy and honors
+	// a client-supplied X-Forwarded-For, which would let a caller spoof the IP
+	// the rate limiter keys on.
+	if err := router.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
+		logger.Fatal("Failed to set trusted proxies", zap.Error(err))
+	}
+
 	// Global middleware
 	router.Use(middleware.RecoveryMiddleware())
 	router.Use(otelgin.Middleware(cfg.Observability.ServiceName)) // OpenTelemetry tracing
@@ -367,7 +379,7 @@ func main() { //nolint:gocyclo
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "mentors_api_auth_token", "x-internal-mentors-api-auth-token", "X-Webhook-Secret", "X-Mentor-ID", "X-Auth-Token", "X-CSRF-Token", "traceparent", "tracestate"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "mentors_api_auth_token", "x-internal-mentors-api-auth-token", "X-Webhook-Secret", "X-Mentor-ID", "X-Auth-Token", "traceparent", "tracestate"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true, // Required for mentor session cookies
 		MaxAge:           12 * time.Hour,

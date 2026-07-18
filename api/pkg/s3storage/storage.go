@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -141,6 +142,30 @@ func (s *StorageClient) ValidateImageType(contentType string) error {
 	return nil
 }
 
+// ValidateImageContent sniffs the decoded bytes and confirms they really are
+// one of the allowed image formats. SECURITY: the client-supplied Content-Type
+// is untrusted; without a magic-byte check an attacker could store arbitrary
+// bytes under an image MIME (L4). jpeg/png/webp are what the exporter accepts.
+func (s *StorageClient) ValidateImageContent(imageData string) error {
+	imageBytes, err := decodeBase64Image(imageData)
+	if err != nil {
+		return fmt.Errorf("failed to decode image for content validation: %w", err)
+	}
+
+	// http.DetectContentType only reads the first 512 bytes (the sniff window).
+	detected := http.DetectContentType(imageBytes)
+	allowed := map[string]bool{
+		"image/jpeg": true,
+		"image/png":  true,
+		"image/webp": true,
+	}
+	if !allowed[detected] {
+		return fmt.Errorf("file content is not a supported image (detected %q)", detected)
+	}
+
+	return nil
+}
+
 // ValidateImageSize validates the image size (max 10MB)
 func (s *StorageClient) ValidateImageSize(imageData string) error {
 	const maxSize = 10 * 1024 * 1024 // 10MB
@@ -169,6 +194,12 @@ func (s *StorageClient) UploadImageAllSizes(ctx context.Context, imageData, slug
 
 	// Validate image size
 	if err := s.ValidateImageSize(imageData); err != nil {
+		return "", err
+	}
+
+	// SECURITY: verify the bytes are actually an image, not just the claimed
+	// Content-Type (L4).
+	if err := s.ValidateImageContent(imageData); err != nil {
 		return "", err
 	}
 

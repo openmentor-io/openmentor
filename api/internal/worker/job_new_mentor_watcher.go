@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
@@ -17,12 +16,6 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/slug"
 )
-
-// loginTokenTTLDays mirrors getExpiryDate() in new-mentor-watcher/index.ts
-// (now + 100 days). The func stored the value date-truncated
-// (Date.toDateString()); the worker stores the full timestamp, which only
-// makes the expiry more precise.
-const loginTokenTTLDays = 100
 
 // confirmationTokenTTL is the validity window of the email confirmation
 // link (must match internal/services/mentor_confirmation_service.go).
@@ -143,8 +136,6 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		MentorID:                   mentor.ID,
 		Name:                       mentor.Name,
 		PreferredContact:           mentor.PreferredContact,
-		LoginToken:                 uuid.NewString(),
-		LoginTokenExpiresAt:        time.Now().AddDate(0, 0, loginTokenTTLDays),
 		Slug:                       mentor.Slug,
 		Status:                     newStatus,
 		SortOrder:                  rand.IntN(1000), // Math.floor(Math.random() * 1000)

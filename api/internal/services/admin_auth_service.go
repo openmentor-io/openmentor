@@ -71,7 +71,7 @@ func (s *AdminAuthService) RequestLogin(ctx context.Context, email string) (*mod
 		s.tracker.Track(ctx, analytics.EventAdminAuthLoginRequested, analytics.SystemDistinctID("api"), map[string]interface{}{
 			"outcome": "moderator_not_found",
 		})
-		logger.Warn("Admin login request for unknown email", zap.String("email", email), zap.Error(err))
+		logger.Warn("Admin login request for unknown email", zap.String("email", maskEmail(email)), zap.Error(err))
 		return nil, ErrModeratorNotFound
 	}
 	if !moderator.Role.IsValid() {
@@ -119,7 +119,7 @@ func (s *AdminAuthService) RequestLogin(ctx context.Context, email string) (*mod
 		trigger.CallAsyncWithPayload(ctx, s.config.EventTriggers.ModeratorLoginEmailTriggerURL, payload, s.config.Worker.AuthToken, s.httpClient)
 	} else if s.config.IsDevelopment() {
 		logger.Info("=== DEVELOPMENT ADMIN LOGIN URL ===",
-			zap.String("moderator_email", moderator.Email),
+			zap.String("moderator_email", maskEmail(moderator.Email)),
 			zap.String("moderator_name", moderator.Name),
 			zap.String("login_url", loginURL))
 	}
@@ -132,7 +132,7 @@ func (s *AdminAuthService) RequestLogin(ctx context.Context, email string) (*mod
 
 	return &models.AdminRequestLoginResponse{
 		Success: true,
-		Message: "We've sent a login link to your email",
+		Message: models.GenericLoginMessage,
 	}, nil
 }
 

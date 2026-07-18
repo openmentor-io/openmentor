@@ -78,7 +78,7 @@ func (s *MentorAuthService) RequestLogin(ctx context.Context, email string) (*mo
 			"outcome": "mentor_not_found",
 		})
 		logger.Warn("Login request for unknown email",
-			zap.String("email", email),
+			zap.String("email", maskEmail(email)),
 			zap.Error(err))
 		metrics.MentorAuthLoginRequests.WithLabelValues("mentor_not_found").Inc()
 		return nil, ErrMentorNotFound
@@ -93,7 +93,7 @@ func (s *MentorAuthService) RequestLogin(ctx context.Context, email string) (*mo
 			"outcome":       "not_eligible",
 		})
 		logger.Warn("Login request for mentor with ineligible status",
-			zap.String("email", email),
+			zap.String("email", maskEmail(email)),
 			zap.String("mentor_id", mentor.MentorID),
 			zap.String("status", mentor.Status))
 		metrics.MentorAuthLoginRequests.WithLabelValues("not_eligible").Inc()
@@ -142,7 +142,7 @@ func (s *MentorAuthService) RequestLogin(ctx context.Context, email string) (*mo
 	} else if s.config.IsDevelopment() {
 		// In development mode without email trigger, log the login URL to console
 		logger.Info("=== DEVELOPMENT LOGIN URL ===",
-			zap.String("mentor_email", email),
+			zap.String("mentor_email", maskEmail(email)),
 			zap.String("mentor_name", mentor.Name),
 			zap.String("login_url", loginURL))
 	}
@@ -164,7 +164,7 @@ func (s *MentorAuthService) RequestLogin(ctx context.Context, email string) (*mo
 
 	return &models.RequestLoginResponse{
 		Success: true,
-		Message: "We've sent a login link to your email",
+		Message: models.GenericLoginMessage,
 	}, nil
 }
 

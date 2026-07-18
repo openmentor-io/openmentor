@@ -384,7 +384,8 @@ func (r *MentorRepository) GetByLoginToken(ctx context.Context, token string) (*
 		LIMIT 1
 	`
 
-	row := r.pool.QueryRow(ctx, query, token)
+	// SECURITY: tokens are stored hashed (L1); look up by hash.
+	row := r.pool.QueryRow(ctx, query, HashLoginToken(token))
 
 	var mentor models.Mentor
 	var tagsStr *string
@@ -464,7 +465,8 @@ func (r *MentorRepository) SetLoginToken(ctx context.Context, mentorId string, t
 		SET login_token = $1, login_token_expires_at = $2, updated_at = NOW()
 		WHERE id = $3
 	`
-	_, err := r.pool.Exec(ctx, query, token, exp, mentorId)
+	// SECURITY: store the hash, never the plaintext token (L1).
+	_, err := r.pool.Exec(ctx, query, HashLoginToken(token), exp, mentorId)
 	return err
 }
 

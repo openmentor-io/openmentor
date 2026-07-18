@@ -22,8 +22,10 @@ func TestNewMentorWatcherHappyPath(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	// DB write: trimmed fields, draft status, login token + ~100 day
-	// expiry, single-use email confirmation token + 24h expiry.
+	// DB write: trimmed fields, draft status, single-use email confirmation
+	// token + 24h expiry. SECURITY: no usable login token is pre-provisioned
+	// (L2) — FinalizeNewMentor NULLs login_token; a token is only ever minted
+	// on demand by RequestLogin.
 	require.Len(t, env.repo.finalized, 1)
 	update := env.repo.finalized[0]
 	assert.Equal(t, "m1", update.MentorID)
@@ -31,8 +33,6 @@ func TestNewMentorWatcherHappyPath(t *testing.T) {
 	assert.Equal(t, "@johndoe", update.PreferredContact)
 	assert.Equal(t, "draft", update.Status, "mentor stays draft until the email is confirmed")
 	assert.Equal(t, "john-doe-42", update.Slug, "existing slug must be kept, not regenerated")
-	assert.NotEmpty(t, update.LoginToken)
-	assert.WithinDuration(t, time.Now().AddDate(0, 0, 100), update.LoginTokenExpiresAt, time.Minute)
 	assert.GreaterOrEqual(t, update.SortOrder, 0)
 	assert.Less(t, update.SortOrder, 1000)
 	require.NotNil(t, update.EmailConfirmationToken)

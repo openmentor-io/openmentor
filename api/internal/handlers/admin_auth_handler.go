@@ -3,7 +3,6 @@ package handlers
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -32,12 +31,12 @@ func (h *AdminAuthHandler) RequestLogin(c *gin.Context) {
 
 	resp, err := h.service.RequestLogin(c.Request.Context(), req.Email)
 	if err != nil {
-		if errors.Is(err, services.ErrModeratorNotFound) {
-			respondError(c, http.StatusNotFound, "Moderator not found", fmt.Errorf("email %q not found", req.Email))
-			return
-		}
-		if errors.Is(err, services.ErrModeratorNotEligible) {
-			respondError(c, http.StatusForbidden, "Login not available for this account", fmt.Errorf("moderator with email %q is not eligible", req.Email))
+		// SECURITY: identical generic response for unknown and ineligible
+		// accounts so the endpoint can't enumerate moderators (see M3). The
+		// real outcome is recorded in logs/metrics by the service.
+		if errors.Is(err, services.ErrModeratorNotFound) || errors.Is(err, services.ErrModeratorNotEligible) {
+			attachError(c, err)
+			c.JSON(http.StatusOK, genericLoginResponse())
 			return
 		}
 		respondError(c, http.StatusInternalServerError, "Error while sending auth link", err)

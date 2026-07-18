@@ -47,6 +47,15 @@ func AdminSessionMiddleware(tokenManager *jwt.TokenManager, cookieDomain string,
 			return
 		}
 
+		// SECURITY: reject non-admin tokens (M13). Mentor tokens carry
+		// token_type "mentor" (or empty legacy + empty role, caught below).
+		if claims.TokenType == jwt.TokenTypeMentor {
+			ClearAdminSessionCookie(c, cookieDomain, cookieSecure)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
 		role := models.ModeratorRole(claims.Role)
 		if !role.IsValid() {
 			ClearAdminSessionCookie(c, cookieDomain, cookieSecure)
