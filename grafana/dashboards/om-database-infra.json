@@ -372,13 +372,678 @@
     },
     {
       "type": "row",
+      "title": "PostgreSQL (server)",
+      "collapsed": false,
+      "id": 17,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "PG Connections",
+      "description": "Server-side sessions by state vs the configured max_connections.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum by (state) (pg_stat_activity_count{instance=\"db-openmentor-pg\"})",
+          "refId": "A",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "{{state}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "pg_settings_max_connections{instance=\"db-openmentor-pg\"}",
+          "refId": "B",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "max_connections"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "pointSize": 5,
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "gradientMode": "none",
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 18,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 10
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "PG Transactions & Statements",
+      "description": "Statements/s from pg_stat_statements; commit/rollback rates. Populates after the next deploy ships the extra postgres_exporter collectors (stat_database/locks/database in infra/alloy/config.alloy).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum(rate(pg_stat_statements_calls_total{instance=\"db-openmentor-pg\"}[$__rate_interval]))",
+          "refId": "A",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "statements/s"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum(rate(pg_stat_database_xact_commit{instance=\"db-openmentor-pg\"}[$__rate_interval]))",
+          "refId": "B",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "commits/s"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum(rate(pg_stat_database_xact_rollback{instance=\"db-openmentor-pg\"}[$__rate_interval]))",
+          "refId": "C",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "rollbacks/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "pointSize": 5,
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "gradientMode": "none",
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 19,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 10
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "PG Buffer Cache Hit Ratio",
+      "description": "Server-wide shared-buffer hit percentage; sustained values below 90% mean disk-bound reads. Populates after the next deploy ships the extra postgres_exporter collectors (stat_database/locks/database in infra/alloy/config.alloy).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "100 * sum(rate(pg_stat_database_blks_hit{instance=\"db-openmentor-pg\"}[$__rate_interval])) / clamp_min(sum(rate(pg_stat_database_blks_hit{instance=\"db-openmentor-pg\"}[$__rate_interval])) + sum(rate(pg_stat_database_blks_read{instance=\"db-openmentor-pg\"}[$__rate_interval])), 1)",
+          "refId": "A",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "hit ratio"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "pointSize": 5,
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "gradientMode": "none",
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 90
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 20,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 10
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "PG Locks",
+      "description": "Current locks by mode; watch for growing exclusive-lock counts. Populates after the next deploy ships the extra postgres_exporter collectors (stat_database/locks/database in infra/alloy/config.alloy).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum by (mode) (pg_locks_count{instance=\"db-openmentor-pg\"})",
+          "refId": "A",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "{{mode}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "pointSize": 5,
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "gradientMode": "none",
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 21,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 10
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "PG Statement Execution & I/O Time",
+      "description": "Seconds of statement execution and block I/O per second (1 = one core-second busy per wall second).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum(rate(pg_stat_statements_seconds_total{instance=\"db-openmentor-pg\"}[$__rate_interval]))",
+          "refId": "A",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "execution"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum(rate(pg_stat_statements_block_read_seconds_total{instance=\"db-openmentor-pg\"}[$__rate_interval]))",
+          "refId": "B",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "block read"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum(rate(pg_stat_statements_block_write_seconds_total{instance=\"db-openmentor-pg\"}[$__rate_interval]))",
+          "refId": "C",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "block write"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "pointSize": 5,
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "gradientMode": "none",
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 22,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "PG Longest Open Transaction",
+      "description": "Age of the oldest running transaction; long-lived transactions block vacuum and bloat tables.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(pg_stat_activity_max_tx_duration{instance=\"db-openmentor-pg\"})",
+          "refId": "A",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "oldest tx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "pointSize": 5,
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "gradientMode": "none",
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 23,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      }
+    },
+    {
+      "type": "row",
       "title": "Cache & Object Storage",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 9
+        "y": 26
       },
       "id": 5,
       "panels": []
@@ -482,7 +1147,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 10
+        "y": 27
       }
     },
     {
@@ -580,7 +1245,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 10
+        "y": 27
       }
     },
     {
@@ -678,7 +1343,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 10
+        "y": 27
       }
     },
     {
@@ -776,7 +1441,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 10
+        "y": 27
       }
     },
     {
@@ -787,7 +1452,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 35
       },
       "id": 10,
       "panels": []
@@ -887,7 +1552,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 19
+        "y": 36
       }
     },
     {
@@ -985,7 +1650,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 19
+        "y": 36
       }
     },
     {
@@ -996,7 +1661,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 44
       },
       "id": 13,
       "panels": []
@@ -1104,7 +1769,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 28
+        "y": 45
       }
     },
     {
@@ -1214,7 +1879,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 28
+        "y": 45
       }
     },
     {
@@ -1312,7 +1977,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 28
+        "y": 45
       }
     }
   ]

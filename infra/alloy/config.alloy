@@ -410,7 +410,10 @@ local.file "postgres_secret_openmentor" {
 
 prometheus.exporter.postgres "postgres_openmentor" {
   data_source_names  = [coalesce(sys.env("POSTGRES_OBS_DSN"), local.file.postgres_secret_openmentor.content)]
-  enabled_collectors = ["stat_statements"]
+  // enabled_collectors REPLACES the exporter's default set — list everything
+  // the om-database-infra "PostgreSQL (server)" panels need (TPS/cache-hit
+  // from stat_database, pg_locks_count, pg_database_size_bytes).
+  enabled_collectors = ["stat_statements", "stat_database", "locks", "database"]
 
   stat_statements {
     exclude_users = ["grafana_monitoring"]
