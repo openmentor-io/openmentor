@@ -289,15 +289,15 @@ groups:
         title: PostgresDown
         condition: B
         for: 5m
-        # postgres_exporter is not deployed yet, so pg_up has no series; NoData=OK
-        # keeps this rule quiet until it ships. Switch noDataState to Alerting once
-        # pg_* metrics exist so "exporter absent" also pages.
-        noDataState: OK
+        # pg_up ships continuously via database_observability (2026-07-18, see
+        # docs/runbooks/database-observability.md), so a missing series is itself
+        # a failure signal: NoData=Alerting pages when the exporter disappears.
+        noDataState: Alerting
         execErrState: OK
         labels: { severity: critical, team: openmentor }
         annotations:
           summary: "PostgreSQL is down"
-          description: "pg_up reports PostgreSQL as unreachable. NOTE: the postgres_exporter is not deployed yet, so this rule stays in Normal (NoData=OK) until pg_* metrics exist; once the exporter ships, consider switching NoData to Alerting."
+          description: "pg_up reports PostgreSQL as unreachable (or pg_* metrics disappeared entirely — NoData also alerts, since the db-o11y exporter ships them continuously when the database is healthy)."
         data:
           - refId: A
             relativeTimeRange: { from: 600, to: 0 }

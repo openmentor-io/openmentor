@@ -73,11 +73,11 @@ DBLatencyP95.
 
 Notes:
 
-- **PostgresDown** watches `pg_up`. The Alloy config defines
-  `prometheus.exporter.postgres`, but no `pg_*` metrics exist in the stack yet,
-  so the rule uses `NoData=OK` to stay quiet. Once the exporter ships, flip it
-  to `NoData=Alerting` and consider adding postgres panels (connections, TPS,
-  locks) to `om-database-infra`.
+- **PostgresDown** watches `pg_up`, shipped continuously by the Database
+  Observability pipeline (live since 2026-07-18; setup in
+  `docs/runbooks/database-observability.md`). `NoData=Alerting`, so the
+  exporter disappearing also pages. Candidate follow-up: postgres panels
+  (connections, TPS, locks) on `om-database-infra`.
 - **ContainerHighCPU/Memory** key off cAdvisor's `name` label. cAdvisor
   currently exposes only host cgroup slices (no per-container series), so these
   stay quiet until per-container metrics appear; the Host row on
