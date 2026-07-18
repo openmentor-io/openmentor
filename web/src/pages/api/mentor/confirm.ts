@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { getGoApiClient, HttpError } from '@/lib/go-api-client'
-import { logError } from '@/lib/logger'
+import { getGoApiClient } from '@/lib/go-api-client'
+import { sendUpstreamError } from '@/lib/api-proxy'
 import { withObservability } from '@/lib/with-observability'
 import type { ConfirmMentorEmailRequest } from '@/types'
 
@@ -24,21 +24,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
 
     res.status(200).json(data)
   } catch (error) {
-    if (error instanceof HttpError) {
-      const statusCode = error.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 500
-      try {
-        const errorData = JSON.parse(error.body)
-        res.status(statusCode).json(errorData)
-      } catch {
-        res.status(statusCode).json({ success: false, error: 'Confirmation failed' })
-      }
-      return
-    }
-
-    if (error instanceof Error) {
-      logError(error, { context: 'mentor-confirm-proxy', method: req.method, url: req.url })
-    }
-    res.status(500).json({ error: 'Internal server error' })
+    sendUpstreamError(res, error, { context: 'mentor-confirm-proxy', method: req.method, url: req.url })
   }
 }
 

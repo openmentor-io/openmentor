@@ -9,6 +9,7 @@ import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
 import seo from '@/config/seo'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import analytics from '@/lib/analytics'
+import { safeHttpUrl } from '@/lib/safe-url'
 import { captureException } from '@/lib/posthog'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
@@ -406,11 +407,17 @@ function SuccessMessage({ mentor, formData, requestId }: SuccessMessageProps): J
             <Koalendar url={mentor.calendarUrl ?? ''} />
           ) : mentor.calendarType === 'calendlab' ? (
             <CalendlabWidget url={mentor.calendarUrl ?? ''} />
-          ) : (
-            <a className="button" href={mentor.calendarUrl ?? ''} target="_blank" rel="noreferrer">
+          ) : safeHttpUrl(mentor.calendarUrl) ? (
+            // SECURITY (M9): only render the link for a validated http(s) URL.
+            <a
+              className="button"
+              href={safeHttpUrl(mentor.calendarUrl) as string}
+              target="_blank"
+              rel="noreferrer"
+            >
               Book a session
             </a>
-          )}
+          ) : null}
         </div>
       )}
     </div>

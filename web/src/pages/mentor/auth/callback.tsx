@@ -22,6 +22,17 @@ function CallbackHandler(): JSX.Element {
   const [state, setState] = useState<CallbackState>('verifying')
   const [errorMessage, setErrorMessage] = useState<string>('')
 
+  // SECURITY (M10): drop the one-time token from the address bar so it isn't
+  // captured by later analytics/telemetry events or leaked via referrer.
+  // history.replaceState (not router.replace) leaves router.query.token intact
+  // for the verification effect below.
+  useEffect(() => {
+    if (!router.isReady) return
+    if (typeof window !== 'undefined' && window.location.search) {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [router.isReady])
+
   useEffect(() => {
     const token = router.query.token as string | undefined
 

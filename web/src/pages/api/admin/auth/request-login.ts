@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getGoApiClient, HttpError } from '@/lib/go-api-client'
 import { logError } from '@/lib/logger'
+import { maskEmail } from '@/lib/pii'
 import { withObservability } from '@/lib/with-observability'
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
@@ -26,9 +27,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     res.status(200).json(genericSuccessResponse)
   } catch (error) {
     if (error instanceof HttpError) {
-      logError(new Error(`Admin request login failed: ${error.statusCode} ${error.body}`), {
+      logError(new Error(`Admin request login failed: ${error.statusCode}`), {
         context: 'admin-request-login',
-        email,
+        email: maskEmail(email),
         statusCode: error.statusCode,
       })
 

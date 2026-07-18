@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { getGoApiClient, HttpError } from '@/lib/go-api-client'
-import { logError } from '@/lib/logger'
+import { getGoApiClient } from '@/lib/go-api-client'
+import { sendUpstreamError } from '@/lib/api-proxy'
 import { withObservability } from '@/lib/with-observability'
 
 /**
@@ -36,21 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
 
     res.status(200).json(data)
   } catch (error) {
-    if (error instanceof HttpError) {
-      const status = error.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 500
-      try {
-        const errorData = JSON.parse(error.body)
-        res.status(status).json(errorData)
-      } catch {
-        res.status(status).json({ error: error.message })
-      }
-      return
-    }
-
-    if (error instanceof Error) {
-      logError(error, { context: 'mentor-get-request-by-id', method: req.method, url: req.url })
-    }
-    res.status(500).json({ error: 'Internal server error' })
+    sendUpstreamError(res, error, { context: 'mentor-get-request-by-id', method: req.method, url: req.url })
   }
 }
 

@@ -15,6 +15,28 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+// SECURITY (M10): magic-link/confirm tokens and review request IDs travel in
+// the URL query string. Faro auto-captures page URLs, so scrub these params
+// from every outgoing item before it leaves the browser.
+const SENSITIVE_QUERY_PARAMS = /([?&](?:token|request_id)=)[^&#\s"']+/gi
+
+function redactSensitive(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.replace(SENSITIVE_QUERY_PARAMS, '$1[REDACTED]')
+  }
+  if (Array.isArray(value)) {
+    return value.map(redactSensitive)
+  }
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    for (const key of Object.keys(obj)) {
+      obj[key] = redactSensitive(obj[key])
+    }
+    return obj
+  }
+  return value
+}
+
 /**
  * URLs that receive the W3C traceparent header on cross-origin requests.
  * Same-origin /api/* fetches get traceparent by default (no CORS list is
@@ -72,6 +94,15 @@ export function initializeFaro(): Faro | null {
 
     faroInstance = initFaro({
       url: proxyUrl,
+      // SECURITY (M10): redact one-time tokens from URLs in every payload.
+      beforeSend: (item) => {
+        try {
+          redactSensitive(item)
+        } catch {
+          // never let redaction throw away telemetry
+        }
+        return item
+      },
       app: {
         name: appName,
         namespace: appNamespace,

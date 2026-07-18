@@ -44,6 +44,17 @@ export default function NewReviewPage(): JSX.Element {
   const turnstileRef = useRef<TurnstileInstance>(null)
   const viewTracked = useRef(false)
 
+  // SECURITY (M10): the request_id is a capability token for submitting a
+  // review; strip it from the address bar so it isn't captured by telemetry or
+  // leaked via referrer. router.query.request_id stays intact for the checks
+  // below because replaceState doesn't touch Next's router state.
+  useEffect(() => {
+    if (!router.isReady) return
+    if (typeof window !== 'undefined' && window.location.search) {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [router.isReady])
+
   // Page-view analytics — once per mount, after the router query is ready.
   useEffect(() => {
     if (!router.isReady || viewTracked.current) return

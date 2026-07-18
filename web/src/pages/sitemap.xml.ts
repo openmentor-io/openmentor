@@ -5,10 +5,22 @@ import constants from '@/config/constants'
 
 const baseUrl = constants.BASE_URL
 
+// SECURITY (L7): escape XML metacharacters before interpolating into <loc>.
+// Slugs are currently constrained, but an '&' or '<' (from a backend change or
+// a lenient admin edit) would otherwise corrupt or inject into the document.
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
 function sitemapItem(path: string): string {
   return `
         <url>
-        <loc>${baseUrl + path}</loc>
+        <loc>${escapeXml(baseUrl + path)}</loc>
         <lastmod>${new Date().toISOString()}</lastmod>
         <changefreq>weekly</changefreq>
         <priority>0.5</priority>

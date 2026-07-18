@@ -19,20 +19,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     const client = getGoApiClient()
     const { data, headers } = await client.adminVerifyLogin(token)
 
-    const setCookie = headers.get('set-cookie')
-    if (setCookie) {
-      res.setHeader('Set-Cookie', setCookie)
+    // SECURITY (M15): getSetCookie() keeps multiple cookies as separate headers.
+    const setCookies = headers.getSetCookie()
+    if (setCookies.length > 0) {
+      res.setHeader('Set-Cookie', setCookies)
     }
 
     res.status(200).json(data)
   } catch (error) {
-    if (error instanceof HttpError) {
-      const status = error.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 500
+    // SECURITY (M7): forward only 4xx contracts; 5xx -> generic, no body leak.
+    if (error instanceof HttpError && error.statusCode >= 400 && error.statusCode < 500) {
       try {
-        const errorData = JSON.parse(error.body)
-        res.status(status).json(errorData)
+        res.status(error.statusCode).json(JSON.parse(error.body))
       } catch {
-        res.status(status).json({ success: false, message: error.message })
+        res.status(error.statusCode).json({ success: false, message: error.statusText || 'Request failed' })
       }
       return
     }

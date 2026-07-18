@@ -16,6 +16,15 @@ function CallbackHandler(): JSX.Element {
   const [state, setState] = useState<CallbackState>('verifying')
   const [errorMessage, setErrorMessage] = useState<string>('')
 
+  // SECURITY (M10): strip the one-time token from the address bar (keeps
+  // router.query.token available for verification below).
+  useEffect(() => {
+    if (!router.isReady) return
+    if (typeof window !== 'undefined' && window.location.search) {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [router.isReady])
+
   useEffect(() => {
     const token = router.query.token as string | undefined
 

@@ -27,6 +27,17 @@ export default function ConfirmMentorEmail(): JSX.Element {
   const [state, setState] = useState<ConfirmState>('confirming')
   const confirmStarted = useRef(false)
 
+  // SECURITY (M10): strip the one-time confirmation token from the address bar
+  // so it isn't captured by telemetry or leaked via referrer. router.query.token
+  // (and the derived `token`) stay intact because replaceState doesn't touch
+  // Next's router state.
+  useEffect(() => {
+    if (!router.isReady) return
+    if (typeof window !== 'undefined' && window.location.search) {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [router.isReady])
+
   useEffect(() => {
     if (!router.isReady || confirmStarted.current) {
       return

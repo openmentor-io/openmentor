@@ -66,8 +66,9 @@ const nextConfig = {
       },
     ]
 
-    // Only add security headers in production
-    if (process.env.NODE_ENV === 'production') {
+    // Add security headers everywhere except local development (the Next dev
+    // server needs 'unsafe-eval'/inline for HMR, which the strict CSP forbids).
+    if (process.env.NODE_ENV !== 'development') {
       headers.push({
         source: '/:path*',
         headers: [
@@ -95,7 +96,10 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value:
               "default-src 'self'; " +
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://openmentor.io https://challenges.cloudflare.com https://www.googletagmanager.com https://www.google-analytics.com https://a.openmentor.io https://us.i.posthog.com https://eu.i.posthog.com https://us-assets.i.posthog.com https://eu-assets.i.posthog.com https://faro-collector-prod-eu-west-3.grafana.net; " +
+              // SECURITY (M8): no 'unsafe-eval' — GTM/PostHog/Faro don't need it
+              // and Next's production runtime doesn't either. 'unsafe-inline'
+              // remains until inline scripts move to nonces/strict-dynamic.
+              "script-src 'self' 'unsafe-inline' https://openmentor.io https://challenges.cloudflare.com https://www.googletagmanager.com https://www.google-analytics.com https://a.openmentor.io https://us.i.posthog.com https://eu.i.posthog.com https://us-assets.i.posthog.com https://eu-assets.i.posthog.com https://faro-collector-prod-eu-west-3.grafana.net; " +
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
               "img-src 'self' https: data:; " +
               "font-src 'self' data: https://fonts.gstatic.com https://at.alicdn.com; " +
@@ -105,6 +109,8 @@ const nextConfig = {
               "object-src 'none'; " +
               "base-uri 'self'; " +
               "form-action 'self'; " +
+              // SECURITY (M8): clickjacking defense alongside X-Frame-Options.
+              "frame-ancestors 'self'; " +
               'upgrade-insecure-requests;',
           },
         ],

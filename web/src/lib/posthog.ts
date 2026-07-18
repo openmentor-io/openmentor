@@ -1,6 +1,22 @@
 import posthog from 'posthog-js'
+import type { CaptureResult } from 'posthog-js'
 
 let initialized = false
+
+// SECURITY (M10): strip one-time tokens (magic-link/confirm token, review
+// request_id) from any URL captured in event properties before it is sent.
+const SENSITIVE_QUERY_PARAMS = /([?&](?:token|request_id)=)[^&#\s"']+/gi
+
+function redactSensitiveEvent(event: CaptureResult | null): CaptureResult | null {
+  if (!event || !event.properties) return event
+  for (const key of Object.keys(event.properties)) {
+    const value = event.properties[key]
+    if (typeof value === 'string') {
+      event.properties[key] = value.replace(SENSITIVE_QUERY_PARAMS, '$1[REDACTED]')
+    }
+  }
+  return event
+}
 
 export function initializePostHog(): typeof posthog | null {
   if (initialized || typeof window === 'undefined') {
@@ -20,6 +36,9 @@ export function initializePostHog(): typeof posthog | null {
   posthog.init(apiKey, {
     api_host: apiHost,
     ui_host: 'https://eu.posthog.com',
+
+    // SECURITY (M10): redact one-time tokens from captured URLs.
+    before_send: redactSensitiveEvent,
 
     // Explicitly set to true — posthog-js v1.359+ defaults to "history_change"
     // when no `defaults` date is provided (string "unset" >= "2025-05-24"),

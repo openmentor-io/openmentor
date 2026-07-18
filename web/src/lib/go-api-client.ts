@@ -143,7 +143,7 @@ class GoApiClient {
     try {
       return await this.request<MentorBase | MentorWithSecureFields>(
         'POST',
-        `/api/v1/internal/mentors?slug=${slug}`,
+        `/api/v1/internal/mentors?slug=${encodeURIComponent(slug)}`,
         {
           body: {
             show_hidden: params.showHiddenFields,
@@ -196,7 +196,7 @@ class GoApiClient {
   ): Promise<MentorBase | MentorWithSecureFields> {
     return this.request<MentorBase | MentorWithSecureFields>(
       'POST',
-      `/api/v1/internal/mentors?rec=${uuid}`,
+      `/api/v1/internal/mentors?rec=${encodeURIComponent(uuid)}`,
       {
         body: {
           show_hidden: params.showHiddenFields,

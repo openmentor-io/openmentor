@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { getGoApiClient, HttpError } from '@/lib/go-api-client'
-import { logError } from '@/lib/logger'
+import { getGoApiClient } from '@/lib/go-api-client'
+import { sendUpstreamError } from '@/lib/api-proxy'
 import { withObservability } from '@/lib/with-observability'
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
@@ -15,28 +15,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     const client = getGoApiClient()
     const { data, headers } = await client.adminLogout(cookies)
 
-    const setCookie = headers.get('set-cookie')
-    if (setCookie) {
-      res.setHeader('Set-Cookie', setCookie)
+    // SECURITY (M15): getSetCookie() keeps multiple cookies as separate headers.
+    const setCookies = headers.getSetCookie()
+    if (setCookies.length > 0) {
+      res.setHeader('Set-Cookie', setCookies)
     }
 
     res.status(200).json(data)
   } catch (error) {
-    if (error instanceof HttpError) {
-      const status = error.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 500
-      try {
-        const errorData = JSON.parse(error.body)
-        res.status(status).json(errorData)
-      } catch {
-        res.status(status).json({ error: error.message })
-      }
-      return
-    }
-
-    if (error instanceof Error) {
-      logError(error, { context: 'admin-logout', method: req.method, url: req.url })
-    }
-    res.status(500).json({ error: 'Internal server error' })
+    sendUpstreamError(res, error, { context: 'admin-logout', method: req.method, url: req.url })
   }
 }
 

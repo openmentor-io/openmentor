@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getGoApiClient, HttpError } from '@/lib/go-api-client'
 import { logError } from '@/lib/logger'
+import { maskEmail } from '@/lib/pii'
 import { withObservability } from '@/lib/with-observability'
 
 /**
@@ -34,9 +35,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   } catch (error) {
     if (error instanceof HttpError) {
       // Log the actual error for debugging
-      logError(new Error(`Request login failed: ${error.statusCode} ${error.body}`), {
+      logError(new Error(`Request login failed: ${error.statusCode}`), {
         context: 'mentor-request-login',
-        email,
+        email: maskEmail(email),
         statusCode: error.statusCode,
       })
 
