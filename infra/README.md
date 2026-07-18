@@ -290,8 +290,16 @@ deploys). It is currently
 out. Required repo secrets: `ECR_REGISTRY`, `AWS_REGION`, `AWS_CI_ROLE_ARN`
 (GitHub OIDC role with ECR push, D19 — set by the private provisioning
 repo's `set-github-secrets.sh`), `VM_SSH_HOST`, `VM_SSH_USER`, `VM_SSH_KEY`,
-`DOMAIN`, `NEXT_PUBLIC_S3_STORAGE_ENDPOINT`, `NEXT_PUBLIC_S3_STORAGE_BUCKET`,
-`TURNSTILE_SITE_KEY`.
+`VM_SSH_HOST_KEY`, `DOMAIN`, `NEXT_PUBLIC_S3_STORAGE_ENDPOINT`,
+`NEXT_PUBLIC_S3_STORAGE_BUCKET`, `TURNSTILE_SITE_KEY`.
+
+`VM_SSH_HOST_KEY` pins the VM's SSH host key so the deploy runner verifies it
+is really the production VM (SECURITY H2), instead of trusting-on-first-use via
+`ssh-keyscan`. It is set/refreshed by the provisioning repo's
+**`set-github-secrets.sh`** (reads the key from the VM, cross-checks against an
+independent `ssh-keyscan`, stores the secret). **Re-run that after rebuilding
+the VM** — new host keys otherwise make deploys fail with a host-key-mismatch
+(that refusal is the safeguard working).
 
 ## Monitoring & Observability
 

@@ -95,6 +95,12 @@ distribution can exist; re-runs are single-pass no-ops.*
   docker volume create openmentor-postgres-data
   ```
 - [ ] `VM_SSH_HOST/USER/KEY` noted for GitHub secrets + `.env.production`
+- [ ] **VM SSH host key is pinned** (SECURITY H2): `set-github-secrets.sh` in
+  the provisioning repo reads the VM's host key (cross-checked against an
+  independent `ssh-keyscan`) and stores it as the `VM_SSH_HOST_KEY` GitHub
+  secret, so `deploy.yml` verifies the VM's identity instead of trusting-on-
+  first-use. **Re-run `set-github-secrets.sh` whenever the VM is rebuilt**
+  (host keys regenerate) or deploys will refuse to connect with a mismatch.
 
 ## 5. Observability & analytics
 *Automated: Grafana Cloud via `provision-grafana.sh` in the private repo (stack find-or-create,
@@ -132,8 +138,10 @@ Manual: PostHog, GTM.*
   matching `DATABASE_URL=postgres://openmentor:<pw>@postgres:5432/openmentor?sslmode=disable`
 - [ ] Fill everything from steps 2–5 (S3/SES/Turnstile/Cloudflare/Grafana/PostHog/backup vars,
   `DOMAIN=openmentor.io`, `LETSENCRYPT_EMAIL`)
-- [ ] GitHub Actions secrets for `deploy.yml`: `VM_SSH_HOST/USER/KEY`, `DOMAIN`,
-  ECR auth (`ECR_REGISTRY`, `AWS_REGION`, `AWS_CI_ROLE_ARN` — OIDC, set by `set-github-secrets.sh`),
+- [ ] GitHub Actions secrets for `deploy.yml`: `VM_SSH_HOST/USER/KEY`,
+  `VM_SSH_HOST_KEY` (pinned host key, H2), `DOMAIN`,
+  ECR auth (`ECR_REGISTRY`, `AWS_REGION`, `AWS_CI_ROLE_ARN` — OIDC) — all set by the
+  provisioning repo's `set-github-secrets.sh`;
   `NEXT_PUBLIC_S3_STORAGE_ENDPOINT/BUCKET`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `NEXT_PUBLIC_CDN_ENDPOINT`
 
 ### 7.2 Deploy
