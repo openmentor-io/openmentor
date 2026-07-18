@@ -226,7 +226,7 @@ REMOTE_SCRIPT
 # ssh stdin (the VM has no aws CLI / credentials). Needs a local aws
 # identity with ECR read access.
 if ! aws ecr get-login-password --region "$AWS_REGION" | \
-    ssh ${VM_SSH_KEY_FILE:+-i "$VM_SSH_KEY_FILE"} -o StrictHostKeyChecking=no \
+    ssh ${VM_SSH_KEY_FILE:+-i "$VM_SSH_KEY_FILE"} -o StrictHostKeyChecking=accept-new \
     "$VM_SSH_USER@$VM_SSH_HOST" \
     "docker login --username AWS --password-stdin '$ECR_REGISTRY'"; then
     echo -e "${RED}❌ ECR login on the VM failed${NC}"
@@ -235,7 +235,7 @@ fi
 
 # Execute on remote
 ROLLBACK_EXIT_CODE=0
-ssh ${VM_SSH_KEY_FILE:+-i "$VM_SSH_KEY_FILE"} -o StrictHostKeyChecking=no \
+ssh ${VM_SSH_KEY_FILE:+-i "$VM_SSH_KEY_FILE"} -o StrictHostKeyChecking=accept-new \
     "$VM_SSH_USER@$VM_SSH_HOST" \
     bash <<< "$ROLLBACK_SCRIPT" || ROLLBACK_EXIT_CODE=$?
 

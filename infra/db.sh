@@ -23,7 +23,7 @@ VM_SSH_USER=$(grep '^VM_SSH_USER=' "$ENV_FILE" | cut -d= -f2)
 VM_SSH_KEY_FILE=$(grep '^VM_SSH_KEY_FILE=' "$ENV_FILE" | cut -d= -f2- || true)
 [ -n "$VM_SSH_HOST" ] && [ -n "$VM_SSH_USER" ] || { echo "❌ VM_SSH_HOST/VM_SSH_USER missing in .env.production"; exit 1; }
 
-SSH_OPTS=(-o StrictHostKeyChecking=no)
+SSH_OPTS=(-o StrictHostKeyChecking=accept-new)
 [ -n "${VM_SSH_KEY_FILE:-}" ] && SSH_OPTS=(-i "$VM_SSH_KEY_FILE" "${SSH_OPTS[@]}")
 VM="$VM_SSH_USER@$VM_SSH_HOST"
 PSQL="docker exec -i openmentor-postgres psql -U openmentor openmentor"

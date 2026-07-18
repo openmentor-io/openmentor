@@ -41,11 +41,22 @@ BACKUP_DIR="${BACKUP_DIR:-/backups}"
 
 export PGPASSWORD="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
 
-# Dedicated backup credentials first, S3_STORAGE_* fallback second (D15)
-AWS_ACCESS_KEY_ID="${BACKUP_AWS_ACCESS_KEY_ID:-${S3_STORAGE_ACCESS_KEY:-}}"
-AWS_SECRET_ACCESS_KEY="${BACKUP_AWS_SECRET_ACCESS_KEY:-${S3_STORAGE_SECRET_KEY:-}}"
-AWS_DEFAULT_REGION="${BACKUP_AWS_REGION:-${S3_STORAGE_REGION:-eu-central-1}}"
+# SECURITY (M12): use ONLY dedicated backup credentials. The previous fallback
+# to the app's S3_STORAGE_* keys meant a compromised app key could delete both
+# the profile images AND every DB backup (this script runs `aws s3 rm`). The
+# backup credentials should be a separate IAM identity without s3:DeleteObject
+# on the app bucket; pair with bucket versioning / Object Lock on the backup
+# bucket. When BACKUP_S3_BUCKET is set, the dedicated creds are required.
+AWS_ACCESS_KEY_ID="${BACKUP_AWS_ACCESS_KEY_ID:-}"
+AWS_SECRET_ACCESS_KEY="${BACKUP_AWS_SECRET_ACCESS_KEY:-}"
+AWS_DEFAULT_REGION="${BACKUP_AWS_REGION:-eu-central-1}"
 export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION
+
+if [ -n "${BACKUP_S3_BUCKET}" ] && { [ -z "${AWS_ACCESS_KEY_ID}" ] || [ -z "${AWS_SECRET_ACCESS_KEY}" ]; }; then
+    echo "[postgres-backup] FATAL: BACKUP_S3_BUCKET is set but BACKUP_AWS_ACCESS_KEY_ID / BACKUP_AWS_SECRET_ACCESS_KEY are not." >&2
+    echo "[postgres-backup] Provide dedicated backup credentials (no fallback to app S3 keys). Refusing to start." >&2
+    exit 1
+fi
 
 log() {
     echo "[postgres-backup] $(date -u '+%Y-%m-%dT%H:%M:%SZ') $*"

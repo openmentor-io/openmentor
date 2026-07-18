@@ -65,9 +65,13 @@ jobs:
 
       - name: Set image tags
         id: tags
+        # SECURITY (L6): pass the workflow_dispatch input through env, never
+        # interpolate it directly into the shell (script-injection vector).
+        env:
+          IMAGE_TAG_INPUT: ${{ github.event.inputs.image_tag }}
         run: |
-          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
-            TAG="${{ github.event.inputs.image_tag }}"
+          if [ -n "$IMAGE_TAG_INPUT" ]; then
+            TAG="$IMAGE_TAG_INPUT"
           else
             TAG="${{ github.sha }}"
           fi
@@ -120,9 +124,13 @@ jobs:
 
       - name: Set image tags
         id: tags
+        # SECURITY (L6): pass the workflow_dispatch input through env, never
+        # interpolate it directly into the shell (script-injection vector).
+        env:
+          IMAGE_TAG_INPUT: ${{ github.event.inputs.image_tag }}
         run: |
-          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
-            TAG="${{ github.event.inputs.image_tag }}"
+          if [ -n "$IMAGE_TAG_INPUT" ]; then
+            TAG="$IMAGE_TAG_INPUT"
           else
             TAG="${{ github.sha }}"
           fi
@@ -161,9 +169,13 @@ jobs:
 
       - name: Set image tag
         id: tag
+        # SECURITY (L6): pass the workflow_dispatch input through env, never
+        # interpolate it directly into the shell (script-injection vector).
+        env:
+          IMAGE_TAG_INPUT: ${{ github.event.inputs.image_tag }}
         run: |
-          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
-            TAG="${{ github.event.inputs.image_tag }}"
+          if [ -n "$IMAGE_TAG_INPUT" ]; then
+            TAG="$IMAGE_TAG_INPUT"
           else
             TAG="${{ github.sha }}"
           fi
@@ -186,7 +198,17 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p 22 -H "${{ secrets.VM_SSH_HOST }}" >> ~/.ssh/known_hosts
+          # SECURITY (H2): prefer a pinned host key over trust-on-first-use.
+          # Set the VM_SSH_HOST_KEY secret to the VM's public host key
+          # (`ssh-keyscan -H <host>` output, run once from a trusted network)
+          # so an ephemeral runner can't be MITM'd on first contact. Falls back
+          # to keyscan with a warning until the secret is populated.
+          if [ -n "${{ secrets.VM_SSH_HOST_KEY }}" ]; then
+            printf '%s\n' "${{ secrets.VM_SSH_HOST_KEY }}" >> ~/.ssh/known_hosts
+          else
+            echo "::warning::VM_SSH_HOST_KEY not set - falling back to ssh-keyscan (trust-on-first-use). Pin the host key to remove MITM risk."
+            ssh-keyscan -p 22 -H "${{ secrets.VM_SSH_HOST }}" >> ~/.ssh/known_hosts
+          fi
 
           rsync -az --checksum --itemize-changes \
             --exclude '.env' \

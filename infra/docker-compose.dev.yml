@@ -41,7 +41,7 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
     ports: !override
-      - "80:80"
+      - "127.0.0.1:80:80"
     environment: !override []
     labels: !override []
 
@@ -54,7 +54,7 @@ services:
       - NEXT_PUBLIC_APP_ENV=${NEXT_PUBLIC_APP_ENV:-development}
     # Publish directly for debugging alongside the traefik route
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     # HTTP-only localhost routing (base labels reference the websecure
     # entrypoint and the letsencrypt resolver, which don't exist in dev)
     labels: !override
@@ -79,7 +79,7 @@ services:
     ports:
       # Host port for local tooling; override with POSTGRES_DEV_PORT in .env
       # if 5433 is taken on your machine
-      - "${POSTGRES_DEV_PORT:-5433}:5432"
+      - "127.0.0.1:${POSTGRES_DEV_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -103,7 +103,7 @@ services:
     image: openmentor-backend:${BACKEND_IMAGE_TAG:-dev}
     # Publish directly for debugging (in prod the API is internal-only)
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     environment:
       - GIN_MODE=debug
       - APP_ENV=development
@@ -114,7 +114,7 @@ services:
     image: openmentor-backend:${BACKEND_IMAGE_TAG:-dev}
     # Publish directly for debugging (manual job/cron triggers)
     ports:
-      - "8090:8090"
+      - "127.0.0.1:8090:8090"
     environment:
       - GIN_MODE=debug
       - APP_ENV=development

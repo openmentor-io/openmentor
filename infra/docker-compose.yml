@@ -102,6 +102,19 @@ services:
       - "traefik.http.routers.frontend-secure.tls=true"
       - "traefik.http.routers.frontend-secure.tls.certresolver=letsencrypt"
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+      # SECURITY (L10): edge HSTS + security headers and a real per-client-IP
+      # rate limit at the reverse proxy (the Go API sees only the BFF's IP, so
+      # true per-client limiting must live here). The headers middleware adds
+      # HSTS; the app's own CSP/X-Frame-Options (next.config.js) still apply.
+      - "traefik.http.routers.frontend-secure.middlewares=sec-headers,edge-ratelimit"
+      - "traefik.http.middlewares.sec-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.sec-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.sec-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.sec-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.sec-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.sec-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.edge-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.edge-ratelimit.ratelimit.burst=50"
 
   # PostgreSQL database (containerized on the VM per DECISIONS D2)
   # Data lives in the external volume `openmentor-postgres-data`, created by
@@ -164,8 +177,9 @@ services:
       - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
       - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
       - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-postgres}
-      # Dedicated backup credentials; backup.sh falls back to S3_STORAGE_*
-      # (via env_file) when these are empty - see .env.example
+      # Dedicated backup credentials (SECURITY M12): REQUIRED when
+      # BACKUP_S3_BUCKET is set. backup.sh no longer falls back to the app's
+      # S3_STORAGE_* keys and fails fast if these are missing - see .env.example
       - BACKUP_AWS_ACCESS_KEY_ID=${BACKUP_AWS_ACCESS_KEY_ID:-}
       - BACKUP_AWS_SECRET_ACCESS_KEY=${BACKUP_AWS_SECRET_ACCESS_KEY:-}
       - BACKUP_AWS_REGION=${BACKUP_AWS_REGION:-}

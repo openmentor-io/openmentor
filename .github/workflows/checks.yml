@@ -21,6 +21,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# SECURITY (L6): least-privilege default token for this workflow.
+permissions:
+  contents: read
+
 jobs:
   required-checks:
     name: required-checks

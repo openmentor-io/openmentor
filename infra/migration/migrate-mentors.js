@@ -572,7 +572,7 @@ async function triggerMigratedEmail(mentorId) {
   if (!/^[0-9a-f-]{36}$/i.test(mentorId)) {
     throw new Error(`unexpected mentor id format: ${mentorId}`);
   }
-  const sshArgs = ['-o', 'StrictHostKeyChecking=no'];
+  const sshArgs = ['-o', 'StrictHostKeyChecking=accept-new'];
   if (config.vmSshKeyFile) sshArgs.push('-i', config.vmSshKeyFile);
   sshArgs.push(
     `${config.vmSshUser}@${config.vmSshHost}`,

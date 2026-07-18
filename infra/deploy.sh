@@ -192,7 +192,7 @@ done
 
 # VM_SSH_KEY_FILE is OPTIONAL: when unset, ssh uses your agent (works with
 # the 1Password SSH agent, ssh-agent, etc.). Set it only for file-based keys.
-SSH_OPTS=(-o StrictHostKeyChecking=no)
+SSH_OPTS=(-o StrictHostKeyChecking=accept-new)
 if [ -n "${_VM_SSH_KEY_FILE:-}" ]; then
     if [ ! -f "$_VM_SSH_KEY_FILE" ]; then
         echo -e "${RED}❌ Error: SSH key file not found: $_VM_SSH_KEY_FILE${NC}"
@@ -478,7 +478,7 @@ if [ "$DEPLOY_INFRA" = true ]; then
         --exclude '.env.*' \
         --exclude 'logs/' \
         --exclude 'alloy-secrets/' \
-        -e "ssh ${_VM_SSH_KEY_FILE:+-i $_VM_SSH_KEY_FILE }-o StrictHostKeyChecking=no" \
+        -e "ssh ${_VM_SSH_KEY_FILE:+-i $_VM_SSH_KEY_FILE }-o StrictHostKeyChecking=accept-new" \
         "$SCRIPT_DIR/" \
         "$_VM_SSH_USER@$_VM_SSH_HOST:$REMOTE_INFRA_DIR/")
 

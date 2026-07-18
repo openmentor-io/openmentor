@@ -25,6 +25,10 @@ defaults:
   run:
     working-directory: api
 
+# SECURITY (L6): least-privilege default token for this workflow.
+permissions:
+  contents: read
+
 jobs:
   # Vet + race tests + coverage floor + binary builds
   test:

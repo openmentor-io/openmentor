@@ -22,6 +22,10 @@ defaults:
   run:
     working-directory: web
 
+# SECURITY (L6): least-privilege default token for this workflow.
+permissions:
+  contents: read
+
 jobs:
   # Lint, type check, and test
   test:
