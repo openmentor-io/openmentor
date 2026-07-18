@@ -4,7 +4,7 @@
 
 // Logging configuration
 logging {
-  level  = coalesce(env("LOG_LEVEL"), "info")
+  level  = coalesce(sys.env("LOG_LEVEL"), "info")
   format = "logfmt"
 }
 
@@ -12,14 +12,14 @@ prometheus.scrape "cadvisor" {
   targets = [
     {
       __address__ = "cadvisor:8080",
-      instance    = coalesce(env("HOSTNAME"), "cadvisor"),
-      environment = coalesce(env("APP_ENV"), "production"),
+      instance    = coalesce(sys.env("HOSTNAME"), "cadvisor"),
+      environment = coalesce(sys.env("APP_ENV"), "production"),
       service_name = "yc-cadvisor",
-      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+      namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
     },
   ]
   forward_to = [prometheus.relabel.clean_container_labels.receiver]
-  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+  scrape_interval = coalesce(sys.env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
   metrics_path = "/metrics"
 }
 
@@ -27,15 +27,15 @@ prometheus.scrape "cadvisor" {
 prometheus.scrape "yc_go_api" {
   targets = [
     {
-      __address__ = string.format("backend:%s", coalesce(env("PORT"), "8081")),
-      instance    = coalesce(env("HOSTNAME"), "backend"),
-      environment = coalesce(env("APP_ENV"), "production"),
-      service_name = coalesce(env("O11Y_BE_SERVICE_NAME"), "openmentor-api"),
-      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+      __address__ = string.format("backend:%s", coalesce(sys.env("PORT"), "8081")),
+      instance    = coalesce(sys.env("HOSTNAME"), "backend"),
+      environment = coalesce(sys.env("APP_ENV"), "production"),
+      service_name = coalesce(sys.env("O11Y_BE_SERVICE_NAME"), "openmentor-api"),
+      namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
     },
   ]
   forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
-  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+  scrape_interval = coalesce(sys.env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
   metrics_path    = "/api/metrics"
 }
 
@@ -43,15 +43,15 @@ prometheus.scrape "yc_go_api" {
 prometheus.scrape "yc_go_worker" {
   targets = [
     {
-      __address__ = string.format("worker:%s", coalesce(env("WORKER_PORT"), "8090")),
-      instance    = coalesce(env("HOSTNAME"), "worker"),
-      environment = coalesce(env("APP_ENV"), "production"),
-      service_name = coalesce(env("O11Y_WORKER_SERVICE_NAME"), "openmentor-worker"),
-      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+      __address__ = string.format("worker:%s", coalesce(sys.env("WORKER_PORT"), "8090")),
+      instance    = coalesce(sys.env("HOSTNAME"), "worker"),
+      environment = coalesce(sys.env("APP_ENV"), "production"),
+      service_name = coalesce(sys.env("O11Y_WORKER_SERVICE_NAME"), "openmentor-worker"),
+      namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
     },
   ]
   forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
-  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+  scrape_interval = coalesce(sys.env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
   metrics_path    = "/metrics"
 }
 
@@ -60,18 +60,18 @@ prometheus.scrape "yc_nextjs_frontend" {
   targets = [
     {
       __address__ = "frontend:3000",
-      instance    = coalesce(env("HOSTNAME"), "frontend"),
-      environment = coalesce(env("APP_ENV"), "production"),
-      service_name = coalesce(env("O11Y_FE_SERVICE_NAME"), "openmentor-frontend"),
-      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+      instance    = coalesce(sys.env("HOSTNAME"), "frontend"),
+      environment = coalesce(sys.env("APP_ENV"), "production"),
+      service_name = coalesce(sys.env("O11Y_FE_SERVICE_NAME"), "openmentor-frontend"),
+      namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
     },
   ]
   forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
-  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+  scrape_interval = coalesce(sys.env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
   metrics_path    = "/api/metrics"
 
   // SECURITY: Send bearer token to access frontend metrics
-  bearer_token = env("METRICS_AUTH_TOKEN")
+  bearer_token = sys.env("METRICS_AUTH_TOKEN")
 }
 
 // Self-monitoring: Grafana Alloy metrics
@@ -79,14 +79,14 @@ prometheus.scrape "yc_alloy_self_monitoring" {
   targets = [
     {
       __address__ = "localhost:12345",
-      instance    = coalesce(env("HOSTNAME"), "alloy"),
-      environment = coalesce(env("APP_ENV"), "production"),
+      instance    = coalesce(sys.env("HOSTNAME"), "alloy"),
+      environment = coalesce(sys.env("APP_ENV"), "production"),
       service_name = "openmentor-o11y",
-      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+      namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
     },
   ]
   forward_to      = [prometheus.relabel.drop_unused_metrics.receiver]
-  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+  scrape_interval = coalesce(sys.env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
 }
 
 // Clean verbose container labels but keep essential ones
@@ -120,11 +120,11 @@ prometheus.relabel "drop_unused_metrics" {
 // Prometheus remote write to Grafana Cloud
 prometheus.remote_write "grafana_cloud" {
   endpoint {
-    url = env("GCLOUD_HOSTED_METRICS_URL")
+    url = sys.env("GCLOUD_HOSTED_METRICS_URL")
 
     basic_auth {
-      username = env("GCLOUD_HOSTED_METRICS_ID")
-      password = env("GCLOUD_RW_API_KEY")
+      username = sys.env("GCLOUD_HOSTED_METRICS_ID")
+      password = sys.env("GCLOUD_RW_API_KEY")
     }
   }
 }
@@ -142,10 +142,10 @@ local.file_match "yc_frontend_logs" {
     {
       __path__    = "/var/log/frontend/app-*.log",
       job         = "nextjs",
-      instance    = coalesce(env("HOSTNAME"), "frontend"),
-      environment = coalesce(env("APP_ENV"), "production"),
-      service_name = coalesce(env("O11Y_FE_SERVICE_NAME"), "openmentor-frontend"),
-      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+      instance    = coalesce(sys.env("HOSTNAME"), "frontend"),
+      environment = coalesce(sys.env("APP_ENV"), "production"),
+      service_name = coalesce(sys.env("O11Y_FE_SERVICE_NAME"), "openmentor-frontend"),
+      namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
     },
   ]
 }
@@ -157,10 +157,10 @@ local.file_match "yc_backend_logs" {
     {
       __path__    = "/var/log/backend/app.log",
       job         = "go-api",
-      instance    = coalesce(env("HOSTNAME"), "backend"),
-      environment = coalesce(env("APP_ENV"), "production"),
-      service_name = coalesce(env("O11Y_BE_SERVICE_NAME"), "openmentor-api"),
-      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+      instance    = coalesce(sys.env("HOSTNAME"), "backend"),
+      environment = coalesce(sys.env("APP_ENV"), "production"),
+      service_name = coalesce(sys.env("O11Y_BE_SERVICE_NAME"), "openmentor-api"),
+      namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
     },
   ]
 }
@@ -172,10 +172,10 @@ local.file_match "yc_worker_logs" {
     {
       __path__    = "/var/log/worker/app.log",
       job         = "go-worker",
-      instance    = coalesce(env("HOSTNAME"), "worker"),
-      environment = coalesce(env("APP_ENV"), "production"),
-      service_name = coalesce(env("O11Y_WORKER_SERVICE_NAME"), "openmentor-worker"),
-      namespace   = coalesce(env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+      instance    = coalesce(sys.env("HOSTNAME"), "worker"),
+      environment = coalesce(sys.env("APP_ENV"), "production"),
+      service_name = coalesce(sys.env("O11Y_WORKER_SERVICE_NAME"), "openmentor-worker"),
+      namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
     },
   ]
 }
@@ -255,11 +255,11 @@ loki.process "parse_json_logs" {
 // Loki write to Grafana Cloud
 loki.write "grafana_cloud" {
   endpoint {
-    url = env("GCLOUD_HOSTED_LOGS_URL")
+    url = sys.env("GCLOUD_HOSTED_LOGS_URL")
 
     basic_auth {
-      username = env("GCLOUD_HOSTED_LOGS_ID")
-      password = env("GCLOUD_RW_API_KEY")
+      username = sys.env("GCLOUD_HOSTED_LOGS_ID")
+      password = sys.env("GCLOUD_RW_API_KEY")
     }
   }
 }
@@ -277,11 +277,11 @@ pyroscope.receive_http "default" {
 // Pyroscope write to Grafana Cloud Profiles
 pyroscope.write "grafana_cloud" {
   endpoint {
-    url = env("GCLOUD_HOSTED_PROFILES_URL")
+    url = sys.env("GCLOUD_HOSTED_PROFILES_URL")
 
     basic_auth {
-      username = env("GCLOUD_HOSTED_PROFILES_ID")
-      password = env("GCLOUD_RW_API_KEY")
+      username = sys.env("GCLOUD_HOSTED_PROFILES_ID")
+      password = sys.env("GCLOUD_RW_API_KEY")
     }
   }
 }
@@ -360,14 +360,14 @@ otelcol.processor.batch "default" {
 // OpenTelemetry exporter to Grafana Cloud Tempo (HTTP mode)
 otelcol.exporter.otlphttp "grafana_cloud" {
   client {
-    endpoint = env("GCLOUD_HOSTED_TRACES_URL")
+    endpoint = sys.env("GCLOUD_HOSTED_TRACES_URL")
     auth = otelcol.auth.basic.grafana_cloud.handler
   }
 }
 
 otelcol.auth.basic "grafana_cloud" {
-  username = env("GCLOUD_HOSTED_TRACES_ID")
-  password = env("GCLOUD_RW_API_KEY")
+  username = sys.env("GCLOUD_HOSTED_TRACES_ID")
+  password = sys.env("GCLOUD_RW_API_KEY")
 }
 
 // ============================================================================
@@ -380,13 +380,19 @@ otelcol.auth.basic "grafana_cloud" {
 // The "logs" collector is disabled: the containerized PostgreSQL logs to
 // stdout (shipped via the Docker log driver), not to files Alloy could tail.
 //
-// Prerequisites (manual, one-time setup on the PostgreSQL instance):
-//   1. Enable pg_stat_statements via shared_preload_libraries
-//      (requires restart)
-//   2. Create a monitoring user:
+// Prerequisites (manual, one-time — full walkthrough in
+// ../../docs/runbooks/database-observability.md):
+//   1. pg_stat_statements preloaded + compute_query_id=on etc. — set via the
+//      postgres service `command` in docker-compose.yml (requires restart)
+//   2. In the openmentor database:
+//        CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+//   3. Create a monitoring user:
 //        CREATE USER grafana_monitoring WITH PASSWORD '...';
 //        GRANT pg_monitor TO grafana_monitoring;
-//        GRANT CONNECT ON DATABASE openmentor TO grafana_monitoring;
+//        GRANT pg_read_all_stats TO grafana_monitoring;
+//        GRANT pg_read_all_data TO grafana_monitoring;  -- schema_details/explain_plans
+//        ALTER ROLE grafana_monitoring SET pg_stat_statements.track = 'none';
+//   Requires Alloy >= 1.17.0 (compose pins the image).
 //
 // Required files on VM (created by deploy.sh):
 //   /opt/openmentor-infra/alloy-secrets/postgres_secret_openmentor
@@ -403,11 +409,11 @@ local.file "postgres_secret_openmentor" {
 }
 
 prometheus.exporter.postgres "postgres_openmentor" {
-  data_source_names  = [coalesce(env("POSTGRES_OBS_DSN"), local.file.postgres_secret_openmentor.content)]
+  data_source_names  = [coalesce(sys.env("POSTGRES_OBS_DSN"), local.file.postgres_secret_openmentor.content)]
   enabled_collectors = ["stat_statements"]
 
   stat_statements {
-    exclude_users = ["grafana"]
+    exclude_users = ["grafana_monitoring"]
   }
 }
 
@@ -416,7 +422,7 @@ database_observability.postgres "postgres_openmentor" {
   forward_to         = [loki.relabel.database_observability_postgres_openmentor.receiver]
   targets            = prometheus.exporter.postgres.postgres_openmentor.targets
   enable_collectors = ["query_details", "query_samples", "schema_details", "explain_plans"]
-  exclude_users     = ["grafana"]
+  exclude_users     = ["grafana_monitoring"]
   exclude_databases = ["postgres"]
 }
 
@@ -471,5 +477,5 @@ discovery.relabel "database_observability_postgres_openmentor" {
 prometheus.scrape "postgres_openmentor" {
   targets         = discovery.relabel.database_observability_postgres_openmentor.output
   forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
-  scrape_interval = coalesce(env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+  scrape_interval = coalesce(sys.env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
 }
