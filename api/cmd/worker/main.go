@@ -23,11 +23,9 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/db"
 	"github.com/openmentor-io/openmentor/api/pkg/email"
 	"github.com/openmentor-io/openmentor/api/pkg/errortracking"
-	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 	"github.com/openmentor-io/openmentor/api/pkg/profiling"
-	"github.com/openmentor-io/openmentor/api/pkg/slack"
 	"github.com/openmentor-io/openmentor/api/pkg/tracing"
 )
 
@@ -149,27 +147,12 @@ func main() {
 		DevEmailOverride: cfg.Email.DevEmailOverride,
 	})
 
-	// Optional community-Slack auto-invite for approved mentors
-	// (mentor-moderation-action job). Disabled unless SLACK_ADMIN_TOKEN is
-	// set; config.Validate already rejected half-configured setups.
-	var slackInviter worker.SlackInviter
-	if cfg.Slack.Enabled() {
-		slackInviter = slack.NewInviter(slack.Config{
-			Token:      cfg.Slack.AdminToken,
-			TeamID:     cfg.Slack.TeamID,
-			ChannelIDs: cfg.Slack.InviteChannelIDs,
-		}, httpclient.NewStandardClient())
-		logger.Info("Slack auto-invite for approved mentors enabled",
-			zap.String("team_id", cfg.Slack.TeamID))
-	}
-
 	// The job handlers: async event triggers (stage 2) and cron jobs
 	// (stage 3) share the same dependencies.
 	handlers := worker.NewHandlers(
 		worker.NewRepository(pool),
 		emailSender,
 		analyticsTracker,
-		slackInviter,
 		cfg,
 	)
 

@@ -10,8 +10,10 @@ import (
 // openmentor-func/lib/postbox/templates.ts: every template name that the
 // func app registers must resolve here, with the same placeholders.
 var expectedTemplates = map[string][]string{
-	"mentor-confirm-email":      {"first_name", "confirm_url"},
-	"new-mentor-approved":       {"first_name", "mentor_profile_url"},
+	"mentor-confirm-email": {"first_name", "confirm_url"},
+	// slack_join_url sits inside a {{#if}} block (SES renders Handlebars):
+	// empty prop = section hidden, so the worker can always send the prop.
+	"new-mentor-approved":       {"first_name", "mentor_profile_url", "slack_join_url"},
 	"new-mentor-declined":       {"first_name"},
 	"new-mentor-returned":       {"first_name", "reviewer_note", "edit_url"},
 	"new-mentor":                {"first_name"},

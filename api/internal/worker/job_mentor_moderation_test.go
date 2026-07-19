@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/openmentor-io/openmentor/api/config"
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 )
 
@@ -43,6 +43,7 @@ func TestMentorModerationActionApprove(t *testing.T) {
 	assert.Equal(t, "john@example.com", msg.Recipient)
 	assert.Equal(t, "John Doe", msg.Props["first_name"])
 	assert.Equal(t, "https://openmentor.io/mentor/john-doe-42", msg.Props["mentor_profile_url"])
+	assert.Equal(t, "", msg.Props["slack_join_url"], "Slack not configured: empty prop hides the template section")
 
 	event := env.tracker.last()
 	require.NotNil(t, event)
@@ -54,42 +55,24 @@ func TestMentorModerationActionApprove(t *testing.T) {
 	assert.Equal(t, "admin", event.props["moderator_role"])
 }
 
-func TestMentorModerationActionApproveInvitesToSlack(t *testing.T) {
-	// A newly approved mentor is invited to the community Slack workspace
-	// with the same email address the approval email went to.
-	env := newModerationEnv("active")
+func TestMentorModerationActionApproveWithSlackConfigured(t *testing.T) {
+	// With SLACK_INVITE_URL set, the approval email invites the mentor to
+	// the community Slack via the STABLE /slack redirect on the site's own
+	// domain — never the raw (expiring) invite link, so already-sent emails
+	// survive link rotation.
+	env := newJobsTestEnvWithConfig(func(cfg *config.Config) {
+		cfg.Slack.InviteURL = "https://join.slack.com/t/openmentor/shared_invite/abc123"
+	})
+	mentor := testMentor("m1")
+	mentor.Status = "active"
+	env.repo.mentors["m1"] = mentor
+	env.repo.moderators["mod1"] = &JobModerator{ID: "mod1", Name: "Alice Admin", Email: "alice@openmentor.io"}
 
 	w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody("approve"))
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, []string{"john@example.com"}, env.slack.invited)
-}
-
-func TestMentorModerationActionSlackInviteFailureDoesNotFailJob(t *testing.T) {
-	// The approval email is already out when the invite runs: a Slack
-	// failure is logged but must not 5xx the job (the API would replay the
-	// trigger and resend the email).
-	env := newModerationEnv("active")
-	env.slack.err = errors.New("slack down")
-
-	w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody("approve"))
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, []string{"new-mentor-approved"}, env.sender.templates())
-	assert.Equal(t, []string{"john@example.com"}, env.slack.invited, "invite must be attempted")
-	assert.Equal(t, "success", env.tracker.last().props["outcome"])
-}
-
-func TestMentorModerationActionNilSlackInviterSkipsInvite(t *testing.T) {
-	// Slack not configured (SLACK_ADMIN_TOKEN empty): approve works as
-	// before, no invite attempted.
-	env := newModerationEnv("active")
-	env.handlers.slack = nil
-
-	w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody("approve"))
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, []string{"new-mentor-approved"}, env.sender.templates())
+	require.Equal(t, []string{"new-mentor-approved"}, env.sender.templates())
+	assert.Equal(t, "https://openmentor.io/slack", env.sender.attempts[0].Props["slack_join_url"])
 }
 
 func TestMentorModerationActionDecline(t *testing.T) {
@@ -101,7 +84,6 @@ func TestMentorModerationActionDecline(t *testing.T) {
 	assert.Empty(t, env.repo.statusUpdates)
 	require.Equal(t, []string{"new-mentor-declined"}, env.sender.templates())
 	assert.Equal(t, "John Doe", env.sender.attempts[0].Props["first_name"])
-	assert.Empty(t, env.slack.invited, "only approvals invite to Slack")
 }
 
 func TestMentorModerationActionReturn(t *testing.T) {
@@ -122,7 +104,6 @@ func TestMentorModerationActionReturn(t *testing.T) {
 	assert.Equal(t, "John Doe", msg.Props["first_name"])
 	assert.Equal(t, "Please add a real photo and expand the about section.", msg.Props["reviewer_note"])
 	assert.Equal(t, "https://openmentor.io/mentor/profile/edit", msg.Props["edit_url"])
-	assert.Empty(t, env.slack.invited, "only approvals invite to Slack")
 
 	event := env.tracker.last()
 	require.NotNil(t, event)
@@ -211,7 +192,6 @@ func TestMentorModerationActionEmailFailure(t *testing.T) {
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	assert.Equal(t, []string{"new-mentor-approved"}, env.sender.templates(), "send must be attempted")
-	assert.Empty(t, env.slack.invited, "no Slack invite when the email failed (trigger will be replayed)")
 
 	event := env.tracker.last()
 	require.NotNil(t, event)

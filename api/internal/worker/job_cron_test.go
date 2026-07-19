@@ -109,7 +109,7 @@ func TestCronTriggerReturns500OnJobError(t *testing.T) {
 func TestCronTriggersRequireWorkerToken(t *testing.T) {
 	cfg := testConfig()
 	cfg.Worker.AuthToken = "secret-token"
-	handlers := NewHandlers(newFakeRepo(), &fakeEmailSender{}, &recordingTracker{}, nil, cfg)
+	handlers := NewHandlers(newFakeRepo(), &fakeEmailSender{}, &recordingTracker{}, cfg)
 	s := NewServer(cfg, nil)
 	s.RegisterCronRoutes(handlers)
 

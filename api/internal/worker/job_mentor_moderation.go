@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,7 +10,6 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 	"github.com/openmentor-io/openmentor/api/pkg/email"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
-	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 )
 
 // MentorModerationAction ports openmentor-func/mentor-moderation-action/index.ts:
@@ -129,9 +127,11 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 
 	// Moderation results are visible in the admin portal; the mentor is
 	// notified by email. The approved email links to the mentor's public
-	// profile (with login-link guidance baked into the template copy); the
-	// returned email carries the reviewer's note (written to
-	// mentors.moderation_note by the API before the trigger fired) and a
+	// profile (with login-link guidance baked into the template copy) and,
+	// when the community Slack is configured, invites the mentor to join it
+	// via the stable {BASE_URL}/slack redirect (empty slack_join_url hides
+	// the section); the returned email carries the reviewer's note (written
+	// to mentors.moderation_note by the API before the trigger fired) and a
 	// link to the profile editor.
 	var message email.Message
 	switch payload.Action {
@@ -142,6 +142,7 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 			Props: map[string]interface{}{
 				"first_name":         mentor.Name,
 				"mentor_profile_url": h.mentorProfileURL(mentor.Slug),
+				"slack_join_url":     h.slackJoinURL,
 			},
 		}
 	case "return":
@@ -167,10 +168,6 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 		return
 	}
 
-	if payload.Action == "approve" {
-		h.inviteMentorToSlack(ctx, mentor)
-	}
-
 	logger.Info("[Mentor Moderation Action] Completed",
 		zap.String("mentor_id", payload.MentorID),
 		zap.String("action", payload.Action),
@@ -179,24 +176,4 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 	)
 	trackOutcome("success", true)
 	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-// inviteMentorToSlack invites a newly approved mentor to the community
-// Slack workspace, using the same address the approval email went to.
-// Best-effort: a failure is logged and counted but never fails the job —
-// the approval email is already out, and failing here would make the API
-// replay the trigger and resend it. No-op when Slack is not configured.
-func (h *Handlers) inviteMentorToSlack(ctx context.Context, mentor *JobMentor) {
-	if h.slack == nil {
-		return
-	}
-	if err := h.slack.InviteByEmail(ctx, mentor.Email); err != nil {
-		metrics.WorkerSlackInvitesTotal.WithLabelValues("error").Inc()
-		logger.Error("[Mentor Moderation Action] Failed to invite approved mentor to Slack",
-			zap.String("mentor_id", mentor.ID), zap.Error(err))
-		return
-	}
-	metrics.WorkerSlackInvitesTotal.WithLabelValues("success").Inc()
-	logger.Info("[Mentor Moderation Action] Invited approved mentor to Slack",
-		zap.String("mentor_id", mentor.ID))
 }

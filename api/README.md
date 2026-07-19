@@ -121,10 +121,10 @@ The worker serves `/healthz` and `/metrics`, keeps its own smaller DB pool
 - **Profile pictures** on any S3-compatible storage (`pkg/s3storage`,
   `S3_STORAGE_*` — Cloudflare R2, AWS S3, Backblaze B2, ...).
 - **Email** via AWS SESv2 (`SES_*`, `MODERATORS_EMAIL`).
-- **Community Slack** (optional): the worker invites newly approved mentors
-  to the Slack workspace via `admin.users.invite` (`SLACK_ADMIN_TOKEN`,
-  `SLACK_TEAM_ID`, `SLACK_INVITE_CHANNEL_IDS` — Enterprise Grid only;
-  leave the token empty to disable).
+- **Community Slack** (optional): when `SLACK_INVITE_URL` is set, the
+  approval email invites newly approved mentors to the Slack workspace via
+  the stable `{BASE_URL}/slack` redirect served by the web app (empty =
+  no Slack section in the email).
 - **Analytics** via PostHog (`ANALYTICS_PROVIDER`: `none` | `posthog`).
 - **Observability**: OTLP traces + Prometheus metrics + JSON logs shipped by
   a Grafana Alloy sidecar container (`O11Y_*`), optional Pyroscope

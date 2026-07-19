@@ -184,20 +184,21 @@ type EmailConfig struct {
 	ModeratorsEmail    string // moderators mailbox for notification emails
 }
 
-// SlackConfig configures the optional community-Slack auto-invite: when
-// AdminToken is set, the worker invites every newly approved mentor to the
-// workspace (same email address as the approval email) via the Slack
-// admin.users.invite API. Requires an Enterprise Grid org admin/owner USER
-// token (xoxp-…) with the admin.users:write scope.
+// SlackConfig configures the optional community-Slack onboarding for
+// approved mentors. InviteURL is the workspace's shareable invite link
+// (Slack: workspace name > Invite people > Copy invite link; free-plan
+// links expire after at most 30 days, so it needs periodic refreshing).
+// When set, the approval email gains a "join our Slack" section that
+// points at the STABLE {BASE_URL}/slack redirect — never at the raw link —
+// so already-sent emails survive link rotation. The web app serves the
+// redirect from this same env var.
 type SlackConfig struct {
-	AdminToken       string   // SLACK_ADMIN_TOKEN: empty disables the feature
-	TeamID           string   // SLACK_TEAM_ID: workspace (team) id, e.g. T0123456789
-	InviteChannelIDs []string // SLACK_INVITE_CHANNEL_IDS: comma-separated channel ids
+	InviteURL string // SLACK_INVITE_URL: empty disables the Slack section
 }
 
-// Enabled reports whether the Slack auto-invite feature is configured.
+// Enabled reports whether the community-Slack onboarding is configured.
 func (c SlackConfig) Enabled() bool {
-	return c.AdminToken != ""
+	return c.InviteURL != ""
 }
 
 // Load reads configuration from environment variables
@@ -273,14 +274,6 @@ func Load() (*Config, error) {
 	for _, p := range strings.Split(v.GetString("TRUSTED_PROXIES"), ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			trustedProxies = append(trustedProxies, p)
-		}
-	}
-
-	// Parse Slack invite channel ids (comma-separated)
-	slackChannelIDs := []string{}
-	for _, id := range strings.Split(v.GetString("SLACK_INVITE_CHANNEL_IDS"), ",") {
-		if id = strings.TrimSpace(id); id != "" {
-			slackChannelIDs = append(slackChannelIDs, id)
 		}
 	}
 
@@ -381,9 +374,7 @@ func Load() (*Config, error) {
 			ModeratorsEmail:    v.GetString("MODERATORS_EMAIL"),
 		},
 		Slack: SlackConfig{
-			AdminToken:       strings.TrimSpace(v.GetString("SLACK_ADMIN_TOKEN")),
-			TeamID:           strings.TrimSpace(v.GetString("SLACK_TEAM_ID")),
-			InviteChannelIDs: slackChannelIDs,
+			InviteURL: strings.TrimSpace(v.GetString("SLACK_INVITE_URL")),
 		},
 	}
 
@@ -418,9 +409,6 @@ func (c *Config) Validate() error {
 	if err := c.validateWorkerConfig(); err != nil {
 		return err
 	}
-	if err := c.validateSlackConfig(); err != nil {
-		return err
-	}
 	return c.validateProfilingConfig()
 }
 
@@ -449,22 +437,6 @@ func (c *Config) validateSessionConfig() error {
 func (c *Config) validateWorkerConfig() error {
 	if c.IsProduction() && c.Worker.AuthToken == "" {
 		return fmt.Errorf("WORKER_AUTH_TOKEN is required in production")
-	}
-	return nil
-}
-
-// validateSlackConfig rejects a half-configured Slack auto-invite: the
-// admin.users.invite API requires both a target team_id and at least one
-// channel_id, so a token without them could only ever fail at send time.
-func (c *Config) validateSlackConfig() error {
-	if !c.Slack.Enabled() {
-		return nil
-	}
-	if c.Slack.TeamID == "" {
-		return fmt.Errorf("SLACK_TEAM_ID is required when SLACK_ADMIN_TOKEN is set")
-	}
-	if len(c.Slack.InviteChannelIDs) == 0 {
-		return fmt.Errorf("SLACK_INVITE_CHANNEL_IDS is required when SLACK_ADMIN_TOKEN is set")
 	}
 	return nil
 }
