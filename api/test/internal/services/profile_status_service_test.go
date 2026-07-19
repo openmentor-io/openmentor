@@ -30,8 +30,6 @@ type statusMockRepo struct {
 	setStatusCalled     bool
 	setStatusMentorID   string
 	setStatusStatus     string
-	refreshCacheCalled  bool
-	refreshCacheErr     error
 	touchUpdatedAtCalls int
 }
 
@@ -64,11 +62,6 @@ func (m *statusMockRepo) SetMentorStatus(ctx context.Context, mentorID, status s
 	m.setStatusMentorID = mentorID
 	m.setStatusStatus = status
 	return m.setStatusErr
-}
-
-func (m *statusMockRepo) RefreshCache() error {
-	m.refreshCacheCalled = true
-	return m.refreshCacheErr
 }
 
 var _ services.ProfileMentorRepository = (*statusMockRepo)(nil)
@@ -120,9 +113,6 @@ func TestProfileService_SetProfileStatusByMentorId_ActiveToInactive(t *testing.T
 	if repo.setStatusMentorID != "mentor-1" || repo.setStatusStatus != "inactive" {
 		t.Errorf("SetMentorStatus called with (%s, %s), want (mentor-1, inactive)", repo.setStatusMentorID, repo.setStatusStatus)
 	}
-	if !repo.refreshCacheCalled {
-		t.Error("RefreshCache should have been called after status change")
-	}
 
 	event := tracker.last()
 	if event == nil {
@@ -152,9 +142,6 @@ func TestProfileService_SetProfileStatusByMentorId_InactiveToActive(t *testing.T
 	if repo.setStatusStatus != "active" {
 		t.Errorf("SetMentorStatus status = %s, want active", repo.setStatusStatus)
 	}
-	if !repo.refreshCacheCalled {
-		t.Error("RefreshCache should have been called after status change")
-	}
 
 	event := tracker.last()
 	if event == nil || event.properties["outcome"] != "success" {
@@ -176,9 +163,6 @@ func TestProfileService_SetProfileStatusByMentorId_RejectsPendingAndDeclined(t *
 
 			if repo.setStatusCalled {
 				t.Error("SetMentorStatus should not have been called")
-			}
-			if repo.refreshCacheCalled {
-				t.Error("RefreshCache should not have been called")
 			}
 
 			event := tracker.last()
@@ -230,9 +214,6 @@ func TestProfileService_SetProfileStatusByMentorId_UpdateFails(t *testing.T) {
 	err := svc.SetProfileStatusByMentorId(context.Background(), "mentor-1", "inactive")
 	if err == nil {
 		t.Fatal("expected error when SetMentorStatus fails")
-	}
-	if repo.refreshCacheCalled {
-		t.Error("RefreshCache should not have been called on update failure")
 	}
 
 	event := tracker.last()

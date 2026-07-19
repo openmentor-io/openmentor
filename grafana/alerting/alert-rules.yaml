@@ -181,32 +181,6 @@ groups:
               refId: B
               conditions: [{ evaluator: { type: gt, params: [1000] } }]
 
-      - uid: om-cache-hit-ratio-low
-        title: CacheHitRatioLow
-        condition: B
-        for: 30m
-        noDataState: OK
-        execErrState: OK
-        labels: { severity: warning, team: openmentor }
-        annotations:
-          summary: "API cache hit ratio below 80%"
-          description: "The overall cache hit ratio is {{ printf \"%.1f\" $values.A.Value }}%, below the 80% threshold. Low hit ratio increases database load."
-        data:
-          - refId: A
-            relativeTimeRange: { from: 1800, to: 0 }
-            datasourceUid: grafanacloud-prom
-            model:
-              expr: '100 * sum(rate(cache_hits_total[30m])) / (sum(rate(cache_hits_total[30m])) + sum(rate(cache_misses_total[30m])))'
-              instant: true
-              refId: A
-          - refId: B
-            datasourceUid: __expr__
-            model:
-              type: threshold
-              expression: A
-              refId: B
-              conditions: [{ evaluator: { type: lt, params: [80] } }]
-
       - uid: om-contact-form-failures
         title: ContactFormFailures
         condition: B

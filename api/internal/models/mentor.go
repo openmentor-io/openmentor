@@ -24,8 +24,7 @@ type Mentor struct {
 	MenteeCount  int     `json:"menteeCount"`
 	// SessionsCount is the number of completed sessions (client_requests rows
 	// with status = 'done'). It is loaded by the same aggregate that backs
-	// MenteeCount in the mentor scan queries, so it refreshes with the
-	// mentors cache TTL.
+	// MenteeCount in the mentor scan queries.
 	SessionsCount int       `json:"sessionsCount"`
 	Tags          []string  `json:"tags"`
 	SortOrder     int       `json:"sortOrder"`
@@ -97,7 +96,6 @@ type FilterOptions struct {
 	OnlyVisible    bool
 	ShowHidden     bool
 	DropLongFields bool
-	ForceRefresh   bool
 	// AllowAnyStatus disables the public-side status filter (which hides
 	// everything but active/inactive). Used only by session-authenticated
 	// own-profile flows so draft/pending mentors can access their profile.

@@ -56,11 +56,3 @@ export async function getOneMentorByUuid(
   // Go API returns single object, not array
   return result
 }
-
-/**
- * Force refresh the cache in Go API
- * This triggers a cache reset on the Go API side
- */
-export async function forceRefreshCache(): Promise<{ success: boolean; message: string }> {
-  return client.forceRefreshCache()
-}

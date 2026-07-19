@@ -38,8 +38,7 @@ func TestHealthHandler_Healthcheck(t *testing.T) {
 	pool := getTestDBPool(t)
 	defer pool.Close()
 
-	mockReadyFunc := func() bool { return true }
-	handler := handlers.NewHealthHandler(pool, mockReadyFunc)
+	handler := handlers.NewHealthHandler(pool)
 	router := gin.New()
 	router.GET("/healthcheck", handler.Healthcheck)
 

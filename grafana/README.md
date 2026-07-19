@@ -67,7 +67,7 @@ rules — apply them via:
 If you change a rule in the UI, mirror the change into the YAML file.
 
 Current set: ServiceDown, HighErrorRate, HighLatencyP99, ContainerHighCPU,
-ContainerHighMemory, GoroutineLeak, CacheHitRatioLow, ContactFormFailures,
+ContainerHighMemory, GoroutineLeak, ContactFormFailures,
 ReviewSubmissionFailures, EmailSendFailures, PostgresDown, DBErrorRate,
 DBLatencyP95.
 

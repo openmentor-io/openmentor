@@ -21,11 +21,6 @@ var (
 	DBRequestDuration *prometheus.HistogramVec
 	DBRequestTotal    *prometheus.CounterVec
 
-	// Cache Metrics
-	CacheHits   *prometheus.CounterVec
-	CacheMisses *prometheus.CounterVec
-	CacheSize   *prometheus.GaugeVec
-
 	// Storage Client Metrics (S3-compatible object storage)
 	S3StorageRequestDuration *prometheus.HistogramVec
 	S3StorageRequestTotal    *prometheus.CounterVec
@@ -122,31 +117,6 @@ func Init(serviceName string) {
 			Help: "Total number of database client operations",
 		},
 		[]string{"operation", "status"},
-	)
-
-	// Cache Metrics
-	CacheHits = factory.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "cache_hits_total",
-			Help: "Total number of cache hits",
-		},
-		[]string{"cache_name"},
-	)
-
-	CacheMisses = factory.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "cache_misses_total",
-			Help: "Total number of cache misses",
-		},
-		[]string{"cache_name"},
-	)
-
-	CacheSize = factory.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cache_entries",
-			Help: "Number of entries in cache",
-		},
-		[]string{"cache_name"},
 	)
 
 	// Storage Client Metrics (S3-compatible object storage)

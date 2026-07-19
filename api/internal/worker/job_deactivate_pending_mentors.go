@@ -22,11 +22,8 @@ import (
 // isolated per mentor. The func tracked no analytics for this job.
 //
 // Public visibility note: deactivation removes the mentor from the public
-// catalog, which the API serves from its in-memory mentors cache. The
-// worker is a separate process and cannot invalidate that cache; like the
-// func app, we rely on the cache's TTL refresh (MENTOR_CACHE_TTL, default
-// 10 minutes) to pick the change up. Cross-process invalidation is
-// deliberately NOT built.
+// catalog. The API reads mentors straight from the database (no cache), so
+// the change is visible immediately on the next request.
 func (h *Handlers) DeactivatePendingMentors(ctx context.Context) (JobSummary, error) {
 	const job = "deactivate-pending-mentors"
 	summary := JobSummary{Job: job}

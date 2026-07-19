@@ -15,51 +15,29 @@ import (
 	"go.uber.org/zap"
 )
 
-// MentorRepository handles mentor data access with PostgreSQL
+// MentorRepository handles mentor data access with PostgreSQL.
+// Mentor reads always hit the database (the previous in-memory mentor cache
+// was removed — it was always disabled in production and only added staleness).
+// The lightweight tags lookup keeps its own cache.
 type MentorRepository struct {
-	pool               *pgxpool.Pool
-	mentorCache        *cache.MentorCache
-	tagsCache          *cache.TagsCache
-	disableMentorCache bool
+	pool      *pgxpool.Pool
+	tagsCache *cache.TagsCache
 }
 
 // NewMentorRepository creates a new PostgreSQL-based mentor repository
-func NewMentorRepository(pool *pgxpool.Pool, mentorCache *cache.MentorCache, tagsCache *cache.TagsCache, disableMentorCache bool) *MentorRepository {
+func NewMentorRepository(pool *pgxpool.Pool, tagsCache *cache.TagsCache) *MentorRepository {
 	return &MentorRepository{
-		pool:               pool,
-		mentorCache:        mentorCache,
-		tagsCache:          tagsCache,
-		disableMentorCache: disableMentorCache,
+		pool:      pool,
+		tagsCache: tagsCache,
 	}
 }
 
 // GetAll retrieves all mentors with optional filtering
 func (r *MentorRepository) GetAll(ctx context.Context, opts models.FilterOptions) ([]*models.Mentor, error) {
-	var mentors []*models.Mentor
-	var err error
-
-	// Experimental: bypass cache if disabled
-	if r.disableMentorCache {
-		logger.Debug("Cache disabled, fetching mentors from database")
-		mentors, err = r.FetchAllMentorsFromDB(ctx)
-		if err != nil {
-			logger.Error("Failed to fetch mentors from database",
-				zap.Error(err))
-			return nil, err
-		}
-		logger.Debug("Successfully fetched mentors from database",
-			zap.Int("count", len(mentors)))
-	} else {
-		// ForceRefresh triggers background refresh but returns current data
-		if opts.ForceRefresh {
-			mentors, err = r.mentorCache.ForceRefresh()
-		} else {
-			mentors, err = r.mentorCache.Get()
-		}
-
-		if err != nil {
-			return nil, err
-		}
+	mentors, err := r.FetchAllMentorsFromDB(ctx)
+	if err != nil {
+		logger.Error("Failed to fetch mentors from database", zap.Error(err))
+		return nil, err
 	}
 
 	// Apply filters
@@ -85,24 +63,11 @@ func (r *MentorRepository) GetByID(ctx context.Context, id int, opts models.Filt
 	return nil, fmt.Errorf("mentor with ID %d not found", id)
 }
 
-// GetBySlug retrieves a mentor by slug with O(1) complexity
+// GetBySlug retrieves a mentor by slug directly from the database.
 func (r *MentorRepository) GetBySlug(ctx context.Context, mentorSlug string, opts models.FilterOptions) (*models.Mentor, error) {
-	var mentor *models.Mentor
-	var err error
-
-	// Experimental: bypass cache if disabled
-	if r.disableMentorCache {
-		mentor, err = r.FetchSingleMentorFromDB(ctx, mentorSlug)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// Note: ForceRefresh is ignored for single lookups
-		// Only webhook/profile updates trigger single-mentor refresh
-		mentor, err = r.mentorCache.GetBySlug(mentorSlug)
-		if err != nil {
-			return nil, err
-		}
+	mentor, err := r.FetchSingleMentorFromDB(ctx, mentorSlug)
+	if err != nil {
+		return nil, err
 	}
 
 	// Apply filters to single mentor
@@ -114,22 +79,8 @@ func (r *MentorRepository) GetBySlug(ctx context.Context, mentorSlug string, opt
 	return filtered, nil
 }
 
-// GetByMentorId retrieves a mentor by UUID
-// First tries cache (active mentors only), then falls back to database query
+// GetByMentorId retrieves a mentor by UUID directly from the database.
 func (r *MentorRepository) GetByMentorId(ctx context.Context, mentorId string, opts models.FilterOptions) (*models.Mentor, error) {
-	// Try cache first (contains only active mentors)
-	mentors, err := r.GetAll(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, mentor := range mentors {
-		if mentor.MentorID == mentorId {
-			return mentor, nil
-		}
-	}
-
-	// Fallback to DB query for inactive mentors or mentors not in cache
 	mentor, err := r.fetchMentorByUUIDFromDB(ctx, mentorId)
 	if err != nil {
 		return nil, fmt.Errorf("mentor with ID %s not found", mentorId)
@@ -221,7 +172,6 @@ func (r *MentorRepository) Update(ctx context.Context, mentorId string, updates 
 		return fmt.Errorf("failed to update mentor: %w", err)
 	}
 
-	// Note: Cache will auto-refresh after TTL expires
 	return nil
 }
 
@@ -861,28 +811,5 @@ func (r *MentorRepository) applySingleMentorFilters(mentor *models.Mentor, opts 
 // TouchUpdatedAt sets updated_at = NOW() for the given mentor without changing any other fields
 func (r *MentorRepository) TouchUpdatedAt(ctx context.Context, mentorID string) error {
 	_, err := r.pool.Exec(ctx, `UPDATE mentors SET updated_at = NOW() WHERE id = $1`, mentorID)
-	return err
-}
-
-// InvalidateCache forces cache invalidation
-func (r *MentorRepository) InvalidateCache() {
-	r.mentorCache.Clear()
-}
-
-// UpdateSingleMentorCache updates a single mentor in cache
-// Called by webhook or profile update flow
-func (r *MentorRepository) UpdateSingleMentorCache(mentorSlug string) error {
-	return r.mentorCache.UpdateSingleMentor(mentorSlug)
-}
-
-// RemoveMentorFromCache removes a mentor from cache
-// Called when a mentor is deleted
-func (r *MentorRepository) RemoveMentorFromCache(mentorSlug string) error {
-	return r.mentorCache.RemoveMentor(mentorSlug)
-}
-
-// RefreshCache triggers a background cache refresh
-func (r *MentorRepository) RefreshCache() error {
-	_, err := r.mentorCache.ForceRefresh()
 	return err
 }

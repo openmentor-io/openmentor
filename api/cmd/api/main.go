@@ -17,7 +17,6 @@ import (
 	"github.com/openmentor-io/openmentor/api/internal/cache"
 	"github.com/openmentor-io/openmentor/api/internal/handlers"
 	"github.com/openmentor-io/openmentor/api/internal/middleware"
-	"github.com/openmentor-io/openmentor/api/internal/models"
 	"github.com/openmentor-io/openmentor/api/internal/repository"
 	"github.com/openmentor-io/openmentor/api/internal/services"
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
@@ -248,51 +247,23 @@ func main() { //nolint:gocyclo
 		}
 	}
 
-	// Initialize repositories (needed for cache fetchers)
-	// First create caches with dummy fetchers, then update with real fetchers
-	mentorCache := cache.NewMentorCache(
-		func(ctx context.Context) ([]*models.Mentor, error) {
-			// This fetcher will be replaced after repository is fully initialized
-			return []*models.Mentor{}, nil
-		},
-		func(ctx context.Context, slug string) (*models.Mentor, error) {
-			// This fetcher will be replaced after repository is fully initialized
-			return &models.Mentor{}, nil
-		},
-		cfg.Cache.MentorTTLSeconds,
-	)
+	// Tags cache is created with a placeholder fetcher, then rebound to the
+	// repository's fetcher once the repository exists.
 	tagsCache := cache.NewTagsCache(
 		func(ctx context.Context) (map[string]string, error) {
-			// This fetcher will be replaced after repository is fully initialized
 			return make(map[string]string), nil
 		},
 	)
 
-	// Initialize repositories with pool and caches
-	mentorRepo := repository.NewMentorRepository(pool, mentorCache, tagsCache, cfg.Cache.DisableMentorsCache)
+	// Mentor reads always hit the database (the in-memory mentor cache was
+	// removed — it was disabled in production and only added staleness).
+	mentorRepo := repository.NewMentorRepository(pool, tagsCache)
 	moderatorRepo := repository.NewModeratorRepository(pool)
 	clientRequestRepo := repository.NewClientRequestRepository(pool)
 
-	// Now update cache with actual fetcher functions from repository
-	mentorCache = cache.NewMentorCache(
-		mentorRepo.FetchAllMentorsFromDB,
-		mentorRepo.FetchSingleMentorFromDB,
-		cfg.Cache.MentorTTLSeconds,
-	)
+	// Rebind the tags cache to the real fetcher and the repository to it.
 	tagsCache = cache.NewTagsCache(mentorRepo.FetchAllTagsFromDB)
-
-	// Re-initialize repository with updated caches
-	mentorRepo = repository.NewMentorRepository(pool, mentorCache, tagsCache, cfg.Cache.DisableMentorsCache)
-
-	// Initialize mentor cache synchronously before accepting requests
-	// This ensures the cache is populated before the container is marked as healthy
-	if cfg.Cache.DisableMentorsCache {
-		logger.Warn("Mentor cache is DISABLED - reading from database on every request (experimental feature)")
-	} else {
-		if err := mentorCache.Initialize(); err != nil {
-			logger.Fatal("Failed to initialize mentor cache", zap.Error(err))
-		}
-	}
+	mentorRepo = repository.NewMentorRepository(pool, tagsCache)
 
 	// Initialize tags cache synchronously
 	if err := tagsCache.Initialize(); err != nil {
@@ -337,12 +308,7 @@ func main() { //nolint:gocyclo
 	reviewHandler := handlers.NewReviewHandler(reviewService)
 	migrationIntentHandler := handlers.NewMigrationIntentHandler(migrationIntentService)
 	mentorConfirmationHandler := handlers.NewMentorConfirmationHandler(mentorConfirmationService)
-	// Health check: If cache is disabled, always return true for cache readiness
-	cacheReadyFunc := mentorCache.IsReady
-	if cfg.Cache.DisableMentorsCache {
-		cacheReadyFunc = func() bool { return true }
-	}
-	healthHandler := handlers.NewHealthHandler(pool, cacheReadyFunc)
+	healthHandler := handlers.NewHealthHandler(pool)
 	logsHandler := handlers.NewLogsHandler(cfg.Logging.Dir)
 	mentorAuthHandler := handlers.NewMentorAuthHandler(mentorAuthService)
 	adminAuthHandler := handlers.NewAdminAuthHandler(adminAuthService)

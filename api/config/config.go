@@ -28,7 +28,6 @@ type Config struct {
 	Logging       LoggingConfig
 	Observability ObservabilityConfig
 	Profiling     ProfilingConfig
-	Cache         CacheConfig
 	MentorSession MentorSessionConfig
 	Worker        WorkerConfig
 	Email         EmailConfig
@@ -145,11 +144,6 @@ type ProfilingConfig struct {
 	UploadIntervalSeconds int
 }
 
-type CacheConfig struct {
-	MentorTTLSeconds    int  // Mentor cache TTL in seconds
-	DisableMentorsCache bool // Experimental: disable cache and read from DB on every request
-}
-
 type MentorSessionConfig struct {
 	JWTSecret            string
 	JWTIssuer            string
@@ -212,8 +206,6 @@ func Load() (*Config, error) {
 	v.SetDefault("O11Y_PROFILING_APP_NAME", "openmentor-api")
 	v.SetDefault("O11Y_PROFILING_SAMPLE_TYPES", "cpu,alloc_space,alloc_objects,goroutines,mutex,block")
 	v.SetDefault("O11Y_PROFILING_UPLOAD_INTERVAL_SECONDS", 15)
-	v.SetDefault("MENTOR_CACHE_TTL", 600)        // 10 minutes in seconds
-	v.SetDefault("DISABLE_MENTORS_CACHE", false) // Experimental: disable cache
 	v.SetDefault("ANALYTICS_PROVIDER", "")
 	v.SetDefault("ANALYTICS_EVENT_VERSION", defaultEventVersion)
 	v.SetDefault("POSTHOG_ENABLED", false)
@@ -337,10 +329,6 @@ func Load() (*Config, error) {
 			AppName:               v.GetString("O11Y_PROFILING_APP_NAME"),
 			SampleTypes:           v.GetString("O11Y_PROFILING_SAMPLE_TYPES"),
 			UploadIntervalSeconds: v.GetInt("O11Y_PROFILING_UPLOAD_INTERVAL_SECONDS"),
-		},
-		Cache: CacheConfig{
-			MentorTTLSeconds:    v.GetInt("MENTOR_CACHE_TTL"),
-			DisableMentorsCache: v.GetBool("DISABLE_MENTORS_CACHE"),
 		},
 		MentorSession: MentorSessionConfig{
 			JWTSecret:            v.GetString("JWT_SECRET"),

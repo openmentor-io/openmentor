@@ -36,7 +36,6 @@ type ProfileMentorRepository interface {
 	UpdateMentorTags(ctx context.Context, mentorID string, tagIDs []string) error
 	TouchUpdatedAt(ctx context.Context, mentorID string) error
 	SetMentorStatus(ctx context.Context, mentorID, status string) error
-	RefreshCache() error
 }
 
 var _ ProfileMentorRepository = (*repository.MentorRepository)(nil)
@@ -244,14 +243,6 @@ func (s *ProfileService) SetProfileStatusByMentorId(ctx context.Context, mentorI
 			zap.String("mentor_id", mentorID),
 			zap.String("status", status))
 		return fmt.Errorf("failed to update profile status")
-	}
-
-	// Refresh the mentors cache in the background so the public catalog
-	// reflects the visibility change without waiting for the TTL refresh.
-	if err := s.mentorRepo.RefreshCache(); err != nil {
-		logger.Error("Failed to refresh mentors cache after status change",
-			zap.Error(err),
-			zap.String("mentor_id", mentorID))
 	}
 
 	// Notify downstream consumers about the profile update (async, non-blocking)

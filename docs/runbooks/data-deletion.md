@@ -25,7 +25,7 @@
    DELETE FROM mentor_tags WHERE mentor_id = $MENTOR_ID;
    DELETE FROM mentors WHERE id = $MENTOR_ID;
    ```
-   Then delete profile images from the storage bucket (prefix = slug or mentor id), and trigger frontend revalidation / cache reset (`?force_reset_cache=true` on the internal mentors API).
+   Then delete profile images from the storage bucket (prefix = slug or mentor id). The API reads mentors directly from the database (no cache), so the deletion is reflected immediately.
 3. **Mentee deletion**:
    ```sql
    SELECT id FROM client_requests WHERE email = $1;

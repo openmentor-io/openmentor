@@ -253,17 +253,6 @@ class GoApiClient {
     })
   }
 
-  /**
-   * Force refresh the cache in Go API
-   */
-  async forceRefreshCache(): Promise<{ success: boolean; message: string }> {
-    return this.request<{ success: boolean; message: string }>(
-      'POST',
-      '/api/v1/internal/force_reset_cache',
-      {}
-    )
-  }
-
   // ============================================
   // Mentor Admin API Methods
   // ============================================

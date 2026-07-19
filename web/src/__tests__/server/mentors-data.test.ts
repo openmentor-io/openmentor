@@ -7,7 +7,6 @@ jest.mock('@/lib/go-api-client', () => {
     getOneMentorBySlug: jest.fn(),
     getOneMentorById: jest.fn(),
     getOneMentorByUuid: jest.fn(),
-    forceRefreshCache: jest.fn(),
   }
   return {
     getGoApiClient: jest.fn(() => mockClient),
@@ -21,7 +20,6 @@ import {
   getOneMentorBySlug,
   getOneMentorById,
   getOneMentorByUuid,
-  forceRefreshCache,
 } from '@/server/mentors-data'
 import { getGoApiClient } from '@/lib/go-api-client'
 
@@ -32,7 +30,6 @@ const mockGoApiModule = jest.requireMock('@/lib/go-api-client') as {
     getOneMentorBySlug: jest.Mock
     getOneMentorById: jest.Mock
     getOneMentorByUuid: jest.Mock
-    forceRefreshCache: jest.Mock
   }
 }
 const mockClient = mockGoApiModule.__mockClient
@@ -200,18 +197,6 @@ describe('mentors-data', () => {
         {}
       )
       expect(result).toEqual(mockMentorList[0])
-    })
-  })
-
-  describe('forceRefreshCache', () => {
-    it('triggers cache refresh on Go API', async () => {
-      const mockResponse = { success: true, message: 'Cache refreshed' }
-      mockClient.forceRefreshCache.mockResolvedValue(mockResponse)
-
-      const result = await forceRefreshCache()
-
-      expect(mockClient.forceRefreshCache).toHaveBeenCalled()
-      expect(result).toEqual(mockResponse)
     })
   })
 })

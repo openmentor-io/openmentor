@@ -1037,7 +1037,7 @@
     },
     {
       "type": "row",
-      "title": "Cache & Object Storage",
+      "title": "Object Storage",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1047,206 +1047,6 @@
       },
       "id": 5,
       "panels": []
-    },
-    {
-      "type": "timeseries",
-      "title": "Cache Hit Ratio",
-      "description": "Cache hit percentage per cache; sustained values below 80% increase database load.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "100 * sum by (cache_name) (rate(cache_hits_total[$__rate_interval])) / (sum by (cache_name) (rate(cache_hits_total[$__rate_interval])) + sum by (cache_name) (rate(cache_misses_total[$__rate_interval])))",
-          "refId": "A",
-          "range": true,
-          "instant": false,
-          "editorMode": "code",
-          "legendFormat": "{{cache_name}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "percent",
-          "min": 0,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "pointSize": 5,
-            "spanNulls": false,
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "gradientMode": "none",
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "dashed"
-            },
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 80
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "max",
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "id": 6,
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 0,
-        "y": 27
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Cache Entries",
-      "description": "Number of entries currently held per cache.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "sum by (cache_name) (cache_entries)",
-          "refId": "A",
-          "range": true,
-          "instant": false,
-          "editorMode": "code",
-          "legendFormat": "{{cache_name}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "unit": "short",
-          "min": 0,
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "pointSize": 5,
-            "spanNulls": false,
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "gradientMode": "none",
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            },
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "max",
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "id": 7,
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 6,
-        "y": 27
-      }
     },
     {
       "type": "timeseries",
@@ -1341,8 +1141,8 @@
       "id": 8,
       "gridPos": {
         "h": 8,
-        "w": 6,
-        "x": 12,
+        "w": 12,
+        "x": 0,
         "y": 27
       }
     },
@@ -1439,8 +1239,8 @@
       "id": 9,
       "gridPos": {
         "h": 8,
-        "w": 6,
-        "x": 18,
+        "w": 12,
+        "x": 12,
         "y": 27
       }
     },

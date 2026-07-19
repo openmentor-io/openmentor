@@ -7,5 +7,4 @@ export {
   getOneMentorBySlug,
   getOneMentorById,
   getOneMentorByUuid,
-  forceRefreshCache,
 } from './mentors-data'

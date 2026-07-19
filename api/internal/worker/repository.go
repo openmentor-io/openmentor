@@ -11,8 +11,8 @@ import (
 )
 
 // This file holds the worker's own data access layer. The API's
-// internal/repository types are shaped around the public API (mentor cache,
-// public field filtering, hidden email/contact columns), while the job
+// internal/repository types are shaped around the public API (public field
+// filtering, hidden email/contact columns), while the job
 // handlers ported from openmentor-func need raw rows including email,
 // preferred_contact and login token columns. The SQL below mirrors the
 // queries in openmentor-func/lib/utils/db.ts and each function's index.ts.

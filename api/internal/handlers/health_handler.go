@@ -10,14 +10,12 @@ import (
 )
 
 type HealthHandler struct {
-	pool             *pgxpool.Pool
-	mentorCacheReady func() bool
+	pool *pgxpool.Pool
 }
 
-func NewHealthHandler(pool *pgxpool.Pool, mentorCacheReady func() bool) *HealthHandler {
+func NewHealthHandler(pool *pgxpool.Pool) *HealthHandler {
 	return &HealthHandler{
-		pool:             pool,
-		mentorCacheReady: mentorCacheReady,
+		pool: pool,
 	}
 }
 
@@ -32,15 +30,6 @@ func (h *HealthHandler) Healthcheck(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"status": "unhealthy",
 			"reason": "database unreachable",
-		})
-		return
-	}
-
-	// Check if mentor cache is ready
-	if !h.mentorCacheReady() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"status": "unhealthy",
-			"reason": "cache not ready",
 		})
 		return
 	}

@@ -60,7 +60,6 @@ func (h *MentorHandler) GetPublicMentorByID(c *gin.Context) {
 }
 
 func (h *MentorHandler) GetInternalMentors(c *gin.Context) {
-	forceRefresh := c.Query("force_reset_cache") == "true"
 	id := c.Query("id")
 	slug := c.Query("slug")
 	rec := c.Query("rec")
@@ -76,7 +75,6 @@ func (h *MentorHandler) GetInternalMentors(c *gin.Context) {
 		OnlyVisible:    body.OnlyVisible,
 		ShowHidden:     body.ShowHidden,
 		DropLongFields: body.DropLongFields,
-		ForceRefresh:   forceRefresh,
 	}
 
 	if id != "" {
@@ -118,8 +116,7 @@ func (h *MentorHandler) GetInternalMentors(c *gin.Context) {
 	if err != nil {
 		logger.Error("Failed to fetch mentors in GetInternalMentors",
 			zap.Error(err),
-			zap.Bool("only_visible", opts.OnlyVisible),
-			zap.Bool("force_refresh", opts.ForceRefresh))
+			zap.Bool("only_visible", opts.OnlyVisible))
 		respondError(c, http.StatusInternalServerError, "Failed to fetch mentors", err)
 		return
 	}
