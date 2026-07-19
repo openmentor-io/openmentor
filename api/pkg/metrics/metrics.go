@@ -49,9 +49,10 @@ var (
 	ReviewDuration    prometheus.Histogram
 
 	// Worker Metrics (background worker binary, cmd/worker)
-	WorkerCronRunsTotal   *prometheus.CounterVec
-	WorkerCronRunDuration *prometheus.HistogramVec
-	WorkerEmailSendsTotal *prometheus.CounterVec
+	WorkerCronRunsTotal     *prometheus.CounterVec
+	WorkerCronRunDuration   *prometheus.HistogramVec
+	WorkerEmailSendsTotal   *prometheus.CounterVec
+	WorkerSlackInvitesTotal *prometheus.CounterVec
 
 	// Infrastructure Metrics
 	GoRoutines prometheus.Gauge
@@ -300,6 +301,14 @@ func Init(serviceName string) {
 			Help: "Total number of transactional email send attempts from worker jobs",
 		},
 		[]string{"template", "outcome"}, // outcome: success | error
+	)
+
+	WorkerSlackInvitesTotal = factory.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "openmentor_worker_slack_invites_total",
+			Help: "Total number of community-Slack invite attempts for approved mentors",
+		},
+		[]string{"outcome"}, // outcome: success | error
 	)
 
 	// Infrastructure Metrics

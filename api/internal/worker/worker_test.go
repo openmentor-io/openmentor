@@ -95,7 +95,7 @@ func TestJobsRequireWorkerTokenWhenConfigured(t *testing.T) {
 	cfg := testConfig()
 	cfg.Worker.AuthToken = "secret-token"
 	s := NewServer(cfg, nil)
-	s.RegisterJobRoutes(NewHandlers(newFakeRepo(), &fakeEmailSender{}, &recordingTracker{}, cfg))
+	s.RegisterJobRoutes(NewHandlers(newFakeRepo(), &fakeEmailSender{}, &recordingTracker{}, nil, cfg))
 
 	// Missing token -> 401
 	w := performRequest(s.Engine(), http.MethodPost, "/jobs/mentor-login-email", nil)

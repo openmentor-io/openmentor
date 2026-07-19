@@ -241,6 +241,17 @@ func (f *fakeEmailSender) templates() []string {
 	return names
 }
 
+// fakeSlackInviter records workspace invite attempts, with error injection.
+type fakeSlackInviter struct {
+	invited []string
+	err     error
+}
+
+func (f *fakeSlackInviter) InviteByEmail(_ context.Context, email string) error {
+	f.invited = append(f.invited, email)
+	return f.err
+}
+
 // trackedEvent is a recorded analytics call.
 type trackedEvent struct {
 	event      string
@@ -301,6 +312,7 @@ type jobsTestEnv struct {
 	repo     *fakeRepo
 	sender   *fakeEmailSender
 	tracker  *recordingTracker
+	slack    *fakeSlackInviter
 }
 
 // newJobsTestEnv wires an environment with APP_ENV=production (jobs run).
@@ -318,13 +330,14 @@ func newJobsTestEnvWithConfig(mutate func(cfg *config.Config)) *jobsTestEnv {
 	repo := newFakeRepo()
 	sender := &fakeEmailSender{failTemplates: map[string]bool{}}
 	tracker := &recordingTracker{}
+	slack := &fakeSlackInviter{}
 
-	handlers := NewHandlers(repo, sender, tracker, cfg)
+	handlers := NewHandlers(repo, sender, tracker, slack, cfg)
 	server := NewServer(cfg, nil)
 	server.RegisterJobRoutes(handlers)
 	server.RegisterCronRoutes(handlers)
 
-	return &jobsTestEnv{server: server, handlers: handlers, repo: repo, sender: sender, tracker: tracker}
+	return &jobsTestEnv{server: server, handlers: handlers, repo: repo, sender: sender, tracker: tracker, slack: slack}
 }
 
 // do performs a request against the wired worker server. body may be nil.

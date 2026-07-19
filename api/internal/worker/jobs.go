@@ -26,11 +26,19 @@ type EmailSender interface {
 	Send(ctx context.Context, msg email.Message) (string, error)
 }
 
+// SlackInviter is the subset of pkg/slack.Inviter the job handlers use;
+// nil means the community-Slack auto-invite is disabled. Tests substitute
+// a fake.
+type SlackInviter interface {
+	InviteByEmail(ctx context.Context, email string) error
+}
+
 // Handlers holds the dependencies of the ported job handlers.
 type Handlers struct {
 	repo            JobsRepository
 	email           EmailSender
 	tracker         analytics.Tracker
+	slack           SlackInviter
 	moderatorsEmail string
 	baseURL         string
 
@@ -40,8 +48,9 @@ type Handlers struct {
 	highlightedMentors []string // HIGHLIGHTED_MENTORS ids pinned by randomize-sort-order
 }
 
-// NewHandlers wires the job handlers' dependencies.
-func NewHandlers(repo JobsRepository, sender EmailSender, tracker analytics.Tracker, cfg *config.Config) *Handlers {
+// NewHandlers wires the job handlers' dependencies. slackInviter may be nil
+// (Slack auto-invite disabled).
+func NewHandlers(repo JobsRepository, sender EmailSender, tracker analytics.Tracker, slackInviter SlackInviter, cfg *config.Config) *Handlers {
 	if tracker == nil {
 		tracker = analytics.NoopTracker{}
 	}
@@ -60,6 +69,7 @@ func NewHandlers(repo JobsRepository, sender EmailSender, tracker analytics.Trac
 		repo:            repo,
 		email:           sender,
 		tracker:         tracker,
+		slack:           slackInviter,
 		moderatorsEmail: moderatorsEmail,
 		baseURL:         baseURL,
 
