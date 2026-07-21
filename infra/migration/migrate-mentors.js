@@ -572,15 +572,23 @@ async function triggerMigratedEmail(mentorId) {
   if (!/^[0-9a-f-]{36}$/i.test(mentorId)) {
     throw new Error(`unexpected mentor id format: ${mentorId}`);
   }
+  // Build the remote command as ONE shell-quoted string. ssh flattens its
+  // trailing argv into a single string for the remote shell, so passing
+  // `-H`, `X-Worker-Token: <token>` as separate args does NOT survive: the
+  // remote shell splits on the space after the colon, curl sends no token
+  // header (→ 401) and treats the bare token as a hostname (→ "could not
+  // resolve host"). Single-quote the header and URL so the remote shell keeps
+  // each as one argument. Safe to single-quote: the token is hex and mentorId
+  // is a validated UUID (no single quotes to escape).
+  const remoteCmd =
+    `docker exec openmentor-worker ` +
+    `curl -fsS -m 15 -X POST ` +
+    `-H 'X-Worker-Token: ${config.workerAuthToken}' ` +
+    `'http://localhost:8090/jobs/profile-migrated?mentorId=${mentorId}'`;
+
   const sshArgs = ['-o', 'StrictHostKeyChecking=accept-new'];
   if (config.vmSshKeyFile) sshArgs.push('-i', config.vmSshKeyFile);
-  sshArgs.push(
-    `${config.vmSshUser}@${config.vmSshHost}`,
-    'docker', 'exec', 'openmentor-worker',
-    'curl', '-fsS', '-m', '15', '-X', 'POST',
-    '-H', `X-Worker-Token: ${config.workerAuthToken}`,
-    `http://localhost:8090/jobs/profile-migrated?mentorId=${mentorId}`
-  );
+  sshArgs.push(`${config.vmSshUser}@${config.vmSshHost}`, remoteCmd);
   await execFileAsync('ssh', sshArgs, { timeout: 30000 });
 }
 
