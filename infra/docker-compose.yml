@@ -299,7 +299,7 @@ services:
   alloy:
     # >= 1.17.0 required by database_observability.postgres (Grafana Cloud
     # Database Observability); see ../docs/runbooks/database-observability.md
-    image: grafana/alloy:v1.17.1
+    image: grafana/alloy:v1.18.0
     container_name: grafana-alloy
     restart: always
     mem_limit: 512m
