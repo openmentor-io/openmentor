@@ -31,7 +31,13 @@ function sitemapItem(path: string): string {
 const _getServerSideProps: GetServerSideProps = async ({ res }) => {
   const allMentors = await getAllMentors({ onlyVisible: true })
 
-  const staticPages = [{ page: '' }, { page: 'bementor' }, { page: 'donate' }]
+  const staticPages = [
+    { page: '' },
+    { page: 'about' },
+    { page: 'faq' },
+    { page: 'bementor' },
+    { page: 'donate' },
+  ]
 
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
         <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

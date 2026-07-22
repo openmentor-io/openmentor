@@ -1,4 +1,5 @@
 import Head from 'next/head'
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import type { GetServerSideProps } from 'next'
 import { Footer, MetaHeader, NavHeader } from '@/components'
@@ -134,9 +135,8 @@ export default function Bementor(): JSX.Element {
 
             <p className="rounded-field border border-brand-mint/60 bg-brand-mint/10 px-4 py-3 leading-[1.6] text-ink">
               IMPORTANT! Check your inbox and click the link in the confirmation email — your
-              application goes to review only after you confirm your email address. Once confirmed,
-              we try to review new applications as quickly as we can, but the process can take up
-              to 2 weeks. If you don&apos;t hear from us,{' '}
+              application goes to review only after you confirm your email address. Reviews are done
+              by hand and usually take about a week. If you don&apos;t hear from us,{' '}
               <a className="link" href="mailto:hello@openmentor.io">
                 drop us a line
               </a>{' '}
@@ -149,6 +149,27 @@ export default function Bementor(): JSX.Element {
 
         {submitStatus !== 'success' && (
           <>
+            {/* Who we're looking for: sets expectations before the form —
+                real practitioners, free encouraged, requests answered. */}
+            <div className="mb-8 rounded-panel border border-line bg-surface p-5 sm:p-6 lg:ml-[276px] lg:max-w-[620px]">
+              <p className="my-0 text-[15px] font-bold leading-[1.4] text-ink">
+                Who we&apos;re looking for
+              </p>
+              <p className="mb-0 mt-2 text-sm leading-[1.6] text-ink-soft">
+                People who do the work they mentor in — code, design, product, data, management,
+                careers. You don&apos;t need to be famous; you need real practice, a specific area
+                you can help with, and the will to answer requests. You set your own price, and
+                mentoring <span className="font-semibold text-mint-ink">for free</span> is warmly
+                encouraged — community help is what this place is built on. If you charge, payment
+                is arranged directly between you and your mentee: no commission, no platform
+                bureaucracy. More in the{' '}
+                <Link className="link" href="/faq#mentors">
+                  mentor FAQ
+                </Link>
+                .
+              </p>
+            </div>
+
             {submitStatus === 'error' && (
               <div className="mb-8 rounded-panel border-[1.5px] border-danger/40 bg-danger/5 p-5 sm:p-6 lg:ml-[276px] lg:max-w-[620px]">
                 <p className="my-0 font-bold text-danger">Failed to submit your application</p>

@@ -26,6 +26,12 @@ export default function Footer(): JSX.Element {
           </span>
         </Link>
         <nav className="flex flex-wrap gap-x-6 gap-y-2">
+          <Link href="/about" className="text-[13px] font-medium text-white/75 hover:text-white">
+            About
+          </Link>
+          <Link href="/faq" className="text-[13px] font-medium text-white/75 hover:text-white">
+            FAQ
+          </Link>
           <Link href="/donate" className="text-[13px] font-medium text-white/75 hover:text-white">
             Donate
           </Link>

@@ -2,6 +2,8 @@
 
 An open community of tech mentors — mentees find a mentor, send a request, and meet one-on-one. The platform connects people and stays out of the way: no payment processing, no lock-in, sessions are arranged directly between mentor and mentee.
 
+OpenMentor is a community project: donation-funded, zero commission, no ads — and mentoring for free is encouraged. The full story is at [openmentor.io/about](https://openmentor.io/about).
+
 This is the monorepo for the whole platform.
 
 ## Layout

@@ -155,7 +155,7 @@ export default function Home({
 
         <p className="my-0 mt-3 max-w-[520px] text-sm leading-[1.5] text-ink-soft sm:mt-5 sm:text-[17px] sm:leading-[1.55]">
           An open community of {countLabel} tech mentors ready to share their experience one on one.
-          Free to browse, zero commission.
+          Free to browse, zero commission — many mentor for free.
         </p>
 
         <div className="mt-[18px] flex flex-col gap-2.5 sm:mt-[30px] sm:flex-row sm:items-center sm:gap-3">
@@ -234,7 +234,7 @@ export default function Home({
             step={3}
             title="Meet & grow"
             glyph={<div className="h-3 w-3 rounded-full bg-brand-mint sm:h-4 sm:w-4" />}
-            copy="Agree on format and price together. Many mentors are free; none pay us commission."
+            copy="Agree on format and price together. Many mentors are free; if you pay, you pay the mentor directly — we never touch the money."
             copyShort="Zero commission, ever."
           />
         </div>
