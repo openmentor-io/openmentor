@@ -155,7 +155,7 @@ export default function Home({
 
         <p className="my-0 mt-3 max-w-[520px] text-sm leading-[1.5] text-ink-soft sm:mt-5 sm:text-[17px] sm:leading-[1.55]">
           An open community of {countLabel} tech mentors ready to share their experience one on one.
-          Free to browse, zero commission.
+          Free to browse, zero commission — many mentor for free.
         </p>
 
         <div className="mt-[18px] flex flex-col gap-2.5 sm:mt-[30px] sm:flex-row sm:items-center sm:gap-3">
@@ -170,6 +170,17 @@ export default function Home({
             Find a mentor
           </button>
         </div>
+
+        {/* Trust strip: the mission in one glance, visible without scrolling. */}
+        <p className="meta-mono mb-0 mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-ink-mute sm:mt-5">
+          <span>No account needed</span>
+          <span aria-hidden="true">·</span>
+          <span>0% commission</span>
+          <span aria-hidden="true">·</span>
+          <span>Many mentors free</span>
+          <span aria-hidden="true">·</span>
+          <span>Donation-funded</span>
+        </p>
       </section>
 
       {/* ── Catalog: filters + results meta + grid ───────────────────── */}
@@ -200,7 +211,7 @@ export default function Home({
         </div>
       </section>
 
-      {/* ── How it works ─────────────────────────────────────────────── */}
+      {/* ── How it works + the mission behind it ─────────────────────── */}
       <section
         data-section="howitworks"
         className="border-t border-line bg-surface px-5 py-7 sm:px-8 sm:py-14 lg:px-16"
@@ -234,9 +245,43 @@ export default function Home({
             step={3}
             title="Meet & grow"
             glyph={<div className="h-3 w-3 rounded-full bg-brand-mint sm:h-4 sm:w-4" />}
-            copy="Agree on format and price together. Many mentors are free; none pay us commission."
+            copy="Agree on format and price together. Many mentors are free; if you pay, you pay the mentor directly — we never touch the money."
             copyShort="Zero commission, ever."
           />
+        </div>
+
+        {/* The mission behind the mechanics, in one breath (full story: /about). */}
+        <p className="my-0 mt-5 max-w-[760px] text-sm leading-[1.6] text-ink-soft sm:mt-8 sm:text-[15px]">
+          <span className="font-semibold text-ink">Built on community.</span> No ads, no commission,
+          no premium tier — donations cover the servers, and mentors who give their time for free
+          are the heart of this place. Every mentor is a working practitioner, reviewed by hand
+          before they appear: no gurus, no 10x promises. We make the connection, then get out of the
+          way.{' '}
+          <Link href="/about" className="whitespace-nowrap font-semibold text-brand-cobalt">
+            Read the full story →
+          </Link>
+        </p>
+      </section>
+
+      {/* ── Become a mentor: the page said nothing to practitioners ───── */}
+      <section
+        data-section="bementor"
+        className="border-t border-line bg-white px-5 py-8 text-center sm:px-8 sm:py-14 lg:px-16"
+      >
+        <h2 className="my-0 text-2xl leading-none sm:text-[34px]">
+          Been there? <span className="text-brand-cobalt">Pass it on</span>
+        </h2>
+        <p className="mx-auto mb-0 mt-2.5 max-w-[520px] text-sm leading-[1.55] text-ink-soft sm:mt-4 sm:text-[15px] sm:leading-[1.6]">
+          Share what you know one on one — you choose the format and the price, and mentoring for
+          free is warmly encouraged. Reviews are done by hand, usually within a week.
+        </p>
+        <div className="mt-5 flex flex-col items-center justify-center gap-2.5 sm:mt-7 sm:flex-row">
+          <Link href="/bementor" className="button px-[30px] py-[15px] text-[15px]">
+            Become a mentor
+          </Link>
+          <Link href="/faq#mentors" className="button-ghost px-[26px] py-[15px] text-[15px]">
+            Read the mentor FAQ
+          </Link>
         </div>
       </section>
 

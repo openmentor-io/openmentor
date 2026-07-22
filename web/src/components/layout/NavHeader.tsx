@@ -68,6 +68,9 @@ export default function NavHeader({ className, backLink }: NavHeaderProps): JSX.
               >
                 <GitHubIcon className="h-5 w-5" />
               </Link>
+              <Link href="/about" className="text-sm font-semibold text-ink hover:text-brand-cobalt">
+                About
+              </Link>
               <Link href="/donate" className="text-sm font-semibold text-ink hover:text-brand-cobalt">
                 Support us
               </Link>
@@ -137,6 +140,13 @@ export default function NavHeader({ className, backLink }: NavHeaderProps): JSX.
           >
             <GitHubIcon className="h-[18px] w-[18px] text-ink-soft" />
             GitHub
+          </Link>
+          <Link
+            href="/about"
+            className="rounded-field px-3 py-3 text-sm font-semibold text-ink hover:bg-surface"
+            onClick={() => setOpen(false)}
+          >
+            About
           </Link>
           <Link
             href="/donate"

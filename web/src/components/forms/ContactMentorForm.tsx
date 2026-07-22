@@ -231,7 +231,8 @@ export default function ContactMentorForm({
           Send request
         </button>
         <span className="text-[13px] leading-normal text-ink-soft">
-          No account needed. We only share your email with {mentorFirstName || 'the mentor'}.
+          No account needed. We only share your email with {mentorFirstName || 'the mentor'} —
+          you&apos;ll agree on format and price directly with them.
         </span>
       </div>
     </form>

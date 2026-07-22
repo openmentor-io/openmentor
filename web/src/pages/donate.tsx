@@ -72,8 +72,8 @@ export default function Donate(): JSX.Element {
         </h1>
 
         <p className="mb-0 mt-3 max-w-[520px] text-sm leading-[1.55] text-ink-soft sm:mt-[18px] sm:text-base sm:leading-[1.6]">
-          OpenMentor takes zero commission and shows no ads. Servers, email delivery, and
-          background-removal magic are paid for by people like you.
+          OpenMentor takes zero commission and shows no ads. The servers and email delivery that
+          keep mentors and mentees connected are paid for by people like you.
         </p>
 
         {/* ── Ko-fi card ──────────────────────────────────────────────── */}
