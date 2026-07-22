@@ -44,7 +44,7 @@ services:
 
   # cAdvisor for container resource monitoring
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
     container_name: cadvisor
     mem_limit: 256m
     volumes:
