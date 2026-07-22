@@ -84,7 +84,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/sanitize-html": "^2.13",
-    "babel-loader": "^8.2.5",
+    "babel-loader": "^10.1.1",
     "eslint": "^9",
     "eslint-config-next": "16.0.5",
     "eslint-plugin-react": "^7.30.1",
