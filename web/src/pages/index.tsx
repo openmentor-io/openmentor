@@ -170,6 +170,40 @@ export default function Home({
             Find a mentor
           </button>
         </div>
+
+        {/* Trust strip: the mission in one glance, visible without scrolling. */}
+        <p className="meta-mono mb-0 mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-ink-mute sm:mt-5">
+          <span>No account needed</span>
+          <span aria-hidden="true">·</span>
+          <span>0% commission</span>
+          <span aria-hidden="true">·</span>
+          <span>Many mentors free</span>
+          <span aria-hidden="true">·</span>
+          <span>Donation-funded</span>
+        </p>
+      </section>
+
+      {/* ── Slim stepper: the three-step story in one line; the full
+             "How it works" section stays below the catalog. ───────────── */}
+      <section
+        data-section="steps"
+        className="mt-5 border-y border-line bg-surface px-5 py-3 sm:mt-8 sm:px-8 lg:px-16"
+      >
+        <ol className="my-0 flex list-none flex-wrap items-center gap-x-7 gap-y-1.5 p-0">
+          {['Browse freely', 'Send a request', 'Meet & grow'].map((step, i) => (
+            <li key={step} className="flex items-center gap-2">
+              <span className="flex h-5 w-5 flex-none items-center justify-center rounded-full bg-brand-navy font-mono text-[10px] font-bold text-white">
+                {i + 1}
+              </span>
+              <span className="text-[13px] font-semibold text-ink">{step}</span>
+            </li>
+          ))}
+          <li className="ml-auto hidden sm:block">
+            <a href="#howitworks" className="text-[13px] font-medium text-brand-cobalt">
+              How it works ↓
+            </a>
+          </li>
+        </ol>
       </section>
 
       {/* ── Catalog: filters + results meta + grid ───────────────────── */}
@@ -202,8 +236,9 @@ export default function Home({
 
       {/* ── How it works ─────────────────────────────────────────────── */}
       <section
+        id="howitworks"
         data-section="howitworks"
-        className="border-t border-line bg-surface px-5 py-7 sm:px-8 sm:py-14 lg:px-16"
+        className="scroll-mt-4 border-t border-line bg-surface px-5 py-7 sm:px-8 sm:py-14 lg:px-16"
       >
         <h2 className="mb-[18px] text-2xl leading-none sm:mb-[34px] sm:text-[34px]">
           How it works
@@ -237,6 +272,71 @@ export default function Home({
             copy="Agree on format and price together. Many mentors are free; if you pay, you pay the mentor directly — we never touch the money."
             copyShort="Zero commission, ever."
           />
+        </div>
+      </section>
+
+      {/* ── Built on community: the mission pillars, distilled from /about ── */}
+      <section
+        data-section="mission"
+        className="border-t border-line bg-white px-5 py-7 sm:px-8 sm:py-14 lg:px-16"
+      >
+        <div className="mb-[18px] flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 sm:mb-[34px]">
+          <h2 className="my-0 text-2xl leading-none sm:text-[34px]">Built on community</h2>
+          <Link href="/about" className="text-sm font-semibold text-brand-cobalt">
+            Read the full story →
+          </Link>
+        </div>
+
+        <div className="grid gap-2.5 sm:grid-cols-3 sm:gap-7">
+          <div className="rounded-card bg-surface p-4 sm:rounded-panel sm:p-[26px]">
+            <div className="font-name text-sm font-bold text-ink sm:text-lg">Community first</div>
+            <p className="my-0 mt-1 text-xs leading-[1.5] text-ink-soft sm:mt-2 sm:text-sm sm:leading-[1.55]">
+              No ads, no commission, no premium tier — donations cover the servers. Mentors who give
+              their time for free are the heart of this place.
+            </p>
+          </div>
+
+          <div className="rounded-card bg-surface p-4 sm:rounded-panel sm:p-[26px]">
+            <div className="font-name text-sm font-bold text-ink sm:text-lg">
+              Lightweight by design
+            </div>
+            <p className="my-0 mt-1 text-xs leading-[1.5] text-ink-soft sm:mt-2 sm:text-sm sm:leading-[1.55]">
+              We make the connection, then get out of the way. No booking engine, no escrow — you
+              agree on format and price directly, human to human.
+            </p>
+          </div>
+
+          <div className="rounded-card bg-surface p-4 sm:rounded-panel sm:p-[26px]">
+            <div className="font-name text-sm font-bold text-ink sm:text-lg">
+              Real practitioners
+            </div>
+            <p className="my-0 mt-1 text-xs leading-[1.5] text-ink-soft sm:mt-2 sm:text-sm sm:leading-[1.55]">
+              Working professionals sharing genuine experience, reviewed by humans before they
+              appear. No gurus, no life coaches, no 10x promises.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Become a mentor: the page said nothing to practitioners ───── */}
+      <section
+        data-section="bementor"
+        className="border-t border-line bg-surface px-5 py-8 text-center sm:px-8 sm:py-14 lg:px-16"
+      >
+        <h2 className="my-0 text-2xl leading-none sm:text-[34px]">
+          Been there? <span className="text-brand-cobalt">Pass it on</span>
+        </h2>
+        <p className="mx-auto mb-0 mt-2.5 max-w-[520px] text-sm leading-[1.55] text-ink-soft sm:mt-4 sm:text-[15px] sm:leading-[1.6]">
+          Share what you know one on one — you choose the format and the price, and mentoring for
+          free is warmly encouraged. Reviews are done by hand, usually within a week.
+        </p>
+        <div className="mt-5 flex flex-col items-center justify-center gap-2.5 sm:mt-7 sm:flex-row">
+          <Link href="/bementor" className="button px-[30px] py-[15px] text-[15px]">
+            Become a mentor
+          </Link>
+          <Link href="/faq#mentors" className="button-ghost px-[26px] py-[15px] text-[15px]">
+            Read the mentor FAQ
+          </Link>
         </div>
       </section>
 
