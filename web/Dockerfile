@@ -2,7 +2,7 @@
 # Simplified without Grafana Alloy (hosted elsewhere)
 
 # Stage 1: Install dependencies
-FROM node:22.22.1-alpine3.23 AS deps
+FROM node:26.5.0-alpine3.23 AS deps
 WORKDIR /app
 
 # Copy package files and install dependencies
@@ -10,7 +10,7 @@ COPY package.json yarn.lock* ./
 RUN yarn install --frozen-lockfile
 
 # Stage 2: Build the application
-FROM node:22.22.1-alpine3.23 AS builder
+FROM node:26.5.0-alpine3.23 AS builder
 WORKDIR /app
 
 # Copy dependencies from deps stage
@@ -82,7 +82,7 @@ RUN if [ -n "$FARO_API_KEY" ] && [ -n "$FARO_APP_ID" ] && [ -n "$FARO_STACK_ID" 
 
 
 # Stage 3: Production image (using Alpine for smaller size)
-FROM node:22.22.1-alpine3.23 AS runner
+FROM node:26.5.0-alpine3.23 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
