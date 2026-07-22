@@ -66,13 +66,14 @@ function MentorCard({
   // card always attempts the slug-based image and falls back to initials
   // when it doesn't exist (migrated/edge-case profiles).
   const [photoFailed, setPhotoFailed] = useState(false)
-  const photoSrc = photoFailed
-    ? null
-    : imageLoader({
-        src: mentor.slug,
-        quality: 'large',
-        version: updatedAtToVersion(mentor.updatedAt),
-      })
+  // The hero cut-out (<slug>/hero alpha PNG) is produced by the cutout
+  // pipeline and may be absent; if it 404s we degrade to the 'frame' tile
+  // rather than jumping straight to initials.
+  const [heroFailed, setHeroFailed] = useState(false)
+  const version = updatedAtToVersion(mentor.updatedAt)
+  const photoSrc = photoFailed ? null : imageLoader({ src: mentor.slug, quality: 'large', version })
+  const heroSrc = imageLoader({ src: mentor.slug, quality: 'hero', version })
+  const useHero = photoSrc !== null && mentor.photoStyle === 'hero' && !heroFailed
 
   const sessions = mentor.sessionsCount ?? 0
 
@@ -111,23 +112,23 @@ function MentorCard({
         className={classNames(
           'relative h-[140px] sm:h-[200px]',
           mentorPastelGradClass(mentor.slug),
-          photoSrc && mentor.photoStyle !== 'hero' && 'flex items-end justify-center',
+          photoSrc && !useHero && 'flex items-end justify-center',
           !photoSrc && 'flex items-center justify-center'
         )}
       >
-        {photoSrc && mentor.photoStyle === 'hero' && (
+        {useHero && (
           <Image
-            src={photoSrc}
+            src={heroSrc}
             alt=""
             width={170}
             height={180}
             unoptimized
-            onError={() => setPhotoFailed(true)}
-            className="absolute bottom-0 left-1/2 h-[122px] w-[112px] -translate-x-1/2 object-cover object-top contrast-[1.03] transition-transform duration-180 mix-blend-multiply group-hover:scale-[1.03] sm:h-[180px] sm:w-[170px]"
+            onError={() => setHeroFailed(true)}
+            className="absolute bottom-0 left-1/2 h-[122px] w-[112px] -translate-x-1/2 object-contain object-bottom contrast-[1.03] transition-transform duration-180 group-hover:scale-[1.03] sm:h-[180px] sm:w-[170px]"
           />
         )}
 
-        {photoSrc && mentor.photoStyle !== 'hero' && (
+        {photoSrc && !useHero && (
           <Image
             src={photoSrc}
             alt=""

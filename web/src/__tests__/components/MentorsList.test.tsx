@@ -153,7 +153,7 @@ describe('MentorsList', () => {
   })
 
   describe('photo states', () => {
-    it('renders the hero cut-out (multiply blend) when photoStyle is "hero"', () => {
+    it('renders the hero cut-out from the /hero alpha asset when photoStyle is "hero"', () => {
       render(
         <MentorsList
           mentors={[{ ...baseMentor, photo_url: 'http://example.com/p.jpg', photoStyle: 'hero' }]}
@@ -163,8 +163,27 @@ describe('MentorsList', () => {
       )
 
       const img = within(getCard(/John Doe/i)).getByRole('presentation')
-      expect(img).toHaveClass('mix-blend-multiply')
-      expect(img).toHaveAttribute('src', 'https://storage.example.com/john-doe-large.jpg')
+      // Real background-removed cut-out: loads the <slug>/hero PNG and no
+      // longer relies on the multiply blend hack.
+      expect(img).not.toHaveClass('mix-blend-multiply')
+      expect(img).toHaveAttribute('src', 'https://storage.example.com/john-doe-hero.jpg')
+    })
+
+    it('degrades a hero mentor to the arch-masked tile when the /hero asset is missing', () => {
+      render(
+        <MentorsList
+          mentors={[{ ...baseMentor, photo_url: 'http://example.com/p.jpg', photoStyle: 'hero' }]}
+          hasMore={false}
+          onClickMore={() => {}}
+        />
+      )
+
+      const heroImg = within(getCard(/John Doe/i)).getByRole('presentation')
+      fireEvent.error(heroImg)
+
+      const framed = within(getCard(/John Doe/i)).getByRole('presentation')
+      expect(framed).toHaveClass('rounded-t-panel')
+      expect(framed).toHaveAttribute('src', 'https://storage.example.com/john-doe-large.jpg')
     })
 
     it('renders the arch-masked tile (fallback A) when photoStyle is absent', () => {

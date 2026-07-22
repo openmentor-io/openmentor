@@ -33,6 +33,11 @@ var (
 	MentorRegistrations    *prometheus.CounterVec
 	PhotoClassifications   *prometheus.CounterVec
 
+	// Photo Cutout Metrics (background removal via the rembg sidecar)
+	PhotoCutouts              *prometheus.CounterVec
+	PhotoCutoutRemoveSeconds  *prometheus.HistogramVec
+	PhotoCutoutGateRejections *prometheus.CounterVec
+
 	// Mentor Auth Metrics
 	MentorAuthLoginRequests     *prometheus.CounterVec
 	MentorAuthLoginDuration     prometheus.Histogram
@@ -184,6 +189,34 @@ func Init(serviceName string) {
 			Help: "Total number of profile photo style classifications",
 		},
 		[]string{"result"}, // result: hero | frame | error
+	)
+
+	// Photo Cutout Metrics (background removal via the rembg sidecar). Emitted
+	// by both the backend (live uploads) and the worker (backfill); the
+	// `source` label separates the two, `outcome` the terminal pipeline result.
+	PhotoCutouts = factory.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "openmentor_photo_cutouts_total",
+			Help: "Total photo background-removal (hero cutout) attempts by source and outcome",
+		},
+		[]string{"source", "outcome"}, // source: upload|backfill; outcome: hero|frame|no_photo|error
+	)
+
+	PhotoCutoutRemoveSeconds = factory.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "openmentor_photo_cutout_remove_duration_seconds",
+			Help:    "Duration of the rembg background-removal call in seconds",
+			Buckets: []float64{0.25, 0.5, 1, 2, 3, 5, 8, 13, 21, 30},
+		},
+		[]string{"source"},
+	)
+
+	PhotoCutoutGateRejections = factory.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "openmentor_photo_cutout_gate_rejections_total",
+			Help: "Total cutouts rejected by the mask quality gate, by reason",
+		},
+		[]string{"source", "reason"}, // reason: too_small|near_full|fragmented
 	)
 
 	// Mentor Auth Metrics

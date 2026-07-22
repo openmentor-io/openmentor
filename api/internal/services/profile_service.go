@@ -169,16 +169,11 @@ func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID s
 	//	 _ = trigger.CallAsync                              // Keep for future use
 	// }()
 
-	// Auto-detect the photo display style ('hero' on light uniform
-	// backgrounds, 'frame' otherwise) and store it on the mentor row.
-	// Classification failures never fail the upload — default to 'frame'.
-	photoStyle := classifyPhotoStyle(req.Image)
-	if err := s.mentorRepo.Update(ctx, mentorID, map[string]interface{}{"photo_style": photoStyle}); err != nil {
-		logger.Error("Failed to store photo style after picture upload",
-			zap.Error(err),
-			zap.String("mentor_id", mentorID),
-			zap.String("photo_style", photoStyle))
-	}
+	// Determine the photo display style. With the cutout service configured
+	// this removes the background, quality-gates it, uploads a <slug>/hero
+	// alpha PNG and stores 'hero'; otherwise it falls back to the
+	// border-luminance classifier. Best-effort — never fails the upload.
+	photoStyle := applyPhotoStyle(ctx, s.config, s.storageClient, s.mentorRepo, mentorID, mentorSlug, req.Image)
 
 	if err := s.mentorRepo.TouchUpdatedAt(ctx, mentorID); err != nil {
 		logger.Error("Failed to touch updated_at after picture upload",

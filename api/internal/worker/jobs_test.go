@@ -54,6 +54,14 @@ type fakeRepo struct {
 	deactivated           []string
 	sortOrderTransactions [][]SortOrderUpdate
 	staleRequestsQueryLog []string // mentorIDs queried for reminder requests
+
+	// Photo-cutout fixtures.
+	cutoutMentors     []CutoutMentor
+	cutoutByID        map[string]*CutoutMentor
+	cutoutListErr     error
+	cutoutGetErr      error
+	setPhotoStyleErr  error
+	photoStyleUpdates map[string]string // mentorID -> photo_style written
 }
 
 func newFakeRepo() *fakeRepo {
@@ -213,6 +221,35 @@ func (f *fakeRepo) SetSortOrders(_ context.Context, updates []SortOrderUpdate) e
 		return f.setSortOrdersErr
 	}
 	f.sortOrderTransactions = append(f.sortOrderTransactions, append([]SortOrderUpdate(nil), updates...))
+	return nil
+}
+
+func (f *fakeRepo) ListMentorsForCutout(_ context.Context) ([]CutoutMentor, error) {
+	if f.cutoutListErr != nil {
+		return nil, f.cutoutListErr
+	}
+	return append([]CutoutMentor(nil), f.cutoutMentors...), nil
+}
+
+func (f *fakeRepo) GetMentorForCutout(_ context.Context, mentorID string) (*CutoutMentor, error) {
+	if f.cutoutGetErr != nil {
+		return nil, f.cutoutGetErr
+	}
+	if m, ok := f.cutoutByID[mentorID]; ok {
+		copied := *m
+		return &copied, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeRepo) SetPhotoStyle(_ context.Context, mentorID, style string) error {
+	if f.setPhotoStyleErr != nil {
+		return f.setPhotoStyleErr
+	}
+	if f.photoStyleUpdates == nil {
+		f.photoStyleUpdates = map[string]string{}
+	}
+	f.photoStyleUpdates[mentorID] = style
 	return nil
 }
 

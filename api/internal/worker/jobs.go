@@ -15,10 +15,19 @@ import (
 
 	"github.com/openmentor-io/openmentor/api/config"
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/cutout"
 	"github.com/openmentor-io/openmentor/api/pkg/email"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
 )
+
+// ObjectStore is the subset of s3storage.StorageClient the cutout backfill
+// needs (download the source photo, upload the generated hero asset).
+type ObjectStore interface {
+	GetObject(ctx context.Context, key string) ([]byte, error)
+	UploadObject(ctx context.Context, data []byte, key, contentType string) (string, error)
+}
 
 // EmailSender is the subset of pkg/email.Sender the job handlers use;
 // tests substitute a fake.
@@ -38,6 +47,11 @@ type Handlers struct {
 	appEnv             string   // APP_ENV: drives the non-production gates
 	devEmailOverride   string   // DEV_EMAIL_OVERRIDE: unlocks the email jobs off production
 	highlightedMentors []string // HIGHLIGHTED_MENTORS ids pinned by randomize-sort-order
+
+	// Photo-cutout backfill deps (nil when not configured — the backfill
+	// endpoint then reports "disabled" instead of running).
+	objects ObjectStore
+	cutout  *cutout.Client
 }
 
 // NewHandlers wires the job handlers' dependencies.
@@ -56,6 +70,24 @@ func NewHandlers(repo JobsRepository, sender EmailSender, tracker analytics.Trac
 		baseURL = "https://openmentor.io"
 	}
 
+	// Best-effort cutout deps for the backfill endpoint. A missing/invalid S3
+	// config or an unset CUTOUT_SERVICE_URL simply disables the endpoint; it
+	// must never prevent the worker (email/cron jobs) from starting.
+	var objects ObjectStore
+	if sc, err := s3storage.NewStorageClient(
+		cfg.S3Storage.AccessKeyID, cfg.S3Storage.SecretAccessKey,
+		cfg.S3Storage.BucketName, cfg.S3Storage.Endpoint, cfg.S3Storage.Region,
+	); err != nil {
+		logger.Warn("worker: object storage unavailable, cutout backfill disabled", zap.Error(err))
+	} else {
+		objects = sc
+	}
+	cutoutClient := cutout.New(cutout.Config{
+		ServiceURL:     cfg.Cutout.ServiceURL,
+		Model:          cfg.Cutout.Model,
+		TimeoutSeconds: cfg.Cutout.TimeoutSeconds,
+	})
+
 	return &Handlers{
 		repo:            repo,
 		email:           sender,
@@ -66,6 +98,9 @@ func NewHandlers(repo JobsRepository, sender EmailSender, tracker analytics.Trac
 		appEnv:             cfg.Server.AppEnv,
 		devEmailOverride:   cfg.Email.DevEmailOverride,
 		highlightedMentors: parseHighlightedMentors(cfg.Worker.HighlightedMentors),
+
+		objects: objects,
+		cutout:  cutoutClient,
 	}
 }
 
@@ -93,6 +128,8 @@ func (s *Server) RegisterJobRoutes(h *Handlers) {
 	s.RegisterHandler("/process-mentee-review", h.ProcessMenteeReview, "POST", "GET")
 	s.RegisterHandler("/request-process-finished", h.RequestProcessFinished, "GET")
 	s.RegisterHandler("/profile-migrated", h.ProfileMigrated)
+	s.RegisterHandler("/backfill-cutouts", h.BackfillCutouts)
+	s.RegisterHandler("/cutout-mentor", h.CutoutMentor, "POST", "GET")
 }
 
 // sendEmail sends one message, recording metrics and logging failures.

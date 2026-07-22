@@ -126,7 +126,10 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		"details":           req.Description,
 		"competencies":      req.Competencies,
 		"status":            registrationStatusDraft,
-		"photo_style":       classifyPhotoStyle(req.ProfilePicture.Image),
+		// Start as 'frame'; the async cutout below upgrades to 'hero' if the
+		// background removes cleanly (keeps the registration request fast and
+		// independent of the cutout sidecar's availability).
+		"photo_style": imageclass.StyleFrame,
 	}
 
 	if req.CalendarURL != "" {
@@ -167,6 +170,15 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 
 	// 5. Upload profile picture (non-blocking on failure)
 	s.storageClient.UploadImageAllSizesAsync(ctx, req.ProfilePicture.Image, mentorSlug, req.ProfilePicture.ContentType, mentorID)
+
+	// 5b. Generate the hero cut-out in the background (background removal +
+	// quality gate + <slug>/hero upload + photo_style upgrade). Detached from
+	// the request context so it isn't canceled when the response is returned.
+	if req.ProfilePicture.Image != "" {
+		image := req.ProfilePicture.Image
+		bgCtx := context.WithoutCancel(ctx)
+		go applyPhotoStyle(bgCtx, s.config, s.storageClient, s.mentorRepo, mentorID, mentorSlug, image)
+	}
 
 	// 6. Trigger mentor created webhook (non-blocking)
 	trigger.CallAsync(ctx, s.config.EventTriggers.MentorCreatedTriggerURL, mentorID, s.config.Worker.AuthToken, s.httpClient)

@@ -31,6 +31,17 @@ type Config struct {
 	MentorSession MentorSessionConfig
 	Worker        WorkerConfig
 	Email         EmailConfig
+	Cutout        CutoutConfig
+}
+
+// CutoutConfig configures the photo background-removal sidecar (rembg) used
+// to generate the catalog's "hero" cut-out cards. An empty ServiceURL
+// disables the feature: uploads fall back to the border-luminance
+// photo-style classifier (pkg/imageclass).
+type CutoutConfig struct {
+	ServiceURL     string // CUTOUT_SERVICE_URL, e.g. http://rembg:7000
+	Model          string // CUTOUT_MODEL, rembg model name
+	TimeoutSeconds int    // CUTOUT_TIMEOUT_SECONDS
 }
 
 type ServerConfig struct {
@@ -221,6 +232,10 @@ func Load() (*Config, error) {
 	// Email defaults
 	v.SetDefault("MODERATORS_EMAIL", "moderators@openmentor.io")
 
+	// Photo cutout defaults (feature off until CUTOUT_SERVICE_URL is set)
+	v.SetDefault("CUTOUT_MODEL", "isnet-general-use")
+	v.SetDefault("CUTOUT_TIMEOUT_SECONDS", 30)
+
 	// Mentor session defaults
 	v.SetDefault("JWT_ISSUER", "openmentor-api")
 	v.SetDefault("SESSION_TTL_HOURS", 24)
@@ -354,6 +369,11 @@ func Load() (*Config, error) {
 			SESEndpoint:        v.GetString("SES_ENDPOINT"),
 			DevEmailOverride:   v.GetString("DEV_EMAIL_OVERRIDE"),
 			ModeratorsEmail:    v.GetString("MODERATORS_EMAIL"),
+		},
+		Cutout: CutoutConfig{
+			ServiceURL:     v.GetString("CUTOUT_SERVICE_URL"),
+			Model:          v.GetString("CUTOUT_MODEL"),
+			TimeoutSeconds: v.GetInt("CUTOUT_TIMEOUT_SECONDS"),
 		},
 	}
 

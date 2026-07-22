@@ -8,7 +8,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 	"go.uber.org/zap"
@@ -81,22 +84,25 @@ func decodeBase64Image(imageData string) ([]byte, error) {
 // UploadImage uploads an image to the S3-compatible object storage
 // Returns the public URL of the uploaded image
 func (s *StorageClient) UploadImage(ctx context.Context, imageData, key, contentType string) (string, error) {
-	start := time.Now()
-	operation := "uploadImage"
-
 	// Decode base64 image data
 	imageBytes, err := decodeBase64Image(imageData)
 	if err != nil {
-		metrics.S3StorageRequestDuration.WithLabelValues(operation, "error").Observe(metrics.MeasureDuration(start))
-		metrics.S3StorageRequestTotal.WithLabelValues(operation, "error").Inc()
 		return "", fmt.Errorf("failed to decode base64 image: %w", err)
 	}
+	return s.UploadObject(ctx, imageBytes, key, contentType)
+}
+
+// UploadObject uploads raw bytes to the given key. Used for already-decoded
+// payloads such as the generated <slug>/hero cutout PNG.
+func (s *StorageClient) UploadObject(ctx context.Context, data []byte, key, contentType string) (string, error) {
+	start := time.Now()
+	operation := "uploadImage"
 
 	// Upload to the S3-compatible object storage
-	_, err = s.s3Client.PutObject(ctx, &s3.PutObjectInput{
+	_, err := s.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucketName),
 		Key:         aws.String(key),
-		Body:        bytes.NewReader(imageBytes),
+		Body:        bytes.NewReader(data),
 		ContentType: aws.String(contentType),
 	})
 
@@ -116,7 +122,7 @@ func (s *StorageClient) UploadImage(ctx context.Context, imageData, key, content
 	metrics.S3StorageRequestTotal.WithLabelValues(operation, "success").Inc()
 	logger.LogAPICall(ctx, "s3_storage", operation, "success", duration,
 		zap.String("key", key),
-		zap.Int("size_bytes", len(imageBytes)),
+		zap.Int("size_bytes", len(data)),
 	)
 
 	// Construct public URL
@@ -124,6 +130,30 @@ func (s *StorageClient) UploadImage(ctx context.Context, imageData, key, content
 	imageURL := fmt.Sprintf("%s/%s/%s", s.endpoint, s.bucketName, key)
 
 	return imageURL, nil
+}
+
+// GetObject downloads the bytes at key. It returns (nil, nil) when the object
+// does not exist so callers can skip missing images without inspecting driver
+// errors (used by the cutout backfill, where not every mentor has a photo).
+func (s *StorageClient) GetObject(ctx context.Context, key string) ([]byte, error) {
+	out, err := s.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucketName),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		var nsk *s3types.NoSuchKey
+		var nf *s3types.NotFound
+		if errors.As(err, &nsk) || errors.As(err, &nf) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get object %q: %w", key, err)
+	}
+	defer func() { _ = out.Body.Close() }()                   //nolint:errcheck
+	data, err := io.ReadAll(io.LimitReader(out.Body, 32<<20)) // 32 MB cap
+	if err != nil {
+		return nil, fmt.Errorf("failed to read object %q: %w", key, err)
+	}
+	return data, nil
 }
 
 // ValidateImageType validates the image content type

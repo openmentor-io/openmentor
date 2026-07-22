@@ -237,6 +237,9 @@ services:
       - LOG_DIR=/app/logs
       - SERVICE_INSTANCE_ID=${HOSTNAME}
       - DATABASE_URL=${DATABASE_URL}
+      # Photo background-removal sidecar (hero cut-outs). Empty CUTOUT_SERVICE_URL
+      # disables the feature (falls back to the border-luminance classifier).
+      - CUTOUT_SERVICE_URL=${CUTOUT_SERVICE_URL-http://rembg:7000}
     env_file:
       # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
       # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
@@ -275,6 +278,8 @@ services:
       - LOG_DIR=/app/logs
       - SERVICE_INSTANCE_ID=${HOSTNAME}
       - DATABASE_URL=${DATABASE_URL}
+      # Photo background-removal sidecar (used by /jobs/backfill-cutouts).
+      - CUTOUT_SERVICE_URL=${CUTOUT_SERVICE_URL-http://rembg:7000}
     env_file:
       # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
       # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
@@ -353,6 +358,25 @@ services:
       worker:
         condition: service_healthy
 
+  # rembg background-removal service for the catalog's hero cut-outs. Internal
+  # only (no published ports) — reached by the backend/worker at
+  # http://rembg:7000/api/remove. CPU inference is fine at our upload volume.
+  # Models are cached in the rembg-models volume (downloaded on first use).
+  # platform is pinned to amd64: the published image has no arm64 manifest, so
+  # this lets the dev stack run under emulation on Apple Silicon (no-op on the
+  # amd64 production VM). --no-ui drops the idle Gradio UI (API-only service).
+  rembg:
+    image: danielgatis/rembg:latest
+    platform: linux/amd64
+    container_name: openmentor-rembg
+    restart: always
+    mem_limit: 2g
+    command: ["s", "--host", "0.0.0.0", "--port", "7000", "--no-ui"]
+    networks:
+      - openmentor-network
+    volumes:
+      - rembg-models:/root/.u2net
+
 networks:
   openmentor-network:
     driver: bridge
@@ -383,3 +407,5 @@ volumes:
     name: openmentor-worker-logs
   alloy-data:
     name: grafana-alloy-data
+  rembg-models:
+    name: openmentor-rembg-models

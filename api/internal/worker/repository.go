@@ -129,6 +129,17 @@ type JobsRepository interface {
 	DeactivateMentor(ctx context.Context, mentorID string) error
 	ListActiveMentorIDs(ctx context.Context) ([]string, error)
 	SetSortOrders(ctx context.Context, updates []SortOrderUpdate) error
+
+	// Photo-cutout backfill.
+	ListMentorsForCutout(ctx context.Context) ([]CutoutMentor, error)
+	GetMentorForCutout(ctx context.Context, mentorID string) (*CutoutMentor, error)
+	SetPhotoStyle(ctx context.Context, mentorID, style string) error
+}
+
+// CutoutMentor is a mentor candidate for the photo-cutout backfill.
+type CutoutMentor struct {
+	ID   string
+	Slug string
 }
 
 // Repository is the pgx-backed JobsRepository implementation.
@@ -556,4 +567,67 @@ func (r *Repository) GetJobReviewByID(ctx context.Context, reviewID string) (*Jo
 		return nil, fmt.Errorf("failed to fetch review %s: %w", reviewID, err)
 	}
 	return &rv, nil
+}
+
+// ListMentorsForCutout returns mentors eligible for the photo-cutout backfill:
+// those on a public status (active/inactive) that could have a profile photo
+// in object storage. Draft/pending/declined are excluded (not public, and
+// their photos may still be churning).
+func (r *Repository) ListMentorsForCutout(ctx context.Context) ([]CutoutMentor, error) {
+	const query = `
+		SELECT id, slug
+		FROM mentors
+		WHERE status IN ('active', 'inactive')
+		ORDER BY created_at
+	`
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list mentors for cutout: %w", err)
+	}
+	defer rows.Close()
+
+	var mentors []CutoutMentor
+	for rows.Next() {
+		var m CutoutMentor
+		if err := rows.Scan(&m.ID, &m.Slug); err != nil {
+			return nil, fmt.Errorf("failed to scan cutout mentor: %w", err)
+		}
+		mentors = append(mentors, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating cutout mentors: %w", err)
+	}
+	return mentors, nil
+}
+
+// GetMentorForCutout fetches one mentor's (id, slug) for the single-mentor
+// cutout job. Returns (nil, nil) when the mentor does not exist so the handler
+// can map it to a 404. Unlike ListMentorsForCutout it applies no status filter:
+// the caller passes an explicit id to (re)process a specific known mentor.
+func (r *Repository) GetMentorForCutout(ctx context.Context, mentorID string) (*CutoutMentor, error) {
+	var m CutoutMentor
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, COALESCE(slug, '') FROM mentors WHERE id = $1`,
+		mentorID,
+	).Scan(&m.ID, &m.Slug)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch mentor %s for cutout: %w", mentorID, err)
+	}
+	return &m, nil
+}
+
+// SetPhotoStyle updates a mentor's photo_style (bumping updated_at so the
+// frontend image cache-buster picks up the new hero asset).
+func (r *Repository) SetPhotoStyle(ctx context.Context, mentorID, style string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE mentors SET photo_style = $1, updated_at = NOW() WHERE id = $2`,
+		style, mentorID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set photo_style for mentor %s: %w", mentorID, err)
+	}
+	return nil
 }

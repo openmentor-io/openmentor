@@ -150,6 +150,48 @@ production) and can log in at https://openmentor.io/mentor/login with their
 email; the profile edit page should show the translated text and the
 visibility card should show "hidden".
 
+## Regenerating hero cut-outs
+
+Migrated photos predate the cut-out pipeline, so migrated mentors start on the
+plain `frame` treatment. The worker can (re)generate the background-removed
+`<slug>/hero` asset: it downloads `<slug>/full`, removes the background via the
+`rembg` sidecar, runs the mask quality gate, and on a pass uploads `<slug>/hero`
+and sets `photo_style='hero'` (else leaves `frame`). Idempotent — safe to
+re-run. Requires `CUTOUT_SERVICE_URL` (set by compose) and S3; otherwise the
+endpoints return 503.
+
+**One mentor** (targeted — use this to try a handful of known profiles first).
+Get the id from the verify query above, then, on the VM:
+
+```bash
+# Single-quote the header + URL: the remote shell would otherwise split on the
+# space after the colon (→ 401 / "could not resolve host"). Same caveat as the
+# profile-migrated trigger in migrate-mentors.js.
+ssh <vm> "docker exec openmentor-worker curl -fsS -m 60 -X POST \
+  -H 'X-Worker-Token: <WORKER_AUTH_TOKEN>' \
+  'http://localhost:8090/jobs/cutout-mentor?mentorId=<mentor-uuid>'"
+# → {"success":true,"result":{"mentor_id":"…","slug":"…","outcome":"ok","photo_style":"hero"}}
+```
+
+`outcome` is `ok` (photo_style written to `hero`/`frame`), `no_photo` (no
+`<slug>/full` in storage) or `error`. A `frame` photo_style means the gate
+rejected the cut-out (busy/low-contrast background) — the catalog then shows the
+framed photo, which is the intended graceful fallback.
+
+**All eligible mentors** (bulk backfill — active/inactive). Returns per-outcome
+counts:
+
+```bash
+ssh <vm> "docker exec openmentor-worker curl -fsS -m 3600 -X POST \
+  -H 'X-Worker-Token: <WORKER_AUTH_TOKEN>' \
+  'http://localhost:8090/jobs/backfill-cutouts'"
+# → {"success":true,"result":{"total":N,"hero":…,"frame":…,"no_photo":…,"errors":…,"processed":…}}
+```
+
+Progress and per-mentor outcomes are visible in the **Photo Cutouts** rows of
+the *Worker & Email* Grafana dashboard (backfill) and *Backend API* dashboard
+(live uploads).
+
 ## Failure modes
 
 | Symptom | Cause / fix |
