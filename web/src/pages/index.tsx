@@ -183,29 +183,6 @@ export default function Home({
         </p>
       </section>
 
-      {/* ── Slim stepper: the three-step story in one line; the full
-             "How it works" section stays below the catalog. ───────────── */}
-      <section
-        data-section="steps"
-        className="mt-5 border-y border-line bg-surface px-5 py-3 sm:mt-8 sm:px-8 lg:px-16"
-      >
-        <ol className="my-0 flex list-none flex-wrap items-center gap-x-7 gap-y-1.5 p-0">
-          {['Browse freely', 'Send a request', 'Meet & grow'].map((step, i) => (
-            <li key={step} className="flex items-center gap-2">
-              <span className="flex h-5 w-5 flex-none items-center justify-center rounded-full bg-brand-navy font-mono text-[10px] font-bold text-white">
-                {i + 1}
-              </span>
-              <span className="text-[13px] font-semibold text-ink">{step}</span>
-            </li>
-          ))}
-          <li className="ml-auto hidden sm:block">
-            <a href="#howitworks" className="text-[13px] font-medium text-brand-cobalt">
-              How it works ↓
-            </a>
-          </li>
-        </ol>
-      </section>
-
       {/* ── Catalog: filters + results meta + grid ───────────────────── */}
       <section
         id="list"
@@ -234,11 +211,10 @@ export default function Home({
         </div>
       </section>
 
-      {/* ── How it works ─────────────────────────────────────────────── */}
+      {/* ── How it works + the mission behind it ─────────────────────── */}
       <section
-        id="howitworks"
         data-section="howitworks"
-        className="scroll-mt-4 border-t border-line bg-surface px-5 py-7 sm:px-8 sm:py-14 lg:px-16"
+        className="border-t border-line bg-surface px-5 py-7 sm:px-8 sm:py-14 lg:px-16"
       >
         <h2 className="mb-[18px] text-2xl leading-none sm:mb-[34px] sm:text-[34px]">
           How it works
@@ -273,55 +249,24 @@ export default function Home({
             copyShort="Zero commission, ever."
           />
         </div>
-      </section>
 
-      {/* ── Built on community: the mission pillars, distilled from /about ── */}
-      <section
-        data-section="mission"
-        className="border-t border-line bg-white px-5 py-7 sm:px-8 sm:py-14 lg:px-16"
-      >
-        <div className="mb-[18px] flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 sm:mb-[34px]">
-          <h2 className="my-0 text-2xl leading-none sm:text-[34px]">Built on community</h2>
-          <Link href="/about" className="text-sm font-semibold text-brand-cobalt">
+        {/* The mission behind the mechanics, in one breath (full story: /about). */}
+        <p className="my-0 mt-5 max-w-[760px] text-sm leading-[1.6] text-ink-soft sm:mt-8 sm:text-[15px]">
+          <span className="font-semibold text-ink">Built on community.</span> No ads, no commission,
+          no premium tier — donations cover the servers, and mentors who give their time for free
+          are the heart of this place. Every mentor is a working practitioner, reviewed by hand
+          before they appear: no gurus, no 10x promises. We make the connection, then get out of the
+          way.{' '}
+          <Link href="/about" className="whitespace-nowrap font-semibold text-brand-cobalt">
             Read the full story →
           </Link>
-        </div>
-
-        <div className="grid gap-2.5 sm:grid-cols-3 sm:gap-7">
-          <div className="rounded-card bg-surface p-4 sm:rounded-panel sm:p-[26px]">
-            <div className="font-name text-sm font-bold text-ink sm:text-lg">Community first</div>
-            <p className="my-0 mt-1 text-xs leading-[1.5] text-ink-soft sm:mt-2 sm:text-sm sm:leading-[1.55]">
-              No ads, no commission, no premium tier — donations cover the servers. Mentors who give
-              their time for free are the heart of this place.
-            </p>
-          </div>
-
-          <div className="rounded-card bg-surface p-4 sm:rounded-panel sm:p-[26px]">
-            <div className="font-name text-sm font-bold text-ink sm:text-lg">
-              Lightweight by design
-            </div>
-            <p className="my-0 mt-1 text-xs leading-[1.5] text-ink-soft sm:mt-2 sm:text-sm sm:leading-[1.55]">
-              We make the connection, then get out of the way. No booking engine, no escrow — you
-              agree on format and price directly, human to human.
-            </p>
-          </div>
-
-          <div className="rounded-card bg-surface p-4 sm:rounded-panel sm:p-[26px]">
-            <div className="font-name text-sm font-bold text-ink sm:text-lg">
-              Real practitioners
-            </div>
-            <p className="my-0 mt-1 text-xs leading-[1.5] text-ink-soft sm:mt-2 sm:text-sm sm:leading-[1.55]">
-              Working professionals sharing genuine experience, reviewed by humans before they
-              appear. No gurus, no life coaches, no 10x promises.
-            </p>
-          </div>
-        </div>
+        </p>
       </section>
 
       {/* ── Become a mentor: the page said nothing to practitioners ───── */}
       <section
         data-section="bementor"
-        className="border-t border-line bg-surface px-5 py-8 text-center sm:px-8 sm:py-14 lg:px-16"
+        className="border-t border-line bg-white px-5 py-8 text-center sm:px-8 sm:py-14 lg:px-16"
       >
         <h2 className="my-0 text-2xl leading-none sm:text-[34px]">
           Been there? <span className="text-brand-cobalt">Pass it on</span>
