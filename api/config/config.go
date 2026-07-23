@@ -181,6 +181,10 @@ type EmailConfig struct {
 	SESEndpoint        string // optional: SESv2-compatible endpoint override
 	DevEmailOverride   string // non-production: reroute ALL recipients here
 	ModeratorsEmail    string // moderators mailbox for notification emails
+	// DiscordInviteLink is the invite URL for the private mentors' Discord,
+	// included in the approval welcome email. Empty hides the
+	// Discord section (the template guards it with a {{#if}} block).
+	DiscordInviteLink string
 }
 
 // Load reads configuration from environment variables
@@ -354,6 +358,7 @@ func Load() (*Config, error) {
 			SESEndpoint:        v.GetString("SES_ENDPOINT"),
 			DevEmailOverride:   v.GetString("DEV_EMAIL_OVERRIDE"),
 			ModeratorsEmail:    v.GetString("MODERATORS_EMAIL"),
+			DiscordInviteLink:  v.GetString("DISCORD_MENTORS_PRIVATE_INVITE_LINK"),
 		},
 	}
 
