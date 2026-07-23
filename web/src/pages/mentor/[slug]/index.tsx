@@ -6,8 +6,10 @@ import { Footer, HtmlContent, MetaHeader, NavHeader } from '@/components'
 import MentorPortrait from '@/components/ui/MentorPortrait'
 import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
 import { getOneMentorBySlug } from '@/server/mentors-data'
+import constants from '@/config/constants'
 import seo from '@/config/seo'
 import analytics from '@/lib/analytics'
+import { updatedAtToVersion } from '@/lib/image-loader'
 import pluralize from '@/lib/pluralize'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
@@ -16,6 +18,22 @@ import type { MentorBase } from '@/types'
 interface MentorPageProps {
   [key: string]: unknown
   mentor: MentorBase
+  /** Absolute canonical page URL (SSR-computed: DOMAIN is server-only). */
+  canonicalUrl: string
+  /** Absolute URL of the dynamic social card (/api/og/mentor). */
+  ogImageUrl: string
+}
+
+/**
+ * Social/search description: the specific facts first (name, role, company,
+ * experience), then the community pitch. Scrapers truncate around 160 chars.
+ */
+export function mentorMetaDescription(mentor: MentorBase): string {
+  return (
+    `Book a one-on-one mentoring session with ${mentor.name} — ` +
+    `${mentor.job} at ${mentor.workplace}, ${mentor.experience} years of experience. ` +
+    `No accounts, no commission, just mentorship.`
+  )
 }
 
 const _getServerSideProps: GetServerSideProps<MentorPageProps> = async (context) => {
@@ -43,9 +61,20 @@ const _getServerSideProps: GetServerSideProps<MentorPageProps> = async (context)
     ...getTraceContext(),
   })
 
+  // Absolute URLs for social scrapers (og:url / og:image must not be
+  // relative). BASE_URL ends with a slash; the ?v= version busts scraper
+  // caches when the profile (photo) changes.
+  const base = constants.BASE_URL ?? 'https://openmentor.io/'
+  const version = updatedAtToVersion(mentor.updatedAt)
+  const ogImageUrl = `${base}api/og/mentor?slug=${encodeURIComponent(mentor.slug)}${
+    version !== undefined ? `&v=${version}` : ''
+  }`
+
   return {
     props: {
       mentor,
+      canonicalUrl: `${base}mentor/${mentor.slug}`,
+      ogImageUrl,
     },
   }
 }
@@ -115,6 +144,8 @@ function PriceValue({ price, size }: { price: string; size: 'lg' | 'sm' }): JSX.
 
 export default function Mentor({
   mentor,
+  canonicalUrl,
+  ogImageUrl,
 }: InferGetServerSidePropsType<typeof getServerSideProps>): JSX.Element {
   const title = mentor.name + ' | ' + seo.title
 
@@ -139,9 +170,12 @@ export default function Mentor({
         <title>{title}</title>
 
         <MetaHeader
-          customTitle={mentor.name}
-          customDescription={mentor.job + ' @ ' + mentor.workplace}
-          customImage={mentor.photo_url}
+          customTitle={`${mentor.name} — ${mentor.job}`}
+          customDescription={mentorMetaDescription(mentor)}
+          customImage={ogImageUrl}
+          imageAlt={`${mentor.name} — ${mentor.job} at ${mentor.workplace} on OpenMentor`}
+          canonicalUrl={canonicalUrl}
+          ogType="profile"
         />
       </Head>
 

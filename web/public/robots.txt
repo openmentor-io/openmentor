@@ -2,6 +2,9 @@ User-agent: DigitalOceanGenAICrawler/1.0
 Allow: /
 
 User-agent: *
+# Social-card images must stay fetchable: Facebook/LinkedIn respect
+# robots.txt when loading og:image (longest-match Allow wins over /api/*).
+Allow: /api/og/
 Disallow: /[slug]
 Disallow: /mentor/[slug]
 Disallow: /profile

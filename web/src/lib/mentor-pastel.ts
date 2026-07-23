@@ -28,11 +28,41 @@ export const MENTOR_PASTEL_GRAD_CLASSES = [
   'bg-pastel-rose-grad',
 ] as const
 
+/**
+ * The same five gradients as raw [base, deep] hex pairs, in the SAME ORDER
+ * as MENTOR_PASTEL_GRAD_CLASSES (source of truth: tailwind.config.js
+ * `backgroundImage.pastel-*-grad`). For surfaces Tailwind can't reach —
+ * the satori-rendered social card (/api/og/mentor).
+ */
+export const MENTOR_PASTEL_GRAD_HEX: ReadonlyArray<readonly [string, string]> = [
+  ['#C9E6F2', '#B7DCEE'], // sky
+  ['#F4E3C0', '#EED8AA'], // sand
+  ['#CDE8C6', '#BCE0B4'], // sage
+  ['#DDD9F4', '#CFC9EE'], // lavender
+  ['#F6D4E2', '#F0C3D6'], // rose
+]
+
 /** Neutral paper gradient, kept as the fallback when no stable key exists. */
 export const MENTOR_PASTEL_NEUTRAL_GRAD_CLASS = 'bg-pastel-neutral-grad'
 
 /** Initials circle fills (fallback B): navy or cobalt by slug hash parity. */
 export const MENTOR_INITIALS_CLASSES = ['bg-brand-navy', 'bg-brand-cobalt'] as const
+
+/** Initials fills as hex (brand navy / cobalt), same parity as the classes. */
+export const MENTOR_INITIALS_HEX = ['#132A52', '#2F5EFF'] as const
+
+/**
+ * Deterministic pastel index for a mentor key (0..4). Exposed so non-Tailwind
+ * renderers (the social card) pick the SAME hue as the catalog card.
+ */
+export function mentorPastelIndex(key: string): number {
+  return fnv1a(key) % MENTOR_PASTEL_GRAD_CLASSES.length
+}
+
+/** Deterministic initials-fill index (0..1), matching mentorInitialsClass. */
+export function mentorInitialsIndex(key: string): number {
+  return fnv1a(key) % MENTOR_INITIALS_CLASSES.length
+}
 
 /** FNV-1a 32-bit hash — the single source of card color determinism. */
 function fnv1a(key: string): number {

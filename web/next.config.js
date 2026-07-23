@@ -4,6 +4,13 @@ const nextConfig = {
   // Enable standalone output for Docker deployments
   output: 'standalone',
 
+  // The social-card renderer (/api/og/mentor) reads its TTF fonts from disk
+  // at runtime; include them in the standalone output trace so the Docker
+  // image ships them.
+  outputFileTracingIncludes: {
+    '/api/og/mentor': ['./src/assets/og-fonts/*.ttf'],
+  },
+
   // @marsidev/react-turnstile ships ESM-only; transpile it so Jest
   // (via next/jest) and the server build can consume it.
   transpilePackages: ['@marsidev/react-turnstile'],
