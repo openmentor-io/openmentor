@@ -39,6 +39,10 @@ type Handlers struct {
 	appEnv             string   // APP_ENV: drives the non-production gates
 	devEmailOverride   string   // DEV_EMAIL_OVERRIDE: unlocks the email jobs off production
 	highlightedMentors []string // HIGHLIGHTED_MENTORS ids pinned by randomize-sort-order
+
+	// DISCORD_MENTORS_PRIVATE_INVITE_LINK: private mentors' Discord invite,
+	// shown in the approval welcome email. Empty hides the section.
+	discordInviteLink string
 }
 
 // NewHandlers wires the job handlers' dependencies.
@@ -67,6 +71,8 @@ func NewHandlers(repo JobsRepository, sender EmailSender, tracker analytics.Trac
 		appEnv:             cfg.Server.AppEnv,
 		devEmailOverride:   cfg.Email.DevEmailOverride,
 		highlightedMentors: parseHighlightedMentors(cfg.Worker.HighlightedMentors),
+
+		discordInviteLink: strings.TrimSpace(cfg.Email.DiscordInviteLink),
 	}
 }
 
