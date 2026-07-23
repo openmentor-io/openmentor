@@ -4,11 +4,16 @@ const nextConfig = {
   // Enable standalone output for Docker deployments
   output: 'standalone',
 
-  // The social-card renderer (/api/og/mentor) reads its TTF fonts from disk
-  // at runtime; include them in the standalone output trace so the Docker
-  // image ships them.
+  // The social-card renderer (/api/og/mentor) needs runtime files the
+  // standalone trace misses: its TTF fonts (read from disk) and next/og's
+  // compiled @vercel/og package (satori + resvg/yoga wasm — the tracer does
+  // not follow the `next/og` import, so without this the endpoint throws
+  // MODULE_NOT_FOUND in the Docker image and falls back to the banner).
   outputFileTracingIncludes: {
-    '/api/og/mentor': ['./src/assets/og-fonts/*.ttf'],
+    '/api/og/mentor': [
+      './src/assets/og-fonts/*.ttf',
+      './node_modules/next/dist/compiled/@vercel/og/**/*',
+    ],
   },
 
   // @marsidev/react-turnstile ships ESM-only; transpile it so Jest
