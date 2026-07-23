@@ -12,6 +12,7 @@ export { default as DeclineModal } from './DeclineModal'
 export { default as RequestListSkeleton } from './RequestListSkeleton'
 export { default as FilterPills } from './FilterPills'
 export { default as ProfileVisibilityCard } from './ProfileVisibilityCard'
+export { default as ShareProfileCard } from './ShareProfileCard'
 export {
   formatDate,
   formatDateTime,

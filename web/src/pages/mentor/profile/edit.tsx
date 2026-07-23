@@ -26,6 +26,7 @@ import {
   useMentorAuth,
   MentorAdminLayout,
   ProfileVisibilityCard,
+  ShareProfileCard,
 } from '@/components/mentor-admin'
 import { ProfileForm, Notification } from '@/components'
 import { useRouter } from 'next/router'
@@ -392,6 +393,10 @@ function ProfileEditContent(): JSX.Element {
             {(mentor.status === 'active' || mentor.status === 'inactive') && (
               <ProfileVisibilityCard initialStatus={mentor.status} onSuccess={onVisibilityChange} />
             )}
+
+            {/* Share card — only while the profile is live (a hidden profile
+                has no contact button, so sharing it would disappoint). */}
+            {mentor.status === 'active' && mentor.slug && <ShareProfileCard slug={mentor.slug} />}
 
             <div className="rounded-panel border border-line bg-white p-5 sm:p-7">
               <ProfileForm

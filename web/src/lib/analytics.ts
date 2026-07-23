@@ -34,6 +34,7 @@ export const analyticsEvents = {
   MENTOR_FILTER_CHANGED: 'mentor_filter_changed',
 
   MENTOR_CONFIRM_PAGE_VIEWED: 'mentor_confirm_page_viewed',
+  PROFILE_SHARE_CLICKED: 'profile_share_clicked',
   REVIEW_PAGE_VIEWED: 'review_page_viewed',
 
   DONATE_PAGE_VIEWED: 'donate_page_viewed',

@@ -9,6 +9,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 
 	"go.uber.org/zap"
@@ -151,4 +152,17 @@ func (h *Handlers) mentorProfileURL(slug string) string {
 		return ""
 	}
 	return h.baseURL + "/mentor/" + slug
+}
+
+// mentorProfileShareURL builds the LinkedIn share-dialog link for a mentor's
+// profile, with share attribution (see docs/analytics-utm.md). Used by the
+// approval email's "Share your profile" CTA — the profile link unfurls into
+// the branded OG card. Empty when the mentor has no slug.
+func (h *Handlers) mentorProfileShareURL(slug string) string {
+	profile := h.mentorProfileURL(slug)
+	if profile == "" {
+		return ""
+	}
+	shared := profile + "?utm_source=mentor-share&utm_medium=social&utm_campaign=profile-share"
+	return "https://www.linkedin.com/sharing/share-offsite/?url=" + url.QueryEscape(shared)
 }

@@ -138,8 +138,9 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 			TemplateName: "new-mentor-approved",
 			Recipient:    mentor.Email,
 			Props: map[string]interface{}{
-				"first_name":         mentor.Name,
-				"mentor_profile_url": h.mentorProfileURL(mentor.Slug),
+				"first_name":               mentor.Name,
+				"mentor_profile_url":       h.mentorProfileURL(mentor.Slug),
+				"mentor_profile_share_url": h.mentorProfileShareURL(mentor.Slug),
 			},
 		}
 	case "return":
