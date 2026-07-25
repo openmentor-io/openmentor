@@ -12,11 +12,16 @@ jest.mock('@/lib/logger', () => ({
 
 const mockRegisterMentor = jest.fn()
 
-jest.mock('@/lib/go-api-client', () => ({
-  getGoApiClient: () => ({
-    registerMentor: mockRegisterMentor,
-  }),
-}))
+jest.mock('@/lib/go-api-client', () => {
+  // Keep the real HttpError so sendUpstreamError's instanceof check works.
+  const actual = jest.requireActual('@/lib/go-api-client')
+  return {
+    HttpError: actual.HttpError,
+    getGoApiClient: () => ({
+      registerMentor: mockRegisterMentor,
+    }),
+  }
+})
 
 // Import handler after mocks are set up
 import handler from '@/pages/api/register-mentor'
@@ -106,6 +111,35 @@ describe('api/register-mentor', () => {
 
     expect(res.statusCode).toBe(500)
     expect(res._getJSONData()).toEqual({ error: 'Internal server error' })
+  })
+
+  it('forwards an upstream 4xx username error to the client (not a generic 500)', async () => {
+    const { HttpError } = jest.requireActual('@/lib/go-api-client')
+    mockRegisterMentor.mockRejectedValue(
+      new HttpError(
+        400,
+        'Bad Request',
+        JSON.stringify({
+          success: false,
+          error: 'This username is already taken — please pick another one',
+          reason: 'username_taken',
+        })
+      )
+    )
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: 'POST',
+      body: { name: 'John Doe', username: 'taken-name' },
+    })
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(400)
+    expect(res._getJSONData()).toEqual({
+      success: false,
+      error: 'This username is already taken — please pick another one',
+      reason: 'username_taken',
+    })
   })
 
   it('handles captcha failure response from Go API', async () => {

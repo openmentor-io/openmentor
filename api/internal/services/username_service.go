@@ -60,7 +60,7 @@ type UsernameStatus struct {
 type UsernameRepository interface {
 	IsSlugTaken(ctx context.Context, slug, excludeMentorID string) (bool, error)
 	LatestMentorSlugChange(ctx context.Context, mentorID string) (*time.Time, error)
-	ChangeSlug(ctx context.Context, mentorID, newSlug, changedBy string) (string, error)
+	ChangeSlug(ctx context.Context, mentorID, newSlug, changedBy string, cooldown time.Duration, now time.Time) (string, error)
 	GetByMentorId(ctx context.Context, mentorId string, opts models.FilterOptions) (*models.Mentor, error)
 }
 
@@ -157,7 +157,12 @@ func (s *UsernameService) Change(ctx context.Context, mentorID, raw, changedBy s
 		return "", err
 	}
 
+	// Cooldown applies only to mentor-initiated changes. This pre-check is a
+	// fast path (avoids opening a transaction for the common case); the
+	// authoritative, race-free check runs inside ChangeSlug's transaction.
+	var cooldown time.Duration
 	if changedBy == "mentor" {
+		cooldown = UsernameChangeCooldown
 		lastChange, err := s.repo.LatestMentorSlugChange(ctx, mentorID)
 		if err != nil {
 			return "", err
@@ -170,10 +175,14 @@ func (s *UsernameService) Change(ctx context.Context, mentorID, raw, changedBy s
 		}
 	}
 
-	oldSlug, err := s.repo.ChangeSlug(ctx, mentorID, username, changedBy)
+	oldSlug, err := s.repo.ChangeSlug(ctx, mentorID, username, changedBy, cooldown, s.now())
 	if err != nil {
 		if errors.Is(err, repository.ErrSlugTaken) {
 			return "", ErrUsernameTaken
+		}
+		var rce *repository.CooldownError
+		if errors.As(err, &rce) {
+			return "", &CooldownError{NextChangeAt: rce.NextChangeAt}
 		}
 		return "", err
 	}

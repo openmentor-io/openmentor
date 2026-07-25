@@ -563,7 +563,7 @@ async function copyImages(oldSlug, destKeyBase, notes) {
       }
     }
   }
-  if (copied > 0) notes.push(`images copied: ${copied}/${IMAGE_SIZES.length} (${oldSlug}/* -> ${newSlug}/*)`);
+  if (copied > 0) notes.push(`images copied: ${copied}/${IMAGE_SIZES.length} (${oldSlug}/* -> ${destKeyBase}/*)`);
 }
 
 // ---------------------------------------------------------------------------

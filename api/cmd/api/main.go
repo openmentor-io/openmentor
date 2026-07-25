@@ -71,8 +71,11 @@ func registerAPIRoutes(
 	group.POST("/migration/intents", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024), migrationIntentHandler.ScheduleMigration)
 
 	// Username availability for the registration form's live check (public,
-	// read-only; debounced client-side — contact-tier limits are plenty).
-	group.GET("/username/availability", contactRateLimiter.Middleware(), usernameHandler.PublicAvailability)
+	// read-only). Uses the general read limiter, NOT the contact limiter:
+	// behind the BFF all callers share one source IP, so putting these
+	// per-keystroke checks on the 5/s contact bucket would let live typing
+	// starve contact/review/migration submissions of tokens.
+	group.GET("/username/availability", generalRateLimiter.Middleware(), usernameHandler.PublicAvailability)
 }
 
 // registerMentorAdminRoutes registers mentor admin routes for authentication, request management, and profile

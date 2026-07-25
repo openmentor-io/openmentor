@@ -17,16 +17,17 @@ type usernameMockRepo struct {
 	mentor *models.Mentor
 	getErr error
 
-	taken       bool
-	takenErr    error
-	takenSlug   string // records what was checked
-	takenForID  string
-	lastChange  *time.Time
-	changeErr   error
-	changedTo   string
-	changedBy   string
-	changeOld   string // oldSlug ChangeSlug returns
-	changeCalls int
+	taken          bool
+	takenErr       error
+	takenSlug      string // records what was checked
+	takenForID     string
+	lastChange     *time.Time
+	changeErr      error
+	changedTo      string
+	changedBy      string
+	changeOld      string // oldSlug ChangeSlug returns
+	changeCalls    int
+	changeCooldown time.Duration // cooldown arg last passed to ChangeSlug
 }
 
 func (m *usernameMockRepo) IsSlugTaken(ctx context.Context, s, excludeMentorID string) (bool, error) {
@@ -39,8 +40,9 @@ func (m *usernameMockRepo) LatestMentorSlugChange(ctx context.Context, mentorID 
 	return m.lastChange, nil
 }
 
-func (m *usernameMockRepo) ChangeSlug(ctx context.Context, mentorID, newSlug, changedBy string) (string, error) {
+func (m *usernameMockRepo) ChangeSlug(ctx context.Context, mentorID, newSlug, changedBy string, cooldown time.Duration, now time.Time) (string, error) {
 	m.changeCalls++
+	m.changeCooldown = cooldown
 	if m.changeErr != nil {
 		return "", m.changeErr
 	}
@@ -220,6 +222,38 @@ func TestChange_AdminBypassesCooldown(t *testing.T) {
 	}
 	if username != "new-name" || repo.changedBy != "admin" {
 		t.Fatalf("expected admin change to new-name, got %q by %q", username, repo.changedBy)
+	}
+	if repo.changeCooldown != 0 {
+		t.Fatalf("admin change must pass cooldown=0 (no enforcement), got %v", repo.changeCooldown)
+	}
+}
+
+func TestChange_MentorPassesCooldownToRepo(t *testing.T) {
+	repo := &usernameMockRepo{changeOld: "old-name"}
+	svc := newUsernameService(repo, time.Now())
+
+	if _, err := svc.Change(context.Background(), "mentor-1", "new-name", "mentor"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if repo.changeCooldown != services.UsernameChangeCooldown {
+		t.Fatalf("mentor change must forward the 14-day cooldown to the repo, got %v", repo.changeCooldown)
+	}
+}
+
+func TestChange_MapsRepoCooldownError(t *testing.T) {
+	// The authoritative in-transaction cooldown lives in the repo; the service
+	// must surface it as its own CooldownError (429 + nextChangeAt).
+	next := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	repo := &usernameMockRepo{changeErr: &repository.CooldownError{NextChangeAt: next}}
+	svc := newUsernameService(repo, time.Now())
+
+	_, err := svc.Change(context.Background(), "mentor-1", "new-name", "mentor")
+	var cooldown *services.CooldownError
+	if !errors.As(err, &cooldown) {
+		t.Fatalf("expected services.CooldownError, got %v", err)
+	}
+	if !cooldown.NextChangeAt.Equal(next) {
+		t.Fatalf("expected nextChangeAt %v, got %v", next, cooldown.NextChangeAt)
 	}
 }
 

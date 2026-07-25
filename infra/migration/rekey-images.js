@@ -14,9 +14,10 @@
  *   MIGRATE_SCRIPT=rekey-images.js ./migrate-mentors.sh --dry-run
  *   MIGRATE_SCRIPT=rekey-images.js ./migrate-mentors.sh
  *
- * Idempotent: objects whose destination key already exists are skipped, so
- * re-running (e.g. once more after the deploy, to catch photos uploaded in
- * between) is safe and fast.
+ * Idempotent and version-aware: a destination is skipped only when it is at
+ * least as new as its source (LastModified). Re-running (e.g. once more after
+ * the deploy) is safe and fast — it re-copies photos that were replaced during
+ * the gap, but leaves destinations the new UUID-keyed app has since written.
  *
  * Env (same contract as migrate-mentors.js): TARGET_DATABASE_URL (set by the
  * wrapper), DEST_S3_ACCESS_KEY / DEST_S3_SECRET_KEY / DEST_S3_BUCKET
@@ -67,12 +68,12 @@ function s3Client() {
   });
 }
 
-async function objectExists(s3, key) {
+// headObject returns the object's HEAD metadata, or null when it doesn't exist.
+async function headObject(s3, key) {
   try {
-    await s3.send(new HeadObjectCommand({ Bucket: config.destS3.bucket, Key: key }));
-    return true;
+    return await s3.send(new HeadObjectCommand({ Bucket: config.destS3.bucket, Key: key }));
   } catch (error) {
-    if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) return false;
+    if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) return null;
     throw error;
   }
 }
@@ -98,12 +99,20 @@ async function main() {
       const sourceKey = `${mentor.slug}/${size}`;
       const destKey = `${mentor.id}/${size}`;
       try {
-        if (await objectExists(s3, destKey)) {
-          skippedExisting++;
+        const source = await headObject(s3, sourceKey);
+        if (!source) {
+          noSource++;
           continue;
         }
-        if (!(await objectExists(s3, sourceKey))) {
-          noSource++;
+        // Skip only when the destination is already at least as new as the
+        // source. Existence alone is NOT enough: on the post-deploy rerun the
+        // old (slug-keyed) app may have replaced the source photo during the
+        // gap after the first pass created the destination — comparing
+        // LastModified re-copies those, while a destination written by the new
+        // (UUID-keyed) app is newer than its stale slug source and is left be.
+        const dest = await headObject(s3, destKey);
+        if (dest && dest.LastModified && source.LastModified && dest.LastModified >= source.LastModified) {
+          skippedExisting++;
           continue;
         }
         if (dryRun) {

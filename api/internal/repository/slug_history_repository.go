@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,8 +25,54 @@ import (
 // slug or an active redirect owned by another mentor.
 var ErrSlugTaken = errors.New("slug already taken")
 
+// CooldownError reports that a mentor-initiated rename was rejected because the
+// 14-day cooldown is still active. Carried out of ChangeSlug so the check runs
+// under the same lock/transaction that records the rename (no TOCTOU gap).
+type CooldownError struct {
+	NextChangeAt time.Time
+}
+
+func (e *CooldownError) Error() string {
+	return "username change cooldown active until " + e.NextChangeAt.Format(time.RFC3339)
+}
+
 // slugHistoryKeepCount is how many retired slugs (redirect hops) a mentor keeps.
 const slugHistoryKeepCount = 2
+
+// slugAdvisoryLockNamespace namespaces the transaction-scoped advisory locks
+// that serialize operations contending for the same slug string (the ASCII of
+// "slug"). Prevents a registration from claiming a slug as its current name
+// while another mentor is retiring that same slug into history — which would
+// leave the slug simultaneously a live profile and a redirect.
+const slugAdvisoryLockNamespace = 0x736c7567
+
+// lockSlugs takes transaction-scoped advisory locks on the given slugs within
+// tx, in sorted order (deduped) to avoid deadlocks between callers that touch
+// the same pair of slugs. Locks release automatically on commit/rollback.
+func lockSlugs(ctx context.Context, tx pgx.Tx, slugs ...string) error {
+	seen := make(map[string]struct{}, len(slugs))
+	unique := make([]string, 0, len(slugs))
+	for _, s := range slugs {
+		if s == "" {
+			continue
+		}
+		if _, dup := seen[s]; dup {
+			continue
+		}
+		seen[s] = struct{}{}
+		unique = append(unique, s)
+	}
+	sort.Strings(unique)
+	for _, s := range unique {
+		if _, err := tx.Exec(ctx,
+			`SELECT pg_advisory_xact_lock($1, hashtext($2))`,
+			slugAdvisoryLockNamespace, s,
+		); err != nil {
+			return fmt.Errorf("failed to lock slug %q: %w", s, err)
+		}
+	}
+	return nil
+}
 
 // isUniqueViolation reports whether err is a Postgres unique-constraint error.
 func isUniqueViolation(err error) bool {
@@ -106,8 +153,15 @@ func (r *MentorRepository) LatestMentorSlugChange(ctx context.Context, mentorID 
 // slug's own history row if the mentor is switching back, and updates
 // mentors.slug (+updated_at, which also busts image/OG caches).
 // Returns the previous slug. ErrSlugTaken when the slug is unavailable.
-// newSlug must already be normalized+validated; cooldown is the service's job.
-func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, changedBy string) (string, error) {
+// newSlug must already be normalized+validated.
+//
+// cooldown enforces the 14-day mentor-initiated limit INSIDE the transaction
+// (pass 0 to skip, e.g. admin changes): checking it here — while holding the
+// mentor row lock that also records the rename — closes the TOCTOU gap where
+// two concurrent POSTs could both pass a pre-check and rename sequentially.
+// now is the clock for that check (injectable for tests). Returns
+// *CooldownError when the cooldown is still active.
+func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, changedBy string, cooldown time.Duration, now time.Time) (string, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to begin slug change: %w", err)
@@ -125,6 +179,32 @@ func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, ch
 	}
 	if oldSlug == newSlug {
 		return oldSlug, nil // no-op
+	}
+
+	// Serialize with any registration/rename contending for these slugs: the
+	// slug we retire (oldSlug) must not be claimed as a current slug by a
+	// concurrent registration, and vice-versa (see lockSlugs).
+	if err = lockSlugs(ctx, tx, oldSlug, newSlug); err != nil {
+		return "", err
+	}
+
+	// Cooldown, evaluated under the mentor row lock so it can't be raced by a
+	// second concurrent rename (the loser blocks on the lock, then sees the
+	// winner's freshly-inserted history row here).
+	if cooldown > 0 {
+		var last *time.Time
+		if err = tx.QueryRow(ctx,
+			`SELECT MAX(created_at) FROM mentor_slug_history
+			  WHERE mentor_id = $1 AND changed_by = 'mentor'`,
+			mentorID,
+		).Scan(&last); err != nil {
+			return "", fmt.Errorf("failed to read latest slug change: %w", err)
+		}
+		if last != nil {
+			if next := last.Add(cooldown); now.Before(next) {
+				return "", &CooldownError{NextChangeAt: next}
+			}
+		}
 	}
 
 	// Availability inside the tx (the UNIQUE constraint on mentors.slug is

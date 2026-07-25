@@ -218,6 +218,13 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 	if !hasChosenSlug || mentorSlug == "" {
 		mentorSlug = slug.GenerateMentorSlug(name, nextLegacyID)
 	} else {
+		// Serialize this claim with any concurrent rename retiring the same
+		// slug into history: without the shared lock the redirect row below
+		// could be committed just after this check, leaving the slug both a
+		// live profile (our insert) and another mentor's redirect.
+		if err = lockSlugs(ctx, tx, mentorSlug); err != nil {
+			return "", 0, "", err
+		}
 		var redirectTaken bool
 		if err = tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM mentor_slug_history WHERE slug = $1)`,

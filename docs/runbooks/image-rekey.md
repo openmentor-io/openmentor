@@ -55,8 +55,10 @@ around the deploy so no photo is missing:
 2. **Deploy** the `custom-username` release (`deploy.sh`). Migrations
    (`000006_slug_history`) run automatically before api/worker. From here the
    app reads/writes images at `<uuid>/…`.
-3. **Re-run the re-key script once more** — catches any photo uploaded in the
-   gap between steps 1 and 2. Idempotent, so this is fast (mostly skips).
+3. **Re-run the re-key script once more** — catches any photo uploaded OR
+   replaced in the gap between steps 1 and 2. The rerun is version-aware: it
+   re-copies a source that is newer than its destination, and skips
+   destinations the new UUID-keyed app has already written, so it's fast.
 
 ## Verifying
 
@@ -72,7 +74,8 @@ the network tab should show `cdn.openmentor.io/<uuid>/...` rather than
 
 ## Notes
 
-- Safe to re-run any time; existing destinations are skipped.
+- Safe to re-run any time; a destination is skipped only when it is at least
+  as new as its source, so reruns re-copy replaced photos but not up-to-date ones.
 - Old slug-keyed objects are not deleted here. They can be swept later once
   you're confident every photo resolved (a separate cleanup, out of scope for
   the cutover).
