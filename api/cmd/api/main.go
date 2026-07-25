@@ -89,7 +89,11 @@ func registerMentorAdminRoutes(
 
 	// Authentication routes (public)
 	auth := router.Group("/api/v1/auth/mentor")
-	auth.POST("/request-login", authRateLimiter.Middleware(), mentorAuthHandler.RequestLogin)
+	// Rate-limit login-link requests by EMAIL, not IP: every request arrives
+	// from the BFF's single IP, so an IP-keyed limiter would collapse into one
+	// global bucket and lock out the whole platform (see EmailRateLimitMiddleware).
+	auth.POST("/request-login", middleware.BodySizeLimitMiddleware(4*1024),
+		middleware.EmailRateLimitMiddleware(authRateLimiter), mentorAuthHandler.RequestLogin)
 	auth.POST("/verify", mentorAuthHandler.VerifyLogin)
 	auth.POST("/logout", mentorAuthHandler.Logout)
 	auth.GET("/session", middleware.MentorSessionMiddleware(tokenManager, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure), mentorAuthHandler.GetSession)
@@ -129,7 +133,9 @@ func registerAdminModerationRoutes(
 	}
 
 	auth := router.Group("/api/v1/auth/admin")
-	auth.POST("/request-login", authRateLimiter.Middleware(), adminAuthHandler.RequestLogin)
+	// Rate-limit by email, not the (shared) BFF IP — see the mentor route.
+	auth.POST("/request-login", middleware.BodySizeLimitMiddleware(4*1024),
+		middleware.EmailRateLimitMiddleware(authRateLimiter), adminAuthHandler.RequestLogin)
 	auth.POST("/verify", adminAuthHandler.VerifyLogin)
 	auth.POST("/logout", adminAuthHandler.Logout)
 	auth.GET("/session", middleware.AdminSessionMiddleware(tokenManager, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure), adminAuthHandler.GetSession)
@@ -353,12 +359,22 @@ func main() { //nolint:gocyclo
 
 	// SECURITY: Rate limiters to prevent abuse and DoS attacks
 	// Different limits for different endpoint types
-	generalRateLimiter := middleware.NewRateLimiter(100, 200)         // 100 req/sec, burst of 200
-	contactRateLimiter := middleware.NewRateLimiter(5, 10)            // 5 req/sec, burst of 10 (prevent spam)
-	profileRateLimiter := middleware.NewRateLimiter(10, 20)           // 10 req/sec, burst of 20
-	registrationRateLimiter := middleware.NewRateLimiter(0.00667, 3)  // 2 req/5min (0.00667 req/sec), burst of 3
-	mentorAuthRateLimiter := middleware.NewRateLimiter(0.00667, 2)    // 2 req/5min (0.00667 req/sec), burst of 2 (login abuse prevention)
-	adminAuthRateLimiter := middleware.NewRateLimiter(0.00667, 2)     // 2 req/5min (0.00667 req/sec), burst of 2 (login abuse prevention)
+	generalRateLimiter := middleware.NewRateLimiter(100, 200) // 100 req/sec, burst of 200
+	contactRateLimiter := middleware.NewRateLimiter(5, 10)    // 5 req/sec, burst of 10 (prevent spam)
+	profileRateLimiter := middleware.NewRateLimiter(10, 20)   // 10 req/sec, burst of 20
+	// Registration abuse is stopped by server-verified, single-use Turnstile
+	// tokens (RegistrationService.captchaVerifier), so this is NOT a per-user
+	// throttle — the old 2/5min was IP-keyed and, behind the BFF's shared IP,
+	// collapsed into one global bucket that would lock out registrations under
+	// a launch surge. Kept only as a coarse GLOBAL DoS ceiling (bounds the
+	// blast radius of a captcha-solver flood on the DB + confirmation emails);
+	// legitimate volume is a few per minute, nowhere near this.
+	registrationRateLimiter := middleware.NewRateLimiter(5, 20) // coarse global cap: ~5/sec, burst 20
+	// Login-link limiters are keyed on the target EMAIL (EmailRateLimitMiddleware),
+	// not the shared BFF IP — burst 3 then ~1 per 3 min lets a mentor retry a
+	// couple of times without locking every other mentor out.
+	mentorAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3)  // 3 emails/addr, then 1 per 3 min
+	adminAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3)   // 3 emails/addr, then 1 per 3 min
 	confirmResendRateLimiter := middleware.NewRateLimiter(0.00667, 2) // 2 req/5min, burst of 2 (confirmation resend abuse prevention, login tier)
 
 	// API routes
