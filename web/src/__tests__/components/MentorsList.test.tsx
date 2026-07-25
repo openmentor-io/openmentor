@@ -164,7 +164,8 @@ describe('MentorsList', () => {
 
       const img = within(getCard(/John Doe/i)).getByRole('presentation')
       expect(img).toHaveClass('mix-blend-multiply')
-      expect(img).toHaveAttribute('src', 'https://storage.example.com/john-doe-large.jpg')
+      // Images are keyed by the immutable mentor UUID, not the slug.
+      expect(img).toHaveAttribute('src', 'https://storage.example.com/rec1-large.jpg')
     })
 
     it('renders the arch-masked tile (fallback A) when photoStyle is absent', () => {

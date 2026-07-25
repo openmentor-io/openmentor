@@ -525,12 +525,14 @@ async function streamToBuffer(readableStream) {
   return Buffer.concat(chunks);
 }
 
-async function copyImages(oldSlug, newSlug, notes) {
+// destKeyBase is the NEW mentor's UUID (mentors.id): openmentor images are
+// keyed by the immutable UUID, not the slug (usernames are changeable).
+async function copyImages(oldSlug, destKeyBase, notes) {
   const { s3Source: src, s3Dest: dest } = s3Clients();
   let copied = 0;
   for (const size of IMAGE_SIZES) {
     const sourceKey = `${oldSlug}/${size}`;
-    const destKey = `${newSlug}/${size}`;
+    const destKey = `${destKeyBase}/${size}`;
     try {
       // Idempotency: skip when the destination object already exists.
       try {
@@ -656,7 +658,7 @@ async function migrateMentor(source, target, slug) {
       : `email already registered on openmentor.io (${existing.slug})`;
     if (args.resume && existing.by_marker && !args.dryRun) {
       console.log(`  🔁 ${reason} — resuming images + email`);
-      if (!args.skipImages) await copyImages(slug, existing.slug, notes);
+      if (!args.skipImages) await copyImages(slug, existing.id, notes);
       if (!args.skipEmail) await triggerMigratedEmail(existing.id);
       stats.resumed++;
       reportRows.push({ slug, outcome: `resumed (${existing.slug})`, notes });
@@ -705,9 +707,9 @@ async function migrateMentor(source, target, slug) {
   const { mentorId, newLegacyId, newSlug } = await insertMentor(target, mentor, translated, mappedTags, marker, notes);
   console.log(`  ✅ Inserted: ${newSlug} (legacy_id ${mentor.legacy_id} -> ${newLegacyId}, status=inactive)`);
 
-  // Images
+  // Images (keyed by the new mentor's UUID)
   if (!args.skipImages) {
-    await copyImages(slug, newSlug, notes);
+    await copyImages(slug, mentorId, notes);
   } else {
     notes.push('image copy skipped (--skip-images)');
   }

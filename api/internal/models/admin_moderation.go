@@ -137,7 +137,6 @@ type AdminMentorProfileUpdateRequest struct {
 	About            string   `json:"about" binding:"required,max=10000"`
 	Competencies     string   `json:"competencies" binding:"required,max=5000"`
 	CalendarURL      string   `json:"calendarUrl" binding:"omitempty,url,max=500"`
-	Slug             *string  `json:"slug,omitempty" binding:"omitempty,max=200"`
 }
 
 type AdminMentorStatusUpdateRequest struct {

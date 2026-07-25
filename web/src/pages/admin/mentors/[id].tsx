@@ -26,9 +26,15 @@ import {
   returnModerationMentor,
   updateModerationMentorStatus,
   uploadModerationMentorPicture,
+  changeModerationMentorUsername,
   ApiError,
 } from '@/lib/admin-moderation-api'
 import { imageLoader } from '@/lib/image-loader'
+import {
+  useUsernameAvailability,
+  isUsernameFormatValid,
+  USERNAME_MAX_LENGTH,
+} from '@/lib/username'
 
 type SaveState = 'idle' | 'loading' | 'success' | 'error'
 type PictureState = 'idle' | 'loading' | 'success' | 'error'
@@ -41,10 +47,7 @@ function getBackLink(status: AdminMentorDetails['status']): string {
   return '/admin/mentors/approved'
 }
 
-function buildFormData(
-  mentor: AdminMentorDetails,
-  isAdmin: boolean
-): AdminMentorProfileUpdateRequest {
+function buildFormData(mentor: AdminMentorDetails): AdminMentorProfileUpdateRequest {
   return {
     name: mentor.name,
     email: mentor.email,
@@ -58,15 +61,169 @@ function buildFormData(
     description: mentor.description,
     competencies: mentor.competencies,
     calendarUrl: mentor.calendarUrl || '',
-    ...(isAdmin
-      ? {
-          slug: mentor.slug,
-        }
-      : {}),
   }
 }
 
 const labelClass = 'mb-1 block text-[13px] font-semibold text-ink'
+
+/**
+ * Admin username (slug) change block. Separate from the profile save form:
+ * a rename is a breaking action (old links redirect for 2 hops, then die) and
+ * goes through the dedicated history-aware endpoint. Admins have no cooldown,
+ * but availability is still enforced. Two-step inline confirm mirrors the
+ * decline flow elsewhere on this page.
+ */
+function AdminUsernameField({
+  mentorId,
+  currentUsername,
+  onChanged,
+}: {
+  mentorId: string
+  currentUsername: string
+  onChanged: (mentor: AdminMentorDetails) => void
+}): JSX.Element {
+  const [value, setValue] = useState(currentUsername)
+  const [confirming, setConfirming] = useState(false)
+  const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [error, setError] = useState<string | null>(null)
+
+  // Keep the input in sync when the mentor reloads (e.g. after a save).
+  useEffect(() => {
+    setValue(currentUsername)
+    setConfirming(false)
+    setState('idle')
+    setError(null)
+  }, [currentUsername])
+
+  const availability = useUsernameAvailability(value, `/api/admin/mentors/${mentorId}/username`)
+  const isUnchanged = value === currentUsername
+  const canSubmit =
+    !isUnchanged &&
+    isUsernameFormatValid(value) &&
+    (availability.status === 'available' ||
+      // The mentor's own current name reads as available; unchanged is blocked above.
+      availability.status === 'idle') &&
+    state !== 'loading'
+
+  const onConfirm = async (): Promise<void> => {
+    setState('loading')
+    setError(null)
+    try {
+      await changeModerationMentorUsername(mentorId, value)
+      // Re-fetch to get the canonical mentor (slug + updatedAt) after the change.
+      const refreshed = await getModerationMentorById(mentorId)
+      if (refreshed) onChanged(refreshed)
+      setConfirming(false)
+      setState('idle')
+    } catch (err) {
+      setState('error')
+      setError(err instanceof ApiError ? err.message : 'Failed to change username')
+    }
+  }
+
+  return (
+    <div className="rounded-panel border border-line bg-surface/40 p-4">
+      <label htmlFor="admin-username" className={labelClass}>
+        Username (profile link)
+      </label>
+      <div className="flex items-center overflow-hidden rounded-field border-[1.5px] border-line bg-white focus-within:border-brand-cobalt">
+        <span className="select-none whitespace-nowrap py-2 pl-3 pr-0 font-mono text-[13px] text-ink-soft">
+          /mentor/
+        </span>
+        <input
+          id="admin-username"
+          value={value}
+          maxLength={USERNAME_MAX_LENGTH}
+          autoCapitalize="none"
+          spellCheck={false}
+          onChange={(e) => {
+            setConfirming(false)
+            setState('idle')
+            setValue(
+              e.target.value
+                .toLowerCase()
+                .replace(/[^a-z0-9-]+/g, '-')
+                .replace(/-{2,}/g, '-')
+            )
+          }}
+          className="w-full min-w-0 border-0 bg-transparent py-2 pl-0 pr-3 font-mono text-[13px] text-ink outline-none"
+        />
+      </div>
+
+      <div className="mt-1.5 min-h-[1.125rem] text-[13px]" role="status" aria-live="polite">
+        {isUnchanged && <span className="text-ink-soft">Current username.</span>}
+        {!isUnchanged && availability.status === 'checking' && (
+          <span className="text-ink-soft">
+            <FontAwesomeIcon icon={faCircleNotch} spin className="mr-1" />
+            Checking…
+          </span>
+        )}
+        {!isUnchanged && availability.status === 'available' && (
+          <span className="font-medium text-mint-ink">✓ Available</span>
+        )}
+        {!isUnchanged && availability.status === 'unavailable' && (
+          <span className="font-medium text-danger">
+            {availability.reason === 'taken'
+              ? 'Already taken.'
+              : availability.reason === 'reserved'
+                ? 'Reserved word.'
+                : 'Use 3–40 letters, numbers and hyphens.'}
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <p className="mt-1 text-[13px] font-medium text-danger" role="alert">
+          {error}
+        </p>
+      )}
+
+      {!confirming ? (
+        <button
+          type="button"
+          disabled={!canSubmit}
+          onClick={() => setConfirming(true)}
+          className="button button-secondary mt-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Change username…
+        </button>
+      ) : (
+        <div className="mt-2 rounded-field border border-danger/40 bg-danger/[0.06] p-3">
+          <p className="mb-2 text-[13px] text-ink">
+            Rename to <span className="font-mono font-semibold">/mentor/{value}</span>? The old link
+            <span className="font-mono"> /mentor/{currentUsername}</span> will redirect for now, but
+            frees up after two more changes.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={state === 'loading'}
+              onClick={onConfirm}
+              className="button button-primary text-[13px]"
+            >
+              {state === 'loading' ? (
+                <>
+                  <FontAwesomeIcon icon={faCircleNotch} spin className="mr-1.5" />
+                  Changing…
+                </>
+              ) : (
+                'Yes, change it'
+              )}
+            </button>
+            <button
+              type="button"
+              disabled={state === 'loading'}
+              onClick={() => setConfirming(false)}
+              className="button button-secondary text-[13px]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function MentorModerationEditContent(): JSX.Element {
   const router = useRouter()
@@ -122,7 +279,7 @@ function MentorModerationEditContent(): JSX.Element {
 
         if (!mounted) return
         setMentor(data)
-        setFormData(buildFormData(data, session.role === 'admin'))
+        setFormData(buildFormData(data))
       } catch (err) {
         if (mounted) {
           setError(err instanceof Error ? err.message : 'Failed to load mentor')
@@ -176,7 +333,7 @@ function MentorModerationEditContent(): JSX.Element {
     try {
       const updated = await updateModerationMentor(mentor.mentorId, formData)
       setMentor(updated)
-      setFormData(buildFormData(updated, session?.role === 'admin'))
+      setFormData(buildFormData(updated))
       setSaveState('success')
     } catch (err) {
       setSaveState('error')
@@ -577,15 +734,15 @@ function MentorModerationEditContent(): JSX.Element {
                 className="field"
               />
             </div>
-            {session?.role === 'admin' && (
-              <div>
-                <label className={labelClass}>Slug</label>
-                <input
-                  value={formData.slug ?? ''}
-                  onChange={(e) => handleInputChange('slug', e.target.value)}
-                  className="field"
-                />
-              </div>
+            {session?.role === 'admin' && mentor && mentorId && (
+              <AdminUsernameField
+                mentorId={mentorId}
+                currentUsername={mentor.slug}
+                onChanged={(updated) => {
+                  setMentor(updated)
+                  setFormData(buildFormData(updated))
+                }}
+              />
             )}
             <div>
               <label className={labelClass}>Experience</label>
@@ -689,7 +846,7 @@ function MentorModerationEditContent(): JSX.Element {
               </h3>
               <div className="mb-3 flex items-center gap-4">
                 <Image
-                  src={imagePreview || imageLoader({ src: mentor.slug, quality: 'full' })}
+                  src={imagePreview || imageLoader({ src: mentor.mentorId, quality: 'full' })}
                   alt="Mentor picture"
                   width={96}
                   height={96}

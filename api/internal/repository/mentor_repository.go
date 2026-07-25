@@ -64,10 +64,21 @@ func (r *MentorRepository) GetByID(ctx context.Context, id int, opts models.Filt
 }
 
 // GetBySlug retrieves a mentor by slug directly from the database.
+// When the slug is not current, it falls back to mentor_slug_history so
+// retired slugs still resolve — the returned mentor carries its CURRENT slug,
+// and callers compare it against the requested one to issue a 301 redirect.
 func (r *MentorRepository) GetBySlug(ctx context.Context, mentorSlug string, opts models.FilterOptions) (*models.Mentor, error) {
 	mentor, err := r.FetchSingleMentorFromDB(ctx, mentorSlug)
 	if err != nil {
-		return nil, err
+		// Direct miss: resolve via slug history (old username → redirect).
+		entry, histErr := r.GetSlugHistoryBySlug(ctx, mentorSlug)
+		if histErr != nil || entry == nil {
+			return nil, err
+		}
+		mentor, err = r.fetchMentorByUUIDFromDB(ctx, entry.MentorID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Apply filters to single mentor
@@ -196,12 +207,28 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 		return "", 0, "", fmt.Errorf("failed to get next legacy_id: %w", err)
 	}
 
-	// Generate slug from name and legacy_id
+	// Slug: use the caller-chosen username when provided (already normalized
+	// and validated by the registration service), else generate the legacy
+	// name-<id> form. A chosen slug must also not be an active redirect.
 	name, ok := fields["name"].(string)
 	if !ok || name == "" {
 		return "", 0, "", fmt.Errorf("name is required")
 	}
-	mentorSlug := slug.GenerateMentorSlug(name, nextLegacyID)
+	mentorSlug, hasChosenSlug := fields["slug"].(string)
+	if !hasChosenSlug || mentorSlug == "" {
+		mentorSlug = slug.GenerateMentorSlug(name, nextLegacyID)
+	} else {
+		var redirectTaken bool
+		if err = tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM mentor_slug_history WHERE slug = $1)`,
+			mentorSlug,
+		).Scan(&redirectTaken); err != nil {
+			return "", 0, "", fmt.Errorf("failed to check slug history: %w", err)
+		}
+		if redirectTaken {
+			return "", 0, "", ErrSlugTaken
+		}
+	}
 
 	// photo_style has a NOT NULL DEFAULT 'frame'; fall back to it when the
 	// caller did not classify a profile picture.
@@ -240,6 +267,9 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 	).Scan(&mentorId)
 
 	if err != nil {
+		if isSlugUniqueViolation(err) {
+			return "", 0, "", ErrSlugTaken
+		}
 		return "", 0, "", fmt.Errorf("failed to create mentor: %w", err)
 	}
 

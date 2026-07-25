@@ -9,8 +9,14 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch, faQuestionCircle } from '@fortawesome/free-solid-svg-icons'
 import { Tooltip } from 'react-tooltip'
 import Link from 'next/link'
-import { useState, useRef, type ChangeEvent, type DragEvent } from 'react'
+import { useState, useRef, useEffect, type ChangeEvent, type DragEvent } from 'react'
 import type { RegisterMentorRequest, ProfilePictureData } from '@/types/api'
+import {
+  slugifyUsername,
+  isUsernameFormatValid,
+  useUsernameAvailability,
+  USERNAME_MAX_LENGTH,
+} from '@/lib/username'
 
 interface TagOption {
   value: string
@@ -21,6 +27,7 @@ interface RegisterFormData {
   name: string
   email: string
   contact: string
+  username: string
   job: string
   workplace: string
   experience: string
@@ -163,9 +170,23 @@ export default function RegisterMentorForm({
     control,
     register,
     watch,
+    setValue,
     handleSubmit,
     formState: { errors },
   } = useForm<RegisterFormData>()
+
+  // Username auto-fills from the name (slugified) until the mentor edits it
+  // manually, after which we stop overwriting their choice.
+  const [usernameEdited, setUsernameEdited] = useState(false)
+  const nameValue = watch('name')
+  const usernameValue = watch('username') || ''
+
+  useEffect(() => {
+    if (usernameEdited) return
+    setValue('username', slugifyUsername(nameValue || ''))
+  }, [nameValue, usernameEdited, setValue])
+
+  const usernameAvailability = useUsernameAvailability(usernameValue, '/api/username-availability')
 
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -236,6 +257,13 @@ export default function RegisterMentorForm({
       return
     }
 
+    // Don't submit a username we already know is taken/invalid — the server
+    // rechecks, but this saves a round-trip and keeps the user on the field.
+    if (usernameAvailability.status === 'unavailable') {
+      document.getElementById('username')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+
     if (!captchaToken) {
       return
     }
@@ -246,7 +274,7 @@ export default function RegisterMentorForm({
       contentType: selectedImage.type,
     }
 
-    onSubmit({ ...data, profilePicture, captchaToken })
+    onSubmit({ ...data, username: data.username?.trim() || undefined, profilePicture, captchaToken })
   }
 
   // ── Progress rail: best-effort section completion from form state ─────
@@ -258,7 +286,10 @@ export default function RegisterMentorForm({
     {
       id: 'reg-contact',
       label: 'Contact details',
-      complete: Boolean(values.name?.trim()) && /^\S+@\S+$/i.test(values.email || ''),
+      complete:
+        Boolean(values.name?.trim()) &&
+        /^\S+@\S+$/i.test(values.email || '') &&
+        isUsernameFormatValid((values.username || '').trim()),
     },
     {
       id: 'reg-profile',
@@ -420,6 +451,74 @@ export default function RegisterMentorForm({
                 Optional — email, Telegram, LinkedIn, whatever works for you. Otherwise we&apos;ll
                 reach out by email.
               </p>
+            </div>
+
+            <div>
+              <label htmlFor="username" className={labelClass}>
+                Your profile link
+              </label>
+
+              <div
+                className={classNames(
+                  'flex items-center overflow-hidden rounded-xl border-[1.5px] bg-white transition-colors focus-within:border-brand-cobalt focus-within:ring-[3px] focus-within:ring-brand-cobalt/[0.13]',
+                  usernameAvailability.status === 'unavailable' ? 'border-danger' : 'border-line'
+                )}
+              >
+                <span className="select-none whitespace-nowrap py-2.5 pl-3.5 pr-0 font-mono text-sm text-ink-soft">
+                  openmentor.io/mentor/
+                </span>
+                <input
+                  type="text"
+                  id="username"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  maxLength={USERNAME_MAX_LENGTH}
+                  {...register('username', {
+                    maxLength: USERNAME_MAX_LENGTH,
+                    onChange: (e: ChangeEvent<HTMLInputElement>) => {
+                      setUsernameEdited(true)
+                      // Keep the value URL-safe as they type (spaces/uppercase
+                      // become hyphens/lowercase); the server is authoritative.
+                      const cleaned = e.target.value
+                        .toLowerCase()
+                        .replace(/[^a-z0-9-]+/g, '-')
+                        .replace(/-{2,}/g, '-')
+                      if (cleaned !== e.target.value) {
+                        setValue('username', cleaned)
+                      }
+                    },
+                  })}
+                  className="w-full min-w-0 border-0 bg-transparent py-2.5 pl-0 pr-3.5 font-mono text-sm text-ink outline-none placeholder:text-ink-soft/60"
+                  placeholder="your-name"
+                />
+              </div>
+
+              <div className="mt-2 min-h-[1.25rem] text-sm" role="status" aria-live="polite">
+                {usernameAvailability.status === 'checking' && (
+                  <span className="text-ink-soft">
+                    <FontAwesomeIcon icon={faCircleNotch} spin className="mr-1.5" />
+                    Checking availability…
+                  </span>
+                )}
+                {usernameAvailability.status === 'available' && (
+                  <span className="font-medium text-mint-ink">✓ Available</span>
+                )}
+                {usernameAvailability.status === 'unavailable' && (
+                  <span className="font-medium text-danger">
+                    {usernameAvailability.reason === 'taken'
+                      ? 'That link is already taken — try another.'
+                      : usernameAvailability.reason === 'reserved'
+                        ? 'That word is reserved — please pick another.'
+                        : 'Use 3–40 letters, numbers and hyphens (e.g. anna-smith).'}
+                  </span>
+                )}
+                {usernameAvailability.status === 'idle' && (
+                  <span className="text-ink-soft">
+                    This becomes your public profile URL. You can change it later.
+                  </span>
+                )}
+              </div>
             </div>
           </section>
 

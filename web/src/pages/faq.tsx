@@ -283,6 +283,16 @@ export default function Faq(): JSX.Element {
           </p>
         </QA>
 
+        <QA id="profile-link" q="Can I change my profile link?">
+          <p className="my-0">
+            Yes. You pick your link when you register (
+            <span className="font-mono text-[0.95em]">openmentor.io/mentor/your-name</span>) and can
+            change it later from your profile page. Heads up: it&rsquo;s a breaking change — anywhere
+            you&rsquo;ve already shared the old link will redirect for a while, but eventually stops
+            working, so change it sparingly. To keep things stable we allow one change every 14 days.
+          </p>
+        </QA>
+
         <QA id="account" q="How do I change my email or delete my account?">
           <p className="my-0">
             Write to <a href="mailto:hello@openmentor.io">hello@openmentor.io</a> and we&rsquo;ll

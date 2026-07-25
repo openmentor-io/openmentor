@@ -77,7 +77,6 @@ export interface AdminMentorProfileUpdateRequest {
   description: string
   competencies: string
   calendarUrl: string
-  slug?: string
 }
 
 export interface AdminStatusUpdateRequest {

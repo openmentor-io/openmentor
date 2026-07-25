@@ -66,4 +66,6 @@ cd "$SCRIPT_DIR"
 NODE_ARGS=()
 [ -f "$SCRIPT_DIR/.env" ] && NODE_ARGS+=(--env-file="$SCRIPT_DIR/.env")
 
-node "${NODE_ARGS[@]}" migrate-mentors.js "$@"
+# MIGRATE_SCRIPT lets sibling one-off scripts reuse this wrapper's DB tunnel
+# and env plumbing, e.g.: MIGRATE_SCRIPT=rekey-images.js ./migrate-mentors.sh --dry-run
+node "${NODE_ARGS[@]}" "${MIGRATE_SCRIPT:-migrate-mentors.js}" "$@"

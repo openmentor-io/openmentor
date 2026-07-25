@@ -52,6 +52,16 @@ const _getServerSideProps: GetServerSideProps<{ mentor: MentorContact }> = async
     }
   }
 
+  // Redirect retired-username links to the canonical contact URL (301).
+  if (mentor.slug !== slug) {
+    return {
+      redirect: {
+        destination: `/mentor/${mentor.slug}/contact`,
+        permanent: true,
+      },
+    }
+  }
+
   logger.info('Mentor contact page rendered', {
     mentorId: mentor.id,
     mentorSlug: mentor.slug,

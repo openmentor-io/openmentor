@@ -179,6 +179,8 @@ export interface RegisterMentorRequest {
   name: string
   email: string
   contact: string
+  /** Chosen profile URL part (public name for the internal slug). Optional — auto-generated when empty. */
+  username?: string
   job: string
   workplace: string
   experience: string // '2-5' | '5-10' | '10+'
@@ -200,6 +202,29 @@ export interface RegisterMentorResponse {
   message?: string
   mentorId?: number
   error?: string
+  /** Machine-readable error code, e.g. 'username_taken' | 'username_invalid' */
+  reason?: string
+}
+
+/**
+ * Username (public name for the mentor slug) API types
+ */
+export interface UsernameAvailabilityResult {
+  username: string
+  available: boolean
+  reason?: 'taken' | 'invalid' | 'reserved'
+  message?: string
+}
+
+export interface UsernameStatusResponse {
+  username: string
+  canChange: boolean
+  nextChangeAt?: string // ISO timestamp, present when cooldown is active
+}
+
+export interface ChangeUsernameResponse {
+  success: boolean
+  username: string
 }
 
 /**

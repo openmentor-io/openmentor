@@ -6,6 +6,9 @@ type RegisterMentorRequest struct {
 	Name             string `json:"name" binding:"required,max=100"`
 	Email            string `json:"email" binding:"required,email,max=255"`
 	PreferredContact string `json:"contact" binding:"omitempty,max=100"` // Optional free-text contact details
+	// Username is the chosen profile URL part (public name for the internal
+	// slug). Optional: when empty, a slug is auto-generated from the name.
+	Username string `json:"username" binding:"omitempty,max=100"`
 
 	// Professional Info
 	Job        string   `json:"job" binding:"required,max=200"`
@@ -40,4 +43,7 @@ type RegisterMentorResponse struct {
 	Message  string `json:"message,omitempty"`
 	MentorID int    `json:"mentorId,omitempty"`
 	Error    string `json:"error,omitempty"`
+	// Reason is a machine-readable error code so the frontend can attach the
+	// error to the right field ("username_taken", "username_invalid").
+	Reason string `json:"reason,omitempty"`
 }

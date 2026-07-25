@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
+	"github.com/openmentor-io/openmentor/api/pkg/slug"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
 	"github.com/openmentor-io/openmentor/api/pkg/turnstile"
 	"go.uber.org/zap"
@@ -99,7 +101,22 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		}, fmt.Errorf("captcha verification failed: %w", err)
 	}
 
-	// 2. Trim the optional free-text contact details
+	// 2. Validate the chosen username (optional; the frontend pre-checks
+	// availability, but the DB unique constraint in CreateMentor is the
+	// authoritative backstop against races).
+	username := slug.NormalizeUsername(req.Username)
+	if username != "" {
+		if err := slug.ValidateUsername(username); err != nil {
+			metrics.MentorRegistrations.WithLabelValues("invalid_username").Inc()
+			return &models.RegisterMentorResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Invalid username: %s", err.Error()),
+				Reason:  "username_invalid",
+			}, fmt.Errorf("invalid username: %w", err)
+		}
+	}
+
+	// Trim the optional free-text contact details
 	contact := strings.TrimSpace(req.PreferredContact)
 
 	// 3. Get tag IDs for selected tags
@@ -133,11 +150,23 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		fields["calendar_url"] = req.CalendarURL
 	}
 
+	if username != "" {
+		fields["slug"] = username
+	}
+
 	// Note: Tags will be inserted separately into mentor_tags table
 	// This is handled by the repository CreateMentor method
 
 	mentorID, legacyID, mentorSlug, err := s.mentorRepo.CreateMentor(ctx, fields)
 	if err != nil {
+		if errors.Is(err, repository.ErrSlugTaken) {
+			metrics.MentorRegistrations.WithLabelValues("username_taken").Inc()
+			return &models.RegisterMentorResponse{
+				Success: false,
+				Error:   "This username is already taken — please pick another one",
+				Reason:  "username_taken",
+			}, fmt.Errorf("username taken: %w", err)
+		}
 		metrics.MentorRegistrations.WithLabelValues("db_error").Inc()
 		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"), map[string]interface{}{
 			"tags_count":          len(req.Tags),
@@ -155,6 +184,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 	logger.Info("Mentor created in database",
 		zap.String("mentor_id", mentorID),
 		zap.Int("legacy_id", legacyID),
+		zap.String("slug", mentorSlug),
 		zap.String("email", req.Email))
 
 	// Set mentor tags if any were provided
@@ -165,8 +195,9 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		}
 	}
 
-	// 5. Upload profile picture (non-blocking on failure)
-	s.storageClient.UploadImageAllSizesAsync(ctx, req.ProfilePicture.Image, mentorSlug, req.ProfilePicture.ContentType, mentorID)
+	// 5. Upload profile picture (non-blocking on failure). Images are keyed by
+	// the mentor UUID, not the slug — usernames are changeable.
+	s.storageClient.UploadImageAllSizesAsync(ctx, req.ProfilePicture.Image, req.ProfilePicture.ContentType, mentorID)
 
 	// 6. Trigger mentor created webhook (non-blocking)
 	trigger.CallAsync(ctx, s.config.EventTriggers.MentorCreatedTriggerURL, mentorID, s.config.Worker.AuthToken, s.httpClient)

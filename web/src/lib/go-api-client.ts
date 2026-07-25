@@ -38,6 +38,9 @@ import type {
   RequestStatus,
   DeclineRequestPayload,
   RequestsListResponse,
+  UsernameAvailabilityResult,
+  UsernameStatusResponse,
+  ChangeUsernameResponse,
 } from '@/types'
 
 // HTTP client configuration
@@ -251,6 +254,17 @@ class GoApiClient {
     return this.request<ConfirmMentorEmailResponse>('POST', '/api/v1/mentors/confirm/resend', {
       body: data as unknown as Record<string, unknown>,
     })
+  }
+
+  /**
+   * Check whether a username (public name for the slug) is available.
+   * Public endpoint used by the registration form's live check.
+   */
+  async usernameAvailability(candidate: string): Promise<UsernameAvailabilityResult> {
+    return this.request<UsernameAvailabilityResult>(
+      'GET',
+      `/api/v1/username/availability?u=${encodeURIComponent(candidate)}`
+    )
   }
 
   // ============================================
@@ -494,6 +508,47 @@ class GoApiClient {
     return data
   }
 
+  /**
+   * Get the mentor's current username and cooldown state (session auth).
+   */
+  async mentorGetUsernameStatus(cookies: string): Promise<UsernameStatusResponse> {
+    const { data } = await this.requestWithCookies<UsernameStatusResponse>(
+      'GET',
+      '/api/v1/mentor/username',
+      { cookies }
+    )
+    return data
+  }
+
+  /**
+   * Check username availability for the current mentor (session auth).
+   * The mentor's own current/retired usernames read as available.
+   */
+  async mentorUsernameAvailability(
+    cookies: string,
+    candidate: string
+  ): Promise<UsernameAvailabilityResult> {
+    const { data } = await this.requestWithCookies<UsernameAvailabilityResult>(
+      'GET',
+      `/api/v1/mentor/username/availability?u=${encodeURIComponent(candidate)}`,
+      { cookies }
+    )
+    return data
+  }
+
+  /**
+   * Change the mentor's own username (session auth; 14-day cooldown enforced
+   * server-side). This is a breaking change — old links redirect for 2 hops.
+   */
+  async mentorChangeUsername(cookies: string, username: string): Promise<ChangeUsernameResponse> {
+    const { data } = await this.requestWithCookies<ChangeUsernameResponse>(
+      'POST',
+      '/api/v1/mentor/username',
+      { cookies, body: { username } }
+    )
+    return data
+  }
+
   // ============================================
   // Admin Moderation API Methods
   // ============================================
@@ -632,6 +687,39 @@ class GoApiClient {
       'POST',
       `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/picture`,
       { cookies, body: imageData as unknown as Record<string, unknown> }
+    )
+    return data
+  }
+
+  /**
+   * Check username availability for a mentor from the admin panel (admin auth).
+   */
+  async adminUsernameAvailability(
+    cookies: string,
+    mentorId: string,
+    candidate: string
+  ): Promise<UsernameAvailabilityResult> {
+    const { data } = await this.requestWithCookies<UsernameAvailabilityResult>(
+      'GET',
+      `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/username/availability?u=${encodeURIComponent(candidate)}`,
+      { cookies }
+    )
+    return data
+  }
+
+  /**
+   * Change a mentor's username from the admin panel (admin auth; no cooldown,
+   * goes through the same history/redirect machinery as the mentor flow).
+   */
+  async adminChangeUsername(
+    cookies: string,
+    mentorId: string,
+    username: string
+  ): Promise<ChangeUsernameResponse> {
+    const { data } = await this.requestWithCookies<ChangeUsernameResponse>(
+      'POST',
+      `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/username`,
+      { cookies, body: { username } }
     )
     return data
   }
