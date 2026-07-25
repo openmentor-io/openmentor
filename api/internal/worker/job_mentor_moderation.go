@@ -141,6 +141,10 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 				"first_name":               mentor.Name,
 				"mentor_profile_url":       h.mentorProfileURL(mentor.Slug),
 				"mentor_profile_share_url": h.mentorProfileShareURL(mentor.Slug),
+				// Empty when DISCORD_MENTORS_PRIVATE_INVITE_LINK is unset —
+				// the template hides the section via a {{#if}} block
+				// (rendered by SES, which supports Handlebars conditionals).
+				"discord_invite_link": h.discordInviteLink,
 			},
 		}
 	case "return":
