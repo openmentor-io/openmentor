@@ -95,7 +95,11 @@ function AdminUsernameField({
     setError(null)
   }, [currentUsername])
 
-  const availability = useUsernameAvailability(value, `/api/admin/mentors/${mentorId}/username`)
+  // Encode the id path segment: mentorId comes from the route param, so
+  // encoding prevents a crafted value ("../…") from redirecting the
+  // availability fetch to a different endpoint (CWE-918 / request forgery).
+  const availabilityEndpoint = `/api/admin/mentors/${encodeURIComponent(mentorId)}/username`
+  const availability = useUsernameAvailability(value, availabilityEndpoint)
   const isUnchanged = value === currentUsername
   const canSubmit =
     !isUnchanged &&
