@@ -251,8 +251,11 @@ export default function RegisterMentorForm({
 
   // ── Progress rail: best-effort section completion from form state ─────
   const values = watch()
-  const hasRichText = (html?: string): boolean =>
-    Boolean(html && html.replace(/<[^>]*>/g, '').trim())
+  const hasRichText = (html?: string): boolean => {
+    if (!html) return false
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    return Boolean(doc.body.textContent?.trim())
+  }
 
   const sections: RailSection[] = [
     {
