@@ -53,12 +53,22 @@ around the deploy so no photo is missing:
 1. **Run the re-key script** — copies all existing photos to UUID keys while
    the app is still serving slug-keyed reads.
 2. **Deploy** the `custom-username` release (`deploy.sh`). Migrations
-   (`000006_slug_history`) run automatically before api/worker. From here the
-   app reads/writes images at `<uuid>/…`.
-3. **Re-run the re-key script once more** — catches any photo uploaded OR
-   replaced in the gap between steps 1 and 2. The rerun is version-aware: it
-   re-copies a source that is newer than its destination, and skips
-   destinations the new UUID-keyed app has already written, so it's fast.
+   (`000006_slug_history`, `000007_slug_changed_at`) run automatically before
+   api/worker. From here the app reads/writes images at `<uuid>/…`.
+3. **Re-run the re-key script once more** — copies photos uploaded in the gap
+   whose UUID destination doesn't exist yet. This rerun never overwrites an
+   existing destination, so it can't clobber a live upload. It reports any
+   destination whose slug source is *newer* (a photo replaced during the gap)
+   as "stale (need --refresh)".
+4. **Only if step 3 reported stale destinations:** briefly disable
+   profile-picture uploads (quiesce), then run once with `--refresh` to
+   re-copy those replaced photos, and re-enable uploads:
+   ```bash
+   MIGRATE_SCRIPT=rekey-images.js ./migrate-mentors.sh --refresh
+   ```
+   `--refresh` is the only mode that overwrites, and its HEAD→copy step can
+   race a concurrent upload — hence the quiesce. In practice a mentor replacing
+   their photo in the short deploy gap is rare, so step 4 is usually a no-op.
 
 ## Verifying
 
@@ -74,8 +84,10 @@ the network tab should show `cdn.openmentor.io/<uuid>/...` rather than
 
 ## Notes
 
-- Safe to re-run any time; a destination is skipped only when it is at least
-  as new as its source, so reruns re-copy replaced photos but not up-to-date ones.
+- Safe to re-run any time: the default mode only fills in missing destinations
+  and never overwrites an existing one, so it can't clobber a live upload.
+  Overwriting a replaced photo requires the explicit `--refresh` mode, which
+  must run with uploads quiesced (see step 4 above).
 - Old slug-keyed objects are not deleted here. They can be swept later once
   you're confident every photo resolved (a separate cleanup, out of scope for
   the cutover).

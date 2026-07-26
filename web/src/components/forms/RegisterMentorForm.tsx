@@ -2,7 +2,7 @@ import Select, { type MultiValue, type StylesConfig } from 'react-select'
 import Image from 'next/image'
 import classNames from 'classnames'
 import { useForm, Controller } from 'react-hook-form'
-import { Turnstile } from '@marsidev/react-turnstile'
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import Wysiwyg from './Wysiwyg'
 import filters from '@/config/filters'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -194,6 +194,20 @@ export default function RegisterMentorForm({
   const [isDragOver, setIsDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [captchaToken, setCaptchaToken] = useState<string>('')
+  const turnstileRef = useRef<TurnstileInstance>(null)
+
+  // Turnstile tokens are single-use and are consumed by the backend even when
+  // registration is rejected for a recoverable reason (e.g. the username was
+  // taken between the live check and submit). Reset the widget on every failed
+  // attempt so a retry sends a FRESH token instead of the spent one — the
+  // parent flips submitStatus back to 'idle' before each submit, so isError
+  // toggles and this effect re-fires per failure.
+  useEffect(() => {
+    if (isError) {
+      turnstileRef.current?.reset()
+      setCaptchaToken('')
+    }
+  }, [isError])
 
   const processImageFile = (file: File | undefined): void => {
     setImageError('') // Clear any previous errors
@@ -934,6 +948,7 @@ export default function RegisterMentorForm({
 
             <div>
               <Turnstile
+                ref={turnstileRef}
                 siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
                 onSuccess={handleCaptchaOnSuccess}
                 onExpire={handleCaptchaOnExpire}

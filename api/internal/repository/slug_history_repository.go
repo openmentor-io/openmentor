@@ -136,10 +136,12 @@ func (r *MentorRepository) GetSlugHistoryBySlug(ctx context.Context, slug string
 // (mentor-initiated only — admin changes don't consume the cooldown), or nil
 // when they never have.
 func (r *MentorRepository) LatestMentorSlugChange(ctx context.Context, mentorID string) (*time.Time, error) {
+	// Read the dedicated cooldown column, NOT the history rows: history is
+	// trimmed to 2 hops, so admin renames could otherwise evict the
+	// mentor-initiated timestamp and reset the cooldown early.
 	var at *time.Time
 	err := r.pool.QueryRow(ctx,
-		`SELECT MAX(created_at) FROM mentor_slug_history
-		  WHERE mentor_id = $1 AND changed_by = 'mentor'`,
+		`SELECT slug_changed_at FROM mentors WHERE id = $1`,
 		mentorID,
 	).Scan(&at)
 	if err != nil {
@@ -168,9 +170,14 @@ func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, ch
 	}
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op after commit
 
-	// Lock the mentor row so concurrent changes serialize.
+	// Lock the mentor row so concurrent changes serialize. Read the cooldown
+	// timestamp under the same lock so the check below can't be raced.
 	var oldSlug string
-	err = tx.QueryRow(ctx, `SELECT slug FROM mentors WHERE id = $1 FOR UPDATE`, mentorID).Scan(&oldSlug)
+	var slugChangedAt *time.Time
+	err = tx.QueryRow(ctx,
+		`SELECT slug, slug_changed_at FROM mentors WHERE id = $1 FOR UPDATE`,
+		mentorID,
+	).Scan(&oldSlug, &slugChangedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("mentor %s not found", mentorID)
 	}
@@ -189,21 +196,11 @@ func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, ch
 	}
 
 	// Cooldown, evaluated under the mentor row lock so it can't be raced by a
-	// second concurrent rename (the loser blocks on the lock, then sees the
-	// winner's freshly-inserted history row here).
-	if cooldown > 0 {
-		var last *time.Time
-		if err = tx.QueryRow(ctx,
-			`SELECT MAX(created_at) FROM mentor_slug_history
-			  WHERE mentor_id = $1 AND changed_by = 'mentor'`,
-			mentorID,
-		).Scan(&last); err != nil {
-			return "", fmt.Errorf("failed to read latest slug change: %w", err)
-		}
-		if last != nil {
-			if next := last.Add(cooldown); now.Before(next) {
-				return "", &CooldownError{NextChangeAt: next}
-			}
+	// second concurrent rename (the loser blocks on the lock, then re-reads the
+	// winner's committed slug_changed_at here).
+	if cooldown > 0 && slugChangedAt != nil {
+		if next := slugChangedAt.Add(cooldown); now.Before(next) {
+			return "", &CooldownError{NextChangeAt: next}
 		}
 	}
 
@@ -262,10 +259,21 @@ func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, ch
 		return "", fmt.Errorf("failed to trim slug history: %w", err)
 	}
 
-	if _, err = tx.Exec(ctx,
-		`UPDATE mentors SET slug = $1, updated_at = NOW() WHERE id = $2`,
-		newSlug, mentorID,
-	); err != nil {
+	// Update the slug (+updated_at busts image/OG caches). Only mentor-initiated
+	// changes advance slug_changed_at, so admin renames neither consume nor
+	// reset the mentor's 14-day cooldown.
+	if changedBy == "mentor" {
+		_, err = tx.Exec(ctx,
+			`UPDATE mentors SET slug = $1, updated_at = NOW(), slug_changed_at = NOW() WHERE id = $2`,
+			newSlug, mentorID,
+		)
+	} else {
+		_, err = tx.Exec(ctx,
+			`UPDATE mentors SET slug = $1, updated_at = NOW() WHERE id = $2`,
+			newSlug, mentorID,
+		)
+	}
+	if err != nil {
 		if isUniqueViolation(err) {
 			return "", ErrSlugTaken
 		}

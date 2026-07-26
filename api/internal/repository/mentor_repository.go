@@ -214,26 +214,56 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 	if !ok || name == "" {
 		return "", 0, "", fmt.Errorf("name is required")
 	}
-	mentorSlug, hasChosenSlug := fields["slug"].(string)
-	if !hasChosenSlug || mentorSlug == "" {
-		mentorSlug = slug.GenerateMentorSlug(name, nextLegacyID)
-	} else {
-		// Serialize this claim with any concurrent rename retiring the same
-		// slug into history: without the shared lock the redirect row below
-		// could be committed just after this check, leaving the slug both a
-		// live profile (our insert) and another mentor's redirect.
-		if err = lockSlugs(ctx, tx, mentorSlug); err != nil {
-			return "", 0, "", err
+	// claimSlug takes the shared per-slug advisory lock and reports whether the
+	// slug is already an active redirect. Serializing here (and in ChangeSlug)
+	// stops a registration from claiming a slug as its current name while a
+	// concurrent rename is retiring that same slug into history — which would
+	// leave it both a live profile and another mentor's redirect.
+	claimSlug := func(candidate string) (bool, error) {
+		if lockErr := lockSlugs(ctx, tx, candidate); lockErr != nil {
+			return false, lockErr
 		}
 		var redirectTaken bool
-		if err = tx.QueryRow(ctx,
+		if qErr := tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM mentor_slug_history WHERE slug = $1)`,
-			mentorSlug,
-		).Scan(&redirectTaken); err != nil {
-			return "", 0, "", fmt.Errorf("failed to check slug history: %w", err)
+			candidate,
+		).Scan(&redirectTaken); qErr != nil {
+			return false, fmt.Errorf("failed to check slug history: %w", qErr)
 		}
-		if redirectTaken {
+		return redirectTaken, nil
+	}
+
+	mentorSlug, hasChosenSlug := fields["slug"].(string)
+	hasChosenSlug = hasChosenSlug && mentorSlug != ""
+	if hasChosenSlug {
+		// Caller-chosen username (already normalized+validated). A clash with a
+		// redirect is the user's problem — surface it so they pick another.
+		taken, claimErr := claimSlug(mentorSlug)
+		if claimErr != nil {
+			return "", 0, "", claimErr
+		}
+		if taken {
 			return "", 0, "", ErrSlugTaken
+		}
+	} else {
+		// Generated name-<id> slug. The fresh legacy_id makes a redirect clash
+		// nearly impossible, but a mentor could have squatted a future-looking
+		// slug as a redirect — so verify (under the same lock) and disambiguate
+		// with a numeric suffix rather than corrupting history.
+		base := slug.GenerateMentorSlug(name, nextLegacyID)
+		mentorSlug = base
+		for attempt := 2; ; attempt++ {
+			taken, claimErr := claimSlug(mentorSlug)
+			if claimErr != nil {
+				return "", 0, "", claimErr
+			}
+			if !taken {
+				break
+			}
+			if attempt > 6 {
+				return "", 0, "", fmt.Errorf("could not derive a free slug for %q", name)
+			}
+			mentorSlug = fmt.Sprintf("%s-%d", base, attempt)
 		}
 	}
 

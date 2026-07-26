@@ -2,17 +2,29 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import RegisterMentorForm from '@/components/forms/RegisterMentorForm'
 
-// Mock Turnstile component
-jest.mock('@marsidev/react-turnstile', () => ({
-  __esModule: true,
-  Turnstile: function MockTurnstile({ onSuccess }: { onSuccess?: (token: string) => void }) {
-    return (
-      <button type="button" data-testid="turnstile" onClick={() => onSuccess?.('mock-turnstile-token')}>
-        Complete Turnstile
-      </button>
-    )
-  },
-}))
+// Mock Turnstile component (forwardRef so the widget's reset() is callable)
+const mockTurnstileReset = jest.fn()
+jest.mock('@marsidev/react-turnstile', () => {
+  const react = jest.requireActual('react')
+  return {
+    __esModule: true,
+    Turnstile: react.forwardRef(function MockTurnstile(
+      { onSuccess }: { onSuccess?: (token: string) => void },
+      ref: React.Ref<{ reset: () => void }>
+    ) {
+      react.useImperativeHandle(ref, () => ({ reset: mockTurnstileReset }))
+      return (
+        <button
+          type="button"
+          data-testid="turnstile"
+          onClick={() => onSuccess?.('mock-turnstile-token')}
+        >
+          Complete Turnstile
+        </button>
+      )
+    }),
+  }
+})
 
 // Mock react-select to avoid issues with portal rendering
 jest.mock('react-select', () => ({
@@ -129,6 +141,20 @@ describe('RegisterMentorForm', () => {
     render(<RegisterMentorForm isLoading={false} isError={true} onSubmit={mockOnSubmit} />)
 
     expect(screen.getByText(/Something went wrong/i)).toBeInTheDocument()
+  })
+
+  it('resets the Turnstile widget when a submission fails (fresh token on retry)', () => {
+    // The single-use captcha token is consumed even on recoverable failures
+    // (e.g. a username taken between the live check and submit), so the widget
+    // must reset so a retry sends a new token.
+    const { rerender } = render(
+      <RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />
+    )
+    expect(mockTurnstileReset).not.toHaveBeenCalled()
+
+    rerender(<RegisterMentorForm isLoading={false} isError={true} onSubmit={mockOnSubmit} />)
+
+    expect(mockTurnstileReset).toHaveBeenCalled()
   })
 
   it('shows validation error for empty required fields on submit', async () => {

@@ -743,8 +743,11 @@ function MentorModerationEditContent(): JSX.Element {
                 mentorId={mentorId}
                 currentUsername={mentor.slug}
                 onChanged={(updated) => {
+                  // Only refresh the mentor object (its slug drives this block's
+                  // current-username display). Do NOT rebuild formData — that
+                  // would discard any unsaved profile edits the admin made
+                  // before renaming. A rename never touches profile fields.
                   setMentor(updated)
-                  setFormData(buildFormData(updated))
                 }}
               />
             )}
