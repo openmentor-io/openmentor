@@ -55,13 +55,15 @@ const _getServerSideProps: GetServerSideProps<MentorPageProps> = async (context)
   }
 
   // The mentor may have been resolved via a retired username (slug history).
-  // Redirect old links to the canonical URL (301) so shared links keep working
-  // while search engines learn the new address.
+  // Redirect old links to the canonical URL. Use a TEMPORARY (302) redirect,
+  // not 301: a retired slug is freed for reuse after 2 more changes, so a
+  // permanent redirect could be cached and keep sending visitors to the
+  // original mentor after the slug is reassigned to someone else.
   if (mentor.slug !== slug) {
     return {
       redirect: {
         destination: `/mentor/${mentor.slug}`,
-        permanent: true,
+        permanent: false,
       },
     }
   }

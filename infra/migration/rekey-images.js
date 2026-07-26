@@ -88,14 +88,42 @@ async function headObject(s3, key) {
   }
 }
 
+// findSource returns the newest existing object among the candidate slugs for a
+// size (current slug preferred on ties), or null when none exists. Considering
+// retired slugs lets a rename between deploy and this pass not strand a photo.
+async function findSource(s3, slugs, size) {
+  let best = null;
+  for (const slug of slugs) {
+    const key = `${slug}/${size}`;
+    const head = await headObject(s3, key);
+    if (!head) continue;
+    if (!best || (head.LastModified && best.head.LastModified && head.LastModified > best.head.LastModified)) {
+      best = { key, head };
+    }
+  }
+  return best;
+}
+
 async function main() {
   assertConfig();
   const s3 = s3Client();
   const db = new Client({ connectionString: config.targetDatabaseUrl });
   await db.connect();
 
+  // Include retired slugs as candidate sources: a photo uploaded in the gap
+  // between the first pass and the deploy lands under the mentor's slug at that
+  // time; if the mentor then renames before this catch-up pass, the current
+  // slug no longer points at that object — but the retired slug in
+  // mentor_slug_history still does.
   const { rows: mentors } = await db.query(
-    `SELECT id, slug FROM mentors WHERE slug IS NOT NULL AND slug <> '' ORDER BY created_at`
+    `SELECT m.id,
+            m.slug,
+            COALESCE(array_agg(h.slug) FILTER (WHERE h.slug IS NOT NULL), '{}') AS history_slugs
+       FROM mentors m
+       LEFT JOIN mentor_slug_history h ON h.mentor_id = m.id
+      WHERE m.slug IS NOT NULL AND m.slug <> ''
+      GROUP BY m.id, m.slug, m.created_at
+      ORDER BY m.created_at`
   );
   console.log(
     `Found ${mentors.length} mentors. Mode: ${dryRun ? 'DRY-RUN' : 'LIVE'}` +
@@ -109,15 +137,18 @@ async function main() {
   let failed = 0;
 
   for (const mentor of mentors) {
+    // Current slug first, then retired slugs (findSource prefers the newest).
+    const candidateSlugs = [mentor.slug, ...(mentor.history_slugs || [])];
     for (const size of IMAGE_SIZES) {
-      const sourceKey = `${mentor.slug}/${size}`;
       const destKey = `${mentor.id}/${size}`;
       try {
-        const source = await headObject(s3, sourceKey);
-        if (!source) {
+        const found = await findSource(s3, candidateSlugs, size);
+        if (!found) {
           noSource++;
           continue;
         }
+        const sourceKey = found.key;
+        const source = found.head;
         const dest = await headObject(s3, destKey);
         if (dest) {
           // The destination already exists. By default NEVER overwrite it —

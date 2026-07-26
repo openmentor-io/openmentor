@@ -430,12 +430,40 @@ async function findExisting(target, marker, email) {
   return rows[0] || null;
 }
 
+// Matches api repository.slugAdvisoryLockNamespace (ASCII "slug"). Taking the
+// same transaction-scoped advisory lock serializes this direct writer with the
+// Go registration/rename paths so a generated slug can't collide with a
+// retired redirect (which would make an old shared link resolve to this new
+// mentor).
+const SLUG_ADVISORY_LOCK_NS = 0x736c7567;
+
+// claimSlug locks the slug and reports whether it is already an active
+// redirect in mentor_slug_history. Call inside the mentor's transaction.
+async function claimSlug(target, slug) {
+  await target.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [SLUG_ADVISORY_LOCK_NS, slug]);
+  const { rows } = await target.query(
+    'SELECT EXISTS (SELECT 1 FROM mentor_slug_history WHERE slug = $1) AS taken',
+    [slug]
+  );
+  return rows[0].taken;
+}
+
 async function insertMentor(target, mentor, translated, mappedTags, marker, notes) {
   await target.query('BEGIN');
   try {
     const seq = await target.query(`SELECT nextval('mentors_legacy_id_seq') AS id`);
     const newLegacyId = Number(seq.rows[0].id);
-    const newSlug = `${slugTextPart(mentor.slug)}-${newLegacyId}`;
+
+    // The fresh legacy_id makes a redirect clash nearly impossible, but a
+    // mentor could have squatted this exact name-<id> as a retired slug — so
+    // verify under the shared lock and disambiguate rather than corrupt.
+    const baseSlug = `${slugTextPart(mentor.slug)}-${newLegacyId}`;
+    let newSlug = baseSlug;
+    for (let attempt = 2; ; attempt++) {
+      if (!(await claimSlug(target, newSlug))) break;
+      if (attempt > 6) throw new Error(`could not derive a free slug for ${mentor.slug}`);
+      newSlug = `${baseSlug}-${attempt}`;
+    }
 
     const inserted = await target.query(
       `INSERT INTO mentors (

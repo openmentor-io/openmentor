@@ -157,6 +157,19 @@ func (s *UsernameService) Change(ctx context.Context, mentorID, raw, changedBy s
 		return "", err
 	}
 
+	// No-op fast path: submitting the current username is always allowed and
+	// never consumes the cooldown (this mirrors ChangeSlug's in-tx no-op).
+	// Detect it BEFORE the cooldown pre-check, otherwise a mentor in cooldown
+	// who re-submits their own name — which availability reports as available —
+	// would get a spurious 429.
+	current, err := s.repo.GetByMentorId(ctx, mentorID, models.FilterOptions{ShowHidden: true, AllowAnyStatus: true})
+	if err != nil {
+		return "", err
+	}
+	if current != nil && current.Slug == username {
+		return username, nil
+	}
+
 	// Cooldown applies only to mentor-initiated changes. This pre-check is a
 	// fast path (avoids opening a transaction for the common case); the
 	// authoritative, race-free check runs inside ChangeSlug's transaction.

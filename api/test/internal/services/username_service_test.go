@@ -210,6 +210,29 @@ func TestChange_MentorCooldownBlocks(t *testing.T) {
 	}
 }
 
+func TestChange_NoOpDuringCooldownSucceeds(t *testing.T) {
+	// A mentor in cooldown who re-submits their CURRENT username must get a
+	// success (no-op), not a spurious 429 — availability reports it available.
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	lastChange := now.Add(-24 * time.Hour) // well inside the 14-day cooldown
+	repo := &usernameMockRepo{
+		mentor:     &models.Mentor{Slug: "john-doe"},
+		lastChange: &lastChange,
+	}
+	svc := newUsernameService(repo, now)
+
+	username, err := svc.Change(context.Background(), "mentor-1", "john-doe", "mentor")
+	if err != nil {
+		t.Fatalf("no-op change during cooldown should succeed, got %v", err)
+	}
+	if username != "john-doe" {
+		t.Fatalf("expected current username returned, got %q", username)
+	}
+	if repo.changeCalls != 0 {
+		t.Fatal("no-op must not reach ChangeSlug")
+	}
+}
+
 func TestChange_AdminBypassesCooldown(t *testing.T) {
 	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 	lastChange := now.Add(-time.Hour) // very recent mentor change

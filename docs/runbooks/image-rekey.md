@@ -88,6 +88,14 @@ the network tab should show `cdn.openmentor.io/<uuid>/...` rather than
   and never overwrites an existing one, so it can't clobber a live upload.
   Overwriting a replaced photo requires the explicit `--refresh` mode, which
   must run with uploads quiesced (see step 4 above).
-- Old slug-keyed objects are not deleted here. They can be swept later once
-  you're confident every photo resolved (a separate cleanup, out of scope for
-  the cutover).
+- **Sweep the legacy slug-keyed copies once the cutover is verified** — don't
+  leave them indefinitely. After a mentor renames, a leftover `<old-slug>/…`
+  object is only reachable via `mentor_slug_history`, and that row is trimmed
+  after 2 more changes (and cascade-deleted if the mentor is erased), so a
+  stale copy can become an unreferenced blob of personal data that the
+  right-to-erasure flow (`data-deletion.md`) can no longer locate. Going
+  forward images are keyed by the immutable mentor UUID, which erasure can
+  always find; the one-time job here is to delete the pre-cutover `<slug>/…`
+  objects after confirming every `<uuid>/…` copy resolves. Until that sweep
+  runs, follow `data-deletion.md`'s "every current/retired slug prefix" step
+  when erasing a mentor.
