@@ -108,6 +108,40 @@ cd infra/migration
 Useful flags: `--skip-images`, `--skip-email`, `--skip-translation`
 (keeps the Russian text verbatim).
 
+## Refreshing session counts only
+
+getmentor.dev stays live, so a mentor's completed-session count there keeps
+growing after their profile has moved. `--sessions-only` re-reads that count
+for mentors that are **already migrated** and updates
+`mentors.legacy_sessions_count` — nothing else. It never inserts a profile,
+never translates, never copies images and never sends email, so it needs
+only `SOURCE_DATABASE_URL` and the target tunnel (no `ANTHROPIC_API_KEY`, no
+S3 keys, no `WORKER_AUTH_TOKEN`).
+
+```bash
+cd infra/migration
+
+# Preview every migrated mentor: current count -> count on getmentor.dev
+./migrate-mentors.sh --sessions-only --dry-run
+
+# Apply
+./migrate-mentors.sh --sessions-only
+
+# Narrow to specific mentors (old getmentor slug or new openmentor slug)
+./migrate-mentors.sh --sessions-only --slug ivan-petrov-42
+./migrate-mentors.sh --sessions-only --csv mentors.csv
+```
+
+The worklist comes from the target's `getmentor:<old legacy_id>` markers, not
+from the slugs you pass, so a typo can never create a profile — an unknown
+slug simply matches nothing. Mentors are matched to the source by that
+original legacy_id, so a slug renamed on getmentor.dev still resolves. Rows
+already holding the right number are reported as `unchanged` and not written.
+A marker whose mentor no longer exists in the source is reported as a failure
+(non-zero exit) and left untouched.
+
+Safe to re-run: it is idempotent, and it only ever writes one integer column.
+
 ## Self-service opt-ins (the /migrate page)
 
 Mentors schedule their own migration at
@@ -167,6 +201,7 @@ visibility card should show "hidden".
 | --- | --- |
 | `Skipped: email already registered` | Mentor signed up on openmentor.io themselves (D21 caveat). Migration intentionally refuses; reconcile manually if their getmentor profile is richer. |
 | Insert ok, images/email failed | Fix the cause, re-run with `--resume`. |
+| Session count stale (mentor kept mentoring on getmentor.dev) | `--sessions-only` — see "Refreshing session counts only". |
 | Email trigger 404 | Worker image predates the `profile-migrated` template — deploy backend first. |
 | `Mentor has no email` | Not migratable: magic-link login and notification are impossible. |
 | Source connect fails | Check `SOURCE_DATABASE_URL`; the Yandex cluster requires TLS (CA committed as `yandex-ca.pem`, expires 2027 — override with `SOURCE_CA_CERT_FILE`). |
