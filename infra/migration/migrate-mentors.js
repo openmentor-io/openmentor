@@ -440,6 +440,14 @@ const SLUG_ADVISORY_LOCK_NS = 0x736c7567;
 // claimSlug locks the slug and reports whether it is already an active
 // redirect in mentor_slug_history. Call inside the mentor's transaction.
 async function claimSlug(target, slug) {
+  // Migration may run from this release checkout BEFORE 000006 deploys the
+  // history table (an explicit state in the cutover sequence). No redirects can
+  // exist yet, so the slug is claimable — and querying the missing table would
+  // roll back the whole insert.
+  const { rows: chk } = await target.query(
+    "SELECT to_regclass('mentor_slug_history') IS NOT NULL AS has_history"
+  );
+  if (!chk[0].has_history) return false;
   await target.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [SLUG_ADVISORY_LOCK_NS, slug]);
   const { rows } = await target.query(
     'SELECT EXISTS (SELECT 1 FROM mentor_slug_history WHERE slug = $1) AS taken',
