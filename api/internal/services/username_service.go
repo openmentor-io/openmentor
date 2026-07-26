@@ -1,6 +1,6 @@
 package services
 
-// Username service (D28): availability checks and the dedicated username
+// Username service (D29): availability checks and the dedicated username
 // (slug) change flow. Publicly the field is called "username"; internally it
 // is mentors.slug. Changing it is a BREAKING action (shared links, OG cards),
 // so it lives here — deliberately separate from the regular profile-save

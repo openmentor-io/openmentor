@@ -177,6 +177,7 @@ export default function Mentor({
 
   const contactHref = '/mentor/' + mentor.slug + '/contact'
   const metaLead = mentorMetaLead(mentor)
+  const legacySessions = mentor.legacySessionsCount ?? 0
 
   return (
     <>
@@ -265,6 +266,13 @@ export default function Mentor({
                 </span>
               </div>
             )}
+            {/* Sessions carried over from getmentor.dev are counted above —
+                say so rather than passing them off as OpenMentor history (D28). */}
+            {legacySessions > 0 && (
+              <span className="meta-mono text-[10px] leading-normal text-ink-mute">
+                incl. {legacySessions} on getmentor.dev
+              </span>
+            )}
           </div>
         </aside>
 
@@ -277,11 +285,17 @@ export default function Mentor({
             <div className="mt-1.5 text-sm text-ink-soft md:text-[17px]">
               {mentor.job} · {mentor.workplace}
             </div>
-            {/* Mobile-only mono meta line (design 02 · 390). */}
+            {/* Mobile-only mono meta line (design 02 · 390). The desktop
+                sidebar carries the same getmentor.dev disclosure (D28). */}
             <div className="meta-mono mt-2 text-ink-mute md:hidden">
               {mentor.experience}y exp
               {mentor.menteeCount > 0 &&
                 ` · ${mentor.menteeCount} ${pluralize(mentor.menteeCount, 'mentee')}`}
+              {legacySessions > 0 && (
+                <span className="mt-1 block text-[10px]">
+                  incl. {legacySessions} on getmentor.dev
+                </span>
+              )}
             </div>
           </div>
 

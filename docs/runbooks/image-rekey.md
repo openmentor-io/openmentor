@@ -1,6 +1,6 @@
 # Runbook: re-keying profile images to mentor-UUID paths
 
-Part of custom usernames (DECISIONS **D28**). Profile photos used to live in
+Part of custom usernames (DECISIONS **D29**). Profile photos used to live in
 S3 under the mentor's slug (`<slug>/{full,large,small}`). Because usernames are
 now changeable, images are keyed by the immutable mentor UUID
 (`mentors.id` → `<uuid>/{full,large,small}`) so a rename never has to move an
@@ -53,7 +53,7 @@ around the deploy so no photo is missing:
 1. **Run the re-key script** — copies all existing photos to UUID keys while
    the app is still serving slug-keyed reads.
 2. **Deploy** the `custom-username` release (`deploy.sh`). Migrations
-   (`000006_slug_history`, `000007_slug_changed_at`) run automatically before
+   (`000007_slug_history`, `000008_slug_changed_at`) run automatically before
    api/worker. From here the app reads/writes images at `<uuid>/…`.
 3. **Re-run the re-key script once more** — copies photos uploaded in the gap
    whose UUID destination doesn't exist yet. This rerun never overwrites an

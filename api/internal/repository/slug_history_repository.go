@@ -1,6 +1,6 @@
 package repository
 
-// Slug-history data access for the custom-username feature (D28).
+// Slug-history data access for the custom-username feature (D29).
 //
 // mentor_slug_history holds a mentor's retired slugs. Rows serve two jobs:
 //   1. Redirects: an old slug 301s to the mentor's current profile (resolved

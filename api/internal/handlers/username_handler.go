@@ -1,6 +1,6 @@
 package handlers
 
-// Username endpoints (D28). Public wording is "username"; internally it is
+// Username endpoints (D29). Public wording is "username"; internally it is
 // mentors.slug. The change flow is deliberately separate from the regular
 // profile-save endpoints: changing a username is a breaking action (shared
 // links, cached OG cards) and gets its own confirmation UX + cooldown.

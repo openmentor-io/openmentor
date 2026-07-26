@@ -21,6 +21,12 @@ the rest.
    - `telegram` → `preferred_contact` as `Telegram: @handle`
 4. Keeps identity fields unchanged: email, calendar_url, privacy,
    sort_order, created_at.
+   - Carries the mentor's **session history as a single number** (D28):
+     the count of `status = 'done'` client requests on getmentor.dev goes
+     into `mentors.legacy_sessions_count`. No request rows are copied — the
+     API adds this number to the mentor's OpenMentor done-request count, so
+     the catalog badge and profile page show the full history from day one
+     (the profile page discloses the carried-over share).
 5. Takes a **new legacy_id** from `mentors_legacy_id_seq` and builds the
    slug from the old slug's text part + the new id
    (`ivan-petrov-42` → `ivan-petrov-107`).
@@ -35,8 +41,13 @@ the rest.
 **Idempotency:** each migrated row stores `getmentor:<old legacy_id>` in
 `mentors.airtable_id` (unused by the app, UNIQUE). Re-runs skip migrated
 mentors; mentors whose email already exists on openmentor.io (they signed up
-themselves) are skipped too. `--resume` re-runs steps 7–8 for
-already-migrated mentors (e.g. after an image/email failure).
+themselves) are skipped too — for those the run prints how many
+getmentor.dev sessions were *not* carried over, so you can set
+`legacy_sessions_count` by hand if the two profiles are the same person
+(D21's reconciliation caveat). `--resume` re-runs steps 7–8 for
+already-migrated mentors (e.g. after an image/email failure) and refreshes
+`legacy_sessions_count`, since getmentor.dev stays live and the count can
+grow after the migration.
 
 ## Prerequisites (one-time)
 
@@ -97,6 +108,40 @@ cd infra/migration
 Useful flags: `--skip-images`, `--skip-email`, `--skip-translation`
 (keeps the Russian text verbatim).
 
+## Refreshing session counts only
+
+getmentor.dev stays live, so a mentor's completed-session count there keeps
+growing after their profile has moved. `--sessions-only` re-reads that count
+for mentors that are **already migrated** and updates
+`mentors.legacy_sessions_count` — nothing else. It never inserts a profile,
+never translates, never copies images and never sends email, so it needs
+only `SOURCE_DATABASE_URL` and the target tunnel (no `ANTHROPIC_API_KEY`, no
+S3 keys, no `WORKER_AUTH_TOKEN`).
+
+```bash
+cd infra/migration
+
+# Preview every migrated mentor: current count -> count on getmentor.dev
+./migrate-mentors.sh --sessions-only --dry-run
+
+# Apply
+./migrate-mentors.sh --sessions-only
+
+# Narrow to specific mentors (old getmentor slug or new openmentor slug)
+./migrate-mentors.sh --sessions-only --slug ivan-petrov-42
+./migrate-mentors.sh --sessions-only --csv mentors.csv
+```
+
+The worklist comes from the target's `getmentor:<old legacy_id>` markers, not
+from the slugs you pass, so a typo can never create a profile — an unknown
+slug simply matches nothing. Mentors are matched to the source by that
+original legacy_id, so a slug renamed on getmentor.dev still resolves. Rows
+already holding the right number are reported as `unchanged` and not written.
+A marker whose mentor no longer exists in the source is reported as a failure
+(non-zero exit) and left untouched.
+
+Safe to re-run: it is idempotent, and it only ever writes one integer column.
+
 ## Self-service opt-ins (the /migrate page)
 
 Mentors schedule their own migration at
@@ -138,10 +183,11 @@ Cost note: translation runs on `claude-opus-4-8`; a typical profile is
 ## Verifying a migration
 
 ```bash
-# Row landed, marker set, status inactive (grab the id — images are keyed by it)
-../db.sh -c "SELECT id, slug, legacy_id, status, airtable_id FROM mentors WHERE airtable_id LIKE 'getmentor:%' ORDER BY legacy_id DESC LIMIT 10"
+# Row landed, marker set, status inactive, session history carried (D28).
+# Grab the id too — images are keyed by it (D29).
+../db.sh -c "SELECT id, slug, legacy_id, status, airtable_id, legacy_sessions_count FROM mentors WHERE airtable_id LIKE 'getmentor:%' ORDER BY legacy_id DESC LIMIT 10"
 
-# Photo reachable under the mentor UUID (images are keyed by mentors.id, D28)
+# Photo reachable under the mentor UUID (images are keyed by mentors.id, D29)
 curl -sI https://cdn.openmentor.io/<mentor-uuid>/full | head -1
 ```
 
@@ -156,6 +202,7 @@ visibility card should show "hidden".
 | --- | --- |
 | `Skipped: email already registered` | Mentor signed up on openmentor.io themselves (D21 caveat). Migration intentionally refuses; reconcile manually if their getmentor profile is richer. |
 | Insert ok, images/email failed | Fix the cause, re-run with `--resume`. |
+| Session count stale (mentor kept mentoring on getmentor.dev) | `--sessions-only` — see "Refreshing session counts only". |
 | Email trigger 404 | Worker image predates the `profile-migrated` template — deploy backend first. |
 | `Mentor has no email` | Not migratable: magic-link login and notification are impossible. |
 | Source connect fails | Check `SOURCE_DATABASE_URL`; the Yandex cluster requires TLS (CA committed as `yandex-ca.pem`, expires 2027 — override with `SOURCE_CA_CERT_FILE`). |

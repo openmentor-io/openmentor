@@ -14,6 +14,10 @@
  *     experience passes through)
  *   - identity fields (email, calendar_url, privacy, sort_order,
  *     created_at) are carried over unchanged
+ *   - the mentor's completed-session history is carried as a single number
+ *     in mentors.legacy_sessions_count (DECISIONS D28): the count of 'done'
+ *     client_requests on getmentor.dev. No request rows are copied — the
+ *     API adds this number to the mentor's OpenMentor session count
  *   - a NEW legacy_id is taken from the target's mentors_legacy_id_seq and
  *     the slug keeps its text part with the id part replaced
  *     (ivan-petrov-42 -> ivan-petrov-<new id>)
@@ -29,12 +33,15 @@
  * UNIQUE constraint. Re-runs skip mentors that carry the marker, and also
  * skip when a mentor with the same email already exists (e.g. they
  * registered on openmentor.io themselves). `--resume` re-runs the image
- * copy + email steps for already-migrated mentors without touching the row.
+ * copy + email steps for already-migrated mentors and refreshes
+ * legacy_sessions_count (getmentor.dev stays live, so the count can grow);
+ * no other column of an existing row is touched.
  *
  * Usage (normally via ./migrate-mentors.sh, which opens the DB tunnel):
  *   node --env-file=.env migrate-mentors.js --slug ivan-petrov-42 [--slug ...]
  *   node --env-file=.env migrate-mentors.js --csv slugs.csv --dry-run
  *   node --env-file=.env migrate-mentors.js --from-intents
+ *   node --env-file=.env migrate-mentors.js --sessions-only [--dry-run]
  *
  * Flags:
  *   --slug <slug>       mentor to migrate (repeatable)
@@ -47,8 +54,18 @@
  *                       no image copy, no email
  *   --translate-dry-run with --dry-run: also run the Claude translation so
  *                       the full mapped record can be reviewed
+ *   --sessions-only     refresh legacy_sessions_count on mentors that are
+ *                       ALREADY migrated and change nothing else — no
+ *                       profile insert, no translation, no image copy, no
+ *                       email, and so none of those credentials are needed.
+ *                       The worklist is read from the target's migration
+ *                       markers, so this mode cannot create a profile; pass
+ *                       --slug/--csv (old or new slugs) to narrow it, or
+ *                       nothing to refresh every migrated mentor. Combine
+ *                       with --dry-run to preview the changes
  *   --resume            for already-migrated mentors, re-run image copy +
- *                       email instead of skipping
+ *                       email and refresh legacy_sessions_count instead of
+ *                       skipping
  *   --skip-images       don't copy profile photos
  *   --skip-email        don't trigger the profile-migrated email
  *   --skip-translation  keep the original (Russian) text verbatim
@@ -138,6 +155,7 @@ function parseArgs(argv) {
     fromIntents: false,
     dryRun: false,
     translateDryRun: false,
+    sessionsOnly: false,
     resume: false,
     skipImages: false,
     skipEmail: false,
@@ -159,6 +177,9 @@ function parseArgs(argv) {
         break;
       case '--translate-dry-run':
         parsed.translateDryRun = true;
+        break;
+      case '--sessions-only':
+        parsed.sessionsOnly = true;
         break;
       case '--resume':
         parsed.resume = true;
@@ -209,6 +230,16 @@ function validateConfig() {
   const problems = [];
   if (!config.sourceDatabaseUrl) problems.push('SOURCE_DATABASE_URL is required (getmentor.dev production DSN)');
   if (!config.targetDatabaseUrl) problems.push('TARGET_DATABASE_URL is required (use ./migrate-mentors.sh, which sets it via the DB tunnel)');
+  // --sessions-only touches one integer column: no translation, no images,
+  // no email, so none of those credentials are needed.
+  if (args.sessionsOnly) {
+    if (problems.length > 0) {
+      console.error('Configuration errors:');
+      problems.forEach((p) => console.error(`  - ${p}`));
+      process.exit(1);
+    }
+    return;
+  }
   if (!args.dryRun && !args.skipTranslation && !process.env.ANTHROPIC_API_KEY) {
     problems.push('ANTHROPIC_API_KEY is required for translation (or pass --skip-translation)');
   }
@@ -292,7 +323,13 @@ async function fetchSourceMentor(source, slug) {
             COALESCE(m.privacy, false)   AS privacy,
             m.sort_order,
             m.created_at,
-            COALESCE(array_agg(t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS tags
+            COALESCE(array_agg(t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS tags,
+            -- completed sessions on getmentor.dev, carried over as a single
+            -- number (DECISIONS D28) — no client_requests rows are copied
+            COALESCE((SELECT COUNT(*)
+                        FROM client_requests cr
+                       WHERE cr.mentor_id = m.id
+                         AND cr.status = 'done'), 0) AS done_sessions
        FROM mentors m
        LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
        LEFT JOIN tags t ON t.id = mt.tag_id
@@ -440,10 +477,10 @@ const SLUG_ADVISORY_LOCK_NS = 0x736c7567;
 // claimSlug locks the slug and reports whether it is already an active
 // redirect in mentor_slug_history. Call inside the mentor's transaction.
 async function claimSlug(target, slug) {
-  // Migration may run from this release checkout BEFORE 000006 deploys the
-  // history table (an explicit state in the cutover sequence). No redirects can
-  // exist yet, so the slug is claimable — and querying the missing table would
-  // roll back the whole insert.
+  // Migration may run from this release checkout BEFORE the slug-history
+  // migration deploys that table (an explicit state in the cutover sequence).
+  // No redirects can exist yet, so the slug is claimable — and querying the
+  // missing table would roll back the whole insert.
   const { rows: chk } = await target.query(
     "SELECT to_regclass('mentor_slug_history') IS NOT NULL AS has_history"
   );
@@ -454,6 +491,20 @@ async function claimSlug(target, slug) {
     [slug]
   );
   return rows[0].taken;
+}
+
+// Refresh the carried-over session count on an already-migrated row (D28).
+// getmentor.dev stays live, so a --resume run may find sessions completed
+// there after the profile was migrated.
+async function refreshLegacySessions(target, mentorId, doneSessions, notes) {
+  const { rowCount } = await target.query(
+    `UPDATE mentors SET legacy_sessions_count = $1
+      WHERE id = $2 AND legacy_sessions_count <> $1`,
+    [doneSessions, mentorId]
+  );
+  if (rowCount > 0) {
+    notes.push(`legacy_sessions_count refreshed -> ${doneSessions}`);
+  }
 }
 
 async function insertMentor(target, mentor, translated, mappedTags, marker, notes) {
@@ -477,10 +528,11 @@ async function insertMentor(target, mentor, translated, mappedTags, marker, note
       `INSERT INTO mentors (
          airtable_id, legacy_id, slug, name, job_title, workplace, about,
          details, competencies, experience, price, status, email,
-         preferred_contact, calendar_url, privacy, sort_order, created_at
+         preferred_contact, calendar_url, privacy, sort_order, created_at,
+         legacy_sessions_count
        ) VALUES (
          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'inactive', $12,
-         $13, $14, $15, $16, $17
+         $13, $14, $15, $16, $17, $18
        ) RETURNING id`,
       [
         marker,
@@ -500,6 +552,7 @@ async function insertMentor(target, mentor, translated, mappedTags, marker, note
         mentor.privacy,
         mentor.sort_order,
         mentor.created_at,
+        Number(mentor.done_sessions) || 0,
       ]
     );
     const mentorId = inserted.rows[0].id;
@@ -686,6 +739,7 @@ async function migrateMentor(source, target, slug) {
     return;
   }
 
+  const doneSessions = Number(mentor.done_sessions) || 0;
   const marker = `${MIGRATION_MARKER_PREFIX}${mentor.legacy_id}`;
   const existing = await findExisting(target, marker, mentor.email);
   if (existing) {
@@ -694,12 +748,23 @@ async function migrateMentor(source, target, slug) {
       : `email already registered on openmentor.io (${existing.slug})`;
     if (args.resume && existing.by_marker && !args.dryRun) {
       console.log(`  🔁 ${reason} — resuming images + email`);
+      await refreshLegacySessions(target, existing.id, doneSessions, notes);
+      // Images are keyed by the mentor UUID, not the slug (D29).
       if (!args.skipImages) await copyImages(slug, existing.id, notes);
       if (!args.skipEmail) await triggerMigratedEmail(existing.id);
       stats.resumed++;
       reportRows.push({ slug, outcome: `resumed (${existing.slug})`, notes });
+      notes.forEach((n) => console.log(`     • ${n}`));
     } else {
       console.log(`  ⏭️  Skipped: ${reason}`);
+      // The session history is not carried onto a profile this script did not
+      // create (D21's reconciliation caveat) — surface it so the operator can
+      // decide whether to set legacy_sessions_count by hand.
+      if (!existing.by_marker && doneSessions > 0) {
+        console.log(
+          `     ⚠️  ${doneSessions} getmentor.dev session(s) NOT carried over to ${existing.slug}`
+        );
+      }
       stats.skipped++;
       reportRows.push({ slug, outcome: `skipped: ${reason}`, notes });
     }
@@ -711,6 +776,11 @@ async function migrateMentor(source, target, slug) {
   mentor.mappedExperience = mapExperience(mentor.experience, notes);
   const mappedTags = mapTags(mentor.tags, notes);
   notes.push(`tags: [${mentor.tags.join(', ')}] -> [${mappedTags.join(', ')}]`);
+  notes.push(
+    doneSessions > 0
+      ? `sessions: ${doneSessions} done on getmentor.dev -> legacy_sessions_count (no client_requests copied)`
+      : 'sessions: none completed on getmentor.dev'
+  );
 
   // Translate
   let translated = {
@@ -784,10 +854,108 @@ function printMappedRecord(mentor, translated, mappedTags, marker) {
     preferred_contact: mapPreferredContact(mentor.telegram) || '(none)',
     calendar_url: mentor.calendar_url || '(none)',
     tags: mappedTags.join(', ') || '(none)',
+    legacy_sessions: String(Number(mentor.done_sessions) || 0),
     created_at: mentor.created_at.toISOString(),
   };
   for (const [key, value] of Object.entries(rows)) {
     console.log(`     ${key.padEnd(18)} ${value}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// --sessions-only: refresh legacy_sessions_count on already-migrated mentors
+// ---------------------------------------------------------------------------
+
+// Every already-migrated mentor, newest first. The worklist comes from the
+// target's D22 markers, not from a slug list, so this mode can only ever
+// touch rows this script created. An optional --slug/--csv list narrows it;
+// entries may be the old getmentor.dev slug or the new openmentor.io one.
+async function listMigratedMentors(target, slugFilter) {
+  const { rows } = await target.query(
+    `SELECT id, slug, airtable_id, legacy_sessions_count,
+            split_part(airtable_id, ':', 2)::bigint AS source_legacy_id
+       FROM mentors
+      WHERE airtable_id LIKE $1
+      ORDER BY legacy_id DESC`,
+    [`${MIGRATION_MARKER_PREFIX}%`]
+  );
+  if (slugFilter.length === 0) return rows;
+
+  const wanted = new Set(slugFilter);
+  return rows.filter(
+    (row) => wanted.has(row.slug) || wanted.has(`${slugTextPart(row.slug)}-${row.source_legacy_id}`)
+  );
+}
+
+// Look the mentor up in the source by their ORIGINAL legacy_id rather than by
+// slug: the marker is the stable link between the two databases, and a mentor
+// may have renamed their getmentor.dev slug since the migration.
+async function fetchSourceDoneSessions(source, sourceLegacyId) {
+  const { rows } = await source.query(
+    `SELECT COALESCE((SELECT COUNT(*)
+                        FROM client_requests cr
+                       WHERE cr.mentor_id = m.id
+                         AND cr.status = 'done'), 0) AS done_sessions
+       FROM mentors m
+      WHERE m.legacy_id = $1`,
+    [sourceLegacyId]
+  );
+  if (rows.length === 0) return null;
+  return Number(rows[0].done_sessions) || 0;
+}
+
+async function refreshSessionCounts(source, target) {
+  const slugFilter = loadSlugs();
+  const mentors = await listMigratedMentors(target, slugFilter);
+
+  stats.total = mentors.length;
+  console.log(`   Migrated mentors to refresh: ${mentors.length}`);
+  if (slugFilter.length > 0) {
+    console.log(`   (narrowed by ${slugFilter.length} slug(s) from --slug/--csv)`);
+  }
+  if (mentors.length === 0) {
+    console.log('   Nothing to do.');
+    return;
+  }
+
+  for (const mentor of mentors) {
+    const label = `${mentor.slug} (${mentor.airtable_id})`;
+    try {
+      const doneSessions = await fetchSourceDoneSessions(source, mentor.source_legacy_id);
+      if (doneSessions === null) {
+        stats.failed++;
+        reportRows.push({ slug: mentor.slug, outcome: 'not found in source (marker legacy_id)', notes: [] });
+        console.log(`  ❌ ${label}: no mentor with legacy_id ${mentor.source_legacy_id} in the source database`);
+        continue;
+      }
+
+      if (doneSessions === mentor.legacy_sessions_count) {
+        stats.skipped++;
+        reportRows.push({ slug: mentor.slug, outcome: `unchanged (${doneSessions})`, notes: [] });
+        console.log(`  ⏭️  ${label}: unchanged (${doneSessions})`);
+        continue;
+      }
+
+      const change = `${mentor.legacy_sessions_count} -> ${doneSessions}`;
+      if (args.dryRun) {
+        stats.migrated++;
+        reportRows.push({ slug: mentor.slug, outcome: `would update (${change})`, notes: [] });
+        console.log(`  🔍 ${label}: would update ${change}`);
+        continue;
+      }
+
+      await target.query(`UPDATE mentors SET legacy_sessions_count = $1 WHERE id = $2`, [
+        doneSessions,
+        mentor.id,
+      ]);
+      stats.migrated++;
+      reportRows.push({ slug: mentor.slug, outcome: `updated (${change})`, notes: [] });
+      console.log(`  ✅ ${label}: ${change}`);
+    } catch (error) {
+      stats.failed++;
+      reportRows.push({ slug: mentor.slug, outcome: `error: ${error.message}`, notes: [] });
+      console.error(`  ❌ ${label}: ${error.message}`);
+    }
   }
 }
 
@@ -797,6 +965,24 @@ function printMappedRecord(mentor, translated, mappedTags, marker) {
 
 async function main() {
   validateConfig();
+
+  if (args.sessionsOnly) {
+    console.log(
+      `🔢 getmentor.dev -> openmentor.io session-count refresh${args.dryRun ? ' (DRY RUN)' : ''}`
+    );
+    const source = await connectSource();
+    const target = await connectTarget();
+    try {
+      await refreshSessionCounts(source, target);
+    } finally {
+      await source.end().catch(() => {});
+      await target.end().catch(() => {});
+    }
+    printSummary('sessions');
+    if (stats.failed > 0) process.exit(1);
+    return;
+  }
+
   let slugs = loadSlugs();
   if (slugs.length === 0 && !args.fromIntents) {
     fail('No slugs to migrate. Pass --slug <slug>, --csv <file> and/or --from-intents.');
@@ -837,16 +1023,37 @@ async function main() {
     await target.end().catch(() => {});
   }
 
+  printSummary('migration');
+
+  if (stats.failed > 0) process.exit(1);
+}
+
+// stats.migrated counts the rows this run changed (or would change, in a dry
+// run) in both modes; the wording differs because the units do.
+function printSummary(mode) {
+  const sessionsOnly = mode === 'sessions';
   console.log('\n' + '='.repeat(60));
-  console.log(`📊 MIGRATION SUMMARY${args.dryRun ? ' (DRY RUN)' : ''}`);
+  console.log(
+    `📊 ${sessionsOnly ? 'SESSION-COUNT REFRESH' : 'MIGRATION'} SUMMARY${args.dryRun ? ' (DRY RUN)' : ''}`
+  );
   console.log('='.repeat(60));
   for (const row of reportRows) {
     console.log(`  ${row.slug}: ${row.outcome}`);
   }
   console.log('-'.repeat(60));
-  console.log(`Total: ${stats.total}  ${args.dryRun ? 'Would migrate' : 'Migrated'}: ${stats.migrated}  Resumed: ${stats.resumed}  Skipped: ${stats.skipped}  Failed: ${stats.failed}`);
 
-  if (stats.failed > 0) process.exit(1);
+  if (sessionsOnly) {
+    const verb = args.dryRun ? 'Would update' : 'Updated';
+    console.log(
+      `Total: ${stats.total}  ${verb}: ${stats.migrated}  Unchanged: ${stats.skipped}  Failed: ${stats.failed}`
+    );
+    return;
+  }
+
+  const verb = args.dryRun ? 'Would migrate' : 'Migrated';
+  console.log(
+    `Total: ${stats.total}  ${verb}: ${stats.migrated}  Resumed: ${stats.resumed}  Skipped: ${stats.skipped}  Failed: ${stats.failed}`
+  );
 }
 
 main().catch((error) => {

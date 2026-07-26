@@ -1,4 +1,4 @@
--- Cooldown timestamp for mentor-initiated username (slug) changes (D28).
+-- Cooldown timestamp for mentor-initiated username (slug) changes (D29).
 --
 -- The 14-day cooldown previously read the newest changed_by='mentor' row from
 -- mentor_slug_history, but that history is trimmed to 2 hops — so two admin

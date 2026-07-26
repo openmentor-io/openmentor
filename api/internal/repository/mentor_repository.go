@@ -113,13 +113,16 @@ func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId
 			m.about, m.details, m.competencies, m.experience, m.price, m.status,
 			COALESCE(array_to_string(array_agg(t.name), ','), '') as tags,
 			m.calendar_url, m.sort_order, m.created_at, m.updated_at,
+			-- sessions on OpenMentor + sessions carried over from
+			-- getmentor.dev at migration time (D28)
 			COALESCE(
 				(SELECT COUNT(*)
 				 FROM client_requests cr
 				 WHERE cr.mentor_id = m.id
 				 AND cr.status = 'done'),
 				0
-			) AS mentee_count,
+			) + m.legacy_sessions_count AS mentee_count,
+			m.legacy_sessions_count,
 			m.photo_style, m.moderation_note
 		FROM mentors m
 		LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
@@ -371,7 +374,8 @@ func (r *MentorRepository) GetByEmail(ctx context.Context, email string) (*model
 	query := `
 		SELECT id, airtable_id, legacy_id, slug, name, job_title, workplace, about, details,
 			competencies, experience, price, status, '' as tags, calendar_url,
-			sort_order, created_at, updated_at, 0 as mentee_count, photo_style, moderation_note
+			sort_order, created_at, updated_at, 0 as mentee_count,
+			0 as legacy_sessions_count, photo_style, moderation_note
 		FROM mentors
 		WHERE email = $1 AND status IN ('active', 'inactive', 'pending', 'draft')
 		ORDER BY CASE status
@@ -505,13 +509,16 @@ func (r *MentorRepository) FetchAllMentorsFromDB(ctx context.Context) ([]*models
 			m.about, m.details, m.competencies, m.experience, m.price, m.status,
 			COALESCE(array_to_string(array_agg(t.name), ','), '') as tags,
 			m.calendar_url, m.sort_order, m.created_at, m.updated_at,
+			-- sessions on OpenMentor + sessions carried over from
+			-- getmentor.dev at migration time (D28)
 			COALESCE(
 				(SELECT COUNT(*)
 				 FROM client_requests cr
 				 WHERE cr.mentor_id = m.id
 				 AND cr.status = 'done'),
 				0
-			) AS mentee_count,
+			) + m.legacy_sessions_count AS mentee_count,
+			m.legacy_sessions_count,
 			m.photo_style, m.moderation_note
 		FROM mentors m
 		LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
@@ -536,13 +543,16 @@ func (r *MentorRepository) FetchSingleMentorFromDB(ctx context.Context, mentorSl
 			m.about, m.details, m.competencies, m.experience, m.price, m.status,
 			COALESCE(array_to_string(array_agg(t.name), ','), '') as tags,
 			m.calendar_url, m.sort_order, m.created_at, m.updated_at,
+			-- sessions on OpenMentor + sessions carried over from
+			-- getmentor.dev at migration time (D28)
 			COALESCE(
 				(SELECT COUNT(*)
 				 FROM client_requests cr
 				 WHERE cr.mentor_id = m.id
 				 AND cr.status = 'done'),
 				0
-			) AS mentee_count,
+			) + m.legacy_sessions_count AS mentee_count,
+			m.legacy_sessions_count,
 			m.photo_style, m.moderation_note
 		FROM mentors m
 		LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
