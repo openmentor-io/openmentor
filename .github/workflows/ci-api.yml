@@ -205,8 +205,13 @@ jobs:
           docker run -d --name pg --network ci-net \
             -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=openmentor \
             postgres:16-alpine
+          # -h 127.0.0.1 forces a TCP check. Without it pg_isready uses the
+          # unix socket, which the entrypoint's bootstrap server (started with
+          # listen_addresses='' to run initdb) already answers — so the wait
+          # loop breaks before Postgres listens on TCP and the migrate
+          # container below gets ECONNREFUSED.
           for i in $(seq 1 30); do
-            docker exec pg pg_isready -U openmentor -d openmentor && break
+            docker exec pg pg_isready -h 127.0.0.1 -U openmentor -d openmentor && break
             [ "$i" = 30 ] && { echo "postgres never became ready"; exit 1; }
             sleep 1
           done
