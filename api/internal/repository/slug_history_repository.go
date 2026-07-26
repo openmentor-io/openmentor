@@ -231,9 +231,14 @@ func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, ch
 		return "", fmt.Errorf("failed to reclaim slug history row: %w", err)
 	}
 
-	// Retire the current slug as a redirect.
+	// Retire the current slug as a redirect. Stamp created_at with
+	// clock_timestamp() (evaluated now, after we hold the row lock) rather than
+	// the column DEFAULT NOW() — NOW() is the transaction START time, so under
+	// overlapping renames a later-committing tx could stamp an EARLIER time and
+	// the "keep newest 2" trim below would then drop the wrong redirect.
 	if _, err = tx.Exec(ctx,
-		`INSERT INTO mentor_slug_history (slug, mentor_id, changed_by) VALUES ($1, $2, $3)`,
+		`INSERT INTO mentor_slug_history (slug, mentor_id, changed_by, created_at)
+		 VALUES ($1, $2, $3, clock_timestamp())`,
 		oldSlug, mentorID, changedBy,
 	); err != nil {
 		if isUniqueViolation(err) {

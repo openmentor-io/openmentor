@@ -110,21 +110,33 @@ async function main() {
   const db = new Client({ connectionString: config.targetDatabaseUrl });
   await db.connect();
 
-  // Include retired slugs as candidate sources: a photo uploaded in the gap
-  // between the first pass and the deploy lands under the mentor's slug at that
-  // time; if the mentor then renames before this catch-up pass, the current
-  // slug no longer points at that object — but the retired slug in
-  // mentor_slug_history still does.
-  const { rows: mentors } = await db.query(
-    `SELECT m.id,
-            m.slug,
-            COALESCE(array_agg(h.slug) FILTER (WHERE h.slug IS NOT NULL), '{}') AS history_slugs
-       FROM mentors m
-       LEFT JOIN mentor_slug_history h ON h.mentor_id = m.id
-      WHERE m.slug IS NOT NULL AND m.slug <> ''
-      GROUP BY m.id, m.slug, m.created_at
-      ORDER BY m.created_at`
+  // The FIRST pass runs BEFORE migrations are deployed (see runbook), so
+  // mentor_slug_history may not exist yet. When it's present (post-deploy
+  // reruns), include retired slugs as candidate sources: a photo uploaded in
+  // the gap between the first pass and the deploy lands under the mentor's slug
+  // at that time; if the mentor then renames before a catch-up pass, the
+  // current slug no longer points at that object but the retired slug does.
+  const { rows: historyCheck } = await db.query(
+    `SELECT to_regclass('mentor_slug_history') IS NOT NULL AS has_history`
   );
+  const hasHistory = historyCheck[0].has_history;
+  const { rows: mentors } = hasHistory
+    ? await db.query(
+        `SELECT m.id,
+                m.slug,
+                COALESCE(array_agg(h.slug) FILTER (WHERE h.slug IS NOT NULL), '{}') AS history_slugs
+           FROM mentors m
+           LEFT JOIN mentor_slug_history h ON h.mentor_id = m.id
+          WHERE m.slug IS NOT NULL AND m.slug <> ''
+          GROUP BY m.id, m.slug, m.created_at
+          ORDER BY m.created_at`
+      )
+    : await db.query(
+        `SELECT id, slug, '{}'::text[] AS history_slugs
+           FROM mentors
+          WHERE slug IS NOT NULL AND slug <> ''
+          ORDER BY created_at`
+      );
   console.log(
     `Found ${mentors.length} mentors. Mode: ${dryRun ? 'DRY-RUN' : 'LIVE'}` +
       `${refresh ? ' + REFRESH (uploads must be quiesced)' : ''}\n`
@@ -141,13 +153,16 @@ async function main() {
     const candidateSlugs = [mentor.slug, ...(mentor.history_slugs || [])];
     for (const size of IMAGE_SIZES) {
       const destKey = `${mentor.id}/${size}`;
+      // Declared outside the try so the catch below can log it (default to the
+      // current slug; findSource may reassign to the actual matched source).
+      let sourceKey = `${mentor.slug}/${size}`;
       try {
         const found = await findSource(s3, candidateSlugs, size);
         if (!found) {
           noSource++;
           continue;
         }
-        const sourceKey = found.key;
+        sourceKey = found.key;
         const source = found.head;
         const dest = await headObject(s3, destKey);
         if (dest) {
