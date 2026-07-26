@@ -21,6 +21,12 @@ the rest.
    - `telegram` → `preferred_contact` as `Telegram: @handle`
 4. Keeps identity fields unchanged: email, calendar_url, privacy,
    sort_order, created_at.
+   - Carries the mentor's **session history as a single number** (D28):
+     the count of `status = 'done'` client requests on getmentor.dev goes
+     into `mentors.legacy_sessions_count`. No request rows are copied — the
+     API adds this number to the mentor's OpenMentor done-request count, so
+     the catalog badge and profile page show the full history from day one
+     (the profile page discloses the carried-over share).
 5. Takes a **new legacy_id** from `mentors_legacy_id_seq` and builds the
    slug from the old slug's text part + the new id
    (`ivan-petrov-42` → `ivan-petrov-107`).
@@ -35,8 +41,13 @@ the rest.
 **Idempotency:** each migrated row stores `getmentor:<old legacy_id>` in
 `mentors.airtable_id` (unused by the app, UNIQUE). Re-runs skip migrated
 mentors; mentors whose email already exists on openmentor.io (they signed up
-themselves) are skipped too. `--resume` re-runs steps 7–8 for
-already-migrated mentors (e.g. after an image/email failure).
+themselves) are skipped too — for those the run prints how many
+getmentor.dev sessions were *not* carried over, so you can set
+`legacy_sessions_count` by hand if the two profiles are the same person
+(D21's reconciliation caveat). `--resume` re-runs steps 7–8 for
+already-migrated mentors (e.g. after an image/email failure) and refreshes
+`legacy_sessions_count`, since getmentor.dev stays live and the count can
+grow after the migration.
 
 ## Prerequisites (one-time)
 
@@ -138,8 +149,8 @@ Cost note: translation runs on `claude-opus-4-8`; a typical profile is
 ## Verifying a migration
 
 ```bash
-# Row landed, marker set, status inactive
-../db.sh -c "SELECT slug, legacy_id, status, airtable_id FROM mentors WHERE airtable_id LIKE 'getmentor:%' ORDER BY legacy_id DESC LIMIT 10"
+# Row landed, marker set, status inactive, session history carried (D28)
+../db.sh -c "SELECT slug, legacy_id, status, airtable_id, legacy_sessions_count FROM mentors WHERE airtable_id LIKE 'getmentor:%' ORDER BY legacy_id DESC LIMIT 10"
 
 # Photo reachable under the new slug
 curl -sI https://cdn.openmentor.io/<new-slug>/full | head -1
