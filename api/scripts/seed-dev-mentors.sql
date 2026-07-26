@@ -184,6 +184,17 @@ WHERE NOT EXISTS (
   WHERE cr.mentor_id = m.id AND cr.email = 'mentee1@example.com'
 );
 
+-- Migrated-from-getmentor.dev fixture (D28) -------------------------------
+-- Amara registered 3 days ago, so without the carry-over she'd wear the NEW
+-- badge; the retroactive count suppresses it and her profile page discloses
+-- where the sessions come from. The marker mirrors what migrate-mentors.js
+-- writes (D22).
+UPDATE mentors
+   SET legacy_sessions_count = 35,
+       airtable_id = 'getmentor:9042'
+ WHERE slug = 'amara-okafor-1002'
+   AND legacy_sessions_count = 0;
+
 -- A few open requests for the dashboard inbox of the active login mentor --
 INSERT INTO client_requests (mentor_id, email, name, description, level, status, preferred_contact)
 SELECT m.id, seed.email, seed.name, seed.description, seed.level, seed.status, seed.contact

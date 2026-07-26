@@ -109,7 +109,8 @@ func TestScanMentor(t *testing.T) {
 			sortOrder,
 			createdAt,
 			updatedAt,
-			doneSessions,   // mentee_count: aggregate of done client_requests
+			doneSessions,   // mentee_count: done client_requests + legacy_sessions_count
+			0,              // legacy_sessions_count (registered on OpenMentor)
 			photoStyle,     // photo_style
 			moderationNote, // moderation_note (nullable, scanned as *string)
 		},
@@ -207,6 +208,7 @@ func TestScanMentor_InactiveMentor(t *testing.T) {
 			createdAt,     // created_at
 			createdAt,     // updated_at
 			0,             // mentee_count (no done client_requests)
+			0,             // legacy_sessions_count
 			"frame",       // photo_style
 			nil,           // moderation_note (null)
 		},
@@ -230,6 +232,59 @@ func TestScanMentor_InactiveMentor(t *testing.T) {
 	// SessionsCount should be 0 when there are no done client_requests
 	if mentor.SessionsCount != 0 {
 		t.Errorf("expected SessionsCount to be 0, got %d", mentor.SessionsCount)
+	}
+}
+
+// TestScanMentor_MigratedMentor verifies the getmentor.dev carry-over (D28):
+// the legacy count is exposed separately, is already folded into mentee_count
+// by the query, and suppresses the NEW badge for a freshly migrated row.
+func TestScanMentor_MigratedMentor(t *testing.T) {
+	legacySessions := 35
+	doneSessions := 3
+	createdAt := time.Now().AddDate(0, 0, -2) // migrated 2 days ago
+
+	row := &mockRow{
+		values: []interface{}{
+			"550e8400-e29b-41d4-a716-446655440000",
+			"getmentor:42", // airtable_id: D22 migration marker
+			7,
+			"ivan-petrov-7",
+			"Ivan Petrov",
+			"Engineer",
+			"Company",
+			"About",
+			"Description",
+			"Skills",
+			"10+",
+			"$100",
+			"active",
+			nil,
+			"",
+			0,
+			createdAt,
+			createdAt,
+			doneSessions + legacySessions, // mentee_count as the query returns it
+			legacySessions,                // legacy_sessions_count
+			"frame",
+			nil,
+		},
+	}
+
+	mentor, err := models.ScanMentor(row)
+	if err != nil {
+		t.Fatalf("ScanMentor failed: %v", err)
+	}
+
+	if mentor.LegacySessionsCount != legacySessions {
+		t.Errorf("expected LegacySessionsCount %d, got %d", legacySessions, mentor.LegacySessionsCount)
+	}
+	if mentor.SessionsCount != doneSessions+legacySessions {
+		t.Errorf("expected SessionsCount %d, got %d", doneSessions+legacySessions, mentor.SessionsCount)
+	}
+	// Created 2 days ago, but the mentoring history is not new — the NEW badge
+	// would hide the session count on the catalog card.
+	if mentor.IsNew {
+		t.Errorf("expected IsNew to be false for a migrated mentor with carried-over sessions")
 	}
 }
 

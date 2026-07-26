@@ -88,10 +88,17 @@ export interface MentorBase {
   tags: string[]
   menteeCount: number
   /**
-   * Number of completed mentorship sessions. Optional: only present in
-   * newer Go API payloads — the UI must work when it's absent.
+   * Number of completed mentorship sessions, including any carried over from
+   * getmentor.dev at migration time. Optional: only present in newer Go API
+   * payloads — the UI must work when it's absent.
    */
   sessionsCount?: number
+  /**
+   * The share of sessionsCount that happened on getmentor.dev before the
+   * profile was migrated (DECISIONS D28). 0 for mentors who registered on
+   * OpenMentor; optional for the same payload-age reason as sessionsCount.
+   */
+  legacySessionsCount?: number
   photo_url: string | null
   sortOrder: number
   isVisible: boolean

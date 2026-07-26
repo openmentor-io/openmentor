@@ -22,16 +22,21 @@ type Mentor struct {
 	Experience   string  `json:"experience"`
 	Price        string  `json:"price"`
 	MenteeCount  int     `json:"menteeCount"`
-	// SessionsCount is the number of completed sessions (client_requests rows
-	// with status = 'done'). It is loaded by the same aggregate that backs
-	// MenteeCount in the mentor scan queries.
-	SessionsCount int       `json:"sessionsCount"`
-	Tags          []string  `json:"tags"`
-	SortOrder     int       `json:"sortOrder"`
-	IsVisible     bool      `json:"isVisible"` // Computed: status = 'active'
-	CalendarType  string    `json:"calendarType"`
-	IsNew         bool      `json:"isNew"`     // Computed: created_at > NOW() - 14 days
-	UpdatedAt     time.Time `json:"updatedAt"` // Used for profile image cache invalidation
+	// SessionsCount is the number of completed sessions: client_requests rows
+	// with status = 'done' PLUS LegacySessionsCount. It is loaded by the same
+	// aggregate that backs MenteeCount in the mentor scan queries.
+	SessionsCount int `json:"sessionsCount"`
+	// LegacySessionsCount is the share of SessionsCount that happened on
+	// getmentor.dev before the profile was migrated (D28). Zero for mentors
+	// who registered on OpenMentor. Exposed so the profile page can disclose
+	// where the history comes from instead of passing it off as native.
+	LegacySessionsCount int       `json:"legacySessionsCount"`
+	Tags                []string  `json:"tags"`
+	SortOrder           int       `json:"sortOrder"`
+	IsVisible           bool      `json:"isVisible"` // Computed: status = 'active'
+	CalendarType        string    `json:"calendarType"`
+	IsNew               bool      `json:"isNew"`     // Computed: created_at > NOW() - 14 days
+	UpdatedAt           time.Time `json:"updatedAt"` // Used for profile image cache invalidation
 
 	// Status field for login eligibility checks
 	Status string `json:"status"`
@@ -53,41 +58,44 @@ type Mentor struct {
 
 // PublicMentorResponse represents the public API response format
 type PublicMentorResponse struct {
-	ID            int       `json:"id"`
-	Name          string    `json:"name"`
-	Title         string    `json:"title"`
-	Workplace     string    `json:"workplace"`
-	About         string    `json:"about"`
-	Description   string    `json:"description"`
-	Competencies  string    `json:"competencies"`
-	Experience    string    `json:"experience"`
-	Price         string    `json:"price"`
-	DoneSessions  int       `json:"doneSessions"`
-	SessionsCount int       `json:"sessionsCount"`
-	Tags          string    `json:"tags"`
-	Link          string    `json:"link"`
-	PhotoStyle    string    `json:"photoStyle"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID            int    `json:"id"`
+	Name          string `json:"name"`
+	Title         string `json:"title"`
+	Workplace     string `json:"workplace"`
+	About         string `json:"about"`
+	Description   string `json:"description"`
+	Competencies  string `json:"competencies"`
+	Experience    string `json:"experience"`
+	Price         string `json:"price"`
+	DoneSessions  int    `json:"doneSessions"`
+	SessionsCount int    `json:"sessionsCount"`
+	// LegacySessionsCount is the getmentor.dev share of SessionsCount (D28).
+	LegacySessionsCount int       `json:"legacySessionsCount"`
+	Tags                string    `json:"tags"`
+	Link                string    `json:"link"`
+	PhotoStyle          string    `json:"photoStyle"`
+	UpdatedAt           time.Time `json:"updatedAt"`
 }
 
 // ToPublicResponse converts a Mentor to PublicMentorResponse
 func (m *Mentor) ToPublicResponse(baseURL string) PublicMentorResponse {
 	return PublicMentorResponse{
-		ID:            m.LegacyID, // Use LegacyID for backwards compatibility
-		Name:          m.Name,
-		Title:         m.Job,
-		Workplace:     m.Workplace,
-		About:         m.About,
-		Description:   m.Description,
-		Competencies:  m.Competencies,
-		Experience:    m.Experience,
-		Price:         m.Price,
-		DoneSessions:  m.MenteeCount,
-		SessionsCount: m.SessionsCount,
-		Tags:          strings.Join(m.Tags, ","),
-		Link:          baseURL + "/mentor/" + m.Slug,
-		PhotoStyle:    m.PhotoStyle,
-		UpdatedAt:     m.UpdatedAt,
+		ID:                  m.LegacyID, // Use LegacyID for backwards compatibility
+		Name:                m.Name,
+		Title:               m.Job,
+		Workplace:           m.Workplace,
+		About:               m.About,
+		Description:         m.Description,
+		Competencies:        m.Competencies,
+		Experience:          m.Experience,
+		Price:               m.Price,
+		DoneSessions:        m.MenteeCount,
+		SessionsCount:       m.SessionsCount,
+		LegacySessionsCount: m.LegacySessionsCount,
+		Tags:                strings.Join(m.Tags, ","),
+		Link:                baseURL + "/mentor/" + m.Slug,
+		PhotoStyle:          m.PhotoStyle,
+		UpdatedAt:           m.UpdatedAt,
 	}
 }
 
@@ -135,6 +143,7 @@ func ScanMentor(row pgx.Row) (*Mentor, error) {
 		&m.CreatedAt,
 		&m.UpdatedAt,
 		&m.MenteeCount,
+		&m.LegacySessionsCount,
 		&m.PhotoStyle,
 		&moderationNote,
 	)
@@ -178,15 +187,19 @@ func ScanMentor(row pgx.Row) (*Mentor, error) {
 	}
 
 	// SessionsCount mirrors the mentee_count column, which is the aggregate
-	// count of client_requests with status = 'done' for this mentor
+	// count of client_requests with status = 'done' for this mentor plus any
+	// sessions carried over from getmentor.dev (D28)
 	m.SessionsCount = m.MenteeCount
 
 	// Compute IsVisible: status = 'active'
 	m.IsVisible = m.Status == "active"
 
-	// Compute IsNew: created_at > NOW() - 14 days
+	// Compute IsNew: created_at > NOW() - 14 days. A migrated mentor's row is
+	// days old but their mentoring is not, so carried-over history disqualifies
+	// them from the NEW badge — it would otherwise hide their session count,
+	// which takes second place to the badge on the catalog card (D28).
 	fourteenDaysAgo := time.Now().AddDate(0, 0, -14)
-	m.IsNew = m.CreatedAt.After(fourteenDaysAgo)
+	m.IsNew = m.CreatedAt.After(fourteenDaysAgo) && m.LegacySessionsCount == 0
 
 	// Determine calendar type
 	m.CalendarType = GetCalendarType(m.CalendarURL)

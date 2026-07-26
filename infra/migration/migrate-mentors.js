@@ -14,6 +14,10 @@
  *     experience passes through)
  *   - identity fields (email, calendar_url, privacy, sort_order,
  *     created_at) are carried over unchanged
+ *   - the mentor's completed-session history is carried as a single number
+ *     in mentors.legacy_sessions_count (DECISIONS D28): the count of 'done'
+ *     client_requests on getmentor.dev. No request rows are copied — the
+ *     API adds this number to the mentor's OpenMentor session count
  *   - a NEW legacy_id is taken from the target's mentors_legacy_id_seq and
  *     the slug keeps its text part with the id part replaced
  *     (ivan-petrov-42 -> ivan-petrov-<new id>)
@@ -29,7 +33,9 @@
  * UNIQUE constraint. Re-runs skip mentors that carry the marker, and also
  * skip when a mentor with the same email already exists (e.g. they
  * registered on openmentor.io themselves). `--resume` re-runs the image
- * copy + email steps for already-migrated mentors without touching the row.
+ * copy + email steps for already-migrated mentors and refreshes
+ * legacy_sessions_count (getmentor.dev stays live, so the count can grow);
+ * no other column of an existing row is touched.
  *
  * Usage (normally via ./migrate-mentors.sh, which opens the DB tunnel):
  *   node --env-file=.env migrate-mentors.js --slug ivan-petrov-42 [--slug ...]
@@ -48,7 +54,8 @@
  *   --translate-dry-run with --dry-run: also run the Claude translation so
  *                       the full mapped record can be reviewed
  *   --resume            for already-migrated mentors, re-run image copy +
- *                       email instead of skipping
+ *                       email and refresh legacy_sessions_count instead of
+ *                       skipping
  *   --skip-images       don't copy profile photos
  *   --skip-email        don't trigger the profile-migrated email
  *   --skip-translation  keep the original (Russian) text verbatim
@@ -292,7 +299,13 @@ async function fetchSourceMentor(source, slug) {
             COALESCE(m.privacy, false)   AS privacy,
             m.sort_order,
             m.created_at,
-            COALESCE(array_agg(t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS tags
+            COALESCE(array_agg(t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS tags,
+            -- completed sessions on getmentor.dev, carried over as a single
+            -- number (DECISIONS D28) — no client_requests rows are copied
+            COALESCE((SELECT COUNT(*)
+                        FROM client_requests cr
+                       WHERE cr.mentor_id = m.id
+                         AND cr.status = 'done'), 0) AS done_sessions
        FROM mentors m
        LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
        LEFT JOIN tags t ON t.id = mt.tag_id
@@ -430,6 +443,20 @@ async function findExisting(target, marker, email) {
   return rows[0] || null;
 }
 
+// Refresh the carried-over session count on an already-migrated row (D28).
+// getmentor.dev stays live, so a --resume run may find sessions completed
+// there after the profile was migrated.
+async function refreshLegacySessions(target, mentorId, doneSessions, notes) {
+  const { rowCount } = await target.query(
+    `UPDATE mentors SET legacy_sessions_count = $1
+      WHERE id = $2 AND legacy_sessions_count <> $1`,
+    [doneSessions, mentorId]
+  );
+  if (rowCount > 0) {
+    notes.push(`legacy_sessions_count refreshed -> ${doneSessions}`);
+  }
+}
+
 async function insertMentor(target, mentor, translated, mappedTags, marker, notes) {
   await target.query('BEGIN');
   try {
@@ -441,10 +468,11 @@ async function insertMentor(target, mentor, translated, mappedTags, marker, note
       `INSERT INTO mentors (
          airtable_id, legacy_id, slug, name, job_title, workplace, about,
          details, competencies, experience, price, status, email,
-         preferred_contact, calendar_url, privacy, sort_order, created_at
+         preferred_contact, calendar_url, privacy, sort_order, created_at,
+         legacy_sessions_count
        ) VALUES (
          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'inactive', $12,
-         $13, $14, $15, $16, $17
+         $13, $14, $15, $16, $17, $18
        ) RETURNING id`,
       [
         marker,
@@ -464,6 +492,7 @@ async function insertMentor(target, mentor, translated, mappedTags, marker, note
         mentor.privacy,
         mentor.sort_order,
         mentor.created_at,
+        Number(mentor.done_sessions) || 0,
       ]
     );
     const mentorId = inserted.rows[0].id;
@@ -648,6 +677,7 @@ async function migrateMentor(source, target, slug) {
     return;
   }
 
+  const doneSessions = Number(mentor.done_sessions) || 0;
   const marker = `${MIGRATION_MARKER_PREFIX}${mentor.legacy_id}`;
   const existing = await findExisting(target, marker, mentor.email);
   if (existing) {
@@ -656,12 +686,22 @@ async function migrateMentor(source, target, slug) {
       : `email already registered on openmentor.io (${existing.slug})`;
     if (args.resume && existing.by_marker && !args.dryRun) {
       console.log(`  🔁 ${reason} — resuming images + email`);
+      await refreshLegacySessions(target, existing.id, doneSessions, notes);
       if (!args.skipImages) await copyImages(slug, existing.slug, notes);
       if (!args.skipEmail) await triggerMigratedEmail(existing.id);
       stats.resumed++;
       reportRows.push({ slug, outcome: `resumed (${existing.slug})`, notes });
+      notes.forEach((n) => console.log(`     • ${n}`));
     } else {
       console.log(`  ⏭️  Skipped: ${reason}`);
+      // The session history is not carried onto a profile this script did not
+      // create (D21's reconciliation caveat) — surface it so the operator can
+      // decide whether to set legacy_sessions_count by hand.
+      if (!existing.by_marker && doneSessions > 0) {
+        console.log(
+          `     ⚠️  ${doneSessions} getmentor.dev session(s) NOT carried over to ${existing.slug}`
+        );
+      }
       stats.skipped++;
       reportRows.push({ slug, outcome: `skipped: ${reason}`, notes });
     }
@@ -673,6 +713,11 @@ async function migrateMentor(source, target, slug) {
   mentor.mappedExperience = mapExperience(mentor.experience, notes);
   const mappedTags = mapTags(mentor.tags, notes);
   notes.push(`tags: [${mentor.tags.join(', ')}] -> [${mappedTags.join(', ')}]`);
+  notes.push(
+    doneSessions > 0
+      ? `sessions: ${doneSessions} done on getmentor.dev -> legacy_sessions_count (no client_requests copied)`
+      : 'sessions: none completed on getmentor.dev'
+  );
 
   // Translate
   let translated = {
@@ -746,6 +791,7 @@ function printMappedRecord(mentor, translated, mappedTags, marker) {
     preferred_contact: mapPreferredContact(mentor.telegram) || '(none)',
     calendar_url: mentor.calendar_url || '(none)',
     tags: mappedTags.join(', ') || '(none)',
+    legacy_sessions: String(Number(mentor.done_sessions) || 0),
     created_at: mentor.created_at.toISOString(),
   };
   for (const [key, value] of Object.entries(rows)) {
