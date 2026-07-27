@@ -7,6 +7,7 @@ import type {
   AdminStatusUpdateRequest,
   UploadProfilePictureRequest,
   UploadProfilePictureResponse,
+  ChangeUsernameResponse,
 } from '@/types'
 
 export class ApiError extends Error {
@@ -231,6 +232,24 @@ export async function uploadModerationMentorPicture(
     {
       method: 'POST',
       body: JSON.stringify(imageData),
+    }
+  )
+}
+
+/**
+ * Change a mentor's username from the admin panel (no cooldown). Goes through
+ * the same history/redirect machinery as the mentor flow. Throws ApiError with
+ * status 409 when the username is already taken.
+ */
+export async function changeModerationMentorUsername(
+  mentorId: string,
+  username: string
+): Promise<ChangeUsernameResponse> {
+  return apiRequest<ChangeUsernameResponse>(
+    `/api/admin/mentors/${encodeURIComponent(mentorId)}/username`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ username }),
     }
   )
 }

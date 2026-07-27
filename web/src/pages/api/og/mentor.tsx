@@ -58,6 +58,7 @@ function loadFonts(): NonNullable<typeof fontsPromise> {
 }
 
 interface OgMentor {
+  mentorId: string
   name: string
   job: string
   workplace: string
@@ -87,10 +88,14 @@ async function fetchMentor(slug: string): Promise<OgMentor | null> {
   return (await res.json()) as OgMentor
 }
 
-/** Fetch the mentor photo bytes; null when there is no usable photo. */
-async function fetchPhoto(slug: string, updatedAt?: string): Promise<ArrayBuffer | null> {
+/** Fetch the mentor photo bytes (keyed by the immutable mentor UUID). */
+async function fetchPhoto(mentorId: string, updatedAt?: string): Promise<ArrayBuffer | null> {
   try {
-    const url = imageLoader({ src: slug, quality: 'large', version: updatedAtToVersion(updatedAt) })
+    const url = imageLoader({
+      src: mentorId,
+      quality: 'large',
+      version: updatedAtToVersion(updatedAt),
+    })
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
     if (!res.ok || !(res.headers.get('content-type') || '').startsWith('image/')) {
       return null
@@ -148,7 +153,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const [photo, fonts] = await Promise.all([
-      fetchPhoto(mentor.slug, mentor.updatedAt),
+      fetchPhoto(mentor.mentorId, mentor.updatedAt),
       loadFonts(),
     ])
     const [base, deep] = MENTOR_PASTEL_GRAD_HEX[mentorPastelIndex(mentor.slug)]

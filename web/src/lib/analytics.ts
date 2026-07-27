@@ -35,6 +35,7 @@ export const analyticsEvents = {
 
   MENTOR_CONFIRM_PAGE_VIEWED: 'mentor_confirm_page_viewed',
   PROFILE_SHARE_CLICKED: 'profile_share_clicked',
+  MENTOR_USERNAME_CHANGED: 'mentor_username_changed',
   REVIEW_PAGE_VIEWED: 'review_page_viewed',
 
   DONATE_PAGE_VIEWED: 'donate_page_viewed',

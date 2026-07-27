@@ -74,8 +74,8 @@ func (m *MockProfileService) SaveProfileByMentorId(ctx context.Context, mentorId
 	return args.Error(0)
 }
 
-func (m *MockProfileService) UploadPictureByMentorId(ctx context.Context, mentorId string, mentorSlug string, req *models.UploadProfilePictureRequest) (string, error) {
-	args := m.Called(ctx, mentorId, mentorSlug, req)
+func (m *MockProfileService) UploadPictureByMentorId(ctx context.Context, mentorId string, req *models.UploadProfilePictureRequest) (string, error) {
+	args := m.Called(ctx, mentorId, req)
 	return args.String(0), args.Error(1)
 }
 

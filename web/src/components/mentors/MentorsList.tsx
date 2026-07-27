@@ -69,7 +69,8 @@ function MentorCard({
   const photoSrc = photoFailed
     ? null
     : imageLoader({
-        src: mentor.slug,
+        // Keyed by the immutable mentor UUID (usernames are changeable).
+        src: mentor.mentorId,
         quality: 'large',
         version: updatedAtToVersion(mentor.updatedAt),
       })

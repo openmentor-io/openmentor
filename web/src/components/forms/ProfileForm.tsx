@@ -258,7 +258,7 @@ export default function ProfileForm({
               ) : (
                 <Image
                   src={imageLoader({
-                    src: mentor.slug,
+                    src: mentor.mentorId,
                     quality: 'full',
                     version: updatedAtToVersion(mentor.updatedAt),
                   })}

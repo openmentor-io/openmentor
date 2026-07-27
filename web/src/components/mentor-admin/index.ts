@@ -13,6 +13,7 @@ export { default as RequestListSkeleton } from './RequestListSkeleton'
 export { default as FilterPills } from './FilterPills'
 export { default as ProfileVisibilityCard } from './ProfileVisibilityCard'
 export { default as ShareProfileCard } from './ShareProfileCard'
+export { default as UsernameCard } from './UsernameCard'
 export {
   formatDate,
   formatDateTime,

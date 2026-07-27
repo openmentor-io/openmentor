@@ -52,6 +52,18 @@ const _getServerSideProps: GetServerSideProps<{ mentor: MentorContact }> = async
     }
   }
 
+  // Redirect retired-username links to the canonical contact URL. Temporary
+  // (302), not 301: retired slugs are eventually freed for reuse, so a cached
+  // permanent redirect could misroute to the original mentor after reassignment.
+  if (mentor.slug !== slug) {
+    return {
+      redirect: {
+        destination: `/mentor/${mentor.slug}/contact`,
+        permanent: false,
+      },
+    }
+  }
+
   logger.info('Mentor contact page rendered', {
     mentorId: mentor.id,
     mentorSlug: mentor.slug,

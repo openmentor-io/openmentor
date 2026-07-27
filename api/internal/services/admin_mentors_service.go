@@ -142,11 +142,7 @@ func (s *AdminMentorsService) UpdateMentorProfile(
 		return nil, fmt.Errorf("at least one valid tag is required")
 	}
 
-	updates, err := buildProfileUpdates(session, req, contact)
-	if err != nil {
-		s.trackAdminProfileUpdate(ctx, session, mentorID, "invalid_payload", nil)
-		return nil, err
-	}
+	updates := buildProfileUpdates(req, contact)
 
 	if err := s.mentorRepo.Update(ctx, mentorID, updates); err != nil {
 		s.trackAdminProfileUpdate(ctx, session, mentorID, "update_failed", nil)
@@ -271,8 +267,8 @@ func (s *AdminMentorsService) UploadMentorPicture(
 		return "", ErrAdminForbiddenAction
 	}
 
-	mentor, err := s.mentorRepo.GetForModerationByID(ctx, mentorID)
-	if err != nil {
+	// Existence check only — images are keyed by the mentor UUID itself.
+	if _, err := s.mentorRepo.GetForModerationByID(ctx, mentorID); err != nil {
 		s.tracker.Track(ctx, analytics.EventAdminMentorPictureUploaded, analytics.ModeratorDistinctID(session.ModeratorID), map[string]interface{}{
 			"moderator_id":     session.ModeratorID,
 			"moderator_role":   string(session.Role),
@@ -281,7 +277,7 @@ func (s *AdminMentorsService) UploadMentorPicture(
 		})
 		return "", err
 	}
-	uploadURL, err := s.profileService.UploadPictureByMentorId(ctx, mentorID, mentor.Slug, req)
+	uploadURL, err := s.profileService.UploadPictureByMentorId(ctx, mentorID, req)
 	if err != nil {
 		s.tracker.Track(ctx, analytics.EventAdminMentorPictureUploaded, analytics.ModeratorDistinctID(session.ModeratorID), map[string]interface{}{
 			"moderator_id":     session.ModeratorID,
@@ -408,9 +404,6 @@ func validateProfileUpdatePermissions(
 	if session.Role == models.ModeratorRoleModerator && mentor.Status != mentorStatusPending {
 		return ErrAdminForbiddenAction
 	}
-	if session.Role != models.ModeratorRoleAdmin && req.Slug != nil {
-		return ErrAdminForbiddenAction
-	}
 	return nil
 }
 
@@ -425,13 +418,15 @@ func (s *AdminMentorsService) resolveTagIDs(ctx context.Context, tags []string) 
 	return tagIDs
 }
 
+// buildProfileUpdates maps the request onto DB columns. Slug (username) is
+// deliberately NOT part of profile updates — renames go through the dedicated
+// username endpoint so history/redirects are maintained.
 func buildProfileUpdates(
-	session *models.AdminSession,
 	req *models.AdminMentorProfileUpdateRequest,
 	contact string,
-) (map[string]interface{}, error) {
+) map[string]interface{} {
 
-	updates := map[string]interface{}{
+	return map[string]interface{}{
 		"name":              req.Name,
 		"email":             req.Email,
 		"preferred_contact": contact,
@@ -444,18 +439,6 @@ func buildProfileUpdates(
 		"competencies":      req.Competencies,
 		"calendar_url":      req.CalendarURL,
 	}
-	if session.Role != models.ModeratorRoleAdmin {
-		return updates, nil
-	}
-
-	if req.Slug != nil {
-		slug := strings.TrimSpace(*req.Slug)
-		if slug == "" {
-			return nil, fmt.Errorf("slug cannot be empty")
-		}
-		updates["slug"] = slug
-	}
-	return updates, nil
 }
 
 func (s *AdminMentorsService) triggerModerationAction(ctx context.Context, action string, session *models.AdminSession, mentorID string) {

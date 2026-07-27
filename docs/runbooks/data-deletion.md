@@ -21,11 +21,22 @@
    ```sql
    -- find the mentor
    SELECT id, slug, name, email FROM mentors WHERE email = $1;
+   -- Capture EVERY slug the mentor has used, BEFORE deleting the row: images
+   -- may be keyed by the current UUID and — for legacy/pre-cutover copies — by
+   -- any current or retired slug. mentor_slug_history cascade-deletes with the
+   -- mentor row, so grab these first or the mapping is lost (D29).
+   SELECT slug FROM mentors WHERE id = $MENTOR_ID
+   UNION
+   SELECT slug FROM mentor_slug_history WHERE mentor_id = $MENTOR_ID;
    -- requests referencing the mentor keep working (mentor_id is ON DELETE SET NULL)
    DELETE FROM mentor_tags WHERE mentor_id = $MENTOR_ID;
-   DELETE FROM mentors WHERE id = $MENTOR_ID;
+   DELETE FROM mentors WHERE id = $MENTOR_ID; -- also cascades mentor_slug_history
    ```
-   Then delete profile images from the storage bucket (prefix = slug or mentor id). The API reads mentors directly from the database (no cache), so the deletion is reflected immediately.
+   Then delete profile images from the storage bucket for **every** prefix: the
+   mentor UUID (`<id>/`, the canonical key since D29) **and** each current/retired
+   slug from the query above (`<slug>/`, covers legacy pre-cutover copies). The
+   API reads mentors directly from the database (no cache), so the deletion is
+   reflected immediately.
 3. **Mentee deletion**:
    ```sql
    SELECT id FROM client_requests WHERE email = $1;

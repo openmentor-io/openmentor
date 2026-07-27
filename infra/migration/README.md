@@ -17,7 +17,7 @@ Two scripts live here:
 
 - **`yandex-to-s3-migration.js`** — the one-off bulk image copy, documented
   below. (For per-mentor image copies, migrate-mentors.js does its own —
-  keyed to the *new* slug.)
+  keyed to the mentor UUID (`mentors.id`), so renames never move objects; D29.)
 
 `yandex-ca.pem` is the public Yandex Managed PostgreSQL cluster CA
 (expires 2027) used by migrate-mentors.js to verify the source DB's TLS.

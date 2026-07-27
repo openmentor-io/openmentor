@@ -16,6 +16,9 @@ const (
 	EventMentorProfileStatusChanged   = "mentor_profile_status_changed"
 	EventMentorRequestStatusUpdated   = "mentor_request_status_updated"
 	EventMentorRequestDeclined        = "mentor_request_declined"
+	// EventMentorUsernameChanged fires on username (slug) changes, both
+	// mentor-initiated and admin-initiated (changed_by property).
+	EventMentorUsernameChanged = "mentor_username_changed"
 
 	// Draft-status workflow: registration email confirmation and the
 	// mentor's own draft -> pending resubmission from the portal.

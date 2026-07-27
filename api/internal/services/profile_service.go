@@ -141,11 +141,21 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 	return nil
 }
 
-// UploadPictureByMentorId uploads a profile picture using Mentor ID (UUID) for session-based auth
-func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID string, mentorSlug string, req *models.UploadProfilePictureRequest) (string, error) {
+// UploadPictureByMentorId uploads a profile picture using Mentor ID (UUID) for session-based auth.
+// Images are keyed by the mentor UUID (immutable), not the slug (user-changeable).
+func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID string, req *models.UploadProfilePictureRequest) (string, error) {
+	// Verify the mentor still exists BEFORE writing any images. Keying images by
+	// UUID (D29) removed the slug lookup that used to double as this existence
+	// check — without it, a deleted mentor holding a still-valid session cookie
+	// would orphan three PII objects in S3 (the DB updates below are best-effort
+	// and only logged, so the endpoint would still return success).
+	if _, err := s.mentorRepo.GetByMentorId(ctx, mentorID, models.FilterOptions{ShowHidden: true, AllowAnyStatus: true}); err != nil {
+		return "", fmt.Errorf("mentor not found: %w", err)
+	}
+
 	// Upload to S3-compatible object storage in 3 sizes: full, large, small (synchronous)
 	// Validation (type and size) is handled automatically by UploadImageAllSizes
-	fullImageURL, err := s.storageClient.UploadImageAllSizes(ctx, req.Image, mentorSlug, req.ContentType)
+	fullImageURL, err := s.storageClient.UploadImageAllSizes(ctx, req.Image, mentorID, req.ContentType)
 	if err != nil {
 		metrics.ProfilePictureUploads.WithLabelValues("error").Inc()
 		s.tracker.Track(ctx, analytics.EventMentorProfilePictureUploaded, analytics.MentorDistinctID(mentorID), map[string]interface{}{

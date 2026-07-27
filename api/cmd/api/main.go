@@ -45,6 +45,7 @@ func registerAPIRoutes(
 	reviewHandler *handlers.ReviewHandler,
 	migrationIntentHandler *handlers.MigrationIntentHandler,
 	mentorConfirmationHandler *handlers.MentorConfirmationHandler,
+	usernameHandler *handlers.UsernameHandler,
 ) {
 
 	group.GET("/mentors", generalRateLimiter.Middleware(), middleware.TokenAuthMiddleware(cfg.Auth.MentorsAPIToken), mentorHandler.GetPublicMentors)
@@ -68,6 +69,13 @@ func registerAPIRoutes(
 
 	// getmentor.dev migration opt-ins (public - uses captcha for protection, D22)
 	group.POST("/migration/intents", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024), migrationIntentHandler.ScheduleMigration)
+
+	// Username availability for the registration form's live check (public,
+	// read-only). Uses the general read limiter, NOT the contact limiter:
+	// behind the BFF all callers share one source IP, so putting these
+	// per-keystroke checks on the 5/s contact bucket would let live typing
+	// starve contact/review/migration submissions of tokens.
+	group.GET("/username/availability", generalRateLimiter.Middleware(), usernameHandler.PublicAvailability)
 }
 
 // registerMentorAdminRoutes registers mentor admin routes for authentication, request management, and profile
@@ -79,6 +87,7 @@ func registerMentorAdminRoutes(
 	mentorAuthHandler *handlers.MentorAuthHandler,
 	mentorRequestsHandler *handlers.MentorRequestsHandler,
 	mentorProfileHandler *handlers.MentorProfileHandler,
+	usernameHandler *handlers.UsernameHandler,
 	tokenManager *jwt.TokenManager,
 ) {
 	// Skip mentor admin routes if JWT is not configured
@@ -114,6 +123,13 @@ func registerMentorAdminRoutes(
 	mentor.POST("/profile/status", profileRateLimiter.Middleware(), mentorProfileHandler.UpdateProfileStatus)
 	mentor.POST("/profile/submit", profileRateLimiter.Middleware(), mentorProfileHandler.SubmitProfile)
 	mentor.POST("/profile/picture", profileRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024*1024), mentorProfileHandler.UploadPicture)
+
+	// Username (public name for the slug) — a DELIBERATELY separate flow from
+	// profile save: changing it is a breaking action (shared links, cached OG
+	// cards) with its own confirmation UX and a 14-day cooldown.
+	mentor.GET("/username", usernameHandler.MentorStatus)
+	mentor.GET("/username/availability", usernameHandler.MentorAvailability)
+	mentor.POST("/username", profileRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(4*1024), usernameHandler.MentorChange)
 }
 
 // registerAdminModerationRoutes registers moderator/admin web routes.
@@ -124,6 +140,7 @@ func registerAdminModerationRoutes(
 	profileRateLimiter *middleware.RateLimiter,
 	adminAuthHandler *handlers.AdminAuthHandler,
 	adminMentorsHandler *handlers.AdminMentorsHandler,
+	usernameHandler *handlers.UsernameHandler,
 	tokenManager *jwt.TokenManager,
 ) {
 
@@ -150,6 +167,11 @@ func registerAdminModerationRoutes(
 	admin.POST("/mentors/:id/return", adminMentorsHandler.ReturnMentor)
 	admin.POST("/mentors/:id/status", adminMentorsHandler.UpdateMentorStatus)
 	admin.POST("/mentors/:id/picture", profileRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024*1024), adminMentorsHandler.UploadMentorPicture)
+
+	// Username change (admin role only, no cooldown; goes through the same
+	// history/redirect machinery as the mentor flow).
+	admin.GET("/mentors/:id/username/availability", usernameHandler.AdminAvailability)
+	admin.POST("/mentors/:id/username", profileRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(4*1024), usernameHandler.AdminChange)
 }
 
 func main() { //nolint:gocyclo
@@ -306,6 +328,7 @@ func main() { //nolint:gocyclo
 	adminMentorsService := services.NewAdminMentorsService(mentorRepo, profileService, cfg, httpClient, analyticsTracker)
 	migrationIntentService := services.NewMigrationIntentService(migrationIntentRepo, cfg, httpClient, analyticsTracker)
 	mentorConfirmationService := services.NewMentorConfirmationService(mentorRepo, cfg, httpClient, analyticsTracker)
+	usernameService := services.NewUsernameService(mentorRepo, analyticsTracker)
 
 	// Initialize handlers
 	mentorHandler := handlers.NewMentorHandler(mentorService, cfg.Server.BaseURL)
@@ -321,6 +344,7 @@ func main() { //nolint:gocyclo
 	mentorRequestsHandler := handlers.NewMentorRequestsHandler(mentorRequestsService)
 	mentorProfileHandler := handlers.NewMentorProfileHandler(mentorService, profileService)
 	adminMentorsHandler := handlers.NewAdminMentorsHandler(adminMentorsService)
+	usernameHandler := handlers.NewUsernameHandler(usernameService)
 
 	// Set up Gin router
 	gin.SetMode(cfg.Server.GinMode)
@@ -388,13 +412,13 @@ func main() { //nolint:gocyclo
 	v1 := router.Group("/api/v1")
 	registerAPIRoutes(v1, cfg, generalRateLimiter, contactRateLimiter, registrationRateLimiter, confirmResendRateLimiter,
 		mentorHandler, contactHandler, logsHandler, registrationHandler, reviewHandler, migrationIntentHandler,
-		mentorConfirmationHandler)
+		mentorConfirmationHandler, usernameHandler)
 
 	// Mentor admin routes (authentication, request management, and profile)
-	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, mentorAuthService.GetTokenManager())
+	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, usernameHandler, mentorAuthService.GetTokenManager())
 
 	// Moderator/Admin web moderation routes
-	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, adminAuthHandler, adminMentorsHandler, adminAuthService.GetTokenManager())
+	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, adminAuthHandler, adminMentorsHandler, usernameHandler, adminAuthService.GetTokenManager())
 
 	// Create HTTP server
 	// SECURITY: Bind to all interfaces for Docker Compose networking

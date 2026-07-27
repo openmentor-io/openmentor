@@ -26,7 +26,7 @@ export function mentorInitials(name: string): string {
 }
 
 interface MentorPortraitProps {
-  mentor: Pick<MentorBase, 'slug' | 'name' | 'photoStyle' | 'updatedAt'>
+  mentor: Pick<MentorBase, 'mentorId' | 'slug' | 'name' | 'photoStyle' | 'updatedAt'>
   /** Image quality passed to the storage loader. */
   quality?: 'small' | 'large' | 'full'
   /** `sizes` for next/image. */
@@ -56,8 +56,10 @@ export default function MentorPortrait({
   // explicit photo URL, so always attempt the image and fall back to the
   // initials circle when it doesn't exist.
   const [photoFailed, setPhotoFailed] = useState(false)
+  // Images are keyed by the immutable mentor UUID, not the slug — usernames
+  // are user-changeable and must not orphan photos.
   const src = imageLoader({
-    src: mentor.slug,
+    src: mentor.mentorId,
     quality,
     version: updatedAtToVersion(mentor.updatedAt),
   })

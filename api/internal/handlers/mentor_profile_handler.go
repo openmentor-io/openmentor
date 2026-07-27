@@ -160,16 +160,9 @@ func (h *MentorProfileHandler) UploadPicture(c *gin.Context) {
 		return
 	}
 
-	mentor, err := h.mentorService.GetMentorByMentorId(c.Request.Context(), session.MentorID, models.FilterOptions{ShowHidden: true, AllowAnyStatus: true})
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "Failed to fetch mentor", err)
-		return
-	}
-
 	imageURL, err := h.profileService.UploadPictureByMentorId(
 		c.Request.Context(),
 		session.MentorID,
-		mentor.Slug,
 		&req,
 	)
 	if err != nil {

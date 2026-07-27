@@ -467,6 +467,32 @@ async function findExisting(target, marker, email) {
   return rows[0] || null;
 }
 
+// Matches api repository.slugAdvisoryLockNamespace (ASCII "slug"). Taking the
+// same transaction-scoped advisory lock serializes this direct writer with the
+// Go registration/rename paths so a generated slug can't collide with a
+// retired redirect (which would make an old shared link resolve to this new
+// mentor).
+const SLUG_ADVISORY_LOCK_NS = 0x736c7567;
+
+// claimSlug locks the slug and reports whether it is already an active
+// redirect in mentor_slug_history. Call inside the mentor's transaction.
+async function claimSlug(target, slug) {
+  // Migration may run from this release checkout BEFORE the slug-history
+  // migration deploys that table (an explicit state in the cutover sequence).
+  // No redirects can exist yet, so the slug is claimable — and querying the
+  // missing table would roll back the whole insert.
+  const { rows: chk } = await target.query(
+    "SELECT to_regclass('mentor_slug_history') IS NOT NULL AS has_history"
+  );
+  if (!chk[0].has_history) return false;
+  await target.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [SLUG_ADVISORY_LOCK_NS, slug]);
+  const { rows } = await target.query(
+    'SELECT EXISTS (SELECT 1 FROM mentor_slug_history WHERE slug = $1) AS taken',
+    [slug]
+  );
+  return rows[0].taken;
+}
+
 // Refresh the carried-over session count on an already-migrated row (D28).
 // getmentor.dev stays live, so a --resume run may find sessions completed
 // there after the profile was migrated.
@@ -486,7 +512,17 @@ async function insertMentor(target, mentor, translated, mappedTags, marker, note
   try {
     const seq = await target.query(`SELECT nextval('mentors_legacy_id_seq') AS id`);
     const newLegacyId = Number(seq.rows[0].id);
-    const newSlug = `${slugTextPart(mentor.slug)}-${newLegacyId}`;
+
+    // The fresh legacy_id makes a redirect clash nearly impossible, but a
+    // mentor could have squatted this exact name-<id> as a retired slug — so
+    // verify under the shared lock and disambiguate rather than corrupt.
+    const baseSlug = `${slugTextPart(mentor.slug)}-${newLegacyId}`;
+    let newSlug = baseSlug;
+    for (let attempt = 2; ; attempt++) {
+      if (!(await claimSlug(target, newSlug))) break;
+      if (attempt > 6) throw new Error(`could not derive a free slug for ${mentor.slug}`);
+      newSlug = `${baseSlug}-${attempt}`;
+    }
 
     const inserted = await target.query(
       `INSERT INTO mentors (
@@ -578,12 +614,14 @@ async function streamToBuffer(readableStream) {
   return Buffer.concat(chunks);
 }
 
-async function copyImages(oldSlug, newSlug, notes) {
+// destKeyBase is the NEW mentor's UUID (mentors.id): openmentor images are
+// keyed by the immutable UUID, not the slug (usernames are changeable).
+async function copyImages(oldSlug, destKeyBase, notes) {
   const { s3Source: src, s3Dest: dest } = s3Clients();
   let copied = 0;
   for (const size of IMAGE_SIZES) {
     const sourceKey = `${oldSlug}/${size}`;
-    const destKey = `${newSlug}/${size}`;
+    const destKey = `${destKeyBase}/${size}`;
     try {
       // Idempotency: skip when the destination object already exists.
       try {
@@ -614,7 +652,7 @@ async function copyImages(oldSlug, newSlug, notes) {
       }
     }
   }
-  if (copied > 0) notes.push(`images copied: ${copied}/${IMAGE_SIZES.length} (${oldSlug}/* -> ${newSlug}/*)`);
+  if (copied > 0) notes.push(`images copied: ${copied}/${IMAGE_SIZES.length} (${oldSlug}/* -> ${destKeyBase}/*)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -711,7 +749,8 @@ async function migrateMentor(source, target, slug) {
     if (args.resume && existing.by_marker && !args.dryRun) {
       console.log(`  🔁 ${reason} — resuming images + email`);
       await refreshLegacySessions(target, existing.id, doneSessions, notes);
-      if (!args.skipImages) await copyImages(slug, existing.slug, notes);
+      // Images are keyed by the mentor UUID, not the slug (D29).
+      if (!args.skipImages) await copyImages(slug, existing.id, notes);
       if (!args.skipEmail) await triggerMigratedEmail(existing.id);
       stats.resumed++;
       reportRows.push({ slug, outcome: `resumed (${existing.slug})`, notes });
@@ -774,9 +813,9 @@ async function migrateMentor(source, target, slug) {
   const { mentorId, newLegacyId, newSlug } = await insertMentor(target, mentor, translated, mappedTags, marker, notes);
   console.log(`  ✅ Inserted: ${newSlug} (legacy_id ${mentor.legacy_id} -> ${newLegacyId}, status=inactive)`);
 
-  // Images
+  // Images (keyed by the new mentor's UUID)
   if (!args.skipImages) {
-    await copyImages(slug, newSlug, notes);
+    await copyImages(slug, mentorId, notes);
   } else {
     notes.push('image copy skipped (--skip-images)');
   }

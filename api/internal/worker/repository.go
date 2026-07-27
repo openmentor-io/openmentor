@@ -191,13 +191,19 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 	// SECURITY: new registrations get NO usable login token (L2). A token is
 	// only ever minted on demand by RequestLogin; leaving a standing long-lived
 	// credential here would widen the blast radius of a DB leak.
+	// slug is only FILLED when still empty (the generate-when-missing fallback);
+	// it never overwrites an existing slug. A draft mentor can log in and rename
+	// themselves, and finalization carries the slug value read at the start of
+	// this job — writing it unconditionally would clobber a concurrent rename
+	// and leave a dangling history row. The CASE preserves whatever slug the row
+	// currently holds when it's already set.
 	query := `
 		UPDATE mentors SET
 			name = $1,
 			preferred_contact = $2,
 			login_token = NULL,
 			login_token_expires_at = NULL,
-			slug = $3,
+			slug = CASE WHEN mentors.slug IS NULL OR mentors.slug = '' THEN $3 ELSE mentors.slug END,
 			status = $4,
 			sort_order = $5,
 			email_confirmation_token = $6,

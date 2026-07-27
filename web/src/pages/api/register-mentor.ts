@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getGoApiClient } from '@/lib/go-api-client'
-import { logError } from '@/lib/logger'
+import { sendUpstreamError } from '@/lib/api-proxy'
 import { withObservability } from '@/lib/with-observability'
 import type { RegisterMentorRequest } from '@/types/api'
 
@@ -22,10 +22,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
 
     res.status(200).json(data)
   } catch (error) {
-    if (error instanceof Error) {
-      logError(error, { context: 'register-mentor-proxy', method: req.method, url: req.url })
-    }
-    res.status(500).json({ error: 'Internal server error' })
+    // Forward expected 4xx bodies (e.g. username_taken / username_invalid,
+    // validation errors) so the form can surface them on the right field;
+    // 5xx and non-HTTP failures collapse to a safe generic 500.
+    sendUpstreamError(res, error, { context: 'register-mentor-proxy', method: req.method, url: req.url })
   }
 }
 

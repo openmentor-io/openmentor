@@ -183,11 +183,12 @@ Cost note: translation runs on `claude-opus-4-8`; a typical profile is
 ## Verifying a migration
 
 ```bash
-# Row landed, marker set, status inactive, session history carried (D28)
-../db.sh -c "SELECT slug, legacy_id, status, airtable_id, legacy_sessions_count FROM mentors WHERE airtable_id LIKE 'getmentor:%' ORDER BY legacy_id DESC LIMIT 10"
+# Row landed, marker set, status inactive, session history carried (D28).
+# Grab the id too — images are keyed by it (D29).
+../db.sh -c "SELECT id, slug, legacy_id, status, airtable_id, legacy_sessions_count FROM mentors WHERE airtable_id LIKE 'getmentor:%' ORDER BY legacy_id DESC LIMIT 10"
 
-# Photo reachable under the new slug
-curl -sI https://cdn.openmentor.io/<new-slug>/full | head -1
+# Photo reachable under the mentor UUID (images are keyed by mentors.id, D29)
+curl -sI https://cdn.openmentor.io/<mentor-uuid>/full | head -1
 ```
 
 Then check the mentor received the email (DEV_EMAIL_OVERRIDE reroutes it off
