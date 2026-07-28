@@ -112,6 +112,8 @@
     "@swc/helpers": "^0.4.11",
     "@opentelemetry/otlp-transformer": "0.221.0",
     "@opentelemetry/otlp-exporter-base": "0.221.0",
-    "protobufjs": "^7.6.5"
+    "protobufjs": "^7.6.5",
+    "sharp": "^0.35.0",
+    "postcss": "^8.5.18"
   }
 }
