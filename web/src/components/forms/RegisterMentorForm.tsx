@@ -293,10 +293,24 @@ export default function RegisterMentorForm({
 
   // ── Progress rail: best-effort section completion from form state ─────
   const values = watch()
+  // Emptiness heuristic only — never a sanitizer. Anything rendered as HTML
+  // goes through htmlContent()/sanitize-html instead.
+  // SECURITY (CodeQL js/incomplete-multi-character-sanitization): strip
+  // tag-like sequences to a fixed point rather than in a single pass. One pass
+  // over nested markup such as '<<p>>' leaves residue behind, which is what
+  // the rule flags. [^<>] plus the loop makes the strip idempotent.
+  // This runs during SSR (/bementor is getServerSideProps), so it must not
+  // touch DOM APIs like DOMParser.
   const hasRichText = (html?: string): boolean => {
     if (!html) return false
-    const doc = new DOMParser().parseFromString(html, 'text/html')
-    return Boolean(doc.body.textContent?.trim())
+    let text = html
+    let previous: string
+    do {
+      previous = text
+      text = text.replace(/<[^<>]*>/g, '')
+    } while (text !== previous)
+    // A wysiwyg "empty" paragraph is often a lone non-breaking space.
+    return Boolean(text.replace(/&nbsp;|&#160;|&#xa0;/gi, ' ').trim())
   }
 
   const sections: RailSection[] = [
