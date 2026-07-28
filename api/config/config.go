@@ -181,10 +181,7 @@ type EmailConfig struct {
 	SESEndpoint        string // optional: SESv2-compatible endpoint override
 	DevEmailOverride   string // non-production: reroute ALL recipients here
 	ModeratorsEmail    string // moderators mailbox for notification emails
-	// DiscordInviteLink is the invite URL for the private mentors' Discord,
-	// included in the approval welcome email. Empty hides the
-	// Discord section (the template guards it with a {{#if}} block).
-	DiscordInviteLink string
+	DiscordInviteLink  string // invite URL for the private mentors' Discord
 }
 
 // Load reads configuration from environment variables

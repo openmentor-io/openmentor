@@ -41,7 +41,9 @@ type Handlers struct {
 	highlightedMentors []string // HIGHLIGHTED_MENTORS ids pinned by randomize-sort-order
 
 	// DISCORD_MENTORS_PRIVATE_INVITE_LINK: private mentors' Discord invite,
-	// shown in the approval welcome email. Empty hides the section.
+	// shown in the approval welcome email. Required — the template renders the
+	// section unconditionally (SES templates don't support {{#if}}), so an
+	// empty value ships a link with an empty href.
 	discordInviteLink string
 }
 
