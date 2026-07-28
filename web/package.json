@@ -30,12 +30,13 @@
     "@headlessui/react": "^1.6.6",
     "@marsidev/react-turnstile": "^1.5.3",
     "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/auto-instrumentations-node": "^0.52.1",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.56.0",
-    "@opentelemetry/resources": "^1.30.0",
-    "@opentelemetry/sdk-node": "^0.208.0",
-    "@opentelemetry/sdk-trace-base": "^1.28.0",
-    "@opentelemetry/sdk-trace-node": "^2.2.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
+    "@opentelemetry/core": "^2.10.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
+    "@opentelemetry/resources": "^2.10.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/sdk-trace-base": "^2.10.0",
+    "@opentelemetry/sdk-trace-node": "^2.10.0",
     "@tailwindcss/aspect-ratio": "^0.4.0",
     "@tailwindcss/forms": "^0.5.2",
     "@tailwindcss/typography": "^0.5.3",
@@ -109,7 +110,8 @@
   },
   "resolutions": {
     "@swc/helpers": "^0.4.11",
-    "@opentelemetry/otlp-transformer": "0.208.0",
-    "@opentelemetry/otlp-exporter-base": "0.208.0"
+    "@opentelemetry/otlp-transformer": "0.221.0",
+    "@opentelemetry/otlp-exporter-base": "0.221.0",
+    "protobufjs": "^7.6.5"
   }
 }

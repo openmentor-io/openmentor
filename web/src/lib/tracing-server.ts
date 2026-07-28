@@ -3,14 +3,13 @@
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
-import { Resource } from '@opentelemetry/resources'
+import { resourceFromAttributes } from '@opentelemetry/resources'
 // OpenTelemetry semantic convention attribute keys
 const ATTR_SERVICE_NAME = 'service.name'
 const ATTR_SERVICE_VERSION = 'service.version'
 const ATTR_SERVICE_NAMESPACE = 'service.namespace'
 const ATTR_SERVICE_INSTANCE_ID = 'service.instance.id'
 const ATTR_DEPLOYMENT_ENVIRONMENT = 'deployment.environment.name'
-import type { SpanExporter } from '@opentelemetry/sdk-trace-base'
 import { v4 as uuidv4 } from 'uuid'
 
 let sdk: NodeSDK | undefined
@@ -37,13 +36,15 @@ function registerServerTracing(): void {
   const traceExporter = new OTLPTraceExporter({
     url: exporterUrl,
     headers: {},
-  }) as unknown as SpanExporter
+  })
 
   // Get or generate service instance ID
   const instanceId = process.env.SERVICE_INSTANCE_ID || uuidv4()
 
-  // Create resource with service information
-  const resource = new Resource({
+  // Create resource with service information.
+  // The Resource class was removed in @opentelemetry/resources 2.x in favour
+  // of this factory.
+  const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: serviceName,
     [ATTR_SERVICE_VERSION]: serviceVersion,
     [ATTR_SERVICE_NAMESPACE]: serviceNamespace,
@@ -52,7 +53,7 @@ function registerServerTracing(): void {
   })
 
   // Initialize Node.js SDK with automatic instrumentation
-  const sdkConfig = {
+  sdk = new NodeSDK({
     traceExporter,
     resource,
     instrumentations: [
@@ -73,9 +74,7 @@ function registerServerTracing(): void {
         '@opentelemetry/instrumentation-undici': {},
       }),
     ],
-  } as unknown as ConstructorParameters<typeof NodeSDK>[0]
-
-  sdk = new NodeSDK(sdkConfig)
+  })
 
   // Start the SDK
   sdk.start()
