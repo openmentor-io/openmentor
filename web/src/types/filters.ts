@@ -17,14 +17,6 @@ export interface FilterCategory {
  */
 export interface FiltersConfig {
   tags: string[]
-  byTags: {
-    development: string[]
-    management: string[]
-    ops: string[]
-    hr: string[]
-    marketing: string[]
-    rest: string[]
-  }
   /** Ordered topic tabs for the catalog tab bar (redesign Phase A) */
   categories: FilterCategory[]
   price: string[]
