@@ -1,4 +1,4 @@
-import type { FiltersConfig } from '@/types'
+import type { FiltersConfig, MentorTag } from '@/types'
 
 /**
  * Extract a numeric amount from a free-text price (e.g. "$100 / hour" -> 100).
@@ -20,7 +20,7 @@ export function isPriceFree(price: string): boolean {
 // group, so there is no "Others" catch-all. Keep these in sync with
 // api/migrations/000009_modernise_tags.up.sql — a tag offered here but absent
 // from the DB is silently dropped on save (that is what broke "Security").
-const engineeringTags = [
+const engineeringTags: MentorTag[] = [
   'Backend',
   'Frontend',
   'Mobile',
@@ -28,20 +28,20 @@ const engineeringTags = [
   'Security',
   'QA & Test Automation',
 ]
-const aiDataTags = [
+const aiDataTags: MentorTag[] = [
   'AI/LLM Engineering',
   'Machine Learning',
   'Data Engineering',
   'Data & Analytics',
 ]
-const infrastructureTags = [
+const infrastructureTags: MentorTag[] = [
   'DevOps/SRE',
   'Platform Engineering',
   'Cloud & Infrastructure',
   'Databases',
 ]
-const productDesignTags = ['Product Management', 'UX/UI Design']
-const leadershipTags = [
+const productDesignTags: MentorTag[] = ['Product Management', 'UX/UI Design']
+const leadershipTags: MentorTag[] = [
   'Engineering Management',
   'Tech Lead',
   'Staff+/IC Growth',
@@ -51,7 +51,7 @@ const leadershipTags = [
   'Relocation & Working Abroad',
   'Project Management',
 ]
-const businessTags = [
+const businessTags: MentorTag[] = [
   'Entrepreneurship & Startups',
   'Freelancing & Consulting',
   'Developer Relations',

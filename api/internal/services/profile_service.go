@@ -90,6 +90,23 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 		}
 	}
 
+	// Refuse rather than silently wipe. UpdateMentorTags replaces the whole
+	// set, so if the client sent tags and NONE of them resolve, saving would
+	// delete every tag the mentor has. That happens whenever the frontend's
+	// tag list drifts from the DB — during a rollback to a pre-D30 frontend,
+	// for instance, where every name it offers has since been renamed.
+	// (The admin service already guards this way.)
+	if len(req.Tags) > 0 && len(tagIDs) == 0 {
+		s.tracker.Track(ctx, analytics.EventMentorProfileUpdated, analytics.MentorDistinctID(mentorID), map[string]interface{}{
+			"mentor_id": mentorID,
+			"outcome":   "no_valid_tags",
+		})
+		logger.Error("Profile save rejected: none of the submitted tags exist",
+			zap.String("mentor_id", mentorID),
+			zap.Strings("submitted_tags", req.Tags))
+		return apperrors.InvalidInputError("tags", "at least one valid tag is required")
+	}
+
 	// Prepare updates with PostgreSQL column names
 	updates := map[string]interface{}{
 		"name":         req.Name,

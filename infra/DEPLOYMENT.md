@@ -139,6 +139,31 @@ Reads the same `.env.production`, SSHes to the VM, updates
 (keeping `.env.backup`), pulls, re-converges, and verifies the same health
 checks as `deploy.sh`.
 
+### Rollback does NOT revert database migrations
+
+Neither `rollback.sh` nor `deploy-remote.sh`'s automatic health-check rollback
+runs down-migrations — they only move image tags. Migrations are designed to be
+backward-compatible with the previous release, so this is normally fine.
+
+The exception is a release that **renames or removes** existing data, where the
+older image expects the old shape. `000009_modernise_tags` is the current
+example: rolling back past it leaves a pre-D30 frontend offering tag names the
+database no longer has, so its catalog category filters match nothing. (Profile
+saves are safe — the API rejects a save whose tags all fail to resolve rather
+than wiping them.)
+
+If you must roll back past such a release, run its down-migration on the VM
+after the images are restored:
+
+```bash
+cd /opt/openmentor/infra
+docker compose run --rm migrate migrate -path /app/migrations \
+  -database "$DATABASE_URL" down 1
+```
+
+Check the migration's own `.down.sql` header first — some are explicitly lossy
+(`000009` cannot restore associations for tags it deleted).
+
 Manual fallback on the VM:
 
 ```bash
