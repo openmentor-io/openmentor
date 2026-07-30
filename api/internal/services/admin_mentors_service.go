@@ -136,7 +136,14 @@ func (s *AdminMentorsService) UpdateMentorProfile(
 	}
 
 	contact := strings.TrimSpace(req.PreferredContact)
-	tagIDs := s.resolveTagIDs(ctx, req.Tags)
+	// Reject if ANY tag is unknown, not just when all of them are: tag updates
+	// replace the whole set, so a partial mismatch (stale admin UI after a
+	// taxonomy change) would silently drop the unresolved associations.
+	tagIDs, unresolvedTags := resolveTagsStrict(ctx, s.mentorRepo, req.Tags)
+	if len(unresolvedTags) > 0 {
+		s.trackAdminProfileUpdate(ctx, session, mentorID, "invalid_tags", nil)
+		return nil, fmt.Errorf("unknown tag(s): %s", strings.Join(unresolvedTags, ", "))
+	}
 	if len(tagIDs) == 0 {
 		s.trackAdminProfileUpdate(ctx, session, mentorID, "invalid_tags", nil)
 		return nil, fmt.Errorf("at least one valid tag is required")
@@ -405,17 +412,6 @@ func validateProfileUpdatePermissions(
 		return ErrAdminForbiddenAction
 	}
 	return nil
-}
-
-func (s *AdminMentorsService) resolveTagIDs(ctx context.Context, tags []string) []string {
-	tagIDs := make([]string, 0, len(tags))
-	for _, tagName := range tags {
-		tagID, err := s.mentorRepo.GetTagIDByName(ctx, tagName)
-		if err == nil && tagID != "" {
-			tagIDs = append(tagIDs, tagID)
-		}
-	}
-	return tagIDs
 }
 
 // buildProfileUpdates maps the request onto DB columns. Slug (username) is

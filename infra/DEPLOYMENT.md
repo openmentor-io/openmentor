@@ -152,17 +152,40 @@ database no longer has, so its catalog category filters match nothing. (Profile
 saves are safe — the API rejects a save whose tags all fail to resolve rather
 than wiping them.)
 
-If you must roll back past such a release, run its down-migration on the VM
-after the images are restored:
+If you must roll back past such a release, apply the down-migration by hand.
+Two constraints make this manual:
+
+- `/app/migrate` in the backend image is a small custom runner that only
+  migrates **up** — it takes no `down` argument, and the image does not ship
+  the `golang-migrate` CLI.
+- Migrations are baked into the image at `/app/migrations`, so once you restore
+  the older tag, the newer `*.down.sql` is no longer on the box. Get it from
+  git (or run this **before** retagging).
+
+Apply the SQL with the `psql` already present in the postgres container, then
+correct the version golang-migrate tracks — it will not notice the change on
+its own:
 
 ```bash
 cd /opt/openmentor/infra
-docker compose run --rm migrate migrate -path /app/migrations \
-  -database "$DATABASE_URL" down 1
+
+# 1. Apply the down migration (ON_ERROR_STOP so a failure doesn't half-apply)
+docker compose exec -T postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+  < api/migrations/000009_modernise_tags.down.sql
+
+# 2. Point schema_migrations at the previous version (here: 9 -> 8)
+docker compose exec -T postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "UPDATE schema_migrations SET version = 8, dirty = false;"
 ```
 
+Verified to round-trip: the next normal deploy re-applies `000009` and returns
+the database to version 9 with the full taxonomy.
+
 Check the migration's own `.down.sql` header first — some are explicitly lossy
-(`000009` cannot restore associations for tags it deleted).
+(`000009` restores the tag rows and names, but cannot restore mentor
+associations for the tags it deleted).
 
 Manual fallback on the VM:
 

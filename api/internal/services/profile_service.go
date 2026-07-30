@@ -81,30 +81,20 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 		return apperrors.NotFoundError("mentor")
 	}
 
-	// Get tag IDs
-	tagIDs := []string{}
-	for _, tagName := range req.Tags {
-		tagID, tagErr := s.mentorRepo.GetTagIDByName(ctx, tagName)
-		if tagErr == nil && tagID != "" {
-			tagIDs = append(tagIDs, tagID)
-		}
-	}
-
-	// Refuse rather than silently wipe. UpdateMentorTags replaces the whole
-	// set, so if the client sent tags and NONE of them resolve, saving would
-	// delete every tag the mentor has. That happens whenever the frontend's
-	// tag list drifts from the DB — during a rollback to a pre-D30 frontend,
-	// for instance, where every name it offers has since been renamed.
-	// (The admin service already guards this way.)
-	if len(req.Tags) > 0 && len(tagIDs) == 0 {
+	// Resolve tags, refusing the save if ANY name is unknown — see
+	// resolveTagsStrict: a partial mismatch would otherwise drop just the
+	// unresolved associations and still report success.
+	tagIDs, unresolvedTags := resolveTagsStrict(ctx, s.mentorRepo, req.Tags)
+	if len(unresolvedTags) > 0 {
 		s.tracker.Track(ctx, analytics.EventMentorProfileUpdated, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id": mentorID,
-			"outcome":   "no_valid_tags",
+			"outcome":   "unknown_tags",
 		})
-		logger.Error("Profile save rejected: none of the submitted tags exist",
+		logger.Error("Profile save rejected: submitted tags do not exist",
 			zap.String("mentor_id", mentorID),
-			zap.Strings("submitted_tags", req.Tags))
-		return apperrors.InvalidInputError("tags", "at least one valid tag is required")
+			zap.Strings("unresolved_tags", unresolvedTags))
+		return apperrors.InvalidInputError("tags",
+			"unknown tag(s): "+strings.Join(unresolvedTags, ", "))
 	}
 
 	// Prepare updates with PostgreSQL column names
