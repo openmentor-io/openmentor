@@ -14,6 +14,20 @@ export type RequestStatus =
   | 'unavailable'
 
 /**
+ * Every valid status. The admin override (moderation portal) can set any of
+ * these on any request; the mentor-facing flow is limited to
+ * STATUS_TRANSITIONS.
+ */
+export const ALL_REQUEST_STATUSES: RequestStatus[] = [
+  'pending',
+  'contacted',
+  'working',
+  'done',
+  'declined',
+  'unavailable',
+]
+
+/**
  * Active statuses - displayed on /mentor page
  */
 export const ACTIVE_STATUSES: RequestStatus[] = ['pending', 'contacted', 'working']

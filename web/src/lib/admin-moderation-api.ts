@@ -8,6 +8,9 @@ import type {
   UploadProfilePictureRequest,
   UploadProfilePictureResponse,
   ChangeUsernameResponse,
+  MentorClientRequest,
+  RequestsListResponse,
+  RequestStatus,
 } from '@/types'
 
 export class ApiError extends Error {
@@ -252,4 +255,56 @@ export async function changeModerationMentorUsername(
       body: JSON.stringify({ username }),
     }
   )
+}
+
+/**
+ * List the requests a mentor received. Omitting `status` returns every status;
+ * the list page filters client-side from there.
+ */
+export async function getModerationMentorRequests(
+  mentorId: string,
+  status?: RequestStatus
+): Promise<MentorClientRequest[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : ''
+  const response = await apiRequest<RequestsListResponse>(
+    `/api/admin/mentors/${encodeURIComponent(mentorId)}/requests${query}`
+  )
+  return response.requests
+}
+
+export async function getModerationMentorRequest(
+  mentorId: string,
+  requestId: string
+): Promise<MentorClientRequest | null> {
+  try {
+    const response = await apiRequest<{ request: MentorClientRequest }>(
+      `/api/admin/mentors/${encodeURIComponent(mentorId)}/requests/${encodeURIComponent(requestId)}`
+    )
+    return response.request
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null
+    }
+    throw error
+  }
+}
+
+/**
+ * Override a request's status. Admins may set any status, including moving a
+ * request back out of a terminal one — that restriction only applies to the
+ * mentor's own inbox.
+ */
+export async function updateModerationRequestStatus(
+  mentorId: string,
+  requestId: string,
+  status: RequestStatus
+): Promise<MentorClientRequest> {
+  const response = await apiRequest<{ request: MentorClientRequest }>(
+    `/api/admin/mentors/${encodeURIComponent(mentorId)}/requests/${encodeURIComponent(requestId)}/status`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    }
+  )
+  return response.request
 }

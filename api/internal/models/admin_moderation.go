@@ -109,8 +109,11 @@ type AdminMentorDetails struct {
 	// ActivatedAt is set on the first approve; once set the mentor can
 	// never be returned to draft.
 	ActivatedAt *time.Time `json:"activatedAt,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	// RequestsCount is the total number of mentee requests this mentor has
+	// received (all statuses) — drives the "Requests (N)" entry point.
+	RequestsCount int       `json:"requestsCount"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 type AdminMentorsListResponse struct {
@@ -120,6 +123,12 @@ type AdminMentorsListResponse struct {
 
 type AdminMentorResponse struct {
 	Mentor *AdminMentorDetails `json:"mentor"`
+}
+
+// AdminClientRequestResponse wraps a single mentee request for the admin
+// moderation portal.
+type AdminClientRequestResponse struct {
+	Request *MentorClientRequest `json:"request"`
 }
 
 // AdminMentorProfileUpdateRequest intentionally contains only business/profile

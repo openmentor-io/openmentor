@@ -32,6 +32,10 @@ const (
 	// EventAdminMentorReturned fires when a moderator returns a pending
 	// profile to draft with a reviewer note.
 	EventAdminMentorReturned = "admin_mentor_returned"
+	// EventAdminRequestStatusUpdated fires when an admin overrides the status
+	// of a mentee request from the moderation panel — including moves out of
+	// a terminal status, which the mentor's own inbox cannot do.
+	EventAdminRequestStatusUpdated = "admin_request_status_updated"
 
 	// Worker job events (ported from openmentor-func's legacy analytics
 	// event catalog; names kept verbatim).

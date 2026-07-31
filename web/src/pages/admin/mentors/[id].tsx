@@ -523,7 +523,20 @@ function MentorModerationEditContent(): JSX.Element {
                 Open mentor profile ↗
               </Link>
             </div>
-            <span className={moderationStatusBadgeClass(mentor.status)}>{mentor.status}</span>
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Requests the mentor received. Admin-only: moderators are
+                  scoped to the pending-profile queue and the backend rejects
+                  the endpoint for them. */}
+              {session?.role === 'admin' && (
+                <Link
+                  href={`/admin/mentors/${encodeURIComponent(mentor.mentorId)}/requests`}
+                  className="button-secondary text-[13px]"
+                >
+                  Requests ({mentor.requestsCount})
+                </Link>
+              )}
+              <span className={moderationStatusBadgeClass(mentor.status)}>{mentor.status}</span>
+            </div>
           </div>
 
           {/* Reviewer note on a returned (draft) profile */}

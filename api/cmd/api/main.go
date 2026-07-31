@@ -140,6 +140,7 @@ func registerAdminModerationRoutes(
 	profileRateLimiter *middleware.RateLimiter,
 	adminAuthHandler *handlers.AdminAuthHandler,
 	adminMentorsHandler *handlers.AdminMentorsHandler,
+	adminMentorRequestsHandler *handlers.AdminMentorRequestsHandler,
 	usernameHandler *handlers.UsernameHandler,
 	tokenManager *jwt.TokenManager,
 ) {
@@ -172,6 +173,13 @@ func registerAdminModerationRoutes(
 	// history/redirect machinery as the mentor flow).
 	admin.GET("/mentors/:id/username/availability", usernameHandler.AdminAvailability)
 	admin.POST("/mentors/:id/username", profileRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(4*1024), usernameHandler.AdminChange)
+
+	// Requests a mentor received (admin role only). The status override here
+	// is unrestricted — it can move a request back out of a terminal status,
+	// which the mentor's own inbox cannot do.
+	admin.GET("/mentors/:id/requests", adminMentorRequestsHandler.ListMentorRequests)
+	admin.GET("/mentors/:id/requests/:requestId", adminMentorRequestsHandler.GetMentorRequest)
+	admin.POST("/mentors/:id/requests/:requestId/status", middleware.BodySizeLimitMiddleware(4*1024), adminMentorRequestsHandler.UpdateMentorRequestStatus)
 }
 
 func main() { //nolint:gocyclo
@@ -326,6 +334,7 @@ func main() { //nolint:gocyclo
 	mentorRequestsService := services.NewMentorRequestsService(clientRequestRepo, cfg, httpClient, analyticsTracker)
 	reviewService := services.NewReviewService(reviewRepo, cfg, httpClient, analyticsTracker)
 	adminMentorsService := services.NewAdminMentorsService(mentorRepo, profileService, cfg, httpClient, analyticsTracker)
+	adminRequestsService := services.NewAdminRequestsService(clientRequestRepo, analyticsTracker)
 	migrationIntentService := services.NewMigrationIntentService(migrationIntentRepo, cfg, httpClient, analyticsTracker)
 	mentorConfirmationService := services.NewMentorConfirmationService(mentorRepo, cfg, httpClient, analyticsTracker)
 	usernameService := services.NewUsernameService(mentorRepo, analyticsTracker)
@@ -344,6 +353,7 @@ func main() { //nolint:gocyclo
 	mentorRequestsHandler := handlers.NewMentorRequestsHandler(mentorRequestsService)
 	mentorProfileHandler := handlers.NewMentorProfileHandler(mentorService, profileService)
 	adminMentorsHandler := handlers.NewAdminMentorsHandler(adminMentorsService)
+	adminMentorRequestsHandler := handlers.NewAdminMentorRequestsHandler(adminRequestsService)
 	usernameHandler := handlers.NewUsernameHandler(usernameService)
 
 	// Set up Gin router
@@ -418,7 +428,7 @@ func main() { //nolint:gocyclo
 	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, usernameHandler, mentorAuthService.GetTokenManager())
 
 	// Moderator/Admin web moderation routes
-	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, adminAuthHandler, adminMentorsHandler, usernameHandler, adminAuthService.GetTokenManager())
+	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, adminAuthHandler, adminMentorsHandler, adminMentorRequestsHandler, usernameHandler, adminAuthService.GetTokenManager())
 
 	// Create HTTP server
 	// SECURITY: Bind to all interfaces for Docker Compose networking

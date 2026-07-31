@@ -25,9 +25,29 @@ var ActiveStatuses = []RequestStatus{StatusPending, StatusContacted, StatusWorki
 // PastStatuses are statuses shown on the past requests page
 var PastStatuses = []RequestStatus{StatusDone, StatusDeclined, StatusUnavailable}
 
+// AllStatuses lists every valid request status.
+var AllStatuses = []RequestStatus{
+	StatusPending,
+	StatusContacted,
+	StatusWorking,
+	StatusDone,
+	StatusDeclined,
+	StatusUnavailable,
+}
+
 // IsTerminalStatus returns true if the status is terminal (no further transitions allowed)
 func (s RequestStatus) IsTerminalStatus() bool {
 	return s == StatusDone || s == StatusDeclined || s == StatusUnavailable
+}
+
+// IsValid reports whether the status is one of the known request statuses.
+func (s RequestStatus) IsValid() bool {
+	for _, status := range AllStatuses {
+		if s == status {
+			return true
+		}
+	}
+	return false
 }
 
 // CanTransitionTo checks if a status transition is valid

@@ -100,6 +100,7 @@ export type {
   SortOrder,
 } from './mentor-requests'
 export {
+  ALL_REQUEST_STATUSES,
   ACTIVE_STATUSES,
   PAST_STATUSES,
   STATUS_TRANSITIONS,
@@ -120,6 +121,8 @@ export type {
   AdminMentorResponse,
   AdminMentorProfileUpdateRequest,
   AdminStatusUpdateRequest,
+  AdminRequestStatusUpdateRequest,
+  AdminRequestStatusFilter,
 } from './admin-moderation'
 
 // Draft-workflow types (mentor submit-for-review + admin return)
