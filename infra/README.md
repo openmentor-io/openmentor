@@ -62,7 +62,7 @@ scales/deploys independently of the API; S3/SES scale on their own.
 
 | Service | Image | Exposure | Purpose |
 |---|---|---|---|
-| `traefik` | traefik:v2.11 | :80/:443 public | TLS termination (Let's Encrypt via Cloudflare DNS-01), routing. Dev overlay: HTTP-only on :80 |
+| `traefik` | traefik:v3.7 | :80/:443 public | TLS termination (Let's Encrypt via Cloudflare DNS-01), routing, global :80 -> :443 redirect (entrypoint-level). Dev overlay: HTTP-only on :80, no redirect |
 | `frontend` | openmentor-frontend | via Traefik | Next.js web app |
 | `backend` | openmentor-backend | internal only | Go REST API (`/app/main`) |
 | `worker` | openmentor-backend (same image, `/app/worker`) | internal :8090 | Async event triggers from the API (`/jobs/*`, `X-Worker-Token` auth) + daily cron jobs. Replaces the deprecated `openmentor-func` Azure Functions app (D6) |
@@ -142,7 +142,12 @@ production** — traefik / frontend / backend / worker / migrate / postgres —
 with these differences:
 
 - `traefik` runs HTTP-only on **:80** (no ACME/Cloudflare DNS-01, no :443)
-  and routes `Host(localhost)` to the frontend,
+  and routes `Host(localhost)` to the frontend. Production's entrypoint-level
+  HTTP→HTTPS redirect is deliberately absent (nothing to redirect to), as are
+  the `sec-headers`/`edge-ratelimit` middlewares — HSTS on `localhost` would
+  pin the browser to `https://localhost` and break local dev until cleared by
+  hand. Note the dev overlay replaces traefik's `command` wholesale, so
+  entrypoint flags added to the base file must be added here too,
 - app ports (3000/8081/8090) are additionally published for debugging,
 - `postgres` gets dev credentials, a disposable
   `openmentor-postgres-data-dev` volume and host port **5433**

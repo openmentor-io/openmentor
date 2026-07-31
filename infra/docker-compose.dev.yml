@@ -5,7 +5,10 @@
 # image tags and dev credentials. Differences from production:
 #
 #   - traefik runs HTTP-only on :80 (no ACME/Cloudflare DNS, no :443) and
-#     routes Host(`localhost`) to the frontend
+#     routes Host(`localhost`) to the frontend. Production's entrypoint-level
+#     HTTP->HTTPS redirect is intentionally absent: it is set via static
+#     `command` flags, which this file replaces wholesale, and there is no
+#     :443 here to redirect to
 #   - frontend/backend/worker/migrate run locally built images
 #     (openmentor-frontend:dev-<sha> / openmentor-backend:dev-<sha>, built and
 #     tagged by ./deploy-dev.sh — same SHA-tag convergence model as prod)
@@ -34,7 +37,18 @@
 
 services:
   # Traefik in HTTP-only mode: no Let's Encrypt / Cloudflare DNS-01, single
-  # :80 entrypoint, and no HTTP->HTTPS redirect (labels overridden below).
+  # :80 entrypoint, and no HTTP->HTTPS redirect.
+  #
+  # HOW the redirect is dropped changed with the v3 upgrade, and it matters:
+  # production now redirects at the ENTRYPOINT (static `command` flags), not
+  # via a catch-all router's labels. Compose REPLACES `command` wholesale
+  # rather than appending to it, so the list below is the complete argv and
+  # the production redirect/ACME/websecure flags simply never reach dev.
+  #
+  # The trap that follows: adding a flag to the base file's `command` does
+  # NOT reach dev. Anything production needs at the entrypoint level has to
+  # be added in BOTH places, or deliberately left out here — as the redirect
+  # is, since dev publishes no :443 for it to redirect to.
   traefik:
     # NOTE: this replaces the base command wholesale, so every flag we still
     # want has to be repeated here — including the project constraint.
@@ -50,6 +64,11 @@ services:
     ports: !override
       - "127.0.0.1:80:80"
     environment: !override []
+    # Base no longer puts routing labels on this container (the dead
+    # `http-catchall` set is gone). Kept as a guard: traefik's own container
+    # must stay label-free in dev, or any future base label referencing
+    # `websecure`/`letsencrypt` would spam errors against a stack that has
+    # neither.
     labels: !override []
 
   frontend:
@@ -63,7 +82,23 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     # HTTP-only localhost routing (base labels reference the websecure
-    # entrypoint and the letsencrypt resolver, which don't exist in dev)
+    # entrypoint and the letsencrypt resolver, which don't exist in dev).
+    #
+    # Production dropped its plaintext `web` router in the v3 upgrade because
+    # the entrypoint redirect makes one unreachable. Dev keeps this one on
+    # purpose: with no redirect and no :443, it is the ONLY way in. So the
+    # router name differs from production's (`frontend` here vs
+    # `frontend-secure` there) — that is intended, not drift.
+    #
+    # Deliberately NOT mirrored from production: the `sec-headers` and
+    # `edge-ratelimit` middlewares. sec-headers sets HSTS, and an HSTS header
+    # on localhost pins the browser to https://localhost for a year — with no
+    # :443 published that bricks local dev in a way a rebuild does not fix
+    # (it needs clearing by hand in chrome://net-internals/#hsts). Rate
+    # limiting is likewise noise against a single local user.
+    #
+    # `Host()` is valid in both v2 and v3 rule syntax, so these labels needed
+    # no migration — unlike the base file's old `hostregexp({host:.+})`.
     labels: !override
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`localhost`) || Host(`www.localhost`)"
