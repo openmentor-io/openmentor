@@ -29,8 +29,12 @@ defaults:
 permissions:
   contents: read
 
+# Linting is NOT here: golangci-lint runs in checks.yml ("required-checks") so
+# it gates every PR. `go vet` is gone from the test job for the same reason —
+# golangci-lint's govet (enable-all) is a superset of it.
+
 jobs:
-  # Vet + race tests + coverage floor + binary builds
+  # Race tests + coverage floor + binary builds
   test:
     name: Run Tests
     runs-on: ubuntu-latest
@@ -50,9 +54,6 @@ jobs:
 
       - name: Verify dependencies
         run: go mod verify
-
-      - name: Run go vet
-        run: go vet ./...
 
       - name: Run tests with race detector and coverage
         run: |
@@ -90,41 +91,6 @@ jobs:
           go build -v ./cmd/api
           go build -v ./cmd/worker
           go build -v ./cmd/migrate
-
-  # Code quality: the SAME golangci-lint run that `make lint` performs locally.
-  #
-  # This used to be a hand-rolled `gofmt -l` plus a separate staticcheck at
-  # @latest, while api/.golangci.yml (20 linters) only ever ran on developer
-  # machines — so `make lint` could report dozens of issues on a fully green
-  # build. golangci-lint subsumes both of those steps: gofmt/goimports come
-  # from its formatters block, and staticcheck/govet/errcheck/ineffassign/
-  # unused are enabled linters.
-  #
-  # The version is read out of api/Makefile so local and CI cannot drift.
-  quality:
-    name: Code Quality
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: api/go.sum
-
-      - name: Install pinned golangci-lint
-        run: |
-          version=$(grep -oE '^GOLANGCI_VERSION := \S+' Makefile | cut -d' ' -f3)
-          echo "Installing golangci-lint $version (pinned in api/Makefile)"
-          go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$version"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      - name: Run linters
-        # Literally the command a developer runs — see api/Makefile.
-        run: make lint
 
   # Security checks
   security:
