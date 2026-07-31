@@ -81,13 +81,20 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 		return apperrors.NotFoundError("mentor")
 	}
 
-	// Get tag IDs
-	tagIDs := []string{}
-	for _, tagName := range req.Tags {
-		tagID, tagErr := s.mentorRepo.GetTagIDByName(ctx, tagName)
-		if tagErr == nil && tagID != "" {
-			tagIDs = append(tagIDs, tagID)
-		}
+	// Resolve tags, refusing the save if ANY name is unknown — see
+	// resolveTagsStrict: a partial mismatch would otherwise drop just the
+	// unresolved associations and still report success.
+	tagIDs, unresolvedTags := resolveTagsStrict(ctx, s.mentorRepo, req.Tags)
+	if len(unresolvedTags) > 0 {
+		s.tracker.Track(ctx, analytics.EventMentorProfileUpdated, analytics.MentorDistinctID(mentorID), map[string]interface{}{
+			"mentor_id": mentorID,
+			"outcome":   "unknown_tags",
+		})
+		logger.Error("Profile save rejected: submitted tags do not exist",
+			zap.String("mentor_id", mentorID),
+			zap.Strings("unresolved_tags", unresolvedTags))
+		return apperrors.InvalidInputError("tags",
+			"unknown tag(s): "+strings.Join(unresolvedTags, ", "))
 	}
 
 	// Prepare updates with PostgreSQL column names

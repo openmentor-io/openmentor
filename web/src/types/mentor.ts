@@ -18,36 +18,53 @@ export type ExperienceLevel = '2-5' | '5-10' | '10+'
 export type Price = string
 
 /**
- * Mentor tag categories
+ * The mentor tag taxonomy (DECISIONS D30).
+ *
+ * This union is the canonical list. `src/config/filters.ts` types its group
+ * constants as `MentorTag[]`, so adding a tag there without adding it here
+ * (or vice versa) fails the type check — that drift is what left `Security`
+ * and `Other` offered in the UI but absent from the database.
+ *
+ * Must also match api/migrations/000009_modernise_tags.up.sql, which the DB
+ * unique constraint on tags.name enforces at runtime.
  */
 export type MentorTag =
+  // Engineering
   | 'Backend'
   | 'Frontend'
-  | 'Code Review'
+  | 'Mobile'
   | 'System Design'
-  | 'UX/UI/Design'
-  | 'iOS'
-  | 'Android'
-  | 'QA'
-  | 'Marketing'
-  | 'Content/Copy'
-  | 'Databases'
-  | 'Data Science/ML'
-  | 'Analytics'
-  | 'Networking'
-  | 'Cloud'
   | 'Security'
+  | 'QA & Test Automation'
+  // AI & Data
+  | 'AI/LLM Engineering'
+  | 'Machine Learning'
+  | 'Data Engineering'
+  | 'Data & Analytics'
+  // Infrastructure
   | 'DevOps/SRE'
-  | 'Agile'
-  | 'Team Lead/Management'
-  | 'Project Management'
+  | 'Platform Engineering'
+  | 'Cloud & Infrastructure'
+  | 'Databases'
+  // Product & Design
   | 'Product Management'
-  | 'Entrepreneurship'
-  | 'DevRel'
-  | 'HR'
-  | 'Career'
-  | 'Interview prep'
-  | 'Other'
+  | 'UX/UI Design'
+  // Leadership & Career
+  | 'Engineering Management'
+  | 'Tech Lead'
+  | 'Staff+/IC Growth'
+  | 'Career Growth'
+  | 'Interview Prep'
+  | 'Compensation & Negotiation'
+  | 'Relocation & Working Abroad'
+  | 'Project Management'
+  // Business & Communication
+  | 'Entrepreneurship & Startups'
+  | 'Freelancing & Consulting'
+  | 'Developer Relations'
+  | 'Technical Writing'
+  | 'Marketing & Growth'
+  | 'People & HR'
 
 /**
  * Combined tag type

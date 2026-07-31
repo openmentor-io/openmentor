@@ -88,14 +88,14 @@ describe('useMentors', () => {
     const { result } = renderHook(() => useMentors(baseMentors, 10))
 
     act(() => {
-      result.current[5].category.set('Development')
+      result.current[5].category.set('Engineering')
     })
 
-    // Both mentors have a Development tag (Frontend / Backend)
+    // Both mentors have an Engineering tag (Frontend / Backend)
     expect(result.current[0]).toHaveLength(2)
 
     act(() => {
-      result.current[5].category.set('Design')
+      result.current[5].category.set('AI & Data')
     })
 
     expect(result.current[0]).toHaveLength(0)
