@@ -115,7 +115,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 	// link. Duplicates are declined and get no token.
 	var confirmToken *string
 	var confirmExpiresAt *time.Time
-	if newStatus == "draft" {
+	if newStatus == mentorStatusDraft {
 		token, tokenErr := generateConfirmationToken()
 		if tokenErr != nil {
 			logger.Error("[New Mentor] Failed to generate confirmation token", zap.String("mentor_id", mentorID), zap.Error(tokenErr))
@@ -157,7 +157,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 	// "application received" mentor email and the moderator notification
 	// move to the mentor-confirmed job (after the mentor clicks the link).
 	var sendErr error
-	if newStatus == "draft" {
+	if newStatus == mentorStatusDraft {
 		sendErr = h.sendEmail(ctx, job, email.Message{
 			TemplateName: "mentor-confirm-email",
 			Recipient:    mentor.Email,
