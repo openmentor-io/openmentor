@@ -4,10 +4,10 @@ name: openmentor
 
 services:
   # Traefik reverse proxy for SSL/TLS termination
-  # v2.11 (maintained v2 line): negotiates the Docker API version, required
-  # for Docker Engine >= 29 (v2.10 pins API 1.24 and cannot connect)
+  # v3.7: negotiates the Docker API version, required for Docker Engine >= 29
+  # (v2.10 pins API 1.24 and cannot connect).
   traefik:
-    image: traefik:v2.11
+    image: traefik:v3.7
     container_name: traefik
     restart: always
     mem_limit: 256m
@@ -16,6 +16,23 @@ services:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
+      # Redirect HTTP to HTTPS globally, at the entrypoint rather than via a
+      # catch-all router. This replaces the old `http-catchall` labels on this
+      # container, which were dead config twice over: the rule used the v2
+      # `hostregexp({host:.+})` named-group syntax that v3 dropped (v3 regexp
+      # matchers are Go regexp), AND labels on this container were never read
+      # at all — exposedbydefault=false means the docker provider only builds
+      # routers for containers carrying `traefik.enable=true`, which this one
+      # does not. Net effect before this change: plain HTTP was served, not
+      # redirected. Entrypoint redirection is static config, so it applies
+      # regardless of provider label filtering and involves no rule syntax.
+      #
+      # Safe to redirect all of :80 because ACME uses the DNS-01 challenge
+      # below; an HTTP-01 challenge would need /.well-known/acme-challenge
+      # excluded from this redirect.
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
       - "--entrypoints.websecure.address=:443"
       - "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
       - "--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare"
@@ -35,12 +52,6 @@ services:
       - traefik-certificates:/letsencrypt
     networks:
       - openmentor-network
-    labels:
-      # Redirect HTTP to HTTPS globally
-      - "traefik.http.routers.http-catchall.rule=hostregexp(`{host:.+}`)"
-      - "traefik.http.routers.http-catchall.entrypoints=web"
-      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
 
   # cAdvisor for container resource monitoring
   cadvisor:
@@ -93,9 +104,12 @@ services:
       start_period: 40s
     labels:
       - "traefik.enable=true"
-      # HTTP router (will redirect to HTTPS)
-      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)"
-      - "traefik.http.routers.frontend.entrypoints=web"
+      # No `web` (HTTP) router: the web entrypoint now 301s everything to
+      # websecure before routing, so a plaintext router here would be
+      # unreachable. It is also what previously served the site over plain
+      # HTTP — its rule is longer than the old catch-all's, and Traefik breaks
+      # priority ties by rule length, so it won every :80 request for the
+      # canonical domain.
       # HTTPS router
       - "traefik.http.routers.frontend-secure.rule=Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)"
       - "traefik.http.routers.frontend-secure.entrypoints=websecure"

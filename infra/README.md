@@ -62,7 +62,7 @@ scales/deploys independently of the API; S3/SES scale on their own.
 
 | Service | Image | Exposure | Purpose |
 |---|---|---|---|
-| `traefik` | traefik:v2.11 | :80/:443 public | TLS termination (Let's Encrypt via Cloudflare DNS-01), routing. Dev overlay: HTTP-only on :80 |
+| `traefik` | traefik:v3.7 | :80/:443 public | TLS termination (Let's Encrypt via Cloudflare DNS-01), routing, global :80 -> :443 redirect (entrypoint-level). Dev overlay: HTTP-only on :80, no redirect |
 | `frontend` | openmentor-frontend | via Traefik | Next.js web app |
 | `backend` | openmentor-backend | internal only | Go REST API (`/app/main`) |
 | `worker` | openmentor-backend (same image, `/app/worker`) | internal :8090 | Async event triggers from the API (`/jobs/*`, `X-Worker-Token` auth) + daily cron jobs. Replaces the deprecated `openmentor-func` Azure Functions app (D6) |
