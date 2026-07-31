@@ -7,7 +7,7 @@ services:
   # v2.11 (maintained v2 line): negotiates the Docker API version, required
   # for Docker Engine >= 29 (v2.10 pins API 1.24 and cannot connect)
   traefik:
-    image: traefik:v2.11
+    image: traefik:v3.7
     container_name: traefik
     restart: always
     mem_limit: 256m
