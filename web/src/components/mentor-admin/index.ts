@@ -5,6 +5,7 @@
 export { MentorAuthProvider, useMentorAuth } from './MentorAuthContext'
 export { default as MentorAdminLayout } from './MentorAdminLayout'
 export { default as StatusBadge } from './StatusBadge'
+export { default as MetaItem } from './MetaItem'
 export { default as RequestCard } from './RequestCard'
 export { default as SearchInput } from './SearchInput'
 export { default as SortToggle } from './SortToggle'
