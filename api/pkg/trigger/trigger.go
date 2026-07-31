@@ -44,7 +44,7 @@ func CallAsync(ctx context.Context, triggerURL, recordID, authToken string, http
 			zap.String("url", targetURL),
 			zap.String("record_id", recordID))
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, http.NoBody)
 		if err != nil {
 			logger.Error("Failed to build trigger request",
 				zap.Error(err),

@@ -14,6 +14,17 @@ const compat = new FlatCompat({
 })
 
 module.exports = [
+  // Applies to every file: the react plugin is enabled globally (via the
+  // compat extends below), so its version setting has to be global too or it
+  // warns on each non-TS file.
+  {
+    settings: {
+      react: {
+        version: 'detect',
+      },
+    },
+  },
+
   // Base JavaScript recommended config
   js.configs.recommended,
 
@@ -83,6 +94,25 @@ module.exports = [
     },
   },
 
+  // Node CommonJS tooling that isn't part of the app bundle: build scripts and
+  // dotfile configs. Without this they inherit the browser/TS defaults above
+  // and every `require`/`module`/`process` reads as an undefined global.
+  {
+    files: ['scripts/**/*.js', '.prettierrc.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'commonjs',
+      globals: {
+        ...globals.node,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      // These are CLI tools — printing is the point.
+      'no-console': 'off',
+    },
+  },
+
   // Ignore patterns
   {
     ignores: [
@@ -90,6 +120,10 @@ module.exports = [
       '.next/**',
       'out/**',
       'public/**',
+      // Jest/Istanbul output from `yarn test --coverage`. Its scripts already
+      // carry `/* eslint-disable */`, so this isn't about errors — it stops
+      // `eslint .` walking hundreds of generated files it can do nothing with.
+      'coverage/**',
       '*.config.js',
       '*.config.mjs',
     ],

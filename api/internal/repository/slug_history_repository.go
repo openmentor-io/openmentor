@@ -163,6 +163,8 @@ func (r *MentorRepository) LatestMentorSlugChange(ctx context.Context, mentorID 
 // two concurrent POSTs could both pass a pre-check and rename sequentially.
 // now is the clock for that check (injectable for tests). Returns
 // *CooldownError when the cooldown is still active.
+// nolint:gocyclo // one transaction with ordered steps (lock -> cooldown ->
+// availability -> reclaim -> retire -> trim -> update); see the doc comment.
 func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, changedBy string, cooldown time.Duration, now time.Time) (string, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -191,7 +193,7 @@ func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, ch
 	// Serialize with any registration/rename contending for these slugs: the
 	// slug we retire (oldSlug) must not be claimed as a current slug by a
 	// concurrent registration, and vice-versa (see lockSlugs).
-	if err = lockSlugs(ctx, tx, oldSlug, newSlug); err != nil {
+	if err := lockSlugs(ctx, tx, oldSlug, newSlug); err != nil {
 		return "", err
 	}
 

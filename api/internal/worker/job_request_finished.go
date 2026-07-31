@@ -67,7 +67,7 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 				"request_id":  request.ID,
 			},
 		}
-	case "declined":
+	case mentorStatusDeclined:
 		message = &email.Message{
 			TemplateName: "session-declined",
 			Recipient:    request.Email,

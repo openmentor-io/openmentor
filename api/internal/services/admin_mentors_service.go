@@ -130,7 +130,7 @@ func (s *AdminMentorsService) UpdateMentorProfile(
 		return nil, err
 	}
 
-	if permissionErr := validateProfileUpdatePermissions(session, mentor, req); permissionErr != nil {
+	if permissionErr := validateProfileUpdatePermissions(session, mentor); permissionErr != nil {
 		s.trackAdminProfileUpdate(ctx, session, mentorID, "forbidden", nil)
 		return nil, permissionErr
 	}
@@ -405,7 +405,6 @@ func (s *AdminMentorsService) setModerationStatus(
 func validateProfileUpdatePermissions(
 	session *models.AdminSession,
 	mentor *models.AdminMentorDetails,
-	req *models.AdminMentorProfileUpdateRequest,
 ) error {
 
 	if session.Role == models.ModeratorRoleModerator && mentor.Status != mentorStatusPending {

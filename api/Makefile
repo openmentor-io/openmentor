@@ -1,4 +1,10 @@
-.PHONY: help build build-migrate build-worker run run-worker test test-coverage test-race lint docker-build docker-run clean fmt fmt-check vet security staticcheck ci pre-commit install-tools migrate migrate-build
+.PHONY: help build build-migrate build-worker run run-worker test test-coverage test-race lint docker-build docker-run clean fmt fmt-check vet security ci pre-commit install-tools migrate migrate-build
+
+# Pinned so `make lint` locally and the lint job in CI resolve to the SAME
+# linter build. .github/workflows/ci-api.yml reads this value out of this file
+# rather than hard-coding its own — an unpinned "@latest" on either side is how
+# CI and local drift apart in the first place.
+GOLANGCI_VERSION := v2.7.2
 
 # Default target
 help:
@@ -15,7 +21,6 @@ help:
 	@echo "  fmt            - Format code"
 	@echo "  fmt-check      - Check code formatting"
 	@echo "  security       - Run security scanner (gosec)"
-	@echo "  staticcheck    - Run staticcheck"
 	@echo "  ci             - Run all CI checks"
 	@echo "  pre-commit     - Run pre-commit checks"
 	@echo "  install-tools  - Install development tools"
@@ -68,9 +73,29 @@ test-race:
 	@echo "Running tests with race detection..."
 	@go test -v -race ./...
 
-# Run linters
+# Run linters. This is the single definition of "lint" for the API — CI runs
+# the same golangci-lint at the same pinned version, driven by .golangci.yml.
+# It subsumes gofmt/goimports (formatters block), go vet, staticcheck,
+# errcheck, ineffassign and unused, so those need no separate step.
+#
+# The version guard is the point: pinning only the CI installer would still let
+# a developer's PATH binary be a different build, and different builds report
+# different issues — the drift this whole target exists to prevent.
 lint:
 	@echo "Running linters..."
+	@command -v golangci-lint >/dev/null 2>&1 || { \
+		echo "❌ golangci-lint is not installed."; \
+		echo "   Run: make install-tools   (installs the pinned $(GOLANGCI_VERSION))"; \
+		exit 1; \
+	}
+	@have=$$(golangci-lint version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	want=$$(echo "$(GOLANGCI_VERSION)" | sed 's/^v//'); \
+	if [ "$$have" != "$$want" ]; then \
+		echo "❌ golangci-lint $$have is on PATH, but this repo pins $$want."; \
+		echo "   CI runs $$want; a different build reports different issues."; \
+		echo "   Run: make install-tools"; \
+		exit 1; \
+	fi
 	@golangci-lint run
 
 # Build Docker image
@@ -131,18 +156,15 @@ security:
 		exit 1; \
 	fi
 
-# Run staticcheck
-staticcheck:
-	@echo "Running staticcheck..."
-	@if command -v staticcheck >/dev/null 2>&1; then \
-		staticcheck ./...; \
-	else \
-		echo "staticcheck not installed. Install with: go install honnef.co/go/tools/cmd/staticcheck@latest"; \
-		exit 1; \
-	fi
 
-# Run all CI checks
-ci: fmt-check vet lint test-race security
+# Run all CI checks — mirrors the gating jobs in .github/workflows/ci-api.yml.
+#
+# lint (golangci-lint) already covers gofmt, go vet, staticcheck AND gosec, so
+# none of those get a second invocation here. The `security` target below stays
+# for a deeper standalone scan, but it is deliberately NOT part of `ci`: the
+# gosec job in CI is informational (-no-fail, uploads SARIF) rather than a
+# gate, so making it fail here would put local and CI back out of step.
+ci: lint test-race
 	@echo ""
 	@echo "✅ All CI checks passed!"
 
@@ -153,10 +175,9 @@ pre-commit: fmt vet test
 # Install development tools
 install-tools:
 	@echo "Installing development tools..."
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 	@go install github.com/securego/gosec/v2/cmd/gosec@latest
-	@go install honnef.co/go/tools/cmd/staticcheck@latest
-	@echo "✅ All tools installed!"
+	@echo "✅ All tools installed (golangci-lint $(GOLANGCI_VERSION))!"
 
 # Build migration binary
 migrate-build:

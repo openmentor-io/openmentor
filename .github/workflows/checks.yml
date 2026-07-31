@@ -1,21 +1,34 @@
 name: Checks
 
-# Branch-protection helper for the path-filtered CI workflows.
+# THE merge gate, and the only check that should be marked required.
 #
-# "CI / Web" and "CI / API" only run when their subtree changes, so their job
-# names can't be marked as required checks (a docs-only PR would hang forever
-# waiting for checks that never start). This workflow runs on EVERY pull
-# request and exposes a single stable check — "required-checks" — that:
-#   - runs the quick web gates (lint + type check + tests) when web/ changed,
-#   - runs the quick api gates (vet + tests) when api/ changed,
-#   - succeeds trivially when neither changed.
+# "CI / Web" and "CI / API" are path-filtered, so their job names can never be
+# required: a docs-only PR would wait forever for checks that never start.
+# This workflow runs on every pull request and exposes one stable check —
+# "required-checks".
 #
-# Mark only "required-checks" as required in branch protection. The deeper
-# coverage (production build, race+coverage floor, staticcheck, gosec, docker
-# smoke test) stays in ci-web.yml / ci-api.yml as non-required signal.
+# It owns every FAST check, and owns them exclusively — the deep workflows do
+# not repeat them. Before this split, a web PR ran lint/type-check/tests twice
+# (identical commands here and in "CI / Web"), and `go vet` ran three times on
+# an api PR (here, in "CI / API -> Run Tests", and again inside golangci-lint).
+#
+#   web changed -> lint + type check + tests
+#   api changed -> golangci-lint + tests
+#   neither     -> passes trivially
+#
+# ci-web.yml / ci-api.yml keep only what this cannot cheaply do: the production
+# build, the race detector + coverage floor, the gosec SARIF upload for the
+# Security tab, and the Docker smoke test.
+#
+# Also runs on pushes to main. `strict_required_status_checks_policy` is off in
+# the ruleset, so a PR can merge against a stale base — post-merge verification
+# is what catches the resulting skew. On push both halves run regardless of
+# paths: main should always be verified end to end.
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -51,7 +64,7 @@ jobs:
       # --- Web quick gates -------------------------------------------------
 
       - name: Setup Node.js
-        if: steps.filter.outputs.web == 'true'
+        if: steps.filter.outputs.web == 'true' || github.event_name == 'push'
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
@@ -59,44 +72,57 @@ jobs:
           cache-dependency-path: web/yarn.lock
 
       - name: 'Web: install dependencies'
-        if: steps.filter.outputs.web == 'true'
+        if: steps.filter.outputs.web == 'true' || github.event_name == 'push'
         working-directory: web
-        run: yarn install --frozen-lockfile
+        run: make install
 
       - name: 'Web: lint'
-        if: steps.filter.outputs.web == 'true'
+        if: steps.filter.outputs.web == 'true' || github.event_name == 'push'
         working-directory: web
-        run: yarn lint
+        run: make lint
 
       - name: 'Web: type check'
-        if: steps.filter.outputs.web == 'true'
+        if: steps.filter.outputs.web == 'true' || github.event_name == 'push'
         working-directory: web
-        run: npx tsc --noEmit
+        run: make typecheck
 
       - name: 'Web: tests'
-        if: steps.filter.outputs.web == 'true'
+        if: steps.filter.outputs.web == 'true' || github.event_name == 'push'
         working-directory: web
-        run: yarn test
+        run: make test
 
       # --- API quick gates -------------------------------------------------
 
       - name: Set up Go
-        if: steps.filter.outputs.api == 'true'
+        if: steps.filter.outputs.api == 'true' || github.event_name == 'push'
         uses: actions/setup-go@v6
         with:
           go-version: '1.25'
           cache-dependency-path: api/go.sum
 
-      - name: 'API: vet'
-        if: steps.filter.outputs.api == 'true'
+      - name: 'API: install pinned golangci-lint'
+        if: steps.filter.outputs.api == 'true' || github.event_name == 'push'
         working-directory: api
-        run: go vet ./...
+        run: |
+          version=$(grep -oE '^GOLANGCI_VERSION := \S+' Makefile | cut -d' ' -f3)
+          go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$version"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # Replaces the old bare `go vet`: golangci-lint runs govet (enable-all)
+      # plus staticcheck/errcheck/gofmt and the rest of api/.golangci.yml, so a
+      # separate vet step would just be a slower subset.
+      - name: 'API: lint'
+        if: steps.filter.outputs.api == 'true' || github.event_name == 'push'
+        working-directory: api
+        run: make lint
+
+      # Plain tests here (fast gate); the race detector + coverage floor run in
+      # "CI / API -> Run Tests" where the extra minutes don't block every PR.
       - name: 'API: tests'
-        if: steps.filter.outputs.api == 'true'
+        if: steps.filter.outputs.api == 'true' || github.event_name == 'push'
         working-directory: api
         run: go test -timeout=5m ./...
 
       - name: No web/api changes
-        if: steps.filter.outputs.web != 'true' && steps.filter.outputs.api != 'true'
+        if: github.event_name == 'pull_request' && steps.filter.outputs.web != 'true' && steps.filter.outputs.api != 'true'
         run: echo "No web/ or api/ changes detected — nothing to gate."

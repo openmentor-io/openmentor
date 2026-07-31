@@ -8,7 +8,7 @@
     "start": "NODE_ENV=production node --max-old-space-size=512 node_modules/next/dist/bin/next start",
     "start2": "NODE_ENV=production next start",
     "dev2": "next dev",
-    "lint": "eslint src/",
+    "lint": "eslint .",
     "test": "jest",
     "faro:filter-sourcemaps": "node scripts/filter-sourcemaps.js",
     "faro:sourcemaps": "yarn faro:filter-sourcemaps && faro-cli upload -o .next/static -r -g -v",

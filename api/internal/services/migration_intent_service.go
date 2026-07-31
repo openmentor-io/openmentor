@@ -37,6 +37,7 @@ func NewMigrationIntentService(
 	httpClient httpclient.Client,
 	tracker analytics.Tracker,
 ) *MigrationIntentService {
+
 	if tracker == nil {
 		tracker = analytics.NoopTracker{}
 	}

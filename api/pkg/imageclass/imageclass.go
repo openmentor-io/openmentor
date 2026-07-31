@@ -24,6 +24,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 
+	// WebP decoder (not in the standard library).
 	_ "golang.org/x/image/webp"
 
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"

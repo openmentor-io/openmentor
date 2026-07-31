@@ -73,7 +73,7 @@ func newAdminRequestsRouter(service services.AdminRequestsServiceInterface) *gin
 		})
 		c.Next()
 	})
-	// Neighbours from cmd/api that share the /mentors/:id/ subtree.
+	// Neighbors from cmd/api that share the /mentors/:id/ subtree.
 	admin.GET("/mentors/:id", func(c *gin.Context) { c.Status(http.StatusOK) })
 	admin.GET("/mentors/:id/username/availability", func(c *gin.Context) { c.Status(http.StatusOK) })
 	admin.GET("/mentors/:id/requests", handler.ListMentorRequests)
@@ -101,7 +101,7 @@ func TestAdminMentorRequestsHandler_ListRoutesAndStatusFilter(t *testing.T) {
 			router := newAdminRequestsRouter(service)
 
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			req := httptest.NewRequest(http.MethodGet, tt.url, http.NoBody)
 			router.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
@@ -118,7 +118,7 @@ func TestAdminMentorRequestsHandler_GetRequestRoute(t *testing.T) {
 	router := newAdminRequestsRouter(service)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/mentors/mentor-1/requests/req-9", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/mentors/mentor-1/requests/req-9", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -181,7 +181,7 @@ func TestAdminMentorRequestsHandler_ErrorMapping(t *testing.T) {
 			router := newAdminRequestsRouter(service)
 
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/mentors/mentor-1/requests/req-9", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/mentors/mentor-1/requests/req-9", http.NoBody)
 			router.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)

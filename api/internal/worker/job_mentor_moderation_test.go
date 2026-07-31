@@ -13,7 +13,7 @@ import (
 
 func moderationBody(action string) []byte {
 	return []byte(fmt.Sprintf(
-		`{"type":"mentor_moderation","mentor_id":"m1","action":"%s","moderator_id":"mod1","role":"admin"}`,
+		`{"type":"mentor_moderation","mentor_id":"m1","action":%q,"moderator_id":"mod1","role":"admin"}`,
 		action,
 	))
 }

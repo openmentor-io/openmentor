@@ -158,7 +158,7 @@ func EmailRateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 		}
 		// Ignore parse errors: a malformed body isn't rate-limited here, the
 		// handler will reject it. Only a well-formed email consumes a token.
-		_ = json.Unmarshal(body, &payload)
+		_ = json.Unmarshal(body, &payload) //nolint:errcheck // deliberate, see comment above
 		key := strings.ToLower(strings.TrimSpace(payload.Email))
 
 		if key != "" && !rl.Allow(key) {

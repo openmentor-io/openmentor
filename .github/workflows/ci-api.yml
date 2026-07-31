@@ -29,8 +29,12 @@ defaults:
 permissions:
   contents: read
 
+# Linting is NOT here: golangci-lint runs in checks.yml ("required-checks") so
+# it gates every PR. `go vet` is gone from the test job for the same reason —
+# golangci-lint's govet (enable-all) is a superset of it.
+
 jobs:
-  # Vet + race tests + coverage floor + binary builds
+  # Race tests + coverage floor + binary builds
   test:
     name: Run Tests
     runs-on: ubuntu-latest
@@ -50,9 +54,6 @@ jobs:
 
       - name: Verify dependencies
         run: go mod verify
-
-      - name: Run go vet
-        run: go vet ./...
 
       - name: Run tests with race detector and coverage
         run: |
@@ -90,38 +91,6 @@ jobs:
           go build -v ./cmd/api
           go build -v ./cmd/worker
           go build -v ./cmd/migrate
-
-  # Code quality checks (formatting + staticcheck)
-  quality:
-    name: Code Quality
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: api/go.sum
-
-      - name: Check code formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "The following files are not formatted:"
-            echo "$unformatted"
-            echo ""
-            echo "Please run: gofmt -w ."
-            exit 1
-          fi
-          echo "All files are properly formatted"
-
-      - name: Check for common mistakes
-        run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
-          staticcheck ./...
 
   # Security checks
   security:

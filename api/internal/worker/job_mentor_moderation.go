@@ -46,24 +46,9 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 		h.track(ctx, analytics.EventAdminMentorModerationAction, analytics.ModeratorDistinctID(payload.ModeratorID), props)
 	}
 
-	if bindErr != nil || payload.Type != "mentor_moderation" {
-		trackOutcome("invalid_payload_type", false)
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payload: type must be 'mentor_moderation'"})
-		return
-	}
-	if payload.MentorID == "" {
-		trackOutcome("missing_mentor_id", false)
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payload: missing mentor_id"})
-		return
-	}
-	if payload.ModeratorID == "" {
-		trackOutcome("missing_moderator_id", false)
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payload: missing moderator_id"})
-		return
-	}
-	if payload.Action != "approve" && payload.Action != "decline" && payload.Action != "return" {
-		trackOutcome("invalid_action", false)
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payload: action must be approve, decline or return"})
+	if outcome, msg, ok := validateModerationPayload(bindErr, payload); !ok {
+		trackOutcome(outcome, false)
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": msg})
 		return
 	}
 
@@ -101,12 +86,12 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 	// trigger. Repair it (and warn) only if it doesn't match the action.
 	// (For 'return' the repair write is guarded in SQL: it never moves an
 	// ever-activated mentor back to draft.)
-	expectedStatus := "active"
+	expectedStatus := mentorStatusActive
 	switch payload.Action {
-	case "decline":
-		expectedStatus = "declined"
-	case "return":
-		expectedStatus = "draft"
+	case moderationActionDecline:
+		expectedStatus = mentorStatusDeclined
+	case moderationActionReturn:
+		expectedStatus = mentorStatusDraft
 	}
 	if mentor.Status != expectedStatus {
 		logger.Warn("[Mentor Moderation Action] Mentor status does not match moderation action; updating",
@@ -125,43 +110,7 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 		mentor.Status = expectedStatus
 	}
 
-	// Moderation results are visible in the admin portal; the mentor is
-	// notified by email. The approved email links to the mentor's public
-	// profile (with login-link guidance baked into the template copy); the
-	// returned email carries the reviewer's note (written to
-	// mentors.moderation_note by the API before the trigger fired) and a
-	// link to the profile editor.
-	var message email.Message
-	switch payload.Action {
-	case "approve":
-		message = email.Message{
-			TemplateName: "new-mentor-approved",
-			Recipient:    mentor.Email,
-			Props: map[string]interface{}{
-				"first_name":               mentor.Name,
-				"mentor_profile_url":       h.mentorProfileURL(mentor.Slug),
-				"mentor_profile_share_url": h.mentorProfileShareURL(mentor.Slug),
-				"discord_invite_link":      h.discordInviteLink,
-			},
-		}
-	case "return":
-		message = email.Message{
-			TemplateName: "new-mentor-returned",
-			Recipient:    mentor.Email,
-			Props: map[string]interface{}{
-				"first_name":    mentor.Name,
-				"reviewer_note": mentor.ModerationNote,
-				"edit_url":      h.baseURL + "/mentor/profile/edit",
-			},
-		}
-	default:
-		message = email.Message{
-			TemplateName: "new-mentor-declined",
-			Recipient:    mentor.Email,
-			Props:        map[string]interface{}{"first_name": mentor.Name},
-		}
-	}
-	if sendErr := h.sendEmail(ctx, job, message); sendErr != nil {
+	if sendErr := h.sendEmail(ctx, job, h.moderationEmail(payload.Action, mentor)); sendErr != nil {
 		trackOutcome("error", true)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "Failed to send email"})
 		return
@@ -175,4 +124,60 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 	)
 	trackOutcome("success", true)
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// validateModerationPayload checks the trigger payload's shape. It returns the
+// analytics outcome label and the client-facing message for the first problem
+// found, or ok=true when the payload is usable.
+func validateModerationPayload(bindErr error, payload models.AdminModerationTriggerPayload) (outcome, msg string, ok bool) {
+	switch {
+	case bindErr != nil || payload.Type != "mentor_moderation":
+		return "invalid_payload_type", "Invalid payload: type must be 'mentor_moderation'", false
+	case payload.MentorID == "":
+		return "missing_mentor_id", "Invalid payload: missing mentor_id", false
+	case payload.ModeratorID == "":
+		return "missing_moderator_id", "Invalid payload: missing moderator_id", false
+	case payload.Action != moderationActionApprove &&
+		payload.Action != moderationActionDecline &&
+		payload.Action != moderationActionReturn:
+		return "invalid_action", "Invalid payload: action must be approve, decline or return", false
+	}
+	return "", "", true
+}
+
+// moderationEmail builds the outcome notification for the mentor. The approved
+// email links to their public profile (login-link guidance is baked into the
+// template copy); the returned email carries the reviewer's note (written to
+// mentors.moderation_note by the API before the trigger fired) plus a link to
+// the profile editor; anything else is a decline.
+func (h *Handlers) moderationEmail(action string, mentor *JobMentor) email.Message {
+	switch action {
+	case moderationActionApprove:
+		return email.Message{
+			TemplateName: "new-mentor-approved",
+			Recipient:    mentor.Email,
+			Props: map[string]interface{}{
+				"first_name":               mentor.Name,
+				"mentor_profile_url":       h.mentorProfileURL(mentor.Slug),
+				"mentor_profile_share_url": h.mentorProfileShareURL(mentor.Slug),
+				"discord_invite_link":      h.discordInviteLink,
+			},
+		}
+	case moderationActionReturn:
+		return email.Message{
+			TemplateName: "new-mentor-returned",
+			Recipient:    mentor.Email,
+			Props: map[string]interface{}{
+				"first_name":    mentor.Name,
+				"reviewer_note": mentor.ModerationNote,
+				"edit_url":      h.baseURL + "/mentor/profile/edit",
+			},
+		}
+	default:
+		return email.Message{
+			TemplateName: "new-mentor-declined",
+			Recipient:    mentor.Email,
+			Props:        map[string]interface{}{"first_name": mentor.Name},
+		}
+	}
 }

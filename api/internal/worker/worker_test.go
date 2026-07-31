@@ -37,7 +37,7 @@ func testConfig() *config.Config {
 }
 
 func performRequest(engine *gin.Engine, method, path string, headers map[string]string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, path, nil)
+	req := httptest.NewRequest(method, path, http.NoBody)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}

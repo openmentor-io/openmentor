@@ -29,6 +29,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/tracing"
 )
 
+// nolint:gocyclo // wiring: config -> pools -> handlers -> scheduler, read top to bottom.
 func main() {
 	// Load configuration (same config package as the API)
 	cfg, err := config.Load()
@@ -112,7 +113,7 @@ func main() {
 	metrics.RecordInfrastructureMetrics()
 
 	// Initialize the worker's own PostgreSQL pool with a smaller cap than
-	// the API (noisy-neighbour isolation at the connection level too).
+	// the API (noisy-neighbor isolation at the connection level too).
 	workerDBConfig := cfg.Database
 	workerDBConfig.MaxConns = cfg.Worker.DBMaxConns
 	workerDBConfig.MinConns = 1

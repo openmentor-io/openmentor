@@ -84,7 +84,7 @@ func TestRequestStatus_IsValid(t *testing.T) {
 		}
 	}
 	for _, status := range []models.RequestStatus{"", "archived", "Pending", "RESCHEDULE"} {
-		if models.RequestStatus(status).IsValid() {
+		if status.IsValid() {
 			t.Errorf("expected %q to be invalid", status)
 		}
 	}
