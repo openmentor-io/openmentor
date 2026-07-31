@@ -83,7 +83,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		return
 	}
 
-	newStatus := "draft"
+	newStatus := mentorStatusDraft
 
 	duplicates, err := h.repo.CountActiveMentorsByEmail(ctx, mentor.Email)
 	if err != nil {
