@@ -11,7 +11,8 @@ import (
 // clientRequestSelect is the column list every read in this file shares — the
 // column order ScanClientRequest expects.
 const clientRequestSelect = `
-	SELECT cr.id, cr.mentor_id, cr.email, cr.name, cr.preferred_contact, cr.description,
+	SELECT cr.id, cr.mentor_id, COALESCE(cr.email::text, ''), cr.name,
+		COALESCE(cr.preferred_contact, ''), cr.description,
 		cr.level, cr.status, cr.created_at, cr.updated_at, cr.status_changed_at,
 		cr.scheduled_at, cr.decline_reason, cr.decline_comment,
 		r.mentor_review
