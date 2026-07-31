@@ -14,8 +14,18 @@ export function htmlContent(html: string | null | undefined): string {
   // First, handle wysiwyg v1 (airtable) format migration
   let processedHTML = html
   if (!html.startsWith('<p>')) {
+    // A run of newlines becomes a <br/> when a list marker follows it, and a
+    // paragraph break otherwise. The marker is matched as an *optional* suffix
+    // so a run is never re-scanned: the previous `/\n+([0-9-])/g` backtracked
+    // through every newline of a run that turned out not to be followed by a
+    // marker, making this quadratic in the length of the run (CWE-1333) on
+    // profile text the mentor controls.
     processedHTML =
-      '<p>' + html.replace(/\n+([0-9-])/g, '<br/>$1').replace(/\n+/g, '</p><p>') + '</p>'
+      '<p>' +
+      html.replace(/\n+([0-9-])?/g, (_match: string, marker?: string) =>
+        marker ? `<br/>${marker}` : '</p><p>'
+      ) +
+      '</p>'
   }
 
   // SECURITY: Sanitize HTML to prevent XSS attacks
