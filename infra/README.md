@@ -142,7 +142,12 @@ production** — traefik / frontend / backend / worker / migrate / postgres —
 with these differences:
 
 - `traefik` runs HTTP-only on **:80** (no ACME/Cloudflare DNS-01, no :443)
-  and routes `Host(localhost)` to the frontend,
+  and routes `Host(localhost)` to the frontend. Production's entrypoint-level
+  HTTP→HTTPS redirect is deliberately absent (nothing to redirect to), as are
+  the `sec-headers`/`edge-ratelimit` middlewares — HSTS on `localhost` would
+  pin the browser to `https://localhost` and break local dev until cleared by
+  hand. Note the dev overlay replaces traefik's `command` wholesale, so
+  entrypoint flags added to the base file must be added here too,
 - app ports (3000/8081/8090) are additionally published for debugging,
 - `postgres` gets dev credentials, a disposable
   `openmentor-postgres-data-dev` volume and host port **5433**
