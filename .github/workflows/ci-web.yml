@@ -115,37 +115,62 @@ jobs:
           # Assert the shipped Node satisfies package.json "engines.node".
           # A Dockerfile base bump that outruns the declared engine range is
           # exactly the drift this job exists to catch.
+          #
+          # engines.node is read on the runner with jq rather than mounted into
+          # the container: this step inherits `working-directory: web`, so a
+          # $PWD-relative mount path is a foot-gun, and a missing bind-mount
+          # source silently becomes an empty directory instead of an error.
           IMAGE_NODE=$(docker run --rm --entrypoint node "$IMAGE" -p 'process.versions.node')
-          echo "image node: $IMAGE_NODE"
-          docker run --rm -v "$PWD/web/package.json:/p.json:ro" --entrypoint node "$IMAGE" -e '
-            const {engines} = require("/p.json");
-            const want = engines && engines.node;
-            if (!want) { console.log("no engines.node declared, skipping"); process.exit(0); }
-            const clauses = want.split("||").map(s => s.trim());
-            // Only assert on the simple "22.x" / "22 || 24" forms this repo
-            // uses. Anything richer (ranges, carets) needs a real semver
-            // parser, so skip rather than fail on a shape we cannot read.
-            if (!clauses.every(c => /^\d+(\.x)?$/.test(c))) {
-              console.log(`engines.node "${want}" is not a plain major list, skipping`);
-              process.exit(0);
-            }
-            const major = process.versions.node.split(".")[0];
-            if (!clauses.some(c => c.replace(/\.x$/, "") === major)) {
-              console.error(`::error::image ships Node ${process.versions.node} but web/package.json engines.node is "${want}" — bump engines (and the CI node-version pins) together with the Dockerfile base image`);
-              process.exit(1);
-            }
-            console.log(`node ${process.versions.node} satisfies engines.node "${want}"`);
-          '
+          WANT=$(jq -r '.engines.node // empty' package.json)
+          echo "image node: $IMAGE_NODE / engines.node: ${WANT:-<unset>}"
+
+          if [ -z "$WANT" ]; then
+            echo "no engines.node declared, skipping"
+            exit 0
+          fi
+
+          CLAUSES=$(printf '%s' "$WANT" | tr '|' ' ')
+
+          # Matched with shell loops rather than `... | grep -q`: under
+          # `pipefail` a grep that exits early can leave the upstream stage
+          # killed by SIGPIPE, and the pipeline reports 141 even on a match.
+          #
+          # Only assert on the simple "22.x" / "22 || 24" forms this repo uses.
+          # Anything richer (ranges, carets) needs a real semver parser, so skip
+          # rather than fail on a shape we cannot read.
+          for c in $CLAUSES; do
+            case "${c%.x}" in
+              '' | *[!0-9]*)
+                echo "engines.node \"$WANT\" is not a plain major list, skipping"
+                exit 0
+                ;;
+            esac
+          done
+
+          for c in $CLAUSES; do
+            if [ "${c%.x}" = "${IMAGE_NODE%%.*}" ]; then
+              echo "node $IMAGE_NODE satisfies engines.node \"$WANT\""
+              exit 0
+            fi
+          done
+
+          echo "::error::image ships Node $IMAGE_NODE but web/package.json engines.node is \"$WANT\" — bump engines (and the CI node-version pins) together with the Dockerfile base image"
+          exit 1
 
       - name: Smoke test image (boot + healthcheck)
         run: |
           set -euo pipefail
           IMAGE=openmentor-web:${{ github.sha }}
 
+          # Every O11Y_* var has a default in tracing-server.ts, so the app boots
+          # without them — but it would then spend the smoke test retrying OTLP
+          # exports against alloy:4318, which does not exist here. Disabling the
+          # SDK keeps the logs readable and the failure modes about the image.
           docker run -d --name web -p 3000:3000 \
             -e NEXT_PUBLIC_GO_API_URL=http://localhost:8081 \
             -e GO_API_INTERNAL_TOKEN=ci-internal-token \
             -e METRICS_AUTH_TOKEN=ci-metrics-token \
+            -e OTEL_SDK_DISABLED=true \
             "$IMAGE"
 
           for i in $(seq 1 30); do
