@@ -44,16 +44,19 @@ jobs:
           cache-dependency-path: web/yarn.lock
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: make install
 
+      # Each step is the same make target a developer runs locally (web/Makefile).
+      # ESLint covers the whole package, not just src/ — build scripts and
+      # dotfile configs used to sit outside the linted path entirely.
       - name: Run ESLint
-        run: yarn lint
+        run: make lint
 
       - name: Run TypeScript type check
-        run: npx tsc --noEmit
+        run: make typecheck
 
       - name: Run tests
-        run: yarn test
+        run: make test
 
   # Build the application
   build:
@@ -86,7 +89,7 @@ jobs:
           cache-dependency-path: web/yarn.lock
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: make install
 
       - name: Build application
-        run: yarn build
+        run: make build

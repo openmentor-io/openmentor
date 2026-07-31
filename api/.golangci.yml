@@ -36,6 +36,12 @@ linters:
         - ifElseChain
         - octalLiteral
         - paramTypeCombine
+        # Perf checks that only fire on our domain structs (Mentor ~200B,
+        # Config ~128B). Copying those is irrelevant next to the DB/HTTP call
+        # in the same function, and switching to pointers everywhere would
+        # invite aliasing bugs in the job handlers for no measurable gain.
+        - hugeParam
+        - rangeValCopy
       enabled-tags:
         - diagnostic
         - performance
@@ -51,6 +57,11 @@ linters:
     govet:
       disable:
         - fieldalignment
+        # `shadow` is off by default in `go vet` because it flags the most
+        # idiomatic error form in the language — `if err := f(); err != nil`
+        # inside a function that already has an `err`. Same reasoning as
+        # fieldalignment above: pedantic, and "fixing" it makes code worse.
+        - shadow
       enable-all: true
     misspell:
       locale: US
@@ -99,10 +110,23 @@ linters:
           - goconst
           - gocyclo
           - gosec
+          # Test helpers legitimately take a parameter that every call site
+          # happens to pass the same value for — that's the helper being
+          # reusable, not dead weight.
+          - unparam
         path: _test\.go
+      # Structurally-parallel code: same shape by design, different
+      # collaborators. Collapsing these into a shared abstraction would hide
+      # what each one actually does.
       - linters:
           - dupl
         path: internal/handlers/(contact|registration)_handler\.go
+      - linters:
+          - dupl
+        path: internal/handlers/admin_mentors_handler\.go
+      - linters:
+          - dupl
+        path: internal/worker/job_(sessions_watcher|update_status_reminder)\.go
       - linters:
           - all
         path: .*\.pb\.go

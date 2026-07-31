@@ -5,7 +5,7 @@ Guidance for Claude Code when working in the openmentor monorepo.
 ## Map
 
 - `web/` — Next.js 16 frontend. Own `CLAUDE.md` with conventions; work from `web/` (`yarn dev/test/lint`, `npx tsc --noEmit`).
-- `api/` — Go backend, module `github.com/openmentor-io/openmentor/api`. Three binaries: `cmd/api`, `cmd/worker`, `cmd/migrate`. Verify with `go build ./... && go vet ./... && go test ./...` and `gofmt -l .` from `api/`.
+- `api/` — Go backend, module `github.com/openmentor-io/openmentor/api`. Three binaries: `cmd/api`, `cmd/worker`, `cmd/migrate`. Verify with `make ci` from `api/` (or `make lint` / `make test`).
 - `infra/` — Compose/Traefik deployment + observability. Validate with `docker compose config -q` (needs `.env` + `.env.runtime`; copy both from `.env.example`, delete after).
 - `docs/` — decisions (`docs/migration/DECISIONS.md`), runbooks, design reference. `docs/migration/` is a historical record of the getmentor→openmentor fork; don't "fix" old paths there.
 - `brand/` — brand asset pack. Never redraw the logo; reference files verbatim (see `brand/README.md` rules). Served copies live in `web/public/brand`.
@@ -17,4 +17,5 @@ Guidance for Claude Code when working in the openmentor monorepo.
 - Never commit real `.env` files or secrets; templates are `*.example` (root `.gitignore` enforces this — don't weaken it).
 - Product/architecture decisions get a row in `docs/migration/DECISIONS.md`.
 - CI: `Checks / required-checks` is the required PR gate; `CI / Web` and `CI / API` are path-filtered deep coverage. Keep job names stable — branch protection references them.
+- Lint/test commands live in `api/Makefile` and `web/Makefile`, and the workflows call those targets — so `make lint` locally and CI run the identical check. Don't inline a command in a workflow that differs from its make target; that is how CI went green while `make lint` reported 44 issues. golangci-lint is pinned via `GOLANGCI_VERSION` in `api/Makefile`, which the workflow reads.
 - For every new feature, create a separate git branch; never merge to main without explicit permission.

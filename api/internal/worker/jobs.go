@@ -21,6 +21,21 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 )
 
+// Moderation actions carried on the mentor-moderation trigger payload.
+const (
+	moderationActionApprove = "approve"
+	moderationActionDecline = "decline"
+	moderationActionReturn  = "return"
+)
+
+// Mentor lifecycle statuses the jobs read and write (mirrors the API's
+// mentors.status values).
+const (
+	mentorStatusActive   = "active"
+	mentorStatusDraft    = "draft"
+	mentorStatusDeclined = "declined"
+)
+
 // EmailSender is the subset of pkg/email.Sender the job handlers use;
 // tests substitute a fake.
 type EmailSender interface {

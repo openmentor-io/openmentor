@@ -204,7 +204,7 @@ func TestCallAsyncWithPayloadInjectsTraceparent(t *testing.T) {
 
 // TestCallAsyncSurvivesCallerCancellation pins the context.WithoutCancel
 // behavior: the trigger goroutine outlives the caller's HTTP request, so an
-// already-cancelled parent context must not abort the trigger call (while
+// already-canceled parent context must not abort the trigger call (while
 // its values, e.g. trace context, still propagate).
 func TestCallAsyncSurvivesCallerCancellation(t *testing.T) {
 	srv, requests := newCaptureServer(t)

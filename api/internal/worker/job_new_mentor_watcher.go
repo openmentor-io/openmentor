@@ -98,7 +98,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 	}
 	if duplicates > 0 {
 		logger.Info("[New Mentor] Duplicate mentor found", zap.String("mentor_id", mentorID))
-		newStatus = "declined"
+		newStatus = mentorStatusDeclined
 	}
 
 	mentor.PreferredContact = strings.TrimSpace(mentor.PreferredContact)
@@ -138,7 +138,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		PreferredContact:           mentor.PreferredContact,
 		Slug:                       mentor.Slug,
 		Status:                     newStatus,
-		SortOrder:                  rand.IntN(1000), // Math.floor(Math.random() * 1000)
+		SortOrder:                  rand.IntN(1000), //nolint:gosec // G404: cosmetic catalog shuffle, not a security decision
 		EmailConfirmationToken:     confirmToken,
 		EmailConfirmationExpiresAt: confirmExpiresAt,
 	})

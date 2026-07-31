@@ -192,6 +192,8 @@ func (r *MentorRepository) Update(ctx context.Context, mentorId string, updates 
 // CreateMentor creates a new mentor record in PostgreSQL
 // Returns: mentorId (UUID), legacyId (int), error
 // Note: slug is generated automatically using pre-fetched legacy_id
+// nolint:gocyclo // one transaction with ordered steps (sequence -> slug claim
+// -> insert); splitting it would hide the ordering the correctness depends on.
 func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]interface{}) (string, int, string, error) {
 	// Begin transaction to ensure atomicity
 	tx, err := r.pool.Begin(ctx)
