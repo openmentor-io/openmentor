@@ -195,6 +195,28 @@
     display: none;
   }
 
+  /* One-line values that can outgrow their column (emails, free-text
+     contact details). The row stays short — no wrapping, no ellipsis —
+     while the whole value can be scrolled, selected and copied. The slim
+     scrollbar is the affordance, so it is styled (not overlay) wherever
+     the platform allows it, and only shows up when the value overflows. */
+  .scroll-line {
+    @apply overflow-x-auto overflow-y-hidden whitespace-nowrap;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--om-line) transparent;
+  }
+  .scroll-line::-webkit-scrollbar {
+    height: 4px;
+  }
+  .scroll-line::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scroll-line::-webkit-scrollbar-thumb {
+    background-color: var(--om-line);
+    border-radius: 999px;
+  }
+
   /* Metadata rows: Plex Mono 500, CAPS, +4% tracking ("8Y EXP · $50"). */
   .meta-mono {
     @apply font-mono text-[11px] font-medium uppercase;

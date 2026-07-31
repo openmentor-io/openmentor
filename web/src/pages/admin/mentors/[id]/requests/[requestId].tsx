@@ -17,7 +17,12 @@ import { faCircleNotch, faStar } from '@fortawesome/free-solid-svg-icons'
 import type { AdminMentorDetails, MentorClientRequest, RequestStatus } from '@/types'
 import { ALL_REQUEST_STATUSES, STATUS_LABELS } from '@/types'
 import { AdminAuthProvider, AdminLayout, useAdminAuth } from '@/components/admin-moderation'
-import { StatusBadge, formatDateTime, formatRelativeTime } from '@/components/mentor-admin'
+import {
+  MetaItem,
+  StatusBadge,
+  formatDateTime,
+  formatRelativeTime,
+} from '@/components/mentor-admin'
 import {
   getModerationMentorById,
   getModerationMentorRequest,
@@ -25,15 +30,6 @@ import {
 } from '@/lib/admin-moderation-api'
 
 const labelClass = 'mb-1 block text-[13px] font-semibold text-ink'
-
-function MetaItem({ label, value }: { label: string; value: string }): JSX.Element {
-  return (
-    <div className="min-w-0">
-      <div className="text-xs text-ink-soft">{label}</div>
-      <div className="truncate text-[13px] font-semibold text-ink">{value}</div>
-    </div>
-  )
-}
 
 /** statusChangedAt is NULL on rows that predate status tracking. */
 function formatOptionalDateTime(value: string | null): string {
@@ -179,7 +175,13 @@ function AdminRequestDetailsContent(): JSX.Element {
               <StatusBadge status={request.status} />
             </div>
             <div className="mt-1 text-sm text-ink-soft">
-              {request.email} · requested {formatRelativeTime(request.createdAt)}
+              <a
+                href={`mailto:${request.email}`}
+                className="break-all text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
+              >
+                {request.email}
+              </a>{' '}
+              · requested {formatRelativeTime(request.createdAt)}
               {mentor ? ` · for ${mentor.name}` : ''}
             </div>
           </div>
@@ -194,8 +196,17 @@ function AdminRequestDetailsContent(): JSX.Element {
             </p>
             <div className="mt-4 grid grid-cols-2 gap-4 border-t border-line pt-4 sm:grid-cols-4 sm:gap-6">
               <MetaItem label="Level" value={request.level || '—'} />
-              <MetaItem label="Email" value={request.email} />
-              <MetaItem label="Contact" value={request.contact || '—'} />
+              <MetaItem
+                label="Email"
+                value={request.email}
+                href={`mailto:${request.email}`}
+                copyable
+              />
+              {request.contact ? (
+                <MetaItem label="Contact" value={request.contact} copyable />
+              ) : (
+                <MetaItem label="Contact" value="—" />
+              )}
               <MetaItem label="Received" value={formatDateTime(request.createdAt)} />
             </div>
           </div>
@@ -252,8 +263,8 @@ function AdminRequestDetailsContent(): JSX.Element {
                 Change status
               </label>
               <p className="my-0 mb-2 text-[13px] text-ink-soft">
-                Admins can set any status, including moving a closed request back into the mentor&apos;s
-                active list. No email is sent to the mentee.
+                Admins can set any status, including moving a closed request back into the
+                mentor&apos;s active list. No email is sent to the mentee.
               </p>
               <select
                 id="request-status"

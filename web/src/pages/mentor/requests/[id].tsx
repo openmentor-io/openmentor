@@ -21,6 +21,7 @@ import {
   useMentorAuth,
   MentorAdminLayout,
   StatusBadge,
+  MetaItem,
   DeclineModal,
   formatDateTime,
   formatRelativeTime,
@@ -42,30 +43,6 @@ function getNextStatus(currentStatus: RequestStatus): RequestStatus | null {
  */
 function canDecline(status: RequestStatus): boolean {
   return STATUS_TRANSITIONS[status].includes('declined')
-}
-
-interface MetaItemProps {
-  label: string
-  value: string
-  href?: string
-}
-
-function MetaItem({ label, value, href }: MetaItemProps): JSX.Element {
-  return (
-    <div className="min-w-0">
-      <div className="text-xs text-ink-soft">{label}</div>
-      {href ? (
-        <a
-          href={href}
-          className="block truncate text-[13px] font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
-        >
-          {value}
-        </a>
-      ) : (
-        <div className="truncate text-[13px] font-semibold text-ink">{value}</div>
-      )}
-    </div>
-  )
 }
 
 function RequestDetailsContent(): JSX.Element {
@@ -203,8 +180,16 @@ function RequestDetailsContent(): JSX.Element {
                     </h1>
                     <StatusBadge status={request.status} />
                   </div>
-                  <div className="mt-1 truncate text-sm text-ink-soft">
-                    {request.email} · requested {formatRelativeTime(request.createdAt)}
+                  {/* Wraps rather than truncates — a long address used to
+                      swallow the "requested …" half of the line. */}
+                  <div className="mt-1 text-sm text-ink-soft">
+                    <a
+                      href={`mailto:${request.email}`}
+                      className="break-all text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
+                    >
+                      {request.email}
+                    </a>{' '}
+                    · requested {formatRelativeTime(request.createdAt)}
                   </div>
                 </div>
               </div>
@@ -220,8 +205,13 @@ function RequestDetailsContent(): JSX.Element {
 
                 <div className="mt-4 grid grid-cols-2 gap-4 border-t border-line pt-4 sm:grid-cols-4 sm:gap-6">
                   <MetaItem label="Level" value={request.level} />
-                  <MetaItem label="Email" value={request.email} href={`mailto:${request.email}`} />
-                  {request.contact && <MetaItem label="Contact" value={request.contact} />}
+                  <MetaItem
+                    label="Email"
+                    value={request.email}
+                    href={`mailto:${request.email}`}
+                    copyable
+                  />
+                  {request.contact && <MetaItem label="Contact" value={request.contact} copyable />}
                   <MetaItem label="Received" value={formatDateTime(request.createdAt)} />
                 </div>
               </div>
@@ -246,7 +236,10 @@ function RequestDetailsContent(): JSX.Element {
                 </div>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
                   <MetaItem label="Current status" value={STATUS_LABELS[request.status]} />
-                  <MetaItem label="Status changed" value={formatDateTime(request.statusChangedAt)} />
+                  <MetaItem
+                    label="Status changed"
+                    value={formatDateTime(request.statusChangedAt)}
+                  />
                   {request.scheduledAt && (
                     <MetaItem label="Scheduled" value={formatDateTime(request.scheduledAt)} />
                   )}
@@ -268,7 +261,10 @@ function RequestDetailsContent(): JSX.Element {
 
                 {/* Status error */}
                 {statusError && (
-                  <p className="my-0 mb-3 animate-shake text-sm font-medium text-danger" role="alert">
+                  <p
+                    className="my-0 mb-3 animate-shake text-sm font-medium text-danger"
+                    role="alert"
+                  >
                     {statusError}
                   </p>
                 )}
