@@ -120,6 +120,10 @@ module.exports = [
       '.next/**',
       'out/**',
       'public/**',
+      // Jest/Istanbul output from `yarn test --coverage`. Its scripts already
+      // carry `/* eslint-disable */`, so this isn't about errors — it stops
+      // `eslint .` walking hundreds of generated files it can do nothing with.
+      'coverage/**',
       '*.config.js',
       '*.config.mjs',
     ],

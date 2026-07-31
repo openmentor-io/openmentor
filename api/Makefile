@@ -77,8 +77,25 @@ test-race:
 # the same golangci-lint at the same pinned version, driven by .golangci.yml.
 # It subsumes gofmt/goimports (formatters block), go vet, staticcheck,
 # errcheck, ineffassign and unused, so those need no separate step.
+#
+# The version guard is the point: pinning only the CI installer would still let
+# a developer's PATH binary be a different build, and different builds report
+# different issues — the drift this whole target exists to prevent.
 lint:
 	@echo "Running linters..."
+	@command -v golangci-lint >/dev/null 2>&1 || { \
+		echo "❌ golangci-lint is not installed."; \
+		echo "   Run: make install-tools   (installs the pinned $(GOLANGCI_VERSION))"; \
+		exit 1; \
+	}
+	@have=$$(golangci-lint version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	want=$$(echo "$(GOLANGCI_VERSION)" | sed 's/^v//'); \
+	if [ "$$have" != "$$want" ]; then \
+		echo "❌ golangci-lint $$have is on PATH, but this repo pins $$want."; \
+		echo "   CI runs $$want; a different build reports different issues."; \
+		echo "   Run: make install-tools"; \
+		exit 1; \
+	fi
 	@golangci-lint run
 
 # Build Docker image
