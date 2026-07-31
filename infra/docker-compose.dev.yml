@@ -36,9 +36,16 @@ services:
   # Traefik in HTTP-only mode: no Let's Encrypt / Cloudflare DNS-01, single
   # :80 entrypoint, and no HTTP->HTTPS redirect (labels overridden below).
   traefik:
+    # NOTE: this replaces the base command wholesale, so every flag we still
+    # want has to be repeated here — including the project constraint.
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
+      # Without this, a getmentor.dev stack running on the same Docker daemon
+      # (they can now run side by side) also publishes a router called
+      # "frontend", and Traefik drops the duplicate — http://localhost/ starts
+      # 404ing while :3000 still works. See the base file for the full note.
+      - "--providers.docker.constraints=Label(`com.docker.compose.project`,`openmentor`)"
       - "--entrypoints.web.address=:80"
     ports: !override
       - "127.0.0.1:80:80"
