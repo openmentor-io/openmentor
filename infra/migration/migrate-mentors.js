@@ -132,14 +132,40 @@ const config = {
 
 // Old Russian tags -> seeded openmentor tag names (api/migrations/000002).
 // Sponsor tags have no counterpart on openmentor.io and are dropped.
+// Maps getmentor.dev tag labels onto the openmentor taxonomy (D30). Covers
+// both the Russian labels and the legacy English ones — the latter used to
+// pass through unchanged, which silently dropped them once D30 renamed the
+// targets (insertMentor looks tags up by exact name and drops what it can't
+// find). Keep this in sync with api/migrations/000009_modernise_tags.up.sql.
 const TAG_MAP = {
-  Сети: 'Networking',
-  Карьера: 'Career',
-  Собеседования: 'Interview prep',
-  Аналитика: 'Analytics',
+  // Russian labels
+  Сети: 'Cloud & Infrastructure',
+  Карьера: 'Career Growth',
+  Собеседования: 'Interview Prep',
+  Аналитика: 'Data & Analytics',
   Безопасность: 'Security',
+  // Legacy English labels renamed or merged by D30
+  'UX/UI/Design': 'UX/UI Design',
+  iOS: 'Mobile',
+  Android: 'Mobile',
+  QA: 'QA & Test Automation',
+  'Data Science/ML': 'Machine Learning',
+  Cloud: 'Cloud & Infrastructure',
+  Networking: 'Cloud & Infrastructure',
+  'Team Lead/Management': 'Engineering Management',
+  DevRel: 'Developer Relations',
+  HR: 'People & HR',
+  Agile: 'Project Management',
+  'Content/Copy': 'Technical Writing',
+  Marketing: 'Marketing & Growth',
+  Entrepreneurship: 'Entrepreneurship & Startups',
+  Career: 'Career Growth',
+  'Interview prep': 'Interview Prep',
+  Analytics: 'Data & Analytics',
 };
 const DROPPED_TAGS = new Set(['Эксперт Авито', 'Сообщество Онтико']);
+// Retired by D30 with no equivalent (a task, not an expertise).
+const RETIRED_TAGS = new Set(['Code Review']);
 
 const KNOWN_EXPERIENCE = new Set(['2-5', '5-10', '10+']);
 
@@ -375,6 +401,10 @@ function mapTags(tags, notes) {
   for (const tag of tags) {
     if (DROPPED_TAGS.has(tag)) {
       notes.push(`tag dropped (sponsor): ${tag}`);
+      continue;
+    }
+    if (RETIRED_TAGS.has(tag)) {
+      notes.push(`tag dropped (retired in D30, no equivalent): ${tag}`);
       continue;
     }
     mapped.push(TAG_MAP[tag] || tag);

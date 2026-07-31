@@ -1,4 +1,4 @@
-import type { FiltersConfig } from '@/types'
+import type { FiltersConfig, MentorTag } from '@/types'
 
 /**
  * Extract a numeric amount from a free-text price (e.g. "$100 / hour" -> 100).
@@ -15,64 +15,69 @@ export function isPriceFree(price: string): boolean {
   return /free/i.test(price) || parsePriceAmount(price) === 0
 }
 
-// Tag groups (shared between the legacy grouped dropdowns config and the
-// topic tab categories below)
-const developmentTags = ['Backend', 'Frontend', 'iOS', 'Android', 'System Design', 'Code Review']
-const managementTags = ['Agile', 'Team Lead/Management', 'Project Management', 'Product Management']
-const opsTags = ['DevOps/SRE', 'Databases', 'Networking', 'Cloud', 'Security']
-const hrTags = ['HR', 'Career', 'Interview prep', 'Entrepreneurship', 'DevRel']
-const marketingTags = ['Marketing', 'Content/Copy']
+// Tag groups, shared between the flat `tags` list (form options) and the
+// catalog topic tabs (`categories`) below. Every tag belongs to exactly one
+// group, so there is no "Others" catch-all. Keep these in sync with
+// api/migrations/000009_modernise_tags.up.sql — a tag offered here but absent
+// from the DB is silently dropped on save (that is what broke "Security").
+const engineeringTags: MentorTag[] = [
+  'Backend',
+  'Frontend',
+  'Mobile',
+  'System Design',
+  'Security',
+  'QA & Test Automation',
+]
+const aiDataTags: MentorTag[] = [
+  'AI/LLM Engineering',
+  'Machine Learning',
+  'Data Engineering',
+  'Data & Analytics',
+]
+const infrastructureTags: MentorTag[] = [
+  'DevOps/SRE',
+  'Platform Engineering',
+  'Cloud & Infrastructure',
+  'Databases',
+]
+const productDesignTags: MentorTag[] = ['Product Management', 'UX/UI Design']
+const leadershipTags: MentorTag[] = [
+  'Engineering Management',
+  'Tech Lead',
+  'Staff+/IC Growth',
+  'Career Growth',
+  'Interview Prep',
+  'Compensation & Negotiation',
+  'Relocation & Working Abroad',
+  'Project Management',
+]
+const businessTags: MentorTag[] = [
+  'Entrepreneurship & Startups',
+  'Freelancing & Consulting',
+  'Developer Relations',
+  'Technical Writing',
+  'Marketing & Growth',
+  'People & HR',
+]
 
 const filters: FiltersConfig = {
   tags: [
-    'Backend',
-    'Frontend',
-    'Code Review',
-    'System Design',
-    'UX/UI/Design',
-    'iOS',
-    'Android',
-    'QA',
-    'Marketing',
-    'Content/Copy',
-    'Databases',
-    'Data Science/ML',
-    'Analytics',
-    'Networking',
-    'Cloud',
-    'Security',
-    'DevOps/SRE',
-    'Agile',
-    'Team Lead/Management',
-    'Project Management',
-    'Product Management',
-    'Entrepreneurship',
-    'DevRel',
-    'HR',
-    'Career',
-    'Interview prep',
-    'Other',
+    ...engineeringTags,
+    ...aiDataTags,
+    ...infrastructureTags,
+    ...productDesignTags,
+    ...leadershipTags,
+    ...businessTags,
   ],
-  byTags: {
-    development: developmentTags,
-    management: managementTags,
-    ops: opsTags,
-    hr: hrTags,
-    marketing: marketingTags,
-    rest: ['Data Science/ML', 'UX/UI/Design', 'QA', 'Analytics', 'Other'],
-  },
   // Topic tabs for the catalog tab bar (redesign Phase A). A mentor matches a
-  // category when they have at least one of its tags. Every tag from `tags`
-  // belongs to exactly one category; "Others" aggregates what's left.
+  // category when they have at least one of its tags.
   categories: [
-    { label: 'Development', tags: developmentTags },
-    { label: 'Management', tags: managementTags },
-    { label: 'DevOps', tags: opsTags },
-    { label: 'HR', tags: hrTags },
-    { label: 'Marketing', tags: marketingTags },
-    { label: 'Data Science', tags: ['Data Science/ML', 'Analytics'] },
-    { label: 'Design', tags: ['UX/UI/Design'] },
-    { label: 'Others', tags: ['QA', 'Other'] },
+    { label: 'Engineering', tags: engineeringTags },
+    { label: 'AI & Data', tags: aiDataTags },
+    { label: 'Infrastructure', tags: infrastructureTags },
+    { label: 'Product & Design', tags: productDesignTags },
+    { label: 'Leadership & Career', tags: leadershipTags },
+    { label: 'Business & Communication', tags: businessTags },
   ],
   // Suggested options for legacy price selects. The price field itself is
   // free text (see DECISIONS D3) — these are interim values until the forms

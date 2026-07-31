@@ -41,7 +41,7 @@ function makeMentor(overrides: Partial<MentorListItem>): MentorListItem {
 const mentors: MentorListItem[] = [
   makeMentor({ id: 1, slug: 'a', tags: ['Frontend'], experience: '2-5', price: '$50' }),
   makeMentor({ id: 2, slug: 'b', tags: ['Frontend', 'Backend'], experience: '10+', price: 'Free' }),
-  makeMentor({ id: 3, slug: 'c', tags: ['UX/UI/Design'], experience: '10+', price: 'Negotiable' }),
+  makeMentor({ id: 3, slug: 'c', tags: ['UX/UI Design'], experience: '10+', price: 'Negotiable' }),
 ]
 
 describe('MentorsFilters', () => {
@@ -68,7 +68,7 @@ describe('MentorsFilters', () => {
     rerender(
       <MentorsFilters
         appliedFilters={makeAppliedFilters({
-          category: { values: 'Development', set: jest.fn(), reset: jest.fn() },
+          category: { values: 'Engineering', set: jest.fn(), reset: jest.fn() },
         })}
         mentors={mentors}
       />
@@ -83,35 +83,35 @@ describe('MentorsFilters', () => {
     const appliedFilters = makeAppliedFilters()
     render(<MentorsFilters appliedFilters={appliedFilters} mentors={mentors} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Development' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Engineering' }))
 
-    expect(appliedFilters.category.set).toHaveBeenCalledWith('Development')
+    expect(appliedFilters.category.set).toHaveBeenCalledWith('Engineering')
     expect(appliedFilters.tags.set).toHaveBeenCalledWith([])
 
     // Dropdown lists the category's tags with counts from the loaded mentors
     const frontendItem = screen.getByRole('button', { name: /Frontend/ })
     expect(frontendItem).toHaveTextContent('2')
     expect(screen.getByRole('button', { name: /Backend/ })).toHaveTextContent('1')
-    expect(screen.getByRole('button', { name: /iOS/ })).toHaveTextContent('0')
+    expect(screen.getByRole('button', { name: /Mobile/ })).toHaveTextContent('0')
   })
 
   it('narrows to a single tag from the category dropdown and closes the panel', () => {
     const appliedFilters = makeAppliedFilters({
-      category: { values: 'Development', set: jest.fn(), reset: jest.fn() },
+      category: { values: 'Engineering', set: jest.fn(), reset: jest.fn() },
     })
     render(<MentorsFilters appliedFilters={appliedFilters} mentors={mentors} />)
 
     // Active category click opens the dropdown
-    fireEvent.click(screen.getByRole('button', { name: 'Development' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Engineering' }))
     fireEvent.click(screen.getByRole('button', { name: /Backend/ }))
 
     expect(appliedFilters.tags.set).toHaveBeenCalledWith(['Backend'])
-    expect(screen.queryByRole('button', { name: /iOS/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Mobile/ })).not.toBeInTheDocument()
   })
 
   it('re-picking the selected tag widens back to the whole category', () => {
     const appliedFilters = makeAppliedFilters({
-      category: { values: 'Development', set: jest.fn(), reset: jest.fn() },
+      category: { values: 'Engineering', set: jest.fn(), reset: jest.fn() },
       tags: { values: ['Backend'], set: jest.fn(), reset: jest.fn() },
     })
     render(<MentorsFilters appliedFilters={appliedFilters} mentors={mentors} />)
@@ -125,11 +125,11 @@ describe('MentorsFilters', () => {
 
   it('toggles the dropdown when the active category is clicked again', () => {
     const appliedFilters = makeAppliedFilters({
-      category: { values: 'Development', set: jest.fn(), reset: jest.fn() },
+      category: { values: 'Engineering', set: jest.fn(), reset: jest.fn() },
     })
     render(<MentorsFilters appliedFilters={appliedFilters} mentors={mentors} />)
 
-    const pill = screen.getByRole('button', { name: 'Development' })
+    const pill = screen.getByRole('button', { name: 'Engineering' })
 
     fireEvent.click(pill)
     expect(screen.getByRole('button', { name: /Backend/ })).toBeInTheDocument()
@@ -140,24 +140,15 @@ describe('MentorsFilters', () => {
     expect(pill).toHaveAttribute('aria-expanded', 'false')
   })
 
-  it('toggles a single-tag category (no dropdown) straight off', () => {
-    const appliedFilters = makeAppliedFilters({
-      category: { values: 'Design', set: jest.fn(), reset: jest.fn() },
-    })
-    render(<MentorsFilters appliedFilters={appliedFilters} mentors={mentors} />)
-
-    const pill = screen.getByRole('button', { name: 'Design' })
-    expect(pill).not.toHaveAttribute('aria-expanded')
-
-    fireEvent.click(pill)
-
-    expect(appliedFilters.category.reset).toHaveBeenCalled()
-    expect(appliedFilters.tags.set).toHaveBeenCalledWith([])
-  })
+  // NOTE: the "single-tag category (no dropdown)" case used to be covered here
+  // via the old one-tag 'Design' category. The D30 taxonomy has no single-tag
+  // category any more, so the scenario is unreachable through the real config.
+  // MentorsFilters still guards it (`hasDropdown = category.tags.length > 1`)
+  // in case one is added later.
 
   it('resets category and tags when "All mentors" is clicked', () => {
     const appliedFilters = makeAppliedFilters({
-      category: { values: 'Development', set: jest.fn(), reset: jest.fn() },
+      category: { values: 'Engineering', set: jest.fn(), reset: jest.fn() },
       tags: { values: ['Backend'], set: jest.fn(), reset: jest.fn() },
     })
     render(<MentorsFilters appliedFilters={appliedFilters} mentors={mentors} />)
