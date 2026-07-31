@@ -1,3 +1,5 @@
+import type { RequestStatus } from './mentor-requests'
+
 export type ModeratorRole = 'moderator' | 'admin'
 
 export type MentorModerationFilter = 'pending' | 'approved' | 'declined'
@@ -51,6 +53,8 @@ export interface AdminMentorDetails {
   photoStyle?: string
   /** Set on first approve; once set the mentor can never be returned to draft. */
   activatedAt?: string | null
+  /** Total mentee requests received (all statuses) — drives the "Requests (N)" button. */
+  requestsCount: number
   createdAt: string
   updatedAt: string
 }
@@ -82,3 +86,14 @@ export interface AdminMentorProfileUpdateRequest {
 export interface AdminStatusUpdateRequest {
   status: 'active' | 'inactive'
 }
+
+/**
+ * Admin override of a mentee request's status. Unlike the mentor-facing flow
+ * this accepts ANY status, including moves out of a terminal one.
+ */
+export interface AdminRequestStatusUpdateRequest {
+  status: RequestStatus
+}
+
+/** Status filter on the admin requests list ('all' = no server-side filter). */
+export type AdminRequestStatusFilter = 'all' | RequestStatus

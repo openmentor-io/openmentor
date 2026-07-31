@@ -8,6 +8,18 @@ import (
 	"github.com/openmentor-io/openmentor/api/internal/models"
 )
 
+// clientRequestSelect is the column list every read in this file shares — the
+// column order ScanClientRequest expects.
+const clientRequestSelect = `
+	SELECT cr.id, cr.mentor_id, COALESCE(cr.email::text, ''), cr.name,
+		COALESCE(cr.preferred_contact, ''), cr.description,
+		cr.level, cr.status, cr.created_at, cr.updated_at, cr.status_changed_at,
+		cr.scheduled_at, cr.decline_reason, cr.decline_comment,
+		r.mentor_review
+	FROM client_requests cr
+	LEFT JOIN reviews r ON r.client_request_id = cr.id
+`
+
 // ClientRequestRepository handles client request data access
 type ClientRequestRepository struct {
 	pool *pgxpool.Pool
@@ -48,13 +60,7 @@ func (r *ClientRequestRepository) Create(ctx context.Context, req *models.Client
 
 // GetByMentor retrieves all client requests for a mentor filtered by statuses
 func (r *ClientRequestRepository) GetByMentor(ctx context.Context, mentorId string, statuses []models.RequestStatus) ([]*models.MentorClientRequest, error) {
-	query := `
-		SELECT cr.id, cr.mentor_id, cr.email, cr.name, cr.preferred_contact, cr.description,
-			cr.level, cr.status, cr.created_at, cr.updated_at, cr.status_changed_at,
-			cr.scheduled_at, cr.decline_reason, cr.decline_comment,
-			r.mentor_review
-		FROM client_requests cr
-		LEFT JOIN reviews r ON r.client_request_id = cr.id
+	query := clientRequestSelect + `
 		WHERE cr.mentor_id = $1 AND cr.status = ANY($2)
 		ORDER BY cr.created_at ASC
 	`
@@ -73,17 +79,35 @@ func (r *ClientRequestRepository) GetByMentor(ctx context.Context, mentorId stri
 	return models.ScanClientRequests(rows)
 }
 
+// ListByMentorFiltered retrieves a mentor's client requests for the admin
+// moderation portal, newest first. An empty statuses slice means "every
+// status" — unlike the mentor-facing inbox, admins see the full history in
+// one list and filter it themselves.
+func (r *ClientRequestRepository) ListByMentorFiltered(ctx context.Context, mentorID string, statuses []models.RequestStatus) ([]*models.MentorClientRequest, error) {
+	query := clientRequestSelect + ` WHERE cr.mentor_id = $1`
+	args := []interface{}{mentorID}
+
+	if len(statuses) > 0 {
+		statusStrs := make([]string, len(statuses))
+		for i, s := range statuses {
+			statusStrs[i] = string(s)
+		}
+		query += ` AND cr.status = ANY($2)`
+		args = append(args, statusStrs)
+	}
+	query += ` ORDER BY cr.created_at DESC`
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list client requests for mentor: %w", err)
+	}
+
+	return models.ScanClientRequests(rows)
+}
+
 // GetByID retrieves a single client request by ID
 func (r *ClientRequestRepository) GetByID(ctx context.Context, id string) (*models.MentorClientRequest, error) {
-	query := `
-		SELECT cr.id, cr.mentor_id, cr.email, cr.name, cr.preferred_contact, cr.description,
-			cr.level, cr.status, cr.created_at, cr.updated_at, cr.status_changed_at,
-			cr.scheduled_at, cr.decline_reason, cr.decline_comment,
-			r.mentor_review
-		FROM client_requests cr
-		LEFT JOIN reviews r ON r.client_request_id = cr.id
-		WHERE cr.id = $1
-	`
+	query := clientRequestSelect + ` WHERE cr.id = $1`
 
 	row := r.pool.QueryRow(ctx, query, id)
 	return models.ScanClientRequest(row)

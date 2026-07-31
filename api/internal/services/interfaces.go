@@ -85,6 +85,14 @@ type AdminMentorsServiceInterface interface {
 	UploadMentorPicture(ctx context.Context, session *models.AdminSession, mentorID string, req *models.UploadProfilePictureRequest) (string, error)
 }
 
+// AdminRequestsServiceInterface defines admin access to the requests a mentor
+// received, including the unrestricted status override.
+type AdminRequestsServiceInterface interface {
+	ListMentorRequests(ctx context.Context, session *models.AdminSession, mentorID string, statusFilter models.RequestStatus) (*models.ClientRequestsResponse, error)
+	GetMentorRequest(ctx context.Context, session *models.AdminSession, mentorID string, requestID string) (*models.MentorClientRequest, error)
+	UpdateRequestStatus(ctx context.Context, session *models.AdminSession, mentorID string, requestID string, newStatus models.RequestStatus) (*models.MentorClientRequest, error)
+}
+
 // Ensure services implement their interfaces
 var _ ContactServiceInterface = (*ContactService)(nil)
 var _ MentorServiceInterface = (*MentorService)(nil)
@@ -95,4 +103,5 @@ var _ AdminAuthServiceInterface = (*AdminAuthService)(nil)
 var _ MentorRequestsServiceInterface = (*MentorRequestsService)(nil)
 var _ ReviewServiceInterface = (*ReviewService)(nil)
 var _ AdminMentorsServiceInterface = (*AdminMentorsService)(nil)
+var _ AdminRequestsServiceInterface = (*AdminRequestsService)(nil)
 var _ MentorConfirmationServiceInterface = (*MentorConfirmationService)(nil)

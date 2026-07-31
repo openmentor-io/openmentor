@@ -109,8 +109,11 @@ type AdminMentorDetails struct {
 	// ActivatedAt is set on the first approve; once set the mentor can
 	// never be returned to draft.
 	ActivatedAt *time.Time `json:"activatedAt,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	// RequestsCount is the total number of mentee requests this mentor has
+	// received (all statuses) — drives the "Requests (N)" entry point.
+	RequestsCount int       `json:"requestsCount"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 type AdminMentorsListResponse struct {
@@ -120,6 +123,21 @@ type AdminMentorsListResponse struct {
 
 type AdminMentorResponse struct {
 	Mentor *AdminMentorDetails `json:"mentor"`
+}
+
+// AdminClientRequestResponse wraps a single mentee request for the admin
+// moderation portal.
+type AdminClientRequestResponse struct {
+	Request *MentorClientRequest `json:"request"`
+}
+
+// AdminUpdateStatusRequest is the admin status override payload. Its oneof
+// covers every status in AllStatuses — including 'reschedule', which the
+// mentor-facing UpdateStatusRequest deliberately does not accept. Struct tags
+// must be literals, so TestAdminUpdateStatusRequest_OneofCoversAllStatuses
+// guards this list against drifting from AllStatuses.
+type AdminUpdateStatusRequest struct {
+	Status RequestStatus `json:"status" binding:"required,oneof=pending contacted working done reschedule declined unavailable"`
 }
 
 // AdminMentorProfileUpdateRequest intentionally contains only business/profile

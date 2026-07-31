@@ -723,6 +723,62 @@ class GoApiClient {
     )
     return data
   }
+
+  /**
+   * List the requests a mentor received (admin auth). Omitting `status`
+   * returns every status.
+   */
+  async adminListMentorRequests(
+    cookies: string,
+    mentorId: string,
+    status?: RequestStatus
+  ): Promise<RequestsListResponse> {
+    const query = status ? `?status=${encodeURIComponent(status)}` : ''
+    const { data } = await this.requestWithCookies<RequestsListResponse>(
+      'GET',
+      `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/requests${query}`,
+      { cookies }
+    )
+    return data
+  }
+
+  async adminGetMentorRequest(
+    cookies: string,
+    mentorId: string,
+    requestId: string
+  ): Promise<MentorClientRequest | null> {
+    try {
+      const { data } = await this.requestWithCookies<{ request: MentorClientRequest }>(
+        'GET',
+        `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/requests/${encodeURIComponent(requestId)}`,
+        { cookies }
+      )
+      return data.request
+    } catch (error) {
+      if (error instanceof HttpError && error.statusCode === 404) {
+        return null
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Override a request's status from the admin panel. The backend accepts any
+   * status here, including moves out of a terminal one.
+   */
+  async adminUpdateMentorRequestStatus(
+    cookies: string,
+    mentorId: string,
+    requestId: string,
+    status: RequestStatus
+  ): Promise<MentorClientRequest> {
+    const { data } = await this.requestWithCookies<{ request: MentorClientRequest }>(
+      'POST',
+      `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/requests/${encodeURIComponent(requestId)}/status`,
+      { cookies, body: { status } }
+    )
+    return data.request
+  }
 }
 
 // Singleton instance

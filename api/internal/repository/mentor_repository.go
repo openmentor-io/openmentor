@@ -667,6 +667,7 @@ func (r *MentorRepository) GetForModerationByID(ctx context.Context, mentorID st
 			COALESCE(m.moderation_note, ''),
 			m.photo_style,
 			m.activated_at,
+			(SELECT COUNT(*) FROM client_requests cr WHERE cr.mentor_id = m.id) AS requests_count,
 			m.created_at,
 			m.updated_at
 		FROM mentors m
@@ -699,6 +700,7 @@ func (r *MentorRepository) GetForModerationByID(ctx context.Context, mentorID st
 		&mentor.ModerationNote,
 		&mentor.PhotoStyle,
 		&mentor.ActivatedAt,
+		&mentor.RequestsCount,
 		&mentor.CreatedAt,
 		&mentor.UpdatedAt,
 	); err != nil {
