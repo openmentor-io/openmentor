@@ -3,6 +3,11 @@ module.exports = {
     './src/components/**/*.{js,ts,jsx,tsx}',
     './src/pages/**/*.{js,ts,jsx,tsx}',
     './src/lib/**/*.{js,ts,jsx,tsx}',
+    // STATUS_COLORS (the request status pills) lives in src/types. Without
+    // this glob its classes are only emitted when the same class happens to
+    // appear in a scanned file — 'reschedule' added bg-pastel-sand, which had
+    // no such twin, and the pill rendered with no background at all.
+    './src/types/**/*.{js,ts,jsx,tsx}',
   ],
   darkMode: 'media', // or 'media' or 'class'
   theme: {

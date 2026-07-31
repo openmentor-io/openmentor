@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -15,6 +16,7 @@ const (
 	StatusContacted   RequestStatus = "contacted"
 	StatusWorking     RequestStatus = "working"
 	StatusDone        RequestStatus = "done"
+	StatusReschedule  RequestStatus = "reschedule"
 	StatusDeclined    RequestStatus = "declined"
 	StatusUnavailable RequestStatus = "unavailable"
 )
@@ -25,14 +27,34 @@ var ActiveStatuses = []RequestStatus{StatusPending, StatusContacted, StatusWorki
 // PastStatuses are statuses shown on the past requests page
 var PastStatuses = []RequestStatus{StatusDone, StatusDeclined, StatusUnavailable}
 
-// AllStatuses lists every valid request status.
+// AllStatuses lists every valid request status, in the order of the
+// client_requests_status_chk constraint (migration 000001).
+//
+// 'reschedule' is a getmentor.dev-era status that the DB accepts but no write
+// path in this codebase produces. It is deliberately absent from
+// ActiveStatuses/PastStatuses — the mentor's own inbox has never shown it, and
+// surfacing it there would be a product change. It belongs here so that
+// existing rows carrying it are valid to the admin panel (filterable,
+// renderable, and correctable to a live status) instead of being an unknown
+// value that breaks the UI.
 var AllStatuses = []RequestStatus{
 	StatusPending,
 	StatusContacted,
 	StatusWorking,
 	StatusDone,
+	StatusReschedule,
 	StatusDeclined,
 	StatusUnavailable,
+}
+
+// AllStatusesList renders AllStatuses as a comma-separated string for error
+// messages, so they can never list a different set than the code accepts.
+func AllStatusesList() string {
+	names := make([]string, len(AllStatuses))
+	for i, status := range AllStatuses {
+		names[i] = string(status)
+	}
+	return strings.Join(names, ", ")
 }
 
 // IsTerminalStatus returns true if the status is terminal (no further transitions allowed)

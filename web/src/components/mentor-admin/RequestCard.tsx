@@ -23,6 +23,9 @@ const AVATAR_CLASSES: Record<RequestStatus, string> = {
   contacted: 'bg-brand-cobalt text-white',
   working: 'bg-brand-mint text-white',
   done: 'bg-ink-soft text-white',
+  // Not reachable from the mentor inbox, which never lists 'reschedule';
+  // present so the map stays total over RequestStatus.
+  reschedule: 'bg-ink-soft text-white',
   declined: 'bg-line text-ink-mute',
   unavailable: 'bg-line text-ink-mute',
 }

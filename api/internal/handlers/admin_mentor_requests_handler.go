@@ -31,7 +31,7 @@ func (h *AdminMentorRequestsHandler) ListMentorRequests(c *gin.Context) {
 
 	statusFilter := models.RequestStatus(strings.TrimSpace(c.Query("status")))
 	if statusFilter != "" && !statusFilter.IsValid() {
-		respondError(c, http.StatusBadRequest, "Invalid status filter", errors.New("status must be one of: pending, contacted, working, done, declined, unavailable"))
+		respondError(c, http.StatusBadRequest, "Invalid status filter", errors.New("status must be one of: "+models.AllStatusesList()))
 		return
 	}
 
@@ -80,10 +80,10 @@ func (h *AdminMentorRequestsHandler) UpdateMentorRequestStatus(c *gin.Context) {
 		return
 	}
 
-	var req models.UpdateStatusRequest
+	var req models.AdminUpdateStatusRequest
 	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
 		respondErrorWithDetails(c, http.StatusBadRequest, "Invalid request body", gin.H{
-			"message": "Status must be one of: pending, contacted, working, done, declined, unavailable",
+			"message": "Status must be one of: " + models.AllStatusesList(),
 		}, bindErr)
 		return
 	}

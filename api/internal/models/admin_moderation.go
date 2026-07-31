@@ -131,6 +131,15 @@ type AdminClientRequestResponse struct {
 	Request *MentorClientRequest `json:"request"`
 }
 
+// AdminUpdateStatusRequest is the admin status override payload. Its oneof
+// covers every status in AllStatuses — including 'reschedule', which the
+// mentor-facing UpdateStatusRequest deliberately does not accept. Struct tags
+// must be literals, so TestAdminUpdateStatusRequest_OneofCoversAllStatuses
+// guards this list against drifting from AllStatuses.
+type AdminUpdateStatusRequest struct {
+	Status RequestStatus `json:"status" binding:"required,oneof=pending contacted working done reschedule declined unavailable"`
+}
+
 // AdminMentorProfileUpdateRequest intentionally contains only business/profile
 // fields (no secrets/login tokens).
 type AdminMentorProfileUpdateRequest struct {
