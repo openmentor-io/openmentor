@@ -97,7 +97,7 @@ jobs:
         if: steps.filter.outputs.api == 'true' || github.event_name == 'push'
         uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache-dependency-path: api/go.sum
 
       - name: 'API: install pinned golangci-lint'
