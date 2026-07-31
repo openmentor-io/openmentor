@@ -13,29 +13,32 @@ type NextApiHandler = (req: NextApiRequest, res: NextApiResponse) => Promise<voi
 /**
  * Normalize dynamic route segments to prevent cardinality explosion in metrics.
  * Converts actual IDs to route templates (e.g., /api/mentor/requests/rec123 -> /api/mentor/requests/:id)
+ *
+ * Every id-bearing segment MUST be normalized: http_route labels a counter, a
+ * histogram and a gauge, so one raw id per request means an unbounded series
+ * per request. This used to enumerate routes one at a time, which silently
+ * missed nested ids — /api/admin/mentors/:id/requests/<requestId> kept its
+ * second UUID. Matching UUID segments at any depth is what keeps it bounded as
+ * routes are added.
  */
-function normalizeRoute(url: string): string {
+export function normalizeRoute(url: string): string {
   const path = url.split('?')[0]
 
-  // Pattern for PostgreSQL UUIDs (8-4-4-4-12 hex format)
-  // Used in: /api/mentor/requests/[id], /api/mentor/requests/[id]/status, etc.
-  const normalized = path
-    // Normalize /api/mentor/requests/uuid... paths
-    .replace(
-      /\/api\/mentor\/requests\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
-      '/api/mentor/requests/:id'
-    )
-    // Normalize /api/admin/mentors/uuid... paths
-    .replace(
-      /\/api\/admin\/mentors\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
-      '/api/admin/mentors/:id'
-    )
-    // Normalize /mentor/[slug] patterns (mentor slugs are lowercase with hyphens)
-    .replace(/\/mentor\/[a-z0-9-]+(?:\/|$)/, '/mentor/:slug/')
-    // Remove trailing slash for consistency
-    .replace(/\/$/, '')
+  // PostgreSQL UUID (8-4-4-4-12 hex) occupying a whole path segment, anywhere.
+  const normalized = path.replace(
+    /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/gi,
+    '/:id'
+  )
 
-  return normalized || 'unknown'
+  // Public mentor profile pages (/mentor/<slug>) only. Scoped away from /api/*
+  // because the slug pattern also matches fixed segments: it was rewriting
+  // /api/mentor/requests/:id into the nonsense label /api/mentor/:slug/:id.
+  const withSlug = normalized.startsWith('/api/')
+    ? normalized
+    : normalized.replace(/\/mentor\/[a-z0-9-]+(?:\/|$)/, '/mentor/:slug/')
+
+  // Remove trailing slash for consistency
+  return withSlug.replace(/\/$/, '') || 'unknown'
 }
 
 /**
