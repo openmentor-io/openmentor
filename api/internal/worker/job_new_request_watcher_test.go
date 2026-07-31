@@ -2,13 +2,39 @@ package worker
 
 import (
 	"net/http"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/email/templates"
 )
+
+var templatePlaceholderRe = regexp.MustCompile(`\{\{([a-z_]+)\}\}`)
+
+// assertTemplatePropsSatisfied checks that every email the job sent supplies a
+// value for each {{placeholder}} its template declares. SES substitutes
+// server-side and silently renders a missing key as an empty string, so an
+// unfilled URL placeholder ships as href="" rather than failing loudly.
+func assertTemplatePropsSatisfied(t *testing.T, env *jobsTestEnv) {
+	t.Helper()
+
+	for _, attempt := range env.sender.attempts {
+		tpl, err := templates.GetTemplate(attempt.TemplateName)
+		require.NoError(t, err, "template %q must exist", attempt.TemplateName)
+
+		for _, section := range []string{tpl.Subject, tpl.HTML, tpl.Text} {
+			for _, match := range templatePlaceholderRe.FindAllStringSubmatch(section, -1) {
+				placeholder := match[1]
+				value, ok := attempt.Props[placeholder]
+				assert.Truef(t, ok, "template %q uses {{%s}} but the job supplies no such prop", attempt.TemplateName, placeholder)
+				assert.NotEmptyf(t, value, "template %q supplies an empty {{%s}}", attempt.TemplateName, placeholder)
+			}
+		}
+	}
+}
 
 func testRequest(id, mentorID string) *JobRequest {
 	return &JobRequest{
@@ -51,11 +77,20 @@ func TestNewRequestWatcherHappyPath(t *testing.T) {
 	assert.Equal(t, "linkedin.com/in/janementee", mentorMsg.Props["mentee_contact"])
 	assert.Equal(t, "jane@example.com", mentorMsg.Props["mentee_email"])
 	assert.Equal(t, "I want to grow", mentorMsg.Props["mentee_request"])
+	// The CTA deep-links to the request itself, not the portal landing page.
+	assert.Equal(t, "https://openmentor.io/mentor/requests/r1", mentorMsg.Props["request_url"])
 
 	moderatorMsg := env.sender.attempts[2]
 	assert.Equal(t, testModeratorsEmail, moderatorMsg.Recipient)
 	assert.Equal(t, "Jane Mentee", moderatorMsg.Props["mentee_name"])
 	assert.Equal(t, "Junior", moderatorMsg.Props["mentee_level"])
+	assert.Equal(t, "https://openmentor.io/admin/mentors/m1/requests/r1", moderatorMsg.Props["request_url"])
+	assert.Equal(t, "https://openmentor.io/admin", moderatorMsg.Props["admin_url"])
+
+	// Every {{placeholder}} in each template must be supplied, or SES renders
+	// it empty — an anchor with an empty href, which is how a "correct link"
+	// silently becomes a dead one.
+	assertTemplatePropsSatisfied(t, env)
 
 	event := env.tracker.last()
 	require.NotNil(t, event)

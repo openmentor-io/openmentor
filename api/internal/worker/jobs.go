@@ -162,6 +162,32 @@ func (h *Handlers) mentorProfileURL(slug string) string {
 	return h.baseURL + "/mentor/" + slug
 }
 
+// mentorRequestURL is the mentor's own view of one request in their inbox:
+// https://openmentor.io/mentor/requests/{requestID}. Unauthenticated visitors
+// are bounced to /mentor/login, so the deep link is safe to email.
+func (h *Handlers) mentorRequestURL(requestID string) string {
+	if requestID == "" {
+		return h.baseURL + "/mentor"
+	}
+	return h.baseURL + "/mentor/requests/" + url.PathEscape(requestID)
+}
+
+// adminRequestURL is the moderation portal's view of one request:
+// https://openmentor.io/admin/mentors/{mentorID}/requests/{requestID}. That
+// page is admin-only — moderator-role accounts are redirected to the pending
+// queue — so the moderator email pairs it with adminPortalURL.
+func (h *Handlers) adminRequestURL(mentorID, requestID string) string {
+	if mentorID == "" || requestID == "" {
+		return h.adminPortalURL()
+	}
+	return h.baseURL + "/admin/mentors/" + url.PathEscape(mentorID) + "/requests/" + url.PathEscape(requestID)
+}
+
+// adminPortalURL is the moderation portal entry point.
+func (h *Handlers) adminPortalURL() string {
+	return h.baseURL + "/admin"
+}
+
 // mentorProfileShareURL builds the LinkedIn share-dialog link for a mentor's
 // profile, with share attribution (see docs/analytics-utm.md). Used by the
 // approval email's "Share your profile" CTA — the profile link unfurls into

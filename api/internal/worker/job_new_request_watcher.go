@@ -122,6 +122,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 				"mentee_email":   request.Email,
 				"mentee_contact": menteeContact,
 				"mentee_request": request.Description,
+				"request_url":    h.mentorRequestURL(request.ID),
 			},
 		},
 		email.Message{
@@ -131,6 +132,8 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 				"mentee_name":  request.Name,
 				"mentee_level": request.Level,
 				"mentor_name":  mentor.Name,
+				"request_url":  h.adminRequestURL(mentor.ID, request.ID),
+				"admin_url":    h.adminPortalURL(),
 			},
 		},
 	)
