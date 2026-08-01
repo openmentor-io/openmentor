@@ -1,13 +1,13 @@
 .PHONY: help install lint lint-fix typecheck test test-watch build ci pre-commit clean
 
 # Mirrors api/Makefile so `make lint` (and `make ci`) mean the same thing in
-# either half of the monorepo. Each target is a thin wrapper over the yarn
+# either half of the monorepo. Each target is a thin wrapper over the npm
 # script — .github/workflows/ci-web.yml calls these targets, so there is one
 # definition of each check rather than one here and another in the workflow.
 
 help:
 	@echo "Available targets:"
-	@echo "  install    - Install dependencies (frozen lockfile)"
+	@echo "  install    - Install dependencies (clean install from the lockfile)"
 	@echo "  lint       - Run ESLint over the whole package"
 	@echo "  lint-fix   - Run ESLint with --fix"
 	@echo "  typecheck  - Run the TypeScript compiler (no emit)"
@@ -19,14 +19,14 @@ help:
 	@echo "  clean      - Remove build output"
 
 install:
-	@yarn install --frozen-lockfile
+	@npm ci --no-audit --no-fund
 
 # The `lint` script is `eslint .` — the whole package, not just src/. Build
 # scripts and dotfile configs are Node CommonJS and are configured as such in
 # eslint.config.js; scoping the lint to src/ is how they went unchecked.
 lint:
 	@echo "Running ESLint..."
-	@yarn lint
+	@npm run lint
 
 lint-fix:
 	@echo "Running ESLint with --fix..."
@@ -38,14 +38,14 @@ typecheck:
 
 test:
 	@echo "Running tests..."
-	@yarn test
+	@npm test
 
 test-watch:
-	@yarn test --watch
+	@npm test -- --watch
 
 build:
 	@echo "Building production bundle..."
-	@yarn build
+	@npm run build
 
 # Everything CI runs, in CI's order.
 ci: lint typecheck test build

@@ -10,15 +10,15 @@
 
 ## Build, Test, and Development Commands
 ```bash
-yarn dev                    # Run local dev server on http://localhost:3000
-yarn build                  # Production build
-yarn start                  # Start production server (512MB memory cap)
-yarn lint                   # ESLint (src/ only)
-yarn test                   # Jest test suite
-yarn test --watch           # Jest watch mode
-yarn test --coverage        # Coverage report
-npx tsc --noEmit            # TypeScript type check
-./docker-build-test.sh      # Docker image build using .env
+npm run dev            # Run local dev server on http://localhost:3000
+npm run build          # Production build
+npm start              # Start production server (512MB memory cap)
+npm run lint           # ESLint (whole package)
+npm test               # Jest test suite
+npm test -- --watch    # Jest watch mode
+npm test -- --coverage # Coverage report
+npx tsc --noEmit       # TypeScript type check
+./docker-build-test.sh # Docker image build using .env
 ```
 
 ## Coding Style & Naming Conventions
@@ -37,7 +37,7 @@ npx tsc --noEmit            # TypeScript type check
 ## Commit & Pull Request Guidelines
 - Commit messages are short and imperative (e.g., “Add SSR observability…”, “rename …”, “removed …”); no conventional prefixes.
 - Use feature branches; do not merge to `main` without explicit permission.
-- Before opening a PR, run `yarn lint`, `npx tsc --noEmit`, `yarn test`, and `yarn build`.
+- Before opening a PR, run `make ci` (lint + type check + tests + build) — CI calls the same Makefile targets.
 - PR descriptions should include a brief summary and the tests run.
 
 ## Configuration & Architecture Notes
