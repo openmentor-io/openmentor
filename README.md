@@ -27,7 +27,7 @@ The web app is a thin client — every data operation goes through the Go API (m
 ```bash
 # 1. Database
 docker run -d --name openmentor-pg \
-  -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD=openmentor -e POSTGRES_DB=openmentor \
+  -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD=password -e POSTGRES_DB=openmentor \
   -p 5432:5432 postgres:16-alpine
 
 # 2. API (see api/.env.example for required vars)

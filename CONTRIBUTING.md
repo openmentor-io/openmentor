@@ -59,7 +59,7 @@ Ask, and you'll get a real answer.
 | Go | 1.25+ (CI runs 1.26) | `api/` |
 | Node.js | 26.x | `web/` |
 | npm | ≥ 10.9.0 | `web/` |
-| Docker + Compose | 20.10+ / 2.x | full stack, `infra/` |
+| Docker + Compose | 20.10+ / 2.24.4+ | full stack, `infra/` (the dev override uses `!override`) |
 | PostgreSQL | 16 | running the API for real (Docker is fine) |
 
 ### Fork, clone, branch
@@ -91,13 +91,18 @@ To actually run the API you need Postgres and config:
 
 ```bash
 docker run -d --name openmentor-pg \
-  -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD=openmentor -e POSTGRES_DB=openmentor \
+  -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD=password -e POSTGRES_DB=openmentor \
   -p 5432:5432 postgres:16-alpine
 
-cp .env.example .env    # fill in dev values
+cp .env.example .env    # its DATABASE_URL already matches this container
 go run ./cmd/migrate && go run ./cmd/api
 go run ./cmd/worker     # optional: background jobs + email
 ```
+
+Running the worker this way also needs the `*_TRIGGER_URL` values in `.env`
+repointed from `http://worker:8090` — a Compose-internal hostname — to
+`http://localhost:8090`, or the API can't fire its background jobs. The Compose
+stack below needs no such edit.
 
 Details — auth model, endpoints, worker jobs, cron schedules — are in
 [`api/README.md`](api/README.md).
@@ -181,25 +186,29 @@ there are correct as a record — please don't "fix" them.
 
 Both halves of the monorepo expose the same make targets, and **the workflows
 call those same targets** — `make lint` on your machine is the identical check
-CI runs, at the same pinned linter version. That's deliberate, and it's why
-local green and CI green agree.
+CI runs, at the same pinned linter version.
 
 ```bash
 cd web && make pre-commit    # lint + typecheck + tests
 cd api && make pre-commit    # fmt + vet + tests
 ```
 
-Before opening the PR, run the full gate for whatever you touched:
+Before opening the PR, run the heavier targets for whatever you touched:
 
 ```bash
 cd web && make ci    # lint + typecheck + tests + production build
 cd api && make ci    # golangci-lint + race tests
 ```
 
-For `infra/` changes, validate the Compose files parse:
+`web/`'s `make ci` covers what `CI / Web` gates. `api/`'s does not: `CI / API`
+additionally enforces a coverage floor, builds all three binaries, and runs a
+Docker smoke test. A green `make ci` there is a strong signal, not a guarantee.
+
+For `infra/` changes, validate both Compose files together — the dev override
+isn't loaded by default:
 
 ```bash
-cd infra && docker compose config -q
+cd infra && docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
 ```
 
 (That needs `.env` and `.env.runtime` present — copy both from `.env.example`,
