@@ -283,8 +283,8 @@ npm run build          # Verify build works
 ```
 
 ### Node Version
-- **Required**: Node 22.x (specified in package.json engines)
-- Docker uses `node:22.22.1-alpine3.23`
+- **Required**: Node 26.x (specified in package.json engines)
+- Docker uses `node:26.5.0-alpine3.23`
 
 ## Misc
 
