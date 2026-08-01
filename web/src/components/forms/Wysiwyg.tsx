@@ -1,6 +1,5 @@
-import { useEditor, EditorContent, type Editor, type UseEditorOptions } from '@tiptap/react'
+import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { Link } from '@tiptap/extension-link'
 import classNames from 'classnames'
 import sanitizeHtml from 'sanitize-html'
 
@@ -11,18 +10,22 @@ interface WysiwygProps {
 
 export default function Wysiwyg({ content, onUpdate }: WysiwygProps): JSX.Element {
   const editor = useEditor({
-    extensions: [StarterKit, Link.configure({ openOnClick: false })],
+    // Tiptap v3 folded Link into StarterKit, so it is configured here instead of
+    // being added as a separate extension. Passing both would register the mark
+    // twice ("Duplicate extension names found") and the standalone config would
+    // be the one that silently loses.
+    extensions: [StarterKit.configure({ link: { openOnClick: false } })],
     editorProps: {
       attributes: {
         class: 'prose prose-sm max-w-full min-h-[110px] my-3 mx-4 focus:outline-none',
       },
     },
     content: sanitizeHtml(content),
-    onUpdate({ editor }: { editor: Editor }) {
+    onUpdate({ editor }) {
       onUpdate(editor)
     },
     immediatelyRender: false,
-  } as UseEditorOptions)
+  })
 
   return (
     <div className="relative block w-full overflow-hidden rounded-field border-[1.5px] border-line bg-white transition-[border-color,box-shadow] duration-120 ease-out focus-within:border-brand-cobalt focus-within:shadow-focus-field sm:text-sm">
@@ -44,28 +47,17 @@ const toolbarButtonClass =
   'rounded-lg p-1 text-ink transition-colors duration-120 hover:bg-surface-deep'
 const toolbarButtonActiveClass = 'bg-brand-navy !text-white hover:bg-brand-navy'
 
-type EditorChain = {
-  toggleBold: () => { run: () => void }
-  toggleItalic: () => { run: () => void }
-  toggleStrike: () => { run: () => void }
-  toggleHeading: (options: { level: number }) => { run: () => void }
-  setParagraph: () => { run: () => void }
-  toggleBulletList: () => { run: () => void }
-  toggleOrderedList: () => { run: () => void }
-  setHardBreak: () => { run: () => void }
-  extendMarkRange: (mark: string) => EditorChain
-  unsetLink: () => { run: () => void }
-  setLink: (options: { href: string }) => { run: () => void }
-  clearNodes: () => { run: () => void }
-  unsetAllMarks: () => { run: () => void }
-}
-
 function MenuBar({ editor }: MenuBarProps): JSX.Element | null {
   if (!editor) {
     return null
   }
 
-  const chain = () => editor.chain().focus() as unknown as EditorChain
+  // No cast: v2 needed a hand-written structural type here, which meant the
+  // compiler validated the toolbar against that hand-written shape rather than
+  // against Tiptap. Using the real chain type is the point — a command that
+  // gets renamed or dropped in a future upgrade now fails the type check
+  // instead of surviving to a runtime no-op.
+  const chain = () => editor.chain().focus()
 
   return (
     <div className="flex flex-wrap border-b border-line sm:flex-nowrap sm:divide-x sm:divide-line">
