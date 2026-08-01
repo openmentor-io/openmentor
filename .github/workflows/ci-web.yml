@@ -57,8 +57,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
-          cache: 'yarn'
-          cache-dependency-path: web/yarn.lock
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
 
       - name: Install dependencies
         run: make install
@@ -71,10 +71,10 @@ jobs:
   # `build` above compiles the app with the runner's Node (setup-node above),
   # which is NOT the Node the image ships. Without this job nothing in CI ever
   # executed web/Dockerfile, so a base-image bump could only be validated by
-  # deploying it. This catches: the pinned node:*-alpine tag existing, yarn
-  # --frozen-lockfile resolving under it, native deps (sharp) having binaries
-  # for that ABI, the standalone output copying correctly, and the server
-  # actually booting and serving on that Node major.
+  # deploying it. This catches: the pinned node:*-alpine tag existing, `npm ci`
+  # resolving under it, native deps (sharp) having binaries for that ABI, the
+  # standalone output copying correctly, and the server actually booting and
+  # serving on that Node major.
   docker:
     name: Build Docker Image
     runs-on: ubuntu-latest

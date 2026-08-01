@@ -28,17 +28,17 @@ Key areas:
 
 ## Local development
 
-Prerequisites: Node 22.x, yarn, and a running Go API instance from [`../api`](../api) (defaults to `http://localhost:8081`).
+Prerequisites: Node 22.x, npm 10.9+, and a running Go API instance from [`../api`](../api) (defaults to `http://localhost:8081`).
 
 ```bash
 # 1. Configure environment
 cp .env.example .env    # then fill in values; see comments in the file
 
 # 2. Install dependencies
-yarn install
+npm ci
 
 # 3. Start the Go API (in ../api), then the frontend
-yarn dev                # http://localhost:3000
+npm run dev                # http://localhost:3000
 ```
 
 The minimum useful configuration is `NEXT_PUBLIC_GO_API_URL` and `GO_API_INTERNAL_TOKEN`; storage, analytics, and observability vars are optional for local work.
@@ -46,13 +46,16 @@ The minimum useful configuration is `NEXT_PUBLIC_GO_API_URL` and `GO_API_INTERNA
 ## Testing & checks
 
 ```bash
-yarn lint               # ESLint (src/)
-npx tsc --noEmit        # Type check
-yarn test               # Jest test suite
-yarn build              # Production build
+npm run lint     # ESLint (whole package)
+npx tsc --noEmit # Type check
+npm test         # Jest test suite
+npm run build    # Production build
 ```
 
-All four run in CI (`.github/workflows/main.yml`) on pushes and PRs to `main`.
+All four run in CI on pushes and PRs to `main` — the first three in
+`.github/workflows/checks.yml`, the build in `.github/workflows/ci-web.yml`.
+`make ci` from `web/` runs the same set locally, via the same Makefile targets
+the workflows call.
 
 ## Deployment
 

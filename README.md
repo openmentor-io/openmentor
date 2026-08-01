@@ -35,7 +35,7 @@ cd api && cp .env.example .env   # fill in dev values
 go run ./cmd/migrate && go run ./cmd/api   # and optionally: go run ./cmd/worker
 
 # 3. Web (see web/.env.example; GO_API_INTERNAL_TOKEN must match the API's INTERNAL_MENTORS_API)
-cd web && cp .env.example .env && yarn install && yarn dev
+cd web && cp .env.example .env && npm ci && npm run dev
 ```
 
 Full-stack via Compose: see [`infra/README.md`](infra/README.md).

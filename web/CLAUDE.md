@@ -10,15 +10,15 @@ OpenMentor.io is a **TypeScript** Next.js 16 frontend application for a mentor m
 
 ```bash
 # Development
-yarn dev                    # Start development server on http://localhost:3000
+npm run dev                 # Start development server on http://localhost:3000
 
 # Building
-yarn build                  # Build Next.js app for production
-yarn start                  # Start production server with memory limit (512MB)
+npm run build               # Build Next.js app for production
+npm start                   # Start production server with memory limit (512MB)
 
 # Code Quality
-yarn lint                   # Run ESLint on src/ directory
-yarn test                   # Run Jest tests
+npm run lint                # Run ESLint over the whole package
+npm test                    # Run Jest tests
 npx tsc --noEmit            # TypeScript type check
 npx prettier --write <file> # Format files with Prettier
 
@@ -229,9 +229,9 @@ export default function MentorsList({ mentors, hasMore, onClickMore }: MentorsLi
 
 ### Running Tests
 ```bash
-yarn test           # Run all tests
-yarn test --watch   # Watch mode
-yarn test --coverage # With coverage
+npm test           # Run all tests
+npm test -- --watch   # Watch mode
+npm test -- --coverage # With coverage
 ```
 
 ### Test Structure
@@ -276,10 +276,10 @@ For every new feature, create a separate Git branch. You may commit and push to 
 
 ### Before Committing
 ```bash
-yarn lint           # Check for lint errors
+npm run lint           # Check for lint errors
 npx tsc --noEmit    # Check for type errors
-yarn test           # Run tests
-yarn build          # Verify build works
+npm test           # Run tests
+npm run build          # Verify build works
 ```
 
 ### Node Version

@@ -5,9 +5,12 @@
 FROM node:22.22.1-alpine3.23 AS deps
 WORKDIR /app
 
-# Copy package files and install dependencies
-COPY package.json yarn.lock* ./
-RUN yarn install --frozen-lockfile
+# Copy package files and install dependencies.
+# `npm ci` installs strictly from package-lock.json and errors out if the two
+# files disagree — the lockfile is required, not optional, so it is copied by
+# name rather than behind a glob.
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
 # Stage 2: Build the application
 FROM node:22.22.1-alpine3.23 AS builder
@@ -61,16 +64,20 @@ ENV POSTHOG_PROJECT_ID=$POSTHOG_PROJECT_ID
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Build the Next.js application
-RUN yarn build
+RUN npm run build
 
 # Add curl for source map upload
 RUN apk add --update curl
 
 # Upload source maps to Grafana Faro (if credentials provided)
 # Uses git commit SHA or package version as bundle ID
+#
+# The `--` below is load-bearing: unlike yarn, `npm run` consumes flags itself
+# and only forwards what follows `--` to the script. Drop it and every -e/-a/-s/
+# -k/-b below is silently swallowed, so faro-cli uploads with no credentials.
 RUN if [ -n "$FARO_API_KEY" ] && [ -n "$FARO_APP_ID" ] && [ -n "$FARO_STACK_ID" ]; then \
       echo "Uploading source maps to Grafana Faro..." && \
-      yarn faro:sourcemaps \
+      npm run faro:sourcemaps -- \
         -e "${FARO_API_ENDPOINT:-https://faro-api-prod-eu-west-3.grafana.net/faro/api/v1}" \
         -a "$FARO_APP_ID" \
         -s "$FARO_STACK_ID" \
