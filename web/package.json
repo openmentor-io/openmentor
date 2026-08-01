@@ -15,7 +15,7 @@
     "inspect": "NODE_ENV=production node --inspect node_modules/next/dist/bin/next start"
   },
   "engines": {
-    "node": "22.x",
+    "node": "26.x",
     "npm": ">=10.9.0"
   },
   "dependencies": {

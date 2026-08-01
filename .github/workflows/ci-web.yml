@@ -56,7 +56,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.x
+          node-version: 26.x
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
@@ -135,7 +135,7 @@ jobs:
           # `pipefail` a grep that exits early can leave the upstream stage
           # killed by SIGPIPE, and the pipeline reports 141 even on a match.
           #
-          # Only assert on the simple "22.x" / "22 || 24" forms this repo uses.
+          # Only assert on the simple "26.x" / "26 || 28" forms this repo uses.
           # Anything richer (ranges, carets) needs a real semver parser, so skip
           # rather than fail on a shape we cannot read.
           for c in $CLAUSES; do

@@ -28,7 +28,7 @@ Key areas:
 
 ## Local development
 
-Prerequisites: Node 22.x, npm 10.9+, and a running Go API instance from [`../api`](../api) (defaults to `http://localhost:8081`).
+Prerequisites: Node 26.x, npm 11+, and a running Go API instance from [`../api`](../api) (defaults to `http://localhost:8081`).
 
 ```bash
 # 1. Configure environment
