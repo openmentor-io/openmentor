@@ -34,8 +34,9 @@ export default function Wysiwyg({ content, onUpdate }: WysiwygProps): JSX.Elemen
     immediatelyRender: false,
   })
 
+  // `isolate` scopes the toolbar's z-10 so it can't paint over the tags dropdown above.
   return (
-    <div className="relative block w-full overflow-hidden rounded-field border-[1.5px] border-line bg-white transition-[border-color,box-shadow] duration-120 ease-out focus-within:border-brand-cobalt focus-within:shadow-focus-field sm:text-sm">
+    <div className="relative isolate block w-full overflow-hidden rounded-field border-[1.5px] border-line bg-white transition-[border-color,box-shadow] duration-120 ease-out focus-within:border-brand-cobalt focus-within:shadow-focus-field sm:text-sm">
       <div className="sticky top-0 z-10 bg-surface">
         <MenuBar editor={editor} />
       </div>
