@@ -49,6 +49,16 @@ Full-stack via Compose: see [`infra/README.md`](infra/README.md).
 | `CI / API` | changes under `api/` | race tests + coverage floor, gofmt/staticcheck, gosec, full Docker smoke test (postgres → migrate → api → worker) |
 | `Deploy` | manual dispatch | builds both images from one SHA, ships the stack to the VM with health-checked rollback |
 
+## Contributing
+
+Contributions are welcome — and mentoring counts as one. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the ways to help, how to get set up, the
+house rules, and what to run before opening a PR. Small fixes can go straight to
+a pull request; anything larger should start as an issue.
+
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md) — please report vulnerabilities privately, never as an issue
+
 ## History
 
 openmentor.io began as a fork of [getmentor.dev](https://getmentor.dev) — a Russian-language mentorship community by the same author — adapted for a global audience: translated, redesigned, Telegram-free, and consolidated from five repositories into this monorepo (fresh history; the component repos remain as archives). The full story lives in [`docs/migration/`](docs/migration/).
