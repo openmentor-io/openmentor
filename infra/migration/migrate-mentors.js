@@ -27,21 +27,29 @@
  *     bucket under the NEW slug prefix
  *   - the worker's /jobs/profile-migrated endpoint is triggered to email
  *     the mentor
+ *   - the getmentor.dev slug -> openmentor.io slug mapping is written back
+ *     into the SOURCE database's openmentor_profiles table (DECISIONS D36),
+ *     which getmentor.dev reads to render a cross-link from the old profile
+ *     to the new one. This is the ONLY write this script makes to the
+ *     getmentor.dev database, it is best-effort, and it never fails a
+ *     migration whose real work (insert + images + email) already succeeded
  *
  * Idempotency: each migrated row stores `getmentor:<old legacy_id>` in the
  * (otherwise unused, never exposed) mentors.airtable_id column, which has a
  * UNIQUE constraint. Re-runs skip mentors that carry the marker, and also
  * skip when a mentor with the same email already exists (e.g. they
  * registered on openmentor.io themselves). `--resume` re-runs the image
- * copy + email steps for already-migrated mentors and refreshes
- * legacy_sessions_count (getmentor.dev stays live, so the count can grow);
- * no other column of an existing row is touched.
+ * copy + email steps for already-migrated mentors, refreshes
+ * legacy_sessions_count (getmentor.dev stays live, so the count can grow)
+ * and re-records the cross-link; no other column of an existing row is
+ * touched.
  *
  * Usage (normally via ./migrate-mentors.sh, which opens the DB tunnel):
  *   node --env-file=.env migrate-mentors.js --slug ivan-petrov-42 [--slug ...]
  *   node --env-file=.env migrate-mentors.js --csv slugs.csv --dry-run
  *   node --env-file=.env migrate-mentors.js --from-intents
  *   node --env-file=.env migrate-mentors.js --sessions-only [--dry-run]
+ *   node --env-file=.env migrate-mentors.js --backfill-links [--dry-run]
  *
  * Flags:
  *   --slug <slug>       mentor to migrate (repeatable)
@@ -63,6 +71,13 @@
  *                       --slug/--csv (old or new slugs) to narrow it, or
  *                       nothing to refresh every migrated mentor. Combine
  *                       with --dry-run to preview the changes
+ *   --backfill-links    write the getmentor.dev -> openmentor.io slug mapping
+ *                       for mentors migrated BEFORE this feature existed, and
+ *                       change nothing else. Like --sessions-only the worklist
+ *                       comes from the target's migration markers, so it can
+ *                       only ever touch mentors this script created; narrow it
+ *                       with --slug/--csv or pass nothing for all of them.
+ *                       Combine with --dry-run to preview
  *   --resume            for already-migrated mentors, re-run image copy +
  *                       email and refresh legacy_sessions_count instead of
  *                       skipping
@@ -182,6 +197,7 @@ function parseArgs(argv) {
     dryRun: false,
     translateDryRun: false,
     sessionsOnly: false,
+    backfillLinks: false,
     resume: false,
     skipImages: false,
     skipEmail: false,
@@ -206,6 +222,9 @@ function parseArgs(argv) {
         break;
       case '--sessions-only':
         parsed.sessionsOnly = true;
+        break;
+      case '--backfill-links':
+        parsed.backfillLinks = true;
         break;
       case '--resume':
         parsed.resume = true;
@@ -256,9 +275,10 @@ function validateConfig() {
   const problems = [];
   if (!config.sourceDatabaseUrl) problems.push('SOURCE_DATABASE_URL is required (getmentor.dev production DSN)');
   if (!config.targetDatabaseUrl) problems.push('TARGET_DATABASE_URL is required (use ./migrate-mentors.sh, which sets it via the DB tunnel)');
-  // --sessions-only touches one integer column: no translation, no images,
-  // no email, so none of those credentials are needed.
-  if (args.sessionsOnly) {
+  // --sessions-only touches one integer column and --backfill-links one
+  // mapping row: no translation, no images, no email, so none of those
+  // credentials are needed for either.
+  if (args.sessionsOnly || args.backfillLinks) {
     if (problems.length > 0) {
       console.error('Configuration errors:');
       problems.forEach((p) => console.error(`  - ${p}`));
@@ -747,6 +767,40 @@ async function recordIntentOutcome(target, slug) {
   }
 }
 
+// Write the getmentor.dev slug -> openmentor.io slug mapping into the SOURCE
+// database so getmentor.dev can render a cross-link to the new profile (D36).
+//
+// This is the ONLY write this script makes to the getmentor.dev database, and
+// it is deliberately best-effort: by the time it runs the mentor has already
+// been inserted, their photos copied and their email sent. Letting a failure
+// here bubble up would report a successful migration as failed and invite an
+// operator to re-run it. So it swallows its own errors, warns, and records the
+// outcome in `notes`; --backfill-links exists to repair anything it missed.
+//
+// Requires the SOURCE role to hold INSERT/UPDATE on openmentor_profiles, and
+// getmentor-api migration 000004 to have been applied. See README.md.
+async function recordCrossLink(source, getmentorSlug, openmentorSlug, notes) {
+  if (args.dryRun) {
+    notes.push(`cross-link: would map ${getmentorSlug} -> ${openmentorSlug} (dry run)`);
+    return;
+  }
+
+  try {
+    await source.query(
+      `INSERT INTO openmentor_profiles (getmentor_slug, openmentor_slug)
+            VALUES ($1, $2)
+       ON CONFLICT (getmentor_slug) DO UPDATE
+              SET openmentor_slug = EXCLUDED.openmentor_slug,
+                  updated_at = now()`,
+      [getmentorSlug, openmentorSlug]
+    );
+    notes.push(`cross-link: ${getmentorSlug} -> ${openmentorSlug}`);
+  } catch (error) {
+    notes.push(`cross-link NOT recorded (${error.message}) — re-run with --backfill-links`);
+    console.error(`  ⚠️  could not record the cross-link for ${getmentorSlug}: ${error.message}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Per-mentor pipeline
 // ---------------------------------------------------------------------------
@@ -782,6 +836,9 @@ async function migrateMentor(source, target, slug) {
       // Images are keyed by the mentor UUID, not the slug (D29).
       if (!args.skipImages) await copyImages(slug, existing.id, notes);
       if (!args.skipEmail) await triggerMigratedEmail(existing.id);
+      // Re-recorded on every resume so a mapping that failed (or predates the
+      // feature) heals without a separate backfill pass.
+      await recordCrossLink(source, slug, existing.slug, notes);
       stats.resumed++;
       reportRows.push({ slug, outcome: `resumed (${existing.slug})`, notes });
       notes.forEach((n) => console.log(`     • ${n}`));
@@ -857,6 +914,9 @@ async function migrateMentor(source, target, slug) {
   } else {
     notes.push('email skipped (--skip-email)');
   }
+
+  // Last, so a failure here cannot shadow work that already succeeded.
+  await recordCrossLink(source, slug, newSlug, notes);
 
   notes.forEach((n) => console.log(`     • ${n}`));
   stats.migrated++;
@@ -989,6 +1049,76 @@ async function refreshSessionCounts(source, target) {
   }
 }
 
+// Look the mentor up in the source by their ORIGINAL legacy_id, for the same
+// reason fetchSourceDoneSessions does: the marker is the stable link between
+// the two databases, and a mentor may have renamed their getmentor.dev slug
+// since migrating. Reconstructing the old slug from text would silently write
+// a mapping keyed on a slug that no longer exists.
+async function fetchSourceSlug(source, sourceLegacyId) {
+  const { rows } = await source.query(`SELECT slug FROM mentors WHERE legacy_id = $1`, [
+    sourceLegacyId,
+  ]);
+  return rows.length > 0 ? rows[0].slug : null;
+}
+
+// Backfill the cross-link mapping for mentors migrated before D36 existed.
+// Worklist comes from the target's migration markers, so like --sessions-only
+// this mode can only ever touch rows this script created.
+async function backfillCrossLinks(source, target) {
+  const slugFilter = loadSlugs();
+  const mentors = await listMigratedMentors(target, slugFilter);
+
+  stats.total = mentors.length;
+  console.log(`   Migrated mentors to link: ${mentors.length}`);
+  if (slugFilter.length > 0) {
+    console.log(`   (narrowed by ${slugFilter.length} slug(s) from --slug/--csv)`);
+  }
+  if (mentors.length === 0) {
+    console.log('   Nothing to do.');
+    return;
+  }
+
+  for (const mentor of mentors) {
+    const label = `${mentor.slug} (${mentor.airtable_id})`;
+    try {
+      const sourceSlug = await fetchSourceSlug(source, mentor.source_legacy_id);
+      if (!sourceSlug) {
+        // Reported rather than skipped quietly: it means the mentor was deleted
+        // from getmentor.dev, so there is no profile left to cross-link from.
+        stats.failed++;
+        reportRows.push({ slug: mentor.slug, outcome: 'not found in source (marker legacy_id)', notes: [] });
+        console.log(`  ❌ ${label}: no mentor with legacy_id ${mentor.source_legacy_id} in the source database`);
+        continue;
+      }
+
+      const notes = [];
+      if (args.dryRun) {
+        stats.migrated++;
+        reportRows.push({ slug: mentor.slug, outcome: `would link ${sourceSlug} -> ${mentor.slug}`, notes });
+        console.log(`  🔍 ${label}: would link ${sourceSlug} -> ${mentor.slug}`);
+        continue;
+      }
+
+      await recordCrossLink(source, sourceSlug, mentor.slug, notes);
+      // recordCrossLink swallows its own errors, so read the note it left to
+      // decide whether this row actually landed.
+      const failed = notes.some((n) => n.startsWith('cross-link NOT recorded'));
+      if (failed) {
+        stats.failed++;
+        reportRows.push({ slug: mentor.slug, outcome: `link failed (${sourceSlug})`, notes });
+        continue;
+      }
+      stats.migrated++;
+      reportRows.push({ slug: mentor.slug, outcome: `linked ${sourceSlug} -> ${mentor.slug}`, notes });
+      console.log(`  ✅ ${label}: ${sourceSlug} -> ${mentor.slug}`);
+    } catch (error) {
+      stats.failed++;
+      reportRows.push({ slug: mentor.slug, outcome: `error: ${error.message}`, notes: [] });
+      console.error(`  ❌ ${label}: ${error.message}`);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -1009,6 +1139,23 @@ async function main() {
       await target.end().catch(() => {});
     }
     printSummary('sessions');
+    if (stats.failed > 0) process.exit(1);
+    return;
+  }
+
+  if (args.backfillLinks) {
+    console.log(
+      `🔗 getmentor.dev -> openmentor.io cross-link backfill${args.dryRun ? ' (DRY RUN)' : ''}`
+    );
+    const source = await connectSource();
+    const target = await connectTarget();
+    try {
+      await backfillCrossLinks(source, target);
+    } finally {
+      await source.end().catch(() => {});
+      await target.end().catch(() => {});
+    }
+    printSummary('links');
     if (stats.failed > 0) process.exit(1);
     return;
   }
@@ -1062,10 +1209,14 @@ async function main() {
 // run) in both modes; the wording differs because the units do.
 function printSummary(mode) {
   const sessionsOnly = mode === 'sessions';
+  const linksOnly = mode === 'links';
+  const heading = sessionsOnly
+    ? 'SESSION-COUNT REFRESH'
+    : linksOnly
+      ? 'CROSS-LINK BACKFILL'
+      : 'MIGRATION';
   console.log('\n' + '='.repeat(60));
-  console.log(
-    `📊 ${sessionsOnly ? 'SESSION-COUNT REFRESH' : 'MIGRATION'} SUMMARY${args.dryRun ? ' (DRY RUN)' : ''}`
-  );
+  console.log(`📊 ${heading} SUMMARY${args.dryRun ? ' (DRY RUN)' : ''}`);
   console.log('='.repeat(60));
   for (const row of reportRows) {
     console.log(`  ${row.slug}: ${row.outcome}`);
@@ -1077,6 +1228,12 @@ function printSummary(mode) {
     console.log(
       `Total: ${stats.total}  ${verb}: ${stats.migrated}  Unchanged: ${stats.skipped}  Failed: ${stats.failed}`
     );
+    return;
+  }
+
+  if (linksOnly) {
+    const verb = args.dryRun ? 'Would link' : 'Linked';
+    console.log(`Total: ${stats.total}  ${verb}: ${stats.migrated}  Failed: ${stats.failed}`);
     return;
   }
 
