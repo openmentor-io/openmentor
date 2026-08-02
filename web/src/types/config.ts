@@ -6,10 +6,12 @@
  * SEO configuration
  */
 export interface SEOConfig {
+  /** Homepage <title> and the default social title. */
   title: string
+  /** Brand suffix for every other page's <title> — see pageTitle(). */
+  titleSuffix: string
   description: string
   imageUrl: string
-  domain: string
 }
 
 /**

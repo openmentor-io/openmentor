@@ -2,7 +2,7 @@ import Head from 'next/head'
 import Link from 'next/link'
 import type { GetServerSideProps } from 'next'
 import { Footer, MetaHeader, NavHeader, Section } from '@/components'
-import seo from '@/config/seo'
+import { pageTitle } from '@/config/seo'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
 
@@ -21,14 +21,15 @@ const _getServerSideProps: GetServerSideProps = async (context) => {
 export const getServerSideProps = withSSRObservability(_getServerSideProps, 'terms')
 
 export default function Terms(): JSX.Element {
-  const title = 'Terms of Service | ' + seo.title
+  const title = pageTitle('Terms of Service')
 
   return (
     <>
       <Head>
         <title>{title}</title>
-        <MetaHeader customTitle="Terms of Service" />
       </Head>
+
+      <MetaHeader customTitle="Terms of Service" />
 
       <NavHeader />
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/router'
 import { Turnstile } from '@marsidev/react-turnstile'
 import type { GetServerSideProps } from 'next'
 import { Footer, MetaHeader, NavHeader, Section } from '@/components'
-import seo from '@/config/seo'
+import { pageTitle } from '@/config/seo'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
 import type { ScheduleMigrationResponse } from '@/types'
@@ -29,7 +29,7 @@ type SubmitState = 'idle' | 'loading' | 'scheduled' | 'already' | 'error'
 
 export default function Migrate(): JSX.Element {
   const router = useRouter()
-  const title = 'Migrate your profile | ' + seo.title
+  const title = pageTitle('Migrate your profile')
 
   const rawSlug = router.query.slug
   const slug = (Array.isArray(rawSlug) ? rawSlug[0] : rawSlug ?? '').trim().toLowerCase()
@@ -60,10 +60,10 @@ export default function Migrate(): JSX.Element {
     <>
       <Head>
         <title>{title}</title>
-        <MetaHeader customTitle="Migrate your profile" />
-        {/* Personal opt-in links only — keep out of search results */}
-        <meta name="robots" content="noindex" />
       </Head>
+
+      {/* Personal opt-in links only — keep out of search results */}
+      <MetaHeader customTitle="Migrate your profile" noIndex />
 
       <NavHeader />
 

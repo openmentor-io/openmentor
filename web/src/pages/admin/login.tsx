@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch, faEnvelope } from '@fortawesome/free-solid-svg-icons'
 import { AdminAuthProvider, useAdminAuth } from '@/components/admin-moderation'
+import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
 
 interface LoginFormData {
@@ -81,7 +82,8 @@ function LoginForm(): JSX.Element {
   return (
     <div className="flex min-h-screen flex-col justify-center bg-surface px-5 py-12">
       <Head>
-        <title>Moderation — sign in — openmentor.io</title>
+        <title>{pageTitle('Moderation — sign in')}</title>
+        <meta name="robots" content="noindex,follow" />
       </Head>
 
       <div className="mx-auto w-full max-w-[440px]">

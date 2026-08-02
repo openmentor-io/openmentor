@@ -17,13 +17,21 @@ function escapeXml(value: string): string {
     .replace(/'/g, '&apos;')
 }
 
-function sitemapItem(path: string): string {
+// Date-only W3C Datetime form (YYYY-MM-DD) — we only know the day a mentor
+// changed, not the second, so don't claim precision we don't have.
+function toLastmodDate(updatedAt: string | undefined): string | undefined {
+  if (!updatedAt) return undefined
+  const ms = new Date(updatedAt).getTime()
+  if (isNaN(ms)) return undefined
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
+function sitemapItem(path: string, updatedAt?: string): string {
+  const lastmod = toLastmodDate(updatedAt)
   return `
         <url>
         <loc>${escapeXml(baseUrl + path)}</loc>
-        <lastmod>${new Date().toISOString()}</lastmod>
-        <changefreq>weekly</changefreq>
-        <priority>0.5</priority>
+        ${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}
         </url>
     `
 }
@@ -37,16 +45,20 @@ const _getServerSideProps: GetServerSideProps = async ({ res }) => {
     { page: 'faq' },
     { page: 'bementor' },
     { page: 'donate' },
+    { page: 'privacy' },
+    { page: 'terms' },
   ]
 
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
         <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
         ${staticPages.map((s) => sitemapItem(s.page)).join('')}
-        ${allMentors.map((m) => sitemapItem('mentor/' + m.slug)).join('')}
+        ${allMentors.map((m) => sitemapItem('mentor/' + m.slug, m.updatedAt)).join('')}
         </urlset>
     `
 
   res.setHeader('Content-Type', 'text/xml')
+  // avoid re-fetching the mentor list from the Go API on every crawler hit
+  res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400')
   res.write(sitemap)
   res.end()
 

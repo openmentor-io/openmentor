@@ -13,6 +13,7 @@ import {
 } from '@/components/admin-moderation'
 import Wysiwyg from '@/components/forms/Wysiwyg'
 import filters from '@/config/filters'
+import { pageTitle } from '@/config/seo'
 import type {
   AdminMentorDetails,
   AdminMentorProfileUpdateRequest,
@@ -486,7 +487,8 @@ function MentorModerationEditContent(): JSX.Element {
   return (
     <AdminLayout title="Mentor review">
       <Head>
-        <title>Mentor moderation — openmentor.io</title>
+        <title>{pageTitle('Mentor moderation')}</title>
+        <meta name="robots" content="noindex,follow" />
       </Head>
 
       {isLoading && (

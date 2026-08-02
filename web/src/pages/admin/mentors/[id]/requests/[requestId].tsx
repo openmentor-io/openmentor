@@ -16,6 +16,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch, faStar } from '@fortawesome/free-solid-svg-icons'
 import type { AdminMentorDetails, MentorClientRequest, RequestStatus } from '@/types'
 import { ALL_REQUEST_STATUSES, STATUS_LABELS } from '@/types'
+import { pageTitle } from '@/config/seo'
 import { AdminAuthProvider, AdminLayout, useAdminAuth } from '@/components/admin-moderation'
 import {
   MetaItem,
@@ -129,7 +130,8 @@ function AdminRequestDetailsContent(): JSX.Element {
   return (
     <AdminLayout title="Request">
       <Head>
-        <title>{request ? `${request.name} — Request` : 'Request'} — openmentor.io</title>
+        <title>{pageTitle(request ? `${request.name} — Request` : 'Request')}</title>
+        <meta name="robots" content="noindex,follow" />
       </Head>
 
       {mentorId && (

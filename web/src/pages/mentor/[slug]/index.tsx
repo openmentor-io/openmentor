@@ -2,14 +2,14 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import Head from 'next/head'
 import type { GetServerSideProps, InferGetServerSidePropsType } from 'next'
-import { Footer, HtmlContent, MetaHeader, NavHeader } from '@/components'
+import { Footer, HtmlContent, JsonLd, MetaHeader, NavHeader } from '@/components'
 import MentorPortrait from '@/components/ui/MentorPortrait'
 import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import constants from '@/config/constants'
-import seo from '@/config/seo'
+import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
-import { updatedAtToVersion } from '@/lib/image-loader'
+import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
 import pluralize from '@/lib/pluralize'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
@@ -161,7 +161,7 @@ export default function Mentor({
   canonicalUrl,
   ogImageUrl,
 }: InferGetServerSidePropsType<typeof getServerSideProps>): JSX.Element {
-  const title = mentor.name + ' | ' + seo.title
+  const title = pageTitle(mentor.name)
 
   useEffect(() => {
     analytics.event(analytics.events.MENTOR_PROFILE_VIEWED, {
@@ -179,20 +179,73 @@ export default function Mentor({
   const metaLead = mentorMetaLead(mentor)
   const legacySessions = mentor.legacySessionsCount ?? 0
 
+  // Real profile photo (not the /api/og/mentor social card) — may 404 for
+  // migrated profiles with no photo, which is fine, the UI falls back to
+  // initials and search engines just won't have a Person.image for those.
+  const personImage = imageLoader({
+    src: mentor.mentorId,
+    quality: 'large',
+    version: updatedAtToVersion(mentor.updatedAt),
+  })
+
+  const profileJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'ProfilePage',
+    ...(mentor.updatedAt ? { dateModified: mentor.updatedAt } : {}),
+    mainEntity: {
+      '@type': 'Person',
+      name: mentor.name,
+      jobTitle: mentor.job,
+      worksFor: {
+        '@type': 'Organization',
+        name: mentor.workplace,
+      },
+      ...(mentor.tags.length > 0 ? { knowsAbout: mentor.tags } : {}),
+      url: canonicalUrl,
+      image: personImage,
+      description: mentorMetaDescription(mentor),
+    },
+    // No offers/priceRange: mentor.price is free text ("Free", "Negotiable",
+    // "$100 / hour" — DECISIONS D3), not a valid structured price. No
+    // aggregateRating/review either: the platform stores no numeric ratings.
+  }
+
+  const breadcrumbJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: constants.BASE_URL,
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: mentor.name,
+        item: canonicalUrl,
+      },
+    ],
+  }
+
   return (
     <>
       <Head>
         <title>{title}</title>
 
-        <MetaHeader
-          customTitle={`${mentor.name} — ${mentor.job}`}
-          customDescription={mentorMetaDescription(mentor)}
-          customImage={ogImageUrl}
-          imageAlt={`${mentor.name} — ${mentor.job} at ${mentor.workplace} on OpenMentor`}
-          canonicalUrl={canonicalUrl}
-          ogType="profile"
-        />
+        <JsonLd data={profileJsonLd} />
+        <JsonLd data={breadcrumbJsonLd} />
       </Head>
+
+      <MetaHeader
+        customTitle={`${mentor.name} — ${mentor.job}`}
+        customDescription={mentorMetaDescription(mentor)}
+        customImage={ogImageUrl}
+        imageAlt={`${mentor.name} — ${mentor.job} at ${mentor.workplace} on OpenMentor`}
+        canonicalUrl={canonicalUrl}
+        ogType="profile"
+      />
 
       <NavHeader backLink={{ href: '/', label: 'Back to mentors' }} />
 

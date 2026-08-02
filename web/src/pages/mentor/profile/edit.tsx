@@ -31,6 +31,7 @@ import {
 } from '@/components/mentor-admin'
 import { ProfileForm, Notification } from '@/components'
 import { useRouter } from 'next/router'
+import { pageTitle } from '@/config/seo'
 import { captureException } from '@/lib/posthog'
 
 type ReadyStatus = '' | 'loading' | 'success' | 'error'
@@ -294,7 +295,8 @@ function ProfileEditContent(): JSX.Element {
   return (
     <>
       <Head>
-        <title>My profile — openmentor.io</title>
+        <title>{pageTitle('My profile')}</title>
+        <meta name="robots" content="noindex,follow" />
       </Head>
 
       <MentorAdminLayout

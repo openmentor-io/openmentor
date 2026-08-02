@@ -20,6 +20,7 @@ import type {
   RequestStatus,
 } from '@/types'
 import { ALL_REQUEST_STATUSES, STATUS_LABELS } from '@/types'
+import { pageTitle } from '@/config/seo'
 import { AdminAuthProvider, AdminLayout, useAdminAuth } from '@/components/admin-moderation'
 import { StatusBadge, formatDateTime, formatRelativeTime } from '@/components/mentor-admin'
 import { getModerationMentorById, getModerationMentorRequests } from '@/lib/admin-moderation-api'
@@ -122,7 +123,8 @@ function AdminMentorRequestsContent(): JSX.Element {
   return (
     <AdminLayout title="Mentor requests">
       <Head>
-        <title>Mentor requests — openmentor.io</title>
+        <title>{pageTitle('Mentor requests')}</title>
+        <meta name="robots" content="noindex,follow" />
       </Head>
 
       {mentorId && (

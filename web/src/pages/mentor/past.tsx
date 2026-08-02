@@ -24,6 +24,7 @@ import {
   SortToggle,
 } from '@/components/mentor-admin'
 import { getPastRequests } from '@/lib/mentor-admin-api'
+import { pageTitle } from '@/config/seo'
 
 const PAGE_SIZE = 20
 
@@ -150,7 +151,8 @@ function PastRequestsContent(): JSX.Element {
   return (
     <>
       <Head>
-        <title>Archive — openmentor.io</title>
+        <title>{pageTitle('Archive')}</title>
+        <meta name="robots" content="noindex,follow" />
       </Head>
 
       <MentorAdminLayout

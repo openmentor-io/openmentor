@@ -6,6 +6,7 @@ import { useRouter } from 'next/router'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch, faCheckCircle, faTimesCircle } from '@fortawesome/free-solid-svg-icons'
 import { AdminAuthProvider, useAdminAuth } from '@/components/admin-moderation'
+import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
 
 type CallbackState = 'verifying' | 'success' | 'error'
@@ -78,7 +79,8 @@ function CallbackHandler(): JSX.Element {
   return (
     <div className="flex min-h-screen flex-col justify-center bg-surface px-5 py-12">
       <Head>
-        <title>Moderation sign-in — openmentor.io</title>
+        <title>{pageTitle('Moderation sign-in')}</title>
+        <meta name="robots" content="noindex,follow" />
       </Head>
 
       <div className="mx-auto w-full max-w-md">

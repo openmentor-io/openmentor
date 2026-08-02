@@ -28,6 +28,7 @@ import {
   nameInitials,
 } from '@/components/mentor-admin'
 import { getRequestById, updateRequestStatus, declineRequest } from '@/lib/mentor-admin-api'
+import { pageTitle } from '@/config/seo'
 
 /**
  * Get the next status in the workflow
@@ -126,7 +127,8 @@ function RequestDetailsContent(): JSX.Element {
   return (
     <>
       <Head>
-        <title>{request ? `${request.name} — Request` : 'Request'} — openmentor.io</title>
+        <title>{pageTitle(request ? `${request.name} — Request` : 'Request')}</title>
+        <meta name="robots" content="noindex,follow" />
       </Head>
 
       <MentorAdminLayout>

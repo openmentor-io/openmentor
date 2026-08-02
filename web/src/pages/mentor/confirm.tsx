@@ -3,7 +3,7 @@ import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { Footer, MetaHeader, NavHeader, Section } from '@/components'
-import seo from '@/config/seo'
+import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
 import type { ConfirmMentorEmailResponse } from '@/types'
 
@@ -19,7 +19,7 @@ type ConfirmState =
 
 export default function ConfirmMentorEmail(): JSX.Element {
   const router = useRouter()
-  const title = 'Confirm your email | ' + seo.title
+  const title = pageTitle('Confirm your email')
 
   const rawToken = router.query.token
   const token = (Array.isArray(rawToken) ? rawToken[0] : rawToken ?? '').trim()
@@ -107,10 +107,10 @@ export default function ConfirmMentorEmail(): JSX.Element {
     <>
       <Head>
         <title>{title}</title>
-        <MetaHeader customTitle="Confirm your email" />
-        {/* Personal confirmation links only — keep out of search results */}
-        <meta name="robots" content="noindex" />
       </Head>
+
+      {/* Personal confirmation links only — keep out of search results */}
+      <MetaHeader customTitle="Confirm your email" noIndex />
 
       <NavHeader />
 

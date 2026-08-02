@@ -16,6 +16,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch } from '@fortawesome/free-solid-svg-icons'
 import classNames from 'classnames'
 import { MentorAuthProvider, useMentorAuth } from '@/components/mentor-admin'
+import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
 
 interface LoginFormData {
@@ -95,7 +96,8 @@ function LoginForm(): JSX.Element {
   return (
     <div className="relative flex min-h-screen flex-col justify-center overflow-hidden bg-surface px-5 py-12">
       <Head>
-        <title>Mentor login — openmentor.io</title>
+        <title>{pageTitle('Mentor login')}</title>
+        <meta name="robots" content="noindex,follow" />
       </Head>
 
       {/* Backdrop ring echoes */}

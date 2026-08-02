@@ -24,6 +24,7 @@ import {
   SortToggle,
 } from '@/components/mentor-admin'
 import { getActiveRequests } from '@/lib/mentor-admin-api'
+import { pageTitle } from '@/config/seo'
 
 type StatusFilter = 'all' | RequestStatus
 
@@ -126,7 +127,8 @@ function ActiveRequestsContent(): JSX.Element {
   return (
     <>
       <Head>
-        <title>Requests — openmentor.io</title>
+        <title>{pageTitle('Requests')}</title>
+        <meta name="robots" content="noindex,follow" />
       </Head>
 
       <MentorAdminLayout
