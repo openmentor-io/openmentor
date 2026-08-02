@@ -10,12 +10,18 @@ import { jsonLdScriptProps } from '@/lib/json-ld'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
 import pluralize from '@/lib/pluralize'
-import type { MentorListItem, MentorTag } from '@/types'
+import type { MentorCardItem, MentorTag } from '@/types'
 
 interface MentorTagPageProps {
   [key: string]: unknown
   tag: MentorTag
-  mentors: MentorListItem[]
+  /**
+   * Projected to just the card fields. A broad tag can carry a large slice of
+   * the catalog, and `drop_long_fields` clears only `about`/`description` — a
+   * full MentorListItem would still ship `competencies` (up to 5,000 chars),
+   * tags and counts into __NEXT_DATA__ that no card reads.
+   */
+  mentors: MentorCardItem[]
 }
 
 const _getServerSideProps: GetServerSideProps<MentorTagPageProps> = async (context) => {
@@ -30,17 +36,45 @@ const _getServerSideProps: GetServerSideProps<MentorTagPageProps> = async (conte
   }
 
   const allMentors = await getAllMentors({ onlyVisible: true, drop_long_fields: true })
-  const mentors = allMentors.filter((mentor) => mentor.tags.includes(tag))
 
-  // A tag with zero live matches is thin/soft-404 content - keep it out of the index.
-  if (mentors.length === 0) {
-    logger.warn('Mentor tag page has no matching mentors', {
-      tag,
-      mentorCount: 0,
-      ...getTraceContext(),
-    })
-    return { notFound: true }
-  }
+  // A tag with no live matches still RENDERS, carrying noindex (see below).
+  // 404ing it instead would mean every surface that links a tag — the topic
+  // index, the sibling block, profile chips, llms.txt — had to agree on which
+  // tags are currently non-empty. Two of those cannot: llms.txt is a static
+  // file, and a paused mentor's profile links their tags without fetching the
+  // catalog. One fragile invariant across four surfaces is worse than a page
+  // that says "nobody covers this yet" and is kept out of the index.
+  const mentors: MentorCardItem[] = allMentors
+    .filter((mentor) => mentor.tags.includes(tag))
+    .map(
+      ({
+        id,
+        mentorId,
+        slug: mentorSlug,
+        name,
+        job,
+        workplace,
+        experience,
+        price,
+        sessionsCount,
+        isNew,
+        photoStyle,
+        updatedAt,
+      }) => ({
+        id,
+        mentorId,
+        slug: mentorSlug,
+        name,
+        job,
+        workplace,
+        experience,
+        price,
+        sessionsCount,
+        isNew,
+        photoStyle,
+        updatedAt,
+      })
+    )
 
   logger.info('Mentor tag page rendered', {
     tag,
@@ -61,6 +95,7 @@ export default function MentorTagPage({
   mentors,
 }: InferGetServerSidePropsType<typeof getServerSideProps>): JSX.Element {
   const { blurb } = TAG_PAGES[tag]
+  const isEmpty = mentors.length === 0
   const countLabel = `${mentors.length} ${pluralize(mentors.length, 'mentor')}`
   const canonicalUrl = `${constants.BASE_URL}${tagPath(tag).replace(/^\//, '')}`
   // Blurb alone can run to ~140 chars, so the count suffix stays minimal to
@@ -107,11 +142,19 @@ export default function MentorTagPage({
       <Head>
         <title>{pageTitle(`${tag} mentors`)}</title>
 
-        <script {...jsonLdScriptProps(collectionJsonLd)} />
+        {/* No ItemList worth publishing when the list is empty, and the page
+            is noindex in that state anyway. The breadcrumb still applies. */}
+        {!isEmpty && <script {...jsonLdScriptProps(collectionJsonLd)} />}
         <script {...jsonLdScriptProps(breadcrumbJsonLd)} />
       </Head>
 
-      <MetaHeader customTitle={`${tag} mentors`} customDescription={metaDescription} />
+      {/* Reachable but not indexable while empty — thin content stays out of
+          the index without any linking surface having to know it is empty. */}
+      <MetaHeader
+        customTitle={`${tag} mentors`}
+        customDescription={metaDescription}
+        noIndex={isEmpty}
+      />
 
       <NavHeader />
 
@@ -120,7 +163,9 @@ export default function MentorTagPage({
           <p className="meta-mono my-0 text-ink-mute">OpenMentor.io · Topic</p>
           <h1 className="my-0 mt-3 text-3xl sm:text-[40px]">{tag} mentors</h1>
           <p className="mb-0 mt-3 text-[15px] text-ink-soft">{blurb}</p>
-          <p className="meta-mono mb-0 mt-3 text-ink-mute">{countLabel}</p>
+          <p className="meta-mono mb-0 mt-3 text-ink-mute">
+            {isEmpty ? 'No mentors yet' : countLabel}
+          </p>
         </div>
       </Section>
 
@@ -129,9 +174,24 @@ export default function MentorTagPage({
             outline would jump h1 -> h3. Same sr-only pattern as the homepage. */}
         <h2 className="sr-only">{tag} mentors</h2>
 
-        {/* Bounded by however many mentors carry this tag - a fraction of the
-            catalog, unlike the directory page, so no field projection needed. */}
-        <MentorsList mentors={mentors} hasMore={false} onClickMore={() => {}} />
+        {isEmpty ? (
+          <div className="mx-auto max-w-[520px] py-8 text-center">
+            <p className="my-0 text-[15px] leading-[1.6] text-ink-soft">
+              Nobody covers {tag} on OpenMentor yet. Browse the other topics below, or put
+              yourself forward if this is your field.
+            </p>
+            <div className="mt-6 flex flex-col items-center justify-center gap-2.5 sm:flex-row">
+              <Link href="/bementor" className="button px-[30px] py-[15px] text-[15px]">
+                Become a mentor
+              </Link>
+              <Link href="/mentors" className="button-ghost px-[26px] py-[15px] text-[15px]">
+                See all mentors
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <MentorsList mentors={mentors} hasMore={false} onClickMore={() => {}} />
+        )}
       </main>
 
       {/* Link graph: every tag page links to every other tag plus the full

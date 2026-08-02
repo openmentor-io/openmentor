@@ -7,10 +7,10 @@ import { mentorInitialsClass, mentorPastelGradClass } from '@/lib/mentor-pastel'
 import { isPriceFree, parsePriceAmount } from '@/config/filters'
 import analytics from '@/lib/analytics'
 import pluralize from '@/lib/pluralize'
-import type { MentorListItem } from '@/types'
+import type { MentorCardItem } from '@/types'
 
 interface MentorsListProps {
-  mentors: MentorListItem[]
+  mentors: MentorCardItem[]
   hasMore: boolean
   onClickMore: () => void
 }
@@ -55,7 +55,7 @@ function MentorCard({
   position,
   entranceIndex,
 }: {
-  mentor: MentorListItem
+  mentor: MentorCardItem
   /** 0-based index of the card in the visible list. */
   position: number
   /** 0-based stagger slot for the first-mount rise-in, or null for none. */

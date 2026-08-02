@@ -151,6 +151,32 @@ export interface MentorListItem extends Omit<MentorBase, 'description' | 'about'
 }
 
 /**
+ * Exactly the fields a catalog card renders.
+ *
+ * `MentorsList` takes this rather than a full `MentorListItem` so a page can
+ * project before returning props: everything handed to props is serialized
+ * into `__NEXT_DATA__`, and `drop_long_fields` clears only `about`/
+ * `description` — `competencies` alone accepts up to 5,000 characters and no
+ * card reads it. A full `MentorListItem` still satisfies this shape, so
+ * callers that already have one (the homepage) need no change.
+ */
+export type MentorCardItem = Pick<
+  MentorListItem,
+  | 'id'
+  | 'mentorId'
+  | 'slug'
+  | 'name'
+  | 'job'
+  | 'workplace'
+  | 'experience'
+  | 'price'
+  | 'sessionsCount'
+  | 'isNew'
+  | 'photoStyle'
+  | 'updatedAt'
+>
+
+/**
  * Type guard for mentor with secure fields
  */
 export function hasMentorSecureFields(
