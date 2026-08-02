@@ -6,7 +6,7 @@ import { Footer, MetaHeader, NavHeader } from '@/components'
 import RegisterMentorForm from '@/components/forms/RegisterMentorForm'
 import analytics from '@/lib/analytics'
 import { captureException } from '@/lib/posthog'
-import seo from '@/config/seo'
+import { pageTitle } from '@/config/seo'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
 import type { RegisterMentorRequest, RegisterMentorResponse } from '@/types/api'
@@ -77,7 +77,7 @@ export default function Bementor(): JSX.Element {
     } catch (error) {
       setSubmitStatus('error')
       setErrorMessage(
-        'Something went wrong while submitting your application. Please try again later.'
+        'Something went wrong while submitting your application. Please try again later.',
       )
       if (error instanceof Error) {
         captureException(error, { page: 'bementor' })
@@ -91,14 +91,15 @@ export default function Bementor(): JSX.Element {
     }
   }
 
-  const title = 'Become a mentor | ' + seo.title
+  const title = pageTitle('Become a mentor')
 
   return (
     <>
       <Head>
         <title>{title}</title>
-        <MetaHeader customTitle="Become a mentor" />
       </Head>
+
+      <MetaHeader customTitle="Become a mentor" />
 
       <NavHeader backLink={{ href: '/', label: 'Back to mentors' }} />
 

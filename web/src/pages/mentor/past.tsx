@@ -6,10 +6,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
-import Head from 'next/head'
 import { useRouter } from 'next/router'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCircleNotch } from '@fortawesome/free-solid-svg-icons'
 import classNames from 'classnames'
 import type { MentorClientRequest, RequestStatus, SortOrder } from '@/types'
 import { PAST_STATUSES, STATUS_LABELS } from '@/types'
@@ -23,6 +20,7 @@ import {
   SearchInput,
   SortToggle,
 } from '@/components/mentor-admin'
+import { NoIndexHead, AuthGateScreen } from '@/components'
 import { getPastRequests } from '@/lib/mentor-admin-api'
 
 const PAGE_SIZE = 20
@@ -140,18 +138,12 @@ function PastRequestsContent(): JSX.Element {
 
   // Show loading while checking auth
   if (authLoading || !isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
-      </div>
-    )
+    return <AuthGateScreen title="Archive" />
   }
 
   return (
     <>
-      <Head>
-        <title>Archive — openmentor.io</title>
-      </Head>
+      <NoIndexHead title="Archive" />
 
       <MentorAdminLayout
         title="Archive"

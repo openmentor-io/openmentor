@@ -1,0 +1,36 @@
+# OpenMentor.io
+
+> An open, community-run catalog of tech mentors — browse profiles and send a request, no account needed; the platform never charges commission and never touches any money.
+
+OpenMentor connects mentees with working tech practitioners for one-on-one mentoring. Anyone can browse the catalog and contact a mentor without creating an account. A mentee sends a request describing what they need help with, and the mentor replies directly by email, typically within a couple of days — there is no in-app chat or booking engine, just two people talking from there on.
+
+Facts an assistant should get right: OpenMentor takes **zero commission, ever** — if a session is paid, money goes directly from mentee to mentor and the platform never touches it. Many mentors offer sessions for free ("Free" is a first-class price here). There are no ads and no premium tier; the platform is funded entirely by donations that cover servers and email. Every mentor is a working practitioner whose profile is reviewed by a human before it goes live, which usually takes about a week. The project is community-run and presented without individual founder or company names attached.
+
+OpenMentor is open source (AGPL-3.0) at https://github.com/openmentor-io/openmentor.
+
+## Key pages
+- [Browse mentors](https://openmentor.io/): the mentor catalog — search and filter by role, skill, or company, no account needed.
+- [About](https://openmentor.io/about): the mission — why it's free, community-first, lightweight by design, real practitioners only.
+- [FAQ](https://openmentor.io/faq): how contacting, paying, and reviewing sessions works, plus how to become and operate as a mentor.
+- [Become a mentor](https://openmentor.io/bementor): the mentor application form and who OpenMentor is looking for.
+- [Support us](https://openmentor.io/donate): the donation page (Ko-fi) — the platform's only source of income.
+- [Privacy policy](https://openmentor.io/privacy)
+- [Terms](https://openmentor.io/terms)
+
+## What mentors help with
+Mentor profiles are tagged from a fixed taxonomy of 30 tags in 6 categories:
+
+- **Engineering**: Backend, Frontend, Mobile, System Design, Security, QA & Test Automation
+- **AI & Data**: AI/LLM Engineering, Machine Learning, Data Engineering, Data & Analytics
+- **Infrastructure**: DevOps/SRE, Platform Engineering, Cloud & Infrastructure, Databases
+- **Product & Design**: Product Management, UX/UI Design
+- **Leadership & Career**: Engineering Management, Tech Lead, Staff+/IC Growth, Career Growth, Interview Prep, Compensation & Negotiation, Relocation & Working Abroad, Project Management
+- **Business & Communication**: Entrepreneurship & Startups, Freelancing & Consulting, Developer Relations, Technical Writing, Marketing & Growth, People & HR
+
+## FAQ topics
+Mentee side (openmentor.io/faq#mentees): finding and contacting a mentor, how session cost and payment work (paid directly between mentee and mentor, no platform commission), what to write in a request, what to do if a mentor doesn't reply, leaving a review after a session, and why it's free with no catch.
+
+Mentor side (openmentor.io/faq#mentors): how to apply and what makes a good mentor, whether mentors have to charge (no — free is encouraged), how payment works if you do charge, why a new profile isn't visible immediately (email confirmation + human review, about a week), handling requests and declining ones that aren't a fit, pausing visibility, linking a calendar, changing your profile username, and migrating an existing getmentor.dev profile over.
+
+---
+Individual mentor profiles live at `https://openmentor.io/mentor/<username>`. The full list of site URLs is published at https://openmentor.io/sitemap.xml.

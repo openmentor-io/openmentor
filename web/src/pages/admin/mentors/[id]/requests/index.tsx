@@ -7,7 +7,6 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -20,6 +19,7 @@ import type {
   RequestStatus,
 } from '@/types'
 import { ALL_REQUEST_STATUSES, STATUS_LABELS } from '@/types'
+import { AuthGateScreen, NoIndexHead } from '@/components'
 import { AdminAuthProvider, AdminLayout, useAdminAuth } from '@/components/admin-moderation'
 import { StatusBadge, formatDateTime, formatRelativeTime } from '@/components/mentor-admin'
 import { getModerationMentorById, getModerationMentorRequests } from '@/lib/admin-moderation-api'
@@ -112,18 +112,12 @@ function AdminMentorRequestsContent(): JSX.Element {
   }, [requests, statusFilter, searchQuery])
 
   if (authLoading || !isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
-      </div>
-    )
+    return <AuthGateScreen title="Mentor requests" />
   }
 
   return (
     <AdminLayout title="Mentor requests">
-      <Head>
-        <title>Mentor requests — openmentor.io</title>
-      </Head>
+      <NoIndexHead title="Mentor requests" />
 
       {mentorId && (
         <div className="mb-4">

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import Head from 'next/head'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/router'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch } from '@fortawesome/free-solid-svg-icons'
+import { AuthGateScreen, NoIndexHead } from '@/components'
 import {
   AdminAuthProvider,
   AdminLayout,
@@ -476,18 +476,12 @@ function MentorModerationEditContent(): JSX.Element {
   }
 
   if (authLoading || !isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
-      </div>
-    )
+    return <AuthGateScreen title="Mentor moderation" />
   }
 
   return (
     <AdminLayout title="Mentor review">
-      <Head>
-        <title>Mentor moderation — openmentor.io</title>
-      </Head>
+      <NoIndexHead title="Mentor moderation" />
 
       {isLoading && (
         <div className="flex items-center justify-center py-12">

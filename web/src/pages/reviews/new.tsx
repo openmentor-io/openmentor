@@ -17,6 +17,7 @@ import {
   faCheckCircle,
   faExclamationTriangle,
 } from '@fortawesome/free-solid-svg-icons'
+import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
 
 interface ReviewFormData {
@@ -154,7 +155,8 @@ export default function NewReviewPage(): JSX.Element {
   return (
     <>
       <Head>
-        <title>Leave a review — openmentor.io</title>
+        <title>{pageTitle('Leave a review')}</title>
+        {/* nofollow (not the usual noindex,follow): one-time tokenised link */}
         <meta name="robots" content="noindex,nofollow" />
       </Head>
 

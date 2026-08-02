@@ -1,12 +1,17 @@
-import Head from 'next/head'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { InlineWidget } from 'react-calendly'
 import type { GetServerSideProps, InferGetServerSidePropsType } from 'next'
-import { CalendlabWidget, ContactMentorForm, Footer, Koalendar, NavHeader } from '@/components'
+import {
+  CalendlabWidget,
+  ContactMentorForm,
+  Footer,
+  Koalendar,
+  NavHeader,
+  NoIndexHead,
+} from '@/components'
 import MentorPortrait from '@/components/ui/MentorPortrait'
 import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
-import seo from '@/config/seo'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import analytics from '@/lib/analytics'
 import { safeHttpUrl } from '@/lib/safe-url'
@@ -152,7 +157,6 @@ export default function OrderMentor({
   const [submissionRequestId, setSubmissionRequestId] = useState<string | undefined>()
 
   const today = new Date().toISOString().slice(0, 10)
-  const title = 'Contact a mentor | ' + mentor.name + ' | ' + seo.title
   const firstName = mentor.name.split(' ')[0]
 
   // Helper function to get current request count from localStorage
@@ -297,9 +301,7 @@ export default function OrderMentor({
 
   return (
     <>
-      <Head>
-        <title>{title}</title>
-      </Head>
+      <NoIndexHead title={`Contact ${mentor.name}`} />
 
       <NavHeader backLink={{ href: '/mentor/' + mentor.slug, label: 'Back to profile' }} />
 

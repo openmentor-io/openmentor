@@ -3,14 +3,51 @@ import '../styles/design-tokens.css'
 import '../styles/globals.css'
 import '@fortawesome/fontawesome-svg-core/styles.css'
 import { useEffect } from 'react'
+import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { Archivo, IBM_Plex_Mono, Inter, Schibsted_Grotesk } from 'next/font/google'
 import TagManager from 'react-gtm-module'
 import { CookieConsentBanner } from '@/components'
+import constants from '@/config/constants'
+import seo from '@/config/seo'
+import { jsonLdScriptProps } from '@/lib/json-ld'
 import { onAnalyticsConsentGranted } from '@/lib/consent'
 import { initializeFaro, trackRouteChange } from '@/lib/faro'
 import { initializePostHog } from '@/lib/posthog'
 import type { AppProps } from 'next/app'
+
+// Sitewide entity graph (JSON-LD), rendered on every page via this layout.
+// @id anchors let other structured data (e.g. mentor profile schemas) point
+// back at the same Organization/WebSite nodes instead of re-declaring them.
+const organizationId = `${constants.BASE_URL}#organization`
+const websiteId = `${constants.BASE_URL}#website`
+
+const siteJsonLd: Record<string, unknown> = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': organizationId,
+      name: 'OpenMentor.io',
+      url: constants.BASE_URL,
+      logo: `${constants.BASE_URL}brand/logo/png/icon-app/icon-app-512.png`,
+      description: seo.description,
+      sameAs: ['https://github.com/openmentor-io/openmentor'],
+      email: 'hello@openmentor.io',
+    },
+    {
+      '@type': 'WebSite',
+      '@id': websiteId,
+      name: 'OpenMentor.io',
+      url: constants.BASE_URL,
+      publisher: { '@id': organizationId },
+      inLanguage: 'en',
+      // No SearchAction/sitelinks searchbox: catalog search is client-side
+      // React state with no URL query parameter, so there is no working
+      // query template to declare.
+    },
+  ],
+}
 
 // Self-hosted via next/font (no external stylesheet request). The CSS
 // variable is consumed by the Tailwind `font-sans` stack; a :root fallback
@@ -94,6 +131,9 @@ function MyApp({ Component, pageProps }: AppProps): JSX.Element {
     <div
       className={`${inter.variable} ${archivo.variable} ${schibsted.variable} ${plexMono.variable} flex min-h-screen flex-col font-sans`}
     >
+      <Head>
+        <script {...jsonLdScriptProps(siteJsonLd)} />
+      </Head>
       <Component {...pageProps} />
       <CookieConsentBanner />
     </div>

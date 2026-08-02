@@ -2,7 +2,7 @@ import Head from 'next/head'
 import Link from 'next/link'
 import type { GetServerSideProps } from 'next'
 import { Footer, MetaHeader, NavHeader, Section } from '@/components'
-import seo from '@/config/seo'
+import { pageTitle } from '@/config/seo'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
 
@@ -33,14 +33,15 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
 }
 
 export default function About(): JSX.Element {
-  const title = 'About | ' + seo.title
+  const title = pageTitle('About')
 
   return (
     <>
       <Head>
         <title>{title}</title>
-        <MetaHeader customTitle="About OpenMentor" />
       </Head>
+
+      <MetaHeader customTitle="About OpenMentor" />
 
       <NavHeader />
 

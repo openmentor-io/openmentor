@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/router'
+import { NoIndexHead } from '@/components'
 
 export default function AdminMentorsIndexPage(): JSX.Element {
   const router = useRouter()
@@ -8,5 +9,5 @@ export default function AdminMentorsIndexPage(): JSX.Element {
     router.replace('/admin/mentors/pending')
   }, [router])
 
-  return <></>
+  return <NoIndexHead title="Mentors" />
 }

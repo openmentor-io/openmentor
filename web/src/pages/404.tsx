@@ -3,10 +3,10 @@ import Link from 'next/link'
 import { useEffect } from 'react'
 import { Footer, MetaHeader, NavHeader } from '@/components'
 import analytics from '@/lib/analytics'
-import seo from '@/config/seo'
+import { pageTitle } from '@/config/seo'
 
 export default function NotFound(): JSX.Element {
-  const title = '404 – Page not found | ' + seo.title
+  const title = pageTitle('404 – Page not found')
 
   useEffect(() => {
     analytics.event(analytics.events.NOT_FOUND_VIEWED, {
@@ -18,8 +18,9 @@ export default function NotFound(): JSX.Element {
     <>
       <Head>
         <title>{title}</title>
-        <MetaHeader customTitle="404 – Page not found" />
       </Head>
+
+      <MetaHeader customTitle="404 – Page not found" noIndex />
 
       <NavHeader />
 

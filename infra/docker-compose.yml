@@ -118,8 +118,9 @@ services:
       # HTTP — its rule is longer than the old catch-all's, and Traefik breaks
       # priority ties by rule length, so it won every :80 request for the
       # canonical domain.
-      # HTTPS router
-      - "traefik.http.routers.frontend-secure.rule=Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)"
+      # HTTPS router — apex only; www is redirected to it below, so both
+      # hostnames don't serve identical content (duplicate content for SEO).
+      - "traefik.http.routers.frontend-secure.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.frontend-secure.entrypoints=websecure"
       - "traefik.http.routers.frontend-secure.tls=true"
       - "traefik.http.routers.frontend-secure.tls.certresolver=letsencrypt"
@@ -137,6 +138,15 @@ services:
       - "traefik.http.middlewares.sec-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.edge-ratelimit.ratelimit.average=100"
       - "traefik.http.middlewares.edge-ratelimit.ratelimit.burst=50"
+      # Separate router so www still resolves TLS (own cert) before the 301 to apex.
+      - "traefik.http.routers.frontend-www.rule=Host(`www.${DOMAIN}`)"
+      - "traefik.http.routers.frontend-www.entrypoints=websecure"
+      - "traefik.http.routers.frontend-www.tls=true"
+      - "traefik.http.routers.frontend-www.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.frontend-www.middlewares=www-redirect"
+      - "traefik.http.middlewares.www-redirect.redirectregex.regex=^https://www\\.${DOMAIN}/(.*)"
+      - "traefik.http.middlewares.www-redirect.redirectregex.replacement=https://${DOMAIN}/$${1}"
+      - "traefik.http.middlewares.www-redirect.redirectregex.permanent=true"
 
   # PostgreSQL database (containerized on the VM per DECISIONS D2)
   # Data lives in the external volume `openmentor-postgres-data`, created by

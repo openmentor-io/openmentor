@@ -1,12 +1,10 @@
-import Head from 'next/head'
+import { NoIndexHead } from '@/components'
 import { AdminAuthProvider, MentorModerationListPage } from '@/components/admin-moderation'
 
 export default function DeclinedMentorsPage(): JSX.Element {
   return (
     <AdminAuthProvider>
-      <Head>
-        <title>Declined mentors — moderation — openmentor.io</title>
-      </Head>
+      <NoIndexHead title="Declined mentors — moderation" />
       <MentorModerationListPage status="declined" title="Declined Mentors" />
     </AdminAuthProvider>
   )

@@ -4,7 +4,7 @@ import type { GetServerSideProps } from 'next'
 import classNames from 'classnames'
 import { Footer, MetaHeader, NavHeader } from '@/components'
 import donates from '@/config/donates'
-import seo from '@/config/seo'
+import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
@@ -27,7 +27,7 @@ const AMOUNTS = ['$3', '$10', '$25', 'Custom'] as const
 type Amount = (typeof AMOUNTS)[number]
 
 export default function Donate(): JSX.Element {
-  const title = 'Support us | ' + seo.title
+  const title = pageTitle('Support us')
   const kofi = donates[0]
   const [amount, setAmount] = useState<Amount>('$10')
 
@@ -45,8 +45,9 @@ export default function Donate(): JSX.Element {
     <>
       <Head>
         <title>{title}</title>
-        <MetaHeader customTitle="Support us" />
       </Head>
+
+      <MetaHeader customTitle="Support us" />
 
       <NavHeader backLink={{ href: '/', label: 'Back to mentors' }} />
 

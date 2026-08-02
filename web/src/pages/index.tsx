@@ -127,14 +127,15 @@ export default function Home({
   // Results meta: the narrowed tag wins over the category label.
   const activeFilterLabel = appliedFilters.tags.values.length
     ? appliedFilters.tags.values.join(' · ')
-    : appliedFilters.category.values ?? null
+    : (appliedFilters.category.values ?? null)
 
   return (
     <>
       <Head>
         <title>{seo.title}</title>
-        <MetaHeader />
       </Head>
+
+      <MetaHeader />
 
       <NavHeader />
 
@@ -155,7 +156,7 @@ export default function Home({
 
         <p className="my-0 mt-3 max-w-[520px] text-sm leading-[1.5] text-ink-soft sm:mt-5 sm:text-[17px] sm:leading-[1.55]">
           An open community of {countLabel} tech mentors ready to share their experience one on one.
-          Free to browse, zero commission — many mentor for free.
+          Free to browse, zero commission — many mentors are free.
         </p>
 
         <div className="mt-[18px] flex flex-col gap-2.5 sm:mt-[30px] sm:flex-row sm:items-center sm:gap-3">

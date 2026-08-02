@@ -9,13 +9,13 @@
  */
 
 import { useEffect, useState } from 'react'
-import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch, faStar } from '@fortawesome/free-solid-svg-icons'
 import type { AdminMentorDetails, MentorClientRequest, RequestStatus } from '@/types'
 import { ALL_REQUEST_STATUSES, STATUS_LABELS } from '@/types'
+import { AuthGateScreen, NoIndexHead } from '@/components'
 import { AdminAuthProvider, AdminLayout, useAdminAuth } from '@/components/admin-moderation'
 import {
   MetaItem,
@@ -117,20 +117,14 @@ function AdminRequestDetailsContent(): JSX.Element {
   }
 
   if (authLoading || !isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
-      </div>
-    )
+    return <AuthGateScreen title="Request" />
   }
 
   const isDirty = Boolean(request && selectedStatus && selectedStatus !== request.status)
 
   return (
     <AdminLayout title="Request">
-      <Head>
-        <title>{request ? `${request.name} — Request` : 'Request'} — openmentor.io</title>
-      </Head>
+      <NoIndexHead title={request ? `${request.name} — Request` : 'Request'} />
 
       {mentorId && (
         <div className="mb-4 flex flex-wrap items-center gap-4">

@@ -8,7 +8,6 @@
  */
 
 import { useState, useEffect } from 'react'
-import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -27,6 +26,7 @@ import {
   formatRelativeTime,
   nameInitials,
 } from '@/components/mentor-admin'
+import { NoIndexHead, AuthGateScreen } from '@/components'
 import { getRequestById, updateRequestStatus, declineRequest } from '@/lib/mentor-admin-api'
 
 /**
@@ -116,18 +116,12 @@ function RequestDetailsContent(): JSX.Element {
 
   // Show loading while checking auth
   if (authLoading || !isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
-      </div>
-    )
+    return <AuthGateScreen title="Request" />
   }
 
   return (
     <>
-      <Head>
-        <title>{request ? `${request.name} — Request` : 'Request'} — openmentor.io</title>
-      </Head>
+      <NoIndexHead title={request ? `${request.name} — Request` : 'Request'} />
 
       <MentorAdminLayout>
         <div className="max-w-[820px]">
