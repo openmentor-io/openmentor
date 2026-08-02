@@ -13,7 +13,32 @@ Two scripts live here:
   npm install
   ./migrate-mentors.sh --slug ivan-petrov-42 --dry-run   # always dry-run first
   ./migrate-mentors.sh --csv mentors.csv                 # bulk
+  ./migrate-mentors.sh --backfill-links --dry-run        # cross-links only
   ```
+
+  **Prerequisite for the cross-link write (D36).** Since D36 this script also
+  writes the `getmentor_slug → openmentor_slug` mapping into the **source**
+  (getmentor.dev) database, into `openmentor_profiles`, so getmentor.dev can
+  link a mentor's old profile to their new one. This is the only write the
+  script makes to the source database — every other source query is a SELECT —
+  and it needs two things that are outside this repo:
+
+  1. getmentor-api migration `000004_openmentor_profiles` applied to the
+     getmentor.dev database, and
+  2. the `SOURCE_DATABASE_URL` role granted `INSERT`/`UPDATE` on
+     `openmentor_profiles`.
+
+  Neither is arranged by this script. If either is missing the mapping is
+  skipped with a `⚠️` warning and the migration still succeeds — the profile
+  insert, photo copy and email are the real work and are never failed by a
+  cross-link problem. Re-run `--backfill-links` once the grant is in place to
+  repair anything that was skipped; it is idempotent.
+
+  `--backfill-links` also covers mentors migrated before D36 existed. Its
+  worklist comes from the target's `getmentor:<legacy_id>` markers, so it can
+  only ever touch profiles this script created, and it looks each mentor up in
+  the source by original `legacy_id` rather than by slug (a mentor may have
+  renamed their getmentor.dev slug since migrating).
 
 - **`yandex-to-s3-migration.js`** — the one-off bulk image copy, documented
   below. (For per-mentor image copies, migrate-mentors.js does its own —
