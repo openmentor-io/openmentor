@@ -2,13 +2,14 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import Head from 'next/head'
 import type { GetServerSideProps, InferGetServerSidePropsType } from 'next'
-import { Footer, HtmlContent, JsonLd, MetaHeader, NavHeader } from '@/components'
+import { Footer, HtmlContent, MetaHeader, NavHeader } from '@/components'
 import MentorPortrait from '@/components/ui/MentorPortrait'
 import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import constants from '@/config/constants'
 import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
+import { jsonLdScriptProps } from '@/lib/json-ld'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
 import pluralize from '@/lib/pluralize'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
@@ -234,8 +235,8 @@ export default function Mentor({
       <Head>
         <title>{title}</title>
 
-        <JsonLd data={profileJsonLd} />
-        <JsonLd data={breadcrumbJsonLd} />
+        <script {...jsonLdScriptProps(profileJsonLd)} />
+        <script {...jsonLdScriptProps(breadcrumbJsonLd)} />
       </Head>
 
       <MetaHeader

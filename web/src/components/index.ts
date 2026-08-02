@@ -9,7 +9,6 @@ export { default as HtmlContent } from './ui/HtmlContent'
 export { default as CookieConsentBanner } from './ui/CookieConsentBanner'
 
 // Layout Components
-export { default as JsonLd } from './layout/JsonLd'
 export { default as MetaHeader } from './layout/MetaHeader'
 export { default as NavHeader } from './layout/NavHeader'
 export { default as Footer } from './layout/Footer'

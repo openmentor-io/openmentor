@@ -2,9 +2,10 @@ import Head from 'next/head'
 import Link from 'next/link'
 import type { GetServerSideProps } from 'next'
 import type { ReactNode } from 'react'
-import { Footer, JsonLd, MetaHeader, NavHeader, Section } from '@/components'
+import { Footer, MetaHeader, NavHeader, Section } from '@/components'
 import { pageTitle } from '@/config/seo'
 import { reactNodeToText } from '@/lib/react-text'
+import { jsonLdScriptProps } from '@/lib/json-ld'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
 
@@ -392,7 +393,7 @@ export default function Faq(): JSX.Element {
     <>
       <Head>
         <title>{pageTitle('FAQ')}</title>
-        <JsonLd data={faqJsonLd} />
+        <script {...jsonLdScriptProps(faqJsonLd)} />
       </Head>
 
       <MetaHeader customTitle="Frequently asked questions" />

@@ -11,14 +11,13 @@ jest.mock('next/head', () => ({
   default: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
-// Chrome is covered elsewhere; JsonLd stays real, it is what's under test.
+// Chrome is covered elsewhere; the structured data is what's under test.
 jest.mock('@/components', () => ({
   __esModule: true,
   NavHeader: () => <div />,
   Footer: () => <div />,
   MetaHeader: () => null,
   HtmlContent: () => <div />,
-  JsonLd: jest.requireActual('@/components/layout/JsonLd').default,
 }))
 
 jest.mock('@/components/ui/MentorPortrait', () => ({

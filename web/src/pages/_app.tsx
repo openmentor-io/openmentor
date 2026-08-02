@@ -7,9 +7,10 @@ import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { Archivo, IBM_Plex_Mono, Inter, Schibsted_Grotesk } from 'next/font/google'
 import TagManager from 'react-gtm-module'
-import { CookieConsentBanner, JsonLd } from '@/components'
+import { CookieConsentBanner } from '@/components'
 import constants from '@/config/constants'
 import seo from '@/config/seo'
+import { jsonLdScriptProps } from '@/lib/json-ld'
 import { onAnalyticsConsentGranted } from '@/lib/consent'
 import { initializeFaro, trackRouteChange } from '@/lib/faro'
 import { initializePostHog } from '@/lib/posthog'
@@ -131,7 +132,7 @@ function MyApp({ Component, pageProps }: AppProps): JSX.Element {
       className={`${inter.variable} ${archivo.variable} ${schibsted.variable} ${plexMono.variable} flex min-h-screen flex-col font-sans`}
     >
       <Head>
-        <JsonLd data={siteJsonLd} />
+        <script {...jsonLdScriptProps(siteJsonLd)} />
       </Head>
       <Component {...pageProps} />
       <CookieConsentBanner />
