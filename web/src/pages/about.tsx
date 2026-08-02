@@ -13,10 +13,6 @@ const _getServerSideProps: GetServerSideProps = async (context) => {
     ...getTraceContext(),
   })
 
-  // Static content, no per-user variation — let Cloudflare (fronting this
-  // origin) cache it instead of re-rendering on every crawler/visitor hit.
-  context.res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400')
-
   return {
     props: {},
   }
