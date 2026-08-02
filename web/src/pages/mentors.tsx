@@ -72,11 +72,33 @@ export default function MentorsDirectory({
     },
   }
 
+  // Directory sits between Home and a mentor profile — mentor pages already
+  // emit their own BreadcrumbList (Home -> mentor name), this fills the gap.
+  const breadcrumbJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: constants.BASE_URL,
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'All mentors',
+        item: `${constants.BASE_URL}mentors`,
+      },
+    ],
+  }
+
   return (
     <>
       <Head>
         <title>{pageTitle('All mentors')}</title>
         <script {...jsonLdScriptProps(mentorsJsonLd)} />
+        <script {...jsonLdScriptProps(breadcrumbJsonLd)} />
       </Head>
 
       <MetaHeader
