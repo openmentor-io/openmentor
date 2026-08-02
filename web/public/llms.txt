@@ -18,14 +18,15 @@ OpenMentor is open source (AGPL-3.0) at https://github.com/openmentor-io/openmen
 - [Terms](https://openmentor.io/terms)
 
 ## What mentors help with
-Mentor profiles are tagged from a fixed taxonomy of 30 tags in 6 categories:
+Mentors are tagged from a fixed taxonomy of 30 tags in 6 categories.
+Each tag has its own page listing every mentor who covers it:
 
-- **Engineering**: Backend, Frontend, Mobile, System Design, Security, QA & Test Automation
-- **AI & Data**: AI/LLM Engineering, Machine Learning, Data Engineering, Data & Analytics
-- **Infrastructure**: DevOps/SRE, Platform Engineering, Cloud & Infrastructure, Databases
-- **Product & Design**: Product Management, UX/UI Design
-- **Leadership & Career**: Engineering Management, Tech Lead, Staff+/IC Growth, Career Growth, Interview Prep, Compensation & Negotiation, Relocation & Working Abroad, Project Management
-- **Business & Communication**: Entrepreneurship & Startups, Freelancing & Consulting, Developer Relations, Technical Writing, Marketing & Growth, People & HR
+- **Engineering**: [Backend](https://openmentor.io/mentors/backend), [Frontend](https://openmentor.io/mentors/frontend), [Mobile](https://openmentor.io/mentors/mobile), [System Design](https://openmentor.io/mentors/system-design), [Security](https://openmentor.io/mentors/security), [QA & Test Automation](https://openmentor.io/mentors/qa-test-automation)
+- **AI & Data**: [AI/LLM Engineering](https://openmentor.io/mentors/ai-llm-engineering), [Machine Learning](https://openmentor.io/mentors/machine-learning), [Data Engineering](https://openmentor.io/mentors/data-engineering), [Data & Analytics](https://openmentor.io/mentors/data-analytics)
+- **Infrastructure**: [DevOps/SRE](https://openmentor.io/mentors/devops-sre), [Platform Engineering](https://openmentor.io/mentors/platform-engineering), [Cloud & Infrastructure](https://openmentor.io/mentors/cloud-infrastructure), [Databases](https://openmentor.io/mentors/databases)
+- **Product & Design**: [Product Management](https://openmentor.io/mentors/product-management), [UX/UI Design](https://openmentor.io/mentors/ux-ui-design)
+- **Leadership & Career**: [Engineering Management](https://openmentor.io/mentors/engineering-management), [Tech Lead](https://openmentor.io/mentors/tech-lead), [Staff+/IC Growth](https://openmentor.io/mentors/staff-ic-growth), [Career Growth](https://openmentor.io/mentors/career-growth), [Interview Prep](https://openmentor.io/mentors/interview-prep), [Compensation & Negotiation](https://openmentor.io/mentors/compensation-negotiation), [Relocation & Working Abroad](https://openmentor.io/mentors/relocation-working-abroad), [Project Management](https://openmentor.io/mentors/project-management)
+- **Business & Communication**: [Entrepreneurship & Startups](https://openmentor.io/mentors/entrepreneurship-startups), [Freelancing & Consulting](https://openmentor.io/mentors/freelancing-consulting), [Developer Relations](https://openmentor.io/mentors/developer-relations), [Technical Writing](https://openmentor.io/mentors/technical-writing), [Marketing & Growth](https://openmentor.io/mentors/marketing-growth), [People & HR](https://openmentor.io/mentors/people-hr)
 
 ## FAQ topics
 Mentee side (openmentor.io/faq#mentees): finding and contacting a mentor, how session cost and payment work (paid directly between mentee and mentor, no platform commission), what to write in a request, what to do if a mentor doesn't reply, leaving a review after a session, and why it's free with no catch.

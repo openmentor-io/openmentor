@@ -156,7 +156,7 @@ describe('MentorsList', () => {
     it('renders the hero cut-out (multiply blend) when photoStyle is "hero"', () => {
       render(
         <MentorsList
-          mentors={[{ ...baseMentor, photo_url: 'http://example.com/p.jpg', photoStyle: 'hero' }]}
+          mentors={[{ ...baseMentor, photoStyle: 'hero' }]}
           hasMore={false}
           onClickMore={() => {}}
         />
@@ -171,7 +171,7 @@ describe('MentorsList', () => {
     it('renders the arch-masked tile (fallback A) when photoStyle is absent', () => {
       render(
         <MentorsList
-          mentors={[{ ...baseMentor, photo_url: 'http://example.com/p.jpg' }]}
+          mentors={[{ ...baseMentor }]}
           hasMore={false}
           onClickMore={() => {}}
         />
@@ -185,7 +185,7 @@ describe('MentorsList', () => {
     it('renders the arch-masked tile when photoStyle is "frame"', () => {
       render(
         <MentorsList
-          mentors={[{ ...baseMentor, photo_url: 'http://example.com/p.jpg', photoStyle: 'frame' }]}
+          mentors={[{ ...baseMentor, photoStyle: 'frame' }]}
           hasMore={false}
           onClickMore={() => {}}
         />

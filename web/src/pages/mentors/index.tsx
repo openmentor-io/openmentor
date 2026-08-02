@@ -5,6 +5,7 @@ import { Footer, MetaHeader, NavHeader, Section } from '@/components'
 import { getAllMentors } from '@/server/mentors-data'
 import { pageTitle } from '@/config/seo'
 import constants from '@/config/constants'
+import { TAG_CATEGORIES, tagPath } from '@/config/tags'
 import { jsonLdScriptProps } from '@/lib/json-ld'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
@@ -103,7 +104,7 @@ export default function MentorsDirectory({
 
       <MetaHeader
         customTitle="All mentors"
-        customDescription="Every mentor on OpenMentor, listed alphabetically by name with their job title and company — browse the full directory and open any profile."
+        customDescription="Browse OpenMentor by topic or the full alphabetical directory — every mentor, their job title and company, one click from a profile."
       />
 
       <NavHeader />
@@ -120,7 +121,41 @@ export default function MentorsDirectory({
       </Section>
 
       <main className="mx-auto w-full max-w-[880px] px-5 pb-16 pt-8 sm:pb-24 sm:pt-12">
-        <ul className="grid grid-cols-1 gap-x-10 sm:grid-cols-2">
+        {/* Topic index first: it's the more useful entry point, and every one of
+            these links is the only inbound link the /mentors/<tag> pages get
+            outside the sitemap, so it needs to be crawled before the A–Z list. */}
+        <section className="mb-12 sm:mb-16">
+          <h2 className="my-0 text-2xl">Browse by topic</h2>
+          <p className="mt-2 max-w-[640px] text-[15px] text-ink-soft">
+            Mentors are tagged by what they help with — pick an area to see everyone who covers
+            it.
+          </p>
+
+          <div className="mt-6 grid grid-cols-1 gap-x-10 gap-y-8 sm:grid-cols-2">
+            {TAG_CATEGORIES.map((category) => (
+              <div key={category.label}>
+                <h3 className="my-0 text-[13px] font-bold uppercase tracking-wide text-ink-mute">
+                  {category.label}
+                </h3>
+                <ul className="mt-3 flex flex-wrap gap-2">
+                  {category.tags.map((tag) => (
+                    <li key={tag}>
+                      <Link
+                        href={tagPath(tag)}
+                        className="block rounded-full border border-line bg-surface px-[15px] py-2 text-[13px] font-semibold text-brand-navy hover:border-brand-cobalt hover:text-brand-cobalt"
+                      >
+                        {tag}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <h2 className="my-0 text-2xl">Every mentor, A–Z</h2>
+        <ul className="mt-6 grid grid-cols-1 gap-x-10 sm:grid-cols-2">
           {mentors.map((mentor) => (
             <li key={mentor.id} className="border-b border-line py-3">
               {/* Plain link text, not a heading: an h2 per row would give

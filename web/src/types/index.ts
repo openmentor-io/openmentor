@@ -14,6 +14,7 @@ export type {
   MentorPhotoStyle,
   MentorWithSecureFields,
   MentorListItem,
+  MentorCardItem,
 } from './mentor'
 export { hasMentorSecureFields } from './mentor'
 
