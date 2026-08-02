@@ -76,8 +76,6 @@ function MentorCard({
       })
 
   const sessions = mentor.sessionsCount ?? 0
-  // Descriptive alt for screen readers + Google Images (the subject is a person).
-  const photoAlt = `${mentor.name} — ${mentor.job} at ${mentor.workplace}`
 
   // Fire-and-forget analytics on click — never blocks navigation.
   const handleCardClick = (): void => {
@@ -110,7 +108,14 @@ function MentorCard({
       }
     >
       {/* Photo block: pastel gradient + one of three states (design 10 —
-          hero cut-out / fallback A arch tile / fallback B initials). */}
+          hero cut-out / fallback A arch tile / fallback B initials).
+
+          The photos stay alt="" DELIBERATELY: they sit inside the card's
+          link, which already carries the name, role and workplace as text,
+          so descriptive alt would be concatenated into the link's accessible
+          name and announce every card twice. The same image on the profile
+          page (MentorPortrait) stands alone and does carry a description —
+          which is the copy Google Images associates with it. */}
       <div
         className={classNames(
           'relative h-[140px] sm:h-[200px]',
@@ -122,7 +127,7 @@ function MentorCard({
         {photoSrc && mentor.photoStyle === 'hero' && (
           <Image
             src={photoSrc}
-            alt={photoAlt}
+            alt=""
             width={170}
             height={180}
             unoptimized
@@ -134,7 +139,7 @@ function MentorCard({
         {photoSrc && mentor.photoStyle !== 'hero' && (
           <Image
             src={photoSrc}
-            alt={photoAlt}
+            alt=""
             width={150}
             height={160}
             unoptimized
