@@ -99,6 +99,11 @@ go run ./cmd/migrate && go run ./cmd/api
 go run ./cmd/worker     # optional: background jobs + email
 ```
 
+Set `APP_ENV=development` in `.env` before running anything — the template
+defaults to `production`, which refuses to start without `JWT_SECRET` and
+`WORKER_AUTH_TOKEN`. Development needs neither, though the mentor and admin
+login flows disable themselves until `JWT_SECRET` is set to 32+ characters.
+
 Running the worker this way also needs the `*_TRIGGER_URL` values in `.env`
 repointed from `http://worker:8090` — a Compose-internal hostname — to
 `http://localhost:8090`, or the API can't fire its background jobs. The Compose
@@ -200,9 +205,11 @@ cd web && make ci    # lint + typecheck + tests + production build
 cd api && make ci    # golangci-lint + race tests
 ```
 
-`web/`'s `make ci` covers what `CI / Web` gates. `api/`'s does not: `CI / API`
-additionally enforces a coverage floor, builds all three binaries, and runs a
-Docker smoke test. A green `make ci` there is a strong signal, not a guarantee.
+Neither target is the complete gate. `CI / Web` additionally builds the Docker
+image, checks it ships the Node version `engines.node` declares, and boots it
+against the health endpoint; `CI / API` adds a coverage floor, builds all three
+binaries, and runs its own Docker smoke test. A green `make ci` is a strong
+signal, not a guarantee.
 
 For `infra/` changes, validate both Compose files together — the dev override
 isn't loaded by default:
