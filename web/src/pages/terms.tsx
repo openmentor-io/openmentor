@@ -41,193 +41,197 @@ export default function Terms(): JSX.Element {
         </div>
       </Section>
 
-      <Section className="bg-white py-12">
-        <div className="prose mx-auto max-w-[720px] px-4 prose-headings:font-display prose-headings:font-extrabold prose-headings:uppercase prose-h2:text-xl prose-h2:tracking-[-0.01em] prose-h3:text-base prose-hr:border-line">
-          <p>
-            <strong>Last updated:</strong> 9 July 2026
-          </p>
+      {/* <main> gives content-extraction (Readability, LLM fetchers) a clean
+          boundary around the legal body, apart from nav/header chrome. */}
+      <main>
+        <Section className="bg-white py-12">
+          <div className="prose mx-auto max-w-[720px] px-4 prose-headings:font-display prose-headings:font-extrabold prose-headings:uppercase prose-h2:text-xl prose-h2:tracking-[-0.01em] prose-h3:text-base prose-hr:border-line">
+            <p>
+              <strong>Last updated:</strong> 9 July 2026
+            </p>
 
-          <p>
-            These Terms of Service (&ldquo;Terms&rdquo;) govern your use of the OpenMentor.io
-            website and service (&ldquo;OpenMentor&rdquo;, the &ldquo;Service&rdquo;,
-            &ldquo;we&rdquo;, &ldquo;us&rdquo;). The Service is operated by Georgiy Mogelashvili,
-            an individual based in the Netherlands. By using the Service, you agree to these
-            Terms. If you do not agree, please do not use the Service.
-          </p>
+            <p>
+              These Terms of Service (&ldquo;Terms&rdquo;) govern your use of the OpenMentor.io
+              website and service (&ldquo;OpenMentor&rdquo;, the &ldquo;Service&rdquo;,
+              &ldquo;we&rdquo;, &ldquo;us&rdquo;). The Service is operated by Georgiy Mogelashvili,
+              an individual based in the Netherlands. By using the Service, you agree to these
+              Terms. If you do not agree, please do not use the Service.
+            </p>
 
-          <hr />
+            <hr />
 
-          <h2>1. What the Service is</h2>
+            <h2>1. What the Service is</h2>
 
-          <p>
-            OpenMentor is an online platform that provides the technical means for establishing
-            contact between experts (&ldquo;mentors&rdquo;) and people seeking mentorship or advice
-            (&ldquo;mentees&rdquo;). Mentors publish public profiles; mentees browse the catalog and
-            send contact requests to a mentor of their choice.
-          </p>
+            <p>
+              OpenMentor is an online platform that provides the technical means for establishing
+              contact between experts (&ldquo;mentors&rdquo;) and people seeking mentorship or advice
+              (&ldquo;mentees&rdquo;). Mentors publish public profiles; mentees browse the catalog and
+              send contact requests to a mentor of their choice.
+            </p>
 
-          <p>
-            OpenMentor is a <strong>technical intermediary only</strong>. We are not a party to any
-            agreement, arrangement, or relationship between a mentor and a mentee. We do not act as
-            an employer, agent, representative, or guarantor of either party, and we do not control
-            the content, conduct, or outcome of their interactions.
-          </p>
+            <p>
+              OpenMentor is a <strong>technical intermediary only</strong>. We are not a party to any
+              agreement, arrangement, or relationship between a mentor and a mentee. We do not act as
+              an employer, agent, representative, or guarantor of either party, and we do not control
+              the content, conduct, or outcome of their interactions.
+            </p>
 
-          <h2>2. No payment processing</h2>
+            <h2>2. No payment processing</h2>
 
-          <p>
-            OpenMentor does not process payments and does not take a commission. Any prices shown in
-            mentor profiles are set by the mentors themselves. Payment for sessions, if any, is
-            agreed and settled <strong>directly between the mentor and the mentee</strong>, outside
-            the Service. We are not responsible for payment disputes, refunds, or the fulfilment of
-            any paid or unpaid arrangement.
-          </p>
+            <p>
+              OpenMentor does not process payments and does not take a commission. Any prices shown in
+              mentor profiles are set by the mentors themselves. Payment for sessions, if any, is
+              agreed and settled <strong>directly between the mentor and the mentee</strong>, outside
+              the Service. We are not responsible for payment disputes, refunds, or the fulfilment of
+              any paid or unpaid arrangement.
+            </p>
 
-          <h2>3. Profiles and accuracy of information</h2>
+            <h2>3. Profiles and accuracy of information</h2>
 
-          <p>
-            Information published by mentors in their profiles (including experience,
-            qualifications, expertise, and achievements) is provided by the mentors themselves and{' '}
-            <strong>is not verified by the Service</strong>. It is published &ldquo;as is&rdquo; and
-            is for informational purposes only. We do not guarantee its accuracy, completeness, or
-            currency.
-          </p>
+            <p>
+              Information published by mentors in their profiles (including experience,
+              qualifications, expertise, and achievements) is provided by the mentors themselves and{' '}
+              <strong>is not verified by the Service</strong>. It is published &ldquo;as is&rdquo; and
+              is for informational purposes only. We do not guarantee its accuracy, completeness, or
+              currency.
+            </p>
 
-          <p>
-            You are responsible for the accuracy of the information you submit and for keeping your
-            account credentials (login email inbox) secure.
-          </p>
+            <p>
+              You are responsible for the accuracy of the information you submit and for keeping your
+              account credentials (login email inbox) secure.
+            </p>
 
-          <h2>4. Code of conduct</h2>
+            <h2>4. Code of conduct</h2>
 
-          <p>When using the Service, you agree to:</p>
+            <p>When using the Service, you agree to:</p>
 
-          <ul>
-            <li>treat other users with respect and professionalism;</li>
-            <li>
-              not post or send content that is unlawful, harassing, discriminatory, defamatory,
-              obscene, or misleading;
-            </li>
-            <li>not impersonate another person or misrepresent your qualifications;</li>
-            <li>
-              not use the Service for spam, advertising unrelated to mentorship, or bulk
-              solicitation;
-            </li>
-            <li>
-              not attempt to disrupt, probe, or circumvent the Service&rsquo;s security or rate
-              limits;
-            </li>
-            <li>not scrape or harvest other users&rsquo; personal data;</li>
-            <li>
-              use contact details obtained through the Service only for arranging and conducting
-              mentorship.
-            </li>
-          </ul>
+            <ul>
+              <li>treat other users with respect and professionalism;</li>
+              <li>
+                not post or send content that is unlawful, harassing, discriminatory, defamatory,
+                obscene, or misleading;
+              </li>
+              <li>not impersonate another person or misrepresent your qualifications;</li>
+              <li>
+                not use the Service for spam, advertising unrelated to mentorship, or bulk
+                solicitation;
+              </li>
+              <li>
+                not attempt to disrupt, probe, or circumvent the Service&rsquo;s security or rate
+                limits;
+              </li>
+              <li>not scrape or harvest other users&rsquo; personal data;</li>
+              <li>
+                use contact details obtained through the Service only for arranging and conducting
+                mentorship.
+              </li>
+            </ul>
 
-          <h2>5. Moderation and removal</h2>
+            <h2>5. Moderation and removal</h2>
 
-          <p>
-            We review mentor applications before publication and may, at our sole discretion,
-            decline, edit, hide, or remove any profile, review, or other content, and suspend or
-            terminate access to the Service, in particular where these Terms are violated or where
-            we consider content harmful to users or to the Service. We are not obliged to give prior
-            notice, though we will normally explain moderation decisions on request.
-          </p>
+            <p>
+              We review mentor applications before publication and may, at our sole discretion,
+              decline, edit, hide, or remove any profile, review, or other content, and suspend or
+              terminate access to the Service, in particular where these Terms are violated or where
+              we consider content harmful to users or to the Service. We are not obliged to give prior
+              notice, though we will normally explain moderation decisions on request.
+            </p>
 
-          <p>
-            You may stop using the Service at any time. Mentors can hide their profile from their
-            dashboard, and anyone can request deletion of their data as described in the{' '}
-            <Link href="/privacy">Privacy Policy</Link>.
-          </p>
+            <p>
+              You may stop using the Service at any time. Mentors can hide their profile from their
+              dashboard, and anyone can request deletion of their data as described in the{' '}
+              <Link href="/privacy">Privacy Policy</Link>.
+            </p>
 
-          <h2>6. Not for medical or health information</h2>
+            <h2>6. Not for medical or health information</h2>
 
-          <p>
-            The Service is intended for professional and career mentorship. It is{' '}
-            <strong>not intended for exchanging medical or health information</strong> and must not
-            be used to seek, provide, or store medical advice or health data. Nothing on the Service
-            constitutes medical, legal, financial, or other regulated professional advice.
-          </p>
+            <p>
+              The Service is intended for professional and career mentorship. It is{' '}
+              <strong>not intended for exchanging medical or health information</strong> and must not
+              be used to seek, provide, or store medical advice or health data. Nothing on the Service
+              constitutes medical, legal, financial, or other regulated professional advice.
+            </p>
 
-          <h2>7. Disclaimers</h2>
+            <h2>7. Disclaimers</h2>
 
-          <p>
-            The Service is provided free of charge, &ldquo;as is&rdquo; and &ldquo;as
-            available&rdquo;, without warranties of any kind, express or implied, to the extent
-            permitted by applicable law. In particular:
-          </p>
+            <p>
+              The Service is provided free of charge, &ldquo;as is&rdquo; and &ldquo;as
+              available&rdquo;, without warranties of any kind, express or implied, to the extent
+              permitted by applicable law. In particular:
+            </p>
 
-          <ul>
-            <li>
-              we give <strong>no guarantees</strong> regarding the quality, content, usefulness, or
-              outcome of any consultation, mentorship, or other interaction between a mentor and a
-              mentee;
-            </li>
-            <li>
-              all claims, disagreements, and disputes between a mentor and a mentee are to be
-              resolved <strong>exclusively between them</strong>, without the participation of the
-              Service;
-            </li>
-            <li>
-              we are not responsible for the content or safety of external websites linked from
-              mentor profiles or user messages, nor for any interaction between the parties outside
-              the platform;
-            </li>
-            <li>we do not warrant that the Service will be uninterrupted or error-free.</li>
-          </ul>
+            <ul>
+              <li>
+                we give <strong>no guarantees</strong> regarding the quality, content, usefulness, or
+                outcome of any consultation, mentorship, or other interaction between a mentor and a
+                mentee;
+              </li>
+              <li>
+                all claims, disagreements, and disputes between a mentor and a mentee are to be
+                resolved <strong>exclusively between them</strong>, without the participation of the
+                Service;
+              </li>
+              <li>
+                we are not responsible for the content or safety of external websites linked from
+                mentor profiles or user messages, nor for any interaction between the parties outside
+                the platform;
+              </li>
+              <li>we do not warrant that the Service will be uninterrupted or error-free.</li>
+            </ul>
 
-          <h2>8. Limitation of liability</h2>
+            <h2>8. Limitation of liability</h2>
 
-          <p>
-            To the maximum extent permitted by applicable law, OpenMentor and its operator shall not
-            be liable for any indirect, incidental, consequential, special, or punitive damages, or
-            for any loss of profits, revenue, data, or reputation, arising out of or in connection
-            with the use of the Service, including any consequences of actions or omissions of
-            mentors or mentees during or following their interaction. Nothing in these Terms
-            excludes or limits any liability that cannot be excluded or limited under applicable
-            law, including liability for damage caused by intent or gross negligence, and nothing
-            in these Terms affects statutory rights you hold as a consumer.
-          </p>
+            <p>
+              To the maximum extent permitted by applicable law, OpenMentor and its operator shall not
+              be liable for any indirect, incidental, consequential, special, or punitive damages, or
+              for any loss of profits, revenue, data, or reputation, arising out of or in connection
+              with the use of the Service, including any consequences of actions or omissions of
+              mentors or mentees during or following their interaction. Nothing in these Terms
+              excludes or limits any liability that cannot be excluded or limited under applicable
+              law, including liability for damage caused by intent or gross negligence, and nothing
+              in these Terms affects statutory rights you hold as a consumer.
+            </p>
 
-          <h2>9. Privacy</h2>
+            <h2>9. Privacy</h2>
 
-          <p>
-            Our processing of personal data is described in the{' '}
-            <Link href="/privacy">Privacy Policy</Link>.
-          </p>
+            <p>
+              Our processing of personal data is described in the{' '}
+              <Link href="/privacy">Privacy Policy</Link>.
+            </p>
 
-          <h2>10. Changes to the Service and these Terms</h2>
+            <h2>10. Changes to the Service and these Terms</h2>
 
-          <p>
-            We may modify or discontinue parts of the Service, and we may update these Terms from
-            time to time. The current version is always available at{' '}
-            <Link href="/terms">openmentor.io/terms</Link>, together with its &ldquo;last
-            updated&rdquo; date. For material changes we will provide reasonable notice on the
-            site. Continued use of the Service after changes take effect constitutes acceptance of
-            the updated Terms; if you do not agree with a change, stop using the Service.
-          </p>
+            <p>
+              We may modify or discontinue parts of the Service, and we may update these Terms from
+              time to time. The current version is always available at{' '}
+              <Link href="/terms">openmentor.io/terms</Link>, together with its &ldquo;last
+              updated&rdquo; date. For material changes we will provide reasonable notice on the
+              site. Continued use of the Service after changes take effect constitutes acceptance of
+              the updated Terms; if you do not agree with a change, stop using the Service.
+            </p>
 
-          <h2>11. Governing law and jurisdiction</h2>
+            <h2>11. Governing law and jurisdiction</h2>
 
-          <p>
-            These Terms are governed by the laws of the Netherlands. Any dispute arising out of or
-            in connection with these Terms or the Service that cannot be resolved amicably shall
-            be submitted to the competent court in the Netherlands. If you use the Service as a
-            consumer resident in the EU/EEA, this does not deprive you of the protection of
-            mandatory consumer-protection provisions of the law of your country of residence, or
-            of your right to bring or defend proceedings in the courts of that country where
-            applicable law so provides.
-          </p>
+            <p>
+              These Terms are governed by the laws of the Netherlands. Any dispute arising out of or
+              in connection with these Terms or the Service that cannot be resolved amicably shall
+              be submitted to the competent court in the Netherlands. If you use the Service as a
+              consumer resident in the EU/EEA, this does not deprive you of the protection of
+              mandatory consumer-protection provisions of the law of your country of residence, or
+              of your right to bring or defend proceedings in the courts of that country where
+              applicable law so provides.
+            </p>
 
-          <h2>12. Contact</h2>
+            <h2>12. Contact</h2>
 
-          <p>
-            Questions about these Terms:{' '}
-            <a href="mailto:hello@openmentor.io">hello@openmentor.io</a>. Privacy matters:{' '}
-            <a href="mailto:privacy@openmentor.io">privacy@openmentor.io</a>.
-          </p>
-        </div>
-      </Section>
+            <p>
+              Questions about these Terms:{' '}
+              <a href="mailto:hello@openmentor.io">hello@openmentor.io</a>. Privacy matters:{' '}
+              <a href="mailto:privacy@openmentor.io">privacy@openmentor.io</a>.
+            </p>
+          </div>
+        </Section>
+      </main>
 
       <Footer />
     </>
