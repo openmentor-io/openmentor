@@ -162,7 +162,9 @@ describe('MentorsList', () => {
         />
       )
 
-      const img = within(getCard(/John Doe/i)).getByRole('presentation')
+      // Non-empty alt (Task 1) gives the img an accessible name, so its
+      // implicit role is 'img', not 'presentation'.
+      const img = within(getCard(/John Doe/i)).getByRole('img')
       expect(img).toHaveClass('mix-blend-multiply')
       // Images are keyed by the immutable mentor UUID, not the slug.
       expect(img).toHaveAttribute('src', 'https://storage.example.com/rec1-large.jpg')
@@ -177,7 +179,7 @@ describe('MentorsList', () => {
         />
       )
 
-      const img = within(getCard(/John Doe/i)).getByRole('presentation')
+      const img = within(getCard(/John Doe/i)).getByRole('img')
       expect(img).toHaveClass('rounded-t-panel')
       expect(img).not.toHaveClass('mix-blend-multiply')
     })
@@ -191,7 +193,7 @@ describe('MentorsList', () => {
         />
       )
 
-      expect(within(getCard(/John Doe/i)).getByRole('presentation')).toHaveClass('rounded-t-panel')
+      expect(within(getCard(/John Doe/i)).getByRole('img')).toHaveClass('rounded-t-panel')
     })
 
     it('falls back to hash-colored initials (fallback B) when the photo fails to load', () => {

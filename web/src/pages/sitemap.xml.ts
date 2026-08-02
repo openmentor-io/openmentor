@@ -41,6 +41,7 @@ const _getServerSideProps: GetServerSideProps = async ({ res }) => {
 
   const staticPages = [
     { page: '' },
+    { page: 'mentors' },
     { page: 'about' },
     { page: 'faq' },
     { page: 'bementor' },

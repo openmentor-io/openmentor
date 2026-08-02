@@ -76,6 +76,8 @@ function MentorCard({
       })
 
   const sessions = mentor.sessionsCount ?? 0
+  // Descriptive alt for screen readers + Google Images (the subject is a person).
+  const photoAlt = `${mentor.name} — ${mentor.job} at ${mentor.workplace}`
 
   // Fire-and-forget analytics on click — never blocks navigation.
   const handleCardClick = (): void => {
@@ -95,6 +97,7 @@ function MentorCard({
     <Link
       href={'/mentor/' + mentor.slug}
       target="_blank"
+      rel="noopener"
       onClick={handleCardClick}
       className={classNames(
         'group block overflow-hidden rounded-card border border-line bg-white transition-[transform,box-shadow] duration-180 hover:-translate-y-[3px] hover:shadow-card-hover',
@@ -119,7 +122,7 @@ function MentorCard({
         {photoSrc && mentor.photoStyle === 'hero' && (
           <Image
             src={photoSrc}
-            alt=""
+            alt={photoAlt}
             width={170}
             height={180}
             unoptimized
@@ -131,7 +134,7 @@ function MentorCard({
         {photoSrc && mentor.photoStyle !== 'hero' && (
           <Image
             src={photoSrc}
-            alt=""
+            alt={photoAlt}
             width={150}
             height={160}
             unoptimized
@@ -164,9 +167,9 @@ function MentorCard({
       </div>
 
       <div className="border-t border-line px-3 pb-[13px] pt-[11px] sm:px-4 sm:pb-4 sm:pt-3.5">
-        <div className="font-name text-[15px] font-bold leading-[1.15] tracking-[-0.015em] text-ink sm:text-[17px]">
+        <h3 className="my-0 font-name text-[15px] font-bold leading-[1.15] tracking-[-0.015em] text-ink sm:text-[17px]">
           {mentor.name}
-        </div>
+        </h3>
 
         <div className="mt-[3px] text-xs leading-[1.4] text-ink-soft line-clamp-2 sm:text-[13px]">
           {mentor.job} · {mentor.workplace}

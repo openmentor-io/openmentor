@@ -26,7 +26,10 @@ export function mentorInitials(name: string): string {
 }
 
 interface MentorPortraitProps {
-  mentor: Pick<MentorBase, 'mentorId' | 'slug' | 'name' | 'photoStyle' | 'updatedAt'>
+  mentor: Pick<
+    MentorBase,
+    'mentorId' | 'slug' | 'name' | 'job' | 'workplace' | 'photoStyle' | 'updatedAt'
+  >
   /** Image quality passed to the storage loader. */
   quality?: 'small' | 'large' | 'full'
   /** `sizes` for next/image. */
@@ -63,6 +66,8 @@ export default function MentorPortrait({
     quality,
     version: updatedAtToVersion(mentor.updatedAt),
   })
+  // Descriptive alt for screen readers + Google Images (the subject is a person).
+  const photoAlt = `${mentor.name} — ${mentor.job} at ${mentor.workplace}`
 
   return (
     <div
@@ -91,7 +96,7 @@ export default function MentorPortrait({
         >
           <Image
             src={src}
-            alt={mentor.name}
+            alt={photoAlt}
             fill
             sizes={sizes}
             priority={priority}
@@ -110,7 +115,7 @@ export default function MentorPortrait({
         >
           <Image
             src={src}
-            alt={mentor.name}
+            alt={photoAlt}
             fill
             sizes={sizes}
             priority={priority}

@@ -13,6 +13,8 @@ const _getServerSideProps: GetServerSideProps = async (context) => {
     ...getTraceContext(),
   })
 
+  context.res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400')
+
   return {
     props: {},
   }

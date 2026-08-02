@@ -6,7 +6,6 @@ import {
   type Faro,
   type Instrumentation,
 } from '@grafana/faro-web-sdk'
-import { TracingInstrumentation } from '@grafana/faro-web-tracing'
 
 let faroInstance: Faro | null = null
 
@@ -116,17 +115,28 @@ export function initializeFaro(): Faro | null {
       instrumentations: [
         // Default web instrumentations: errors, console, web vitals, session
         ...getWebInstrumentations(),
-        // OpenTelemetry tracing integration
-        new TracingInstrumentation({
-          instrumentationOptions: {
-            propagateTraceHeaderCorsUrls: buildTraceHeaderCorsUrls(),
-          },
-        }) as Instrumentation,
       ],
     })
 
     // eslint-disable-next-line no-console
     console.log('[Faro] Grafana Faro initialized successfully')
+
+    // Tracing (OpenTelemetry) pulls in the bulk of the SDK weight and isn't
+    // needed for error/web-vitals capture, so load it in a separate chunk
+    // after core init instead of blocking the main bundle on every visit.
+    void import('@grafana/faro-web-tracing')
+      .then(({ TracingInstrumentation }) => {
+        faroInstance?.instrumentations.add(
+          new TracingInstrumentation({
+            instrumentationOptions: {
+              propagateTraceHeaderCorsUrls: buildTraceHeaderCorsUrls(),
+            },
+          }) as Instrumentation
+        )
+      })
+      .catch((error: unknown) => {
+        console.error('[Faro] Failed to load tracing instrumentation:', error)
+      })
 
     return faroInstance
   } catch (error) {

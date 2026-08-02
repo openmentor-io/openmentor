@@ -250,158 +250,160 @@ export default function Mentor({
 
       <NavHeader backLink={{ href: '/', label: 'Back to mentors' }} />
 
-      {/* Mobile: full-bleed pastel portrait with meta chips (design 02 · 390). */}
-      <div className="relative md:hidden">
-        <MentorPortrait
-          mentor={mentor}
-          quality="large"
-          sizes="100vw"
-          priority
-          className="h-[270px]"
-        />
-        <span className="meta-mono absolute left-3.5 top-3.5 rounded-md bg-white/90 px-2 py-1 text-[10px] tracking-[0.05em] text-brand-navy">
-          {metaLead}
-        </span>
-        <span className="absolute right-3.5 top-3.5 rounded-md bg-white/90 px-2 py-1 text-[10px]">
-          <AvailabilityMeta isVisible={mentor.isVisible} />
-        </span>
-      </div>
+      <main>
+        {/* Mobile: full-bleed pastel portrait with meta chips (design 02 · 390). */}
+        <div className="relative md:hidden">
+          <MentorPortrait
+            mentor={mentor}
+            quality="large"
+            sizes="100vw"
+            priority
+            className="h-[270px]"
+          />
+          <span className="meta-mono absolute left-3.5 top-3.5 rounded-md bg-white/90 px-2 py-1 text-[10px] tracking-[0.05em] text-brand-navy">
+            {metaLead}
+          </span>
+          <span className="absolute right-3.5 top-3.5 rounded-md bg-white/90 px-2 py-1 text-[10px]">
+            <AvailabilityMeta isVisible={mentor.isVisible} />
+          </span>
+        </div>
 
-      <div className="mx-auto flex max-w-[1200px] animate-rise-in items-start gap-11 px-5 pb-14 pt-5 md:px-8 md:pt-11 lg:px-16">
-        {/* Sidebar (desktop): sticky photo + price + details cards. */}
-        <aside className="sticky top-6 hidden w-[320px] flex-none flex-col gap-[18px] md:flex">
-          <div className="overflow-hidden rounded-panel border border-line">
-            <MentorPortrait
-              mentor={mentor}
-              quality="large"
-              sizes="320px"
-              priority
-              className="h-[310px]"
-            />
-            <div className="flex items-center justify-between border-t border-line bg-white px-[18px] py-3.5">
-              <span className="meta-mono text-ink-mute">{metaLead}</span>
-              <AvailabilityMeta isVisible={mentor.isVisible} />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3 rounded-panel border border-line bg-white p-5">
-            <div className="flex items-baseline justify-between">
-              <span className="font-display text-sm font-extrabold uppercase tracking-[0.02em] text-ink">
-                Price
-              </span>
-              <PriceValue price={mentor.price} size="lg" />
-            </div>
-
-            {mentor.isVisible ? (
-              <Link href={contactHref} className="button w-full py-[15px] text-[15px]">
-                Send request
-              </Link>
-            ) : (
-              <div className="text-center text-sm text-ink-soft">
-                This mentor is temporarily not accepting new requests.
+        <div className="mx-auto flex max-w-[1200px] animate-rise-in items-start gap-11 px-5 pb-14 pt-5 md:px-8 md:pt-11 lg:px-16">
+          {/* Sidebar (desktop): sticky photo + price + details cards. */}
+          <aside className="sticky top-6 hidden w-[320px] flex-none flex-col gap-[18px] md:flex">
+            <div className="overflow-hidden rounded-panel border border-line">
+              <MentorPortrait
+                mentor={mentor}
+                quality="large"
+                sizes="320px"
+                priority
+                className="h-[310px]"
+              />
+              <div className="flex items-center justify-between border-t border-line bg-white px-[18px] py-3.5">
+                <span className="meta-mono text-ink-mute">{metaLead}</span>
+                <AvailabilityMeta isVisible={mentor.isVisible} />
               </div>
-            )}
-
-            <span className="text-center text-xs leading-normal text-ink-soft">
-              Free to contact · no commission · the mentor replies by email
-            </span>
-          </div>
-
-          <div className="flex flex-col gap-2.5 rounded-panel border border-line px-5 py-[18px]">
-            <div className="flex justify-between">
-              <span className="text-[13px] text-ink-soft">Experience</span>
-              <span className="text-[13px] font-semibold text-ink">{mentor.experience} years</span>
             </div>
-            {mentor.menteeCount > 0 && (
-              <div className="flex justify-between">
-                <span className="text-[13px] text-ink-soft">Helped</span>
-                <span className="text-[13px] font-semibold text-ink">
-                  {mentor.menteeCount} {pluralize(mentor.menteeCount, 'mentee')}
+
+            <div className="flex flex-col gap-3 rounded-panel border border-line bg-white p-5">
+              <div className="flex items-baseline justify-between">
+                <span className="font-display text-sm font-extrabold uppercase tracking-[0.02em] text-ink">
+                  Price
                 </span>
+                <PriceValue price={mentor.price} size="lg" />
               </div>
-            )}
-            {/* Sessions carried over from getmentor.dev are counted above —
-                say so rather than passing them off as OpenMentor history (D28). */}
-            {legacySessions > 0 && (
-              <span className="meta-mono text-[10px] leading-normal text-ink-mute">
-                incl. {legacySessions} on getmentor.dev
-              </span>
-            )}
-          </div>
-        </aside>
 
-        {/* Content column. */}
-        <div className="flex min-w-0 flex-1 flex-col gap-[26px]">
-          <div>
-            <h1 className="font-name text-[28px] font-bold normal-case leading-[1.05] tracking-[-0.02em] text-ink md:text-[40px]">
-              {mentor.name}
-            </h1>
-            <div className="mt-1.5 text-sm text-ink-soft md:text-[17px]">
-              {mentor.job} · {mentor.workplace}
+              {mentor.isVisible ? (
+                <Link href={contactHref} className="button w-full py-[15px] text-[15px]">
+                  Send request
+                </Link>
+              ) : (
+                <div className="text-center text-sm text-ink-soft">
+                  This mentor is temporarily not accepting new requests.
+                </div>
+              )}
+
+              <span className="text-center text-xs leading-normal text-ink-soft">
+                Free to contact · no commission · the mentor replies by email
+              </span>
             </div>
-            {/* Mobile-only mono meta line (design 02 · 390). The desktop
-                sidebar carries the same getmentor.dev disclosure (D28). */}
-            <div className="meta-mono mt-2 text-ink-mute md:hidden">
-              {mentor.experience}y exp
-              {mentor.menteeCount > 0 &&
-                ` · ${mentor.menteeCount} ${pluralize(mentor.menteeCount, 'mentee')}`}
+
+            <div className="flex flex-col gap-2.5 rounded-panel border border-line px-5 py-[18px]">
+              <div className="flex justify-between">
+                <span className="text-[13px] text-ink-soft">Experience</span>
+                <span className="text-[13px] font-semibold text-ink">{mentor.experience} years</span>
+              </div>
+              {mentor.menteeCount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-[13px] text-ink-soft">Helped</span>
+                  <span className="text-[13px] font-semibold text-ink">
+                    {mentor.menteeCount} {pluralize(mentor.menteeCount, 'mentee')}
+                  </span>
+                </div>
+              )}
+              {/* Sessions carried over from getmentor.dev are counted above —
+                  say so rather than passing them off as OpenMentor history (D28). */}
               {legacySessions > 0 && (
-                <span className="mt-1 block text-[10px]">
+                <span className="meta-mono text-[10px] leading-normal text-ink-mute">
                   incl. {legacySessions} on getmentor.dev
                 </span>
               )}
             </div>
+          </aside>
+
+          {/* Content column. */}
+          <div className="flex min-w-0 flex-1 flex-col gap-[26px]">
+            <div>
+              <h1 className="font-name text-[28px] font-bold normal-case leading-[1.05] tracking-[-0.02em] text-ink md:text-[40px]">
+                {mentor.name}
+              </h1>
+              <div className="mt-1.5 text-sm text-ink-soft md:text-[17px]">
+                {mentor.job} · {mentor.workplace}
+              </div>
+              {/* Mobile-only mono meta line (design 02 · 390). The desktop
+                  sidebar carries the same getmentor.dev disclosure (D28). */}
+              <div className="meta-mono mt-2 text-ink-mute md:hidden">
+                {mentor.experience}y exp
+                {mentor.menteeCount > 0 &&
+                  ` · ${mentor.menteeCount} ${pluralize(mentor.menteeCount, 'mentee')}`}
+                {legacySessions > 0 && (
+                  <span className="mt-1 block text-[10px]">
+                    incl. {legacySessions} on getmentor.dev
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {mentor.tags.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {mentor.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full border border-line bg-surface px-[15px] py-2 text-[13px] font-semibold text-brand-navy"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {mentor.about && (
+              <section>
+                <SectionLabel>About</SectionLabel>
+                <HtmlContent
+                  content={mentor.about}
+                  className="prose max-w-[640px] text-[15px] leading-[1.65] text-ink"
+                />
+              </section>
+            )}
+
+            {mentor.description && (
+              <section>
+                <SectionLabel>How I can help</SectionLabel>
+                <HtmlContent
+                  content={mentor.description}
+                  className="prose max-w-[640px] text-[15px] leading-[1.65] text-ink"
+                />
+              </section>
+            )}
+
+            {mentor.competencies && (
+              <section>
+                <SectionLabel>Skills</SectionLabel>
+                <p className="my-0 max-w-[640px] text-[15px] leading-[1.65] text-ink-soft">
+                  {mentor.competencies}
+                </p>
+              </section>
+            )}
+
+            {!mentor.isVisible && (
+              <div className="text-sm text-ink-soft md:hidden">
+                This mentor is temporarily not accepting new requests.
+              </div>
+            )}
           </div>
-
-          {mentor.tags.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {mentor.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded-full border border-line bg-surface px-[15px] py-2 text-[13px] font-semibold text-brand-navy"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {mentor.about && (
-            <section>
-              <SectionLabel>About</SectionLabel>
-              <HtmlContent
-                content={mentor.about}
-                className="prose max-w-[640px] text-[15px] leading-[1.65] text-ink"
-              />
-            </section>
-          )}
-
-          {mentor.description && (
-            <section>
-              <SectionLabel>How I can help</SectionLabel>
-              <HtmlContent
-                content={mentor.description}
-                className="prose max-w-[640px] text-[15px] leading-[1.65] text-ink"
-              />
-            </section>
-          )}
-
-          {mentor.competencies && (
-            <section>
-              <SectionLabel>Skills</SectionLabel>
-              <p className="my-0 max-w-[640px] text-[15px] leading-[1.65] text-ink-soft">
-                {mentor.competencies}
-              </p>
-            </section>
-          )}
-
-          {!mentor.isVisible && (
-            <div className="text-sm text-ink-soft md:hidden">
-              This mentor is temporarily not accepting new requests.
-            </div>
-          )}
         </div>
-      </div>
+      </main>
 
       {/* Mobile: sticky bottom CTA bar (design 02 · 390). */}
       {mentor.isVisible && (
