@@ -1,0 +1,67 @@
+name: 💡 Idea or feature request
+description: Suggest an improvement, or propose a change before writing code
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If you're planning to write the code yourself, this is exactly the right
+        first step — see [CONTRIBUTING.md](https://github.com/openmentor-io/openmentor/blob/main/CONTRIBUTING.md#before-you-write-code).
+        Let's agree on the approach before you spend a weekend on it.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: >
+        Describe the problem rather than the solution. Who runs into it — a mentee,
+        a mentor, a moderator, someone working on the code?
+      placeholder: |
+        As a mentee, I can't tell which mentors are likely to reply quickly, so I
+        send requests and hear nothing back.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What do you have in mind?
+      description: Your proposed change, if you have one. Rough ideas are welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Anything you ruled out, and why. Skip if there's nothing obvious.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part would this touch?
+      options:
+        - Not sure
+        - Website / UI (web)
+        - API / backend (api)
+        - Emails or background jobs (worker)
+        - Deployment / infrastructure (infra)
+        - Documentation
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Would you like to work on this?
+      options:
+        - label: I'd be up for implementing this myself, if we agree on the approach
+          required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        OpenMentor is deliberately lightweight — no payment processing, no lock-in,
+        sessions arranged directly between mentor and mentee. Ideas that add
+        weight to the platform get a fair hearing, but that principle is the
+        starting point. See [openmentor.io/about](https://openmentor.io/about).

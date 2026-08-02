@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/openmentor-io/openmentor/security/advisories/new
+    about: Please report security issues privately, never as a public issue. See SECURITY.md.
+  - name: 🙋 Become a mentor
+    url: https://openmentor.io/bementor
+    about: The most valuable contribution most people can make. No issue needed — sign up here.
+  - name: 💬 Question about using the site
+    url: https://openmentor.io/faq
+    about: Check the FAQ first, or email hello@openmentor.io. The issue tracker is for the code.

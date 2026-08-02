@@ -27,7 +27,7 @@ The web app is a thin client — every data operation goes through the Go API (m
 ```bash
 # 1. Database
 docker run -d --name openmentor-pg \
-  -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD=openmentor -e POSTGRES_DB=openmentor \
+  -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD=password -e POSTGRES_DB=openmentor \
   -p 5432:5432 postgres:16-alpine
 
 # 2. API (see api/.env.example for required vars)
@@ -48,6 +48,16 @@ Full-stack via Compose: see [`infra/README.md`](infra/README.md).
 | `CI / Web` | changes under `web/` | lint, typecheck, tests, production build |
 | `CI / API` | changes under `api/` | race tests + coverage floor, gofmt/staticcheck, gosec, full Docker smoke test (postgres → migrate → api → worker) |
 | `Deploy` | manual dispatch | builds both images from one SHA, ships the stack to the VM with health-checked rollback |
+
+## Contributing
+
+Contributions are welcome — and mentoring counts as one. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the ways to help, how to get set up, the
+house rules, and what to run before opening a PR. Small fixes can go straight to
+a pull request; anything larger should start as an issue.
+
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md) — please report vulnerabilities privately, never as an issue
 
 ## History
 
