@@ -8,6 +8,7 @@ import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import constants from '@/config/constants'
 import { pageTitle } from '@/config/seo'
+import { isKnownTag, tagPath } from '@/config/tags'
 import analytics from '@/lib/analytics'
 import { jsonLdScriptProps } from '@/lib/json-ld'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
@@ -356,14 +357,24 @@ export default function Mentor({
 
             {mentor.tags.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {mentor.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full border border-line bg-surface px-[15px] py-2 text-[13px] font-semibold text-brand-navy"
-                  >
-                    {tag}
-                  </span>
-                ))}
+                {mentor.tags.map((tag) =>
+                  isKnownTag(tag) ? (
+                    <Link
+                      key={tag}
+                      href={tagPath(tag)}
+                      className="rounded-full border border-line bg-surface px-[15px] py-2 text-[13px] font-semibold text-brand-navy transition-colors duration-120 hover:border-brand-cobalt/45"
+                    >
+                      {tag}
+                    </Link>
+                  ) : (
+                    <span
+                      key={tag}
+                      className="rounded-full border border-line bg-surface px-[15px] py-2 text-[13px] font-semibold text-brand-navy"
+                    >
+                      {tag}
+                    </span>
+                  )
+                )}
               </div>
             )}
 
