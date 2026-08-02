@@ -10,9 +10,20 @@ import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
 import type { MentorListItem } from '@/types'
 
+/**
+ * Only the fields this page renders. Everything returned to props is
+ * serialized into __NEXT_DATA__ on every request, and `drop_long_fields`
+ * clears just `about`/`description` — a full MentorListItem still carries
+ * `competencies` (accepted up to 5,000 chars), tags, counts and photo
+ * metadata, none of which a directory row uses. At ~830 bytes per mentor
+ * unprojected vs ~110 projected, that is the difference between a few
+ * hundred KB and a few tens of KB once the catalog reaches its target size.
+ */
+type DirectoryMentor = Pick<MentorListItem, 'id' | 'slug' | 'name' | 'job' | 'workplace'>
+
 interface MentorsPageProps {
   [key: string]: unknown
-  mentors: MentorListItem[]
+  mentors: DirectoryMentor[]
 }
 
 // Every VISIBLE mentor, not just the first page-load batch (see useMentors
@@ -20,7 +31,9 @@ interface MentorsPageProps {
 // crawlable inbound link somewhere other than the sitemap.
 const _getServerSideProps: GetServerSideProps<MentorsPageProps> = async (context) => {
   const allMentors = await getAllMentors({ onlyVisible: true, drop_long_fields: true })
-  const mentors = [...allMentors].sort((a, b) => a.name.localeCompare(b.name))
+  const mentors: DirectoryMentor[] = allMentors
+    .map(({ id, slug, name, job, workplace }) => ({ id, slug, name, job, workplace }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 
   logger.info('Mentors directory page rendered', {
     mentorCount: mentors.length,
@@ -66,7 +79,10 @@ export default function MentorsDirectory({
         <script {...jsonLdScriptProps(mentorsJsonLd)} />
       </Head>
 
-      <MetaHeader customDescription="Every mentor on OpenMentor, listed alphabetically by name with their job title and company — browse the full directory and open any profile." />
+      <MetaHeader
+        customTitle="All mentors"
+        customDescription="Every mentor on OpenMentor, listed alphabetically by name with their job title and company — browse the full directory and open any profile."
+      />
 
       <NavHeader />
 
