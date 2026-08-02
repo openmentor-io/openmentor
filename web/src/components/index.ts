@@ -10,6 +10,8 @@ export { default as CookieConsentBanner } from './ui/CookieConsentBanner'
 
 // Layout Components
 export { default as MetaHeader } from './layout/MetaHeader'
+export { default as NoIndexHead } from './layout/NoIndexHead'
+export { default as AuthGateScreen } from './layout/AuthGateScreen'
 export { default as NavHeader } from './layout/NavHeader'
 export { default as Footer } from './layout/Footer'
 

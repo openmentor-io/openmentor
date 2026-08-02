@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
-import Head from 'next/head'
 import { useRouter } from 'next/router'
-import { pageTitle } from '@/config/seo'
+import { NoIndexHead } from '@/components'
 
 export default function AdminMentorsIndexPage(): JSX.Element {
   const router = useRouter()
@@ -10,10 +9,5 @@ export default function AdminMentorsIndexPage(): JSX.Element {
     router.replace('/admin/mentors/pending')
   }, [router])
 
-  return (
-    <Head>
-      <title>{pageTitle('Mentors')}</title>
-      <meta name="robots" content="noindex,follow" />
-    </Head>
-  )
+  return <NoIndexHead title="Mentors" />
 }

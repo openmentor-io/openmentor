@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
-import Head from 'next/head'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch, faCheckCircle, faTimesCircle } from '@fortawesome/free-solid-svg-icons'
+import { NoIndexHead } from '@/components'
 import { AdminAuthProvider, useAdminAuth } from '@/components/admin-moderation'
-import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
 
 type CallbackState = 'verifying' | 'success' | 'error'
@@ -78,10 +77,7 @@ function CallbackHandler(): JSX.Element {
 
   return (
     <div className="flex min-h-screen flex-col justify-center bg-surface px-5 py-12">
-      <Head>
-        <title>{pageTitle('Moderation sign-in')}</title>
-        <meta name="robots" content="noindex,follow" />
-      </Head>
+      <NoIndexHead title="Moderation sign-in" />
 
       <div className="mx-auto w-full max-w-md">
         <Link href="/" className="mb-8 flex justify-center">

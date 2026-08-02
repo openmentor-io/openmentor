@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
-import Head from 'next/head'
 import Image from 'next/image'
 import { useRouter } from 'next/router'
 import { useForm } from 'react-hook-form'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch, faEnvelope } from '@fortawesome/free-solid-svg-icons'
+import { AuthGateScreen, NoIndexHead } from '@/components'
 import { AdminAuthProvider, useAdminAuth } from '@/components/admin-moderation'
-import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
 
 interface LoginFormData {
@@ -72,19 +71,12 @@ function LoginForm(): JSX.Element {
   }
 
   if (authLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
-      </div>
-    )
+    return <AuthGateScreen title="Moderation — sign in" />
   }
 
   return (
     <div className="flex min-h-screen flex-col justify-center bg-surface px-5 py-12">
-      <Head>
-        <title>{pageTitle('Moderation — sign in')}</title>
-        <meta name="robots" content="noindex,follow" />
-      </Head>
+      <NoIndexHead title="Moderation — sign in" />
 
       <div className="mx-auto w-full max-w-[440px]">
         <div className="rounded-[20px] border border-line bg-white p-7 shadow-[0_20px_50px_-24px_rgba(19,42,82,0.22)] sm:p-10">

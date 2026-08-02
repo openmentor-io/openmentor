@@ -7,7 +7,6 @@
  */
 
 import { useState, useEffect } from 'react'
-import Head from 'next/head'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/router'
@@ -16,7 +15,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch } from '@fortawesome/free-solid-svg-icons'
 import classNames from 'classnames'
 import { MentorAuthProvider, useMentorAuth } from '@/components/mentor-admin'
-import { pageTitle } from '@/config/seo'
+import { NoIndexHead, AuthGateScreen } from '@/components'
 import analytics from '@/lib/analytics'
 
 interface LoginFormData {
@@ -86,19 +85,12 @@ function LoginForm(): JSX.Element {
 
   // Show loading while checking auth
   if (authLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
-      </div>
-    )
+    return <AuthGateScreen title="Mentor login" />
   }
 
   return (
     <div className="relative flex min-h-screen flex-col justify-center overflow-hidden bg-surface px-5 py-12">
-      <Head>
-        <title>{pageTitle('Mentor login')}</title>
-        <meta name="robots" content="noindex,follow" />
-      </Head>
+      <NoIndexHead title="Mentor login" />
 
       {/* Backdrop ring echoes */}
       <div

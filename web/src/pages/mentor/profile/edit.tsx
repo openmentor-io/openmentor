@@ -10,7 +10,6 @@
  */
 
 import { useState, useEffect, Fragment } from 'react'
-import Head from 'next/head'
 import Link from 'next/link'
 import { Transition } from '@headlessui/react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -29,9 +28,8 @@ import {
   ShareProfileCard,
   UsernameCard,
 } from '@/components/mentor-admin'
-import { ProfileForm, Notification } from '@/components'
+import { ProfileForm, Notification, NoIndexHead, AuthGateScreen } from '@/components'
 import { useRouter } from 'next/router'
-import { pageTitle } from '@/config/seo'
 import { captureException } from '@/lib/posthog'
 
 type ReadyStatus = '' | 'loading' | 'success' | 'error'
@@ -280,11 +278,7 @@ function ProfileEditContent(): JSX.Element {
 
   // Show loading while checking auth
   if (authLoading || !isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
-      </div>
-    )
+    return <AuthGateScreen title="My profile" />
   }
 
   const isReturned = mentor?.status === 'draft' && !!mentor?.moderationNote
@@ -294,10 +288,7 @@ function ProfileEditContent(): JSX.Element {
 
   return (
     <>
-      <Head>
-        <title>{pageTitle('My profile')}</title>
-        <meta name="robots" content="noindex,follow" />
-      </Head>
+      <NoIndexHead title="My profile" />
 
       <MentorAdminLayout
         title="My profile"

@@ -6,11 +6,8 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
-import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCircleNotch } from '@fortawesome/free-solid-svg-icons'
 import type { MentorClientRequest, RequestStatus, SortOrder } from '@/types'
 import { ACTIVE_STATUSES, STATUS_LABELS } from '@/types'
 import {
@@ -23,8 +20,8 @@ import {
   SearchInput,
   SortToggle,
 } from '@/components/mentor-admin'
+import { NoIndexHead, AuthGateScreen } from '@/components'
 import { getActiveRequests } from '@/lib/mentor-admin-api'
-import { pageTitle } from '@/config/seo'
 
 type StatusFilter = 'all' | RequestStatus
 
@@ -117,19 +114,12 @@ function ActiveRequestsContent(): JSX.Element {
 
   // Show loading while checking auth
   if (authLoading || !isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
-        <FontAwesomeIcon icon={faCircleNotch} className="animate-spin text-2xl text-brand-cobalt" />
-      </div>
-    )
+    return <AuthGateScreen title="Requests" />
   }
 
   return (
     <>
-      <Head>
-        <title>{pageTitle('Requests')}</title>
-        <meta name="robots" content="noindex,follow" />
-      </Head>
+      <NoIndexHead title="Requests" />
 
       <MentorAdminLayout
         title="Requests"
