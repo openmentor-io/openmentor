@@ -130,3 +130,49 @@ func TestCronTriggersRequireWorkerToken(t *testing.T) {
 		t.Errorf("correct token: status = %d, want 200", w.Code)
 	}
 }
+
+// TestFragmentBytesArePinned pins the exact markup of the two server-built
+// props against an input carrying every character class that escaping treats
+// differently. The pre-change code concatenated html.EscapeString output; the
+// bytes below are that output except for the two characters where
+// html/template's HTML-text escaper is wider — '+' (&#43;) and a NUL byte
+// (U+FFFD, unreachable from Postgres text). Mail clients render both back, so
+// nothing is user-visible; the point is that the delta is exactly this, and
+// stays this.
+func TestFragmentBytesArePinned(t *testing.T) {
+	const input = `C++ & "Tom's" <b>plan</b> 5 < 10`
+
+	t.Run("decline_info", func(t *testing.T) {
+		got := string(buildDeclineInfoHTML("", input))
+		want := `<br><br>` +
+			`<div style="font-family: inherit; text-align: inherit"><strong>Comment:</strong> ` +
+			`C&#43;&#43; &amp; &#34;Tom&#39;s&#34; &lt;b&gt;plan&lt;/b&gt; 5 &lt; 10</div>`
+		if got != want {
+			t.Errorf("decline_info fragment\n got: %s\nwant: %s", got, want)
+		}
+	})
+
+	t.Run("requests_list", func(t *testing.T) {
+		got := string(renderFragment(staleRequestsListTpl, []string{input}))
+		want := `<ul style="padding-left: 20px; margin: 0;">` +
+			`<li style="margin-bottom: 8px;">` +
+			`C&#43;&#43; &amp; &#34;Tom&#39;s&#34; &lt;b&gt;plan&lt;/b&gt; 5 &lt; 10</li>` +
+			`</ul>`
+		if got != want {
+			t.Errorf("requests_list fragment\n got: %s\nwant: %s", got, want)
+		}
+	})
+
+	t.Run("pending requests_list", func(t *testing.T) {
+		got := string(renderFragment(pendingRequestsListTpl,
+			[]pendingRequestItem{{Title: input, Preview: "5 < 10"}}))
+		want := `<ul style="padding-left: 20px; margin: 0;">` +
+			`<li style="margin-bottom: 8px;"><strong>` +
+			`C&#43;&#43; &amp; &#34;Tom&#39;s&#34; &lt;b&gt;plan&lt;/b&gt; 5 &lt; 10</strong>` +
+			`<br><em>5 &lt; 10</em></li>` +
+			`</ul>`
+		if got != want {
+			t.Errorf("pending requests_list fragment\n got: %s\nwant: %s", got, want)
+		}
+	})
+}

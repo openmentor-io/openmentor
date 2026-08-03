@@ -30,6 +30,7 @@ import {
   ApiError,
 } from '@/lib/admin-moderation-api'
 import { imageLoader } from '@/lib/image-loader'
+import { isValidCalendarUrl } from '@/lib/safe-url'
 import {
   useUsernameAvailability,
   isUsernameFormatValid,
@@ -313,6 +314,8 @@ function MentorModerationEditContent(): JSX.Element {
     return Array.from(new Set([...filters.tags, ...selected])).sort((a, b) => a.localeCompare(b))
   }, [formData?.tags])
 
+  const calendarUrlInvalid = !isValidCalendarUrl(formData?.calendarUrl.trim())
+
   const handleInputChange = (
     field: keyof AdminMentorProfileUpdateRequest,
     value: string | string[]
@@ -332,10 +335,19 @@ function MentorModerationEditContent(): JSX.Element {
 
   const onSave = async (): Promise<void> => {
     if (!mentor || !formData) return
+    // The form is seeded from stored data, which predates the https_url
+    // binding, so a legacy calendar link would fail the save as an opaque
+    // "Invalid request body" naming no field.
+    if (calendarUrlInvalid) {
+      setSaveState('error')
+      setActionError('Calendar URL must be an https:// link, or empty.')
+      return
+    }
+    const payload = { ...formData, calendarUrl: formData.calendarUrl.trim() }
     setSaveState('loading')
     setActionError(null)
     try {
-      const updated = await updateModerationMentor(mentor.mentorId, formData)
+      const updated = await updateModerationMentor(mentor.mentorId, payload)
       setMentor(updated)
       setFormData(buildFormData(updated))
       setSaveState('success')
@@ -796,8 +808,13 @@ function MentorModerationEditContent(): JSX.Element {
               <input
                 value={formData.calendarUrl}
                 onChange={(e) => handleInputChange('calendarUrl', e.target.value)}
-                className="field"
+                className={`field ${calendarUrlInvalid ? 'field-error' : ''}`}
               />
+              {calendarUrlInvalid && (
+                <p className="mt-1 text-sm font-medium text-danger" role="alert">
+                  Must be an https:// link, or empty. Saving is blocked until this is fixed.
+                </p>
+              )}
             </div>
 
             <div className="md:col-span-2">

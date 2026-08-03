@@ -9,6 +9,7 @@ import { Tooltip } from 'react-tooltip'
 import Link from 'next/link'
 import { useState, useRef, type ChangeEvent } from 'react'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
+import { isValidCalendarUrl } from '@/lib/safe-url'
 import type { MentorWithSecureFields } from '@/types'
 
 interface TagOption {
@@ -102,16 +103,6 @@ const tagsToOptions = (tags: string[]): TagOption[] =>
 
 // All available tags as options
 const tagOptions = tagsToOptions(filters.tags)
-
-function isValidUrl(value?: string): boolean {
-  if (!value) return true
-  try {
-    const url = new URL(value)
-    return url.protocol === 'http:' || url.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
 
 export default function ProfileForm({
   mentor,
@@ -611,14 +602,17 @@ export default function ProfileForm({
         </label>
 
         {errors.calendarUrl && (
-          <div className="text-sm text-danger mt-3 mb-2">This must be a valid URL</div>
+          <div className="text-sm text-danger mt-3 mb-2">This must be a valid https:// URL</div>
         )}
 
         <input
           type="text"
           {...register('calendarUrl', {
+            // Trim first: a pasted booking link often carries surrounding
+            // whitespace, which the API's https_url tag rejects.
+            setValueAs: (value: string) => value.trim(),
             validate: {
-              checkUrl: isValidUrl,
+              checkUrl: isValidCalendarUrl,
             },
           })}
           defaultValue={mentor.calendarUrl || ''}

@@ -2,7 +2,6 @@ package worker
 
 import (
 	"net/http"
-	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,12 +11,10 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/email/templates"
 )
 
-var templatePlaceholderRe = regexp.MustCompile(`\{\{([a-z_]+)\}\}`)
-
 // assertTemplatePropsSatisfied checks that every email the job sent supplies a
-// value for each {{placeholder}} its template declares. SES substitutes
-// server-side and silently renders a missing key as an empty string, so an
-// unfilled URL placeholder ships as href="" rather than failing loudly.
+// non-empty value for each {{placeholder}} its template declares. Rendering
+// under missingkey=error already fails an absent prop, but only at send time
+// and not for one that is present and empty — which still ships href="".
 func assertTemplatePropsSatisfied(t *testing.T, env *jobsTestEnv) {
 	t.Helper()
 
@@ -25,13 +22,10 @@ func assertTemplatePropsSatisfied(t *testing.T, env *jobsTestEnv) {
 		tpl, err := templates.GetTemplate(attempt.TemplateName)
 		require.NoError(t, err, "template %q must exist", attempt.TemplateName)
 
-		for _, section := range []string{tpl.Subject, tpl.HTML, tpl.Text} {
-			for _, match := range templatePlaceholderRe.FindAllStringSubmatch(section, -1) {
-				placeholder := match[1]
-				value, ok := attempt.Props[placeholder]
-				assert.Truef(t, ok, "template %q uses {{%s}} but the job supplies no such prop", attempt.TemplateName, placeholder)
-				assert.NotEmptyf(t, value, "template %q supplies an empty {{%s}}", attempt.TemplateName, placeholder)
-			}
+		for _, placeholder := range templates.Placeholders(tpl) {
+			value, ok := attempt.Props[placeholder]
+			assert.Truef(t, ok, "template %q uses {{%s}} but the job supplies no such prop", attempt.TemplateName, placeholder)
+			assert.NotEmptyf(t, value, "template %q supplies an empty {{%s}}", attempt.TemplateName, placeholder)
 		}
 	}
 }
