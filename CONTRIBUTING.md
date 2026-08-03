@@ -56,7 +56,7 @@ Ask, and you'll get a real answer.
 
 | Tool | Version | Needed for |
 |---|---|---|
-| Go | 1.25+ (CI runs 1.26) | `api/` |
+| Go | 1.26+ — `api/go.mod` declares `go 1.26.0` / `toolchain go1.26.5` (CI runs 1.26) | `api/` |
 | Node.js | 26.x | `web/` |
 | npm | ≥ 10.9.0 | `web/` |
 | Docker + Compose | 20.10+ / 2.24.4+ | full stack, `infra/` (the dev override uses `!override`) |
