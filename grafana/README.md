@@ -34,6 +34,16 @@ ad-hoc UI-only edits as durable.
 
 ### One-time Git Sync setup (Grafana UI)
 
+> **Already connected** — read back from the live stack 2026-08-03:
+> repository `repository-7b3d712`, GitHub, branch `main`, path
+> `grafana/dashboards`, sync enabled every 3600s, target `folder`,
+> workflows `[branch]` (UI saves return as a branch/PR). A dashboard merged to
+> `main` therefore reaches Grafana within the hour with no operator action.
+> The steps below are for rebuilding the connection, not for first-time setup.
+>
+> Note the path — `grafana/dashboards` — which is exactly why the alert rules
+> in `alerting/` are not covered. See the next section.
+
 The UI wording shifts between versions; the flow is:
 
 1. In Grafana, open **Administration → Provisioning** (sometimes labelled
