@@ -168,4 +168,37 @@ describe('ProfileForm', () => {
     )
     expect(mockOnSubmit).not.toHaveBeenCalled()
   })
+
+  // Blocking the save is not a lockout: `experience` is `binding:"required"` on
+  // SaveProfileRequest, so forwarding the empty string would come back a 400.
+  // What matters is that the mentor can clear it in one step — the field is
+  // focused and flagged, and choosing a value saves.
+  it.each(['experience', 'price'])(
+    'lets a mentor whose %s was never set save after choosing one',
+    async (field) => {
+      const user = userEvent.setup()
+      const label = field === 'price' ? /Price per one-hour session/i : /Experience/i
+      const chosen = field === 'price' ? 'Negotiable' : '5-10'
+      renderForm({ [field]: '' })
+
+      const select = screen.getByLabelText(label) as HTMLSelectElement
+      expect(select.value).toBe('')
+
+      await user.click(screen.getByRole('button', { name: /Save/i }))
+
+      await waitFor(() => expect(screen.getByText(/This field is required/i)).toBeInTheDocument())
+      expect(mockOnSubmit).not.toHaveBeenCalled()
+      // react-hook-form focuses the first invalid field, which scrolls the
+      // message into view rather than leaving Save looking inert.
+      expect(select).toHaveFocus()
+
+      await user.selectOptions(select, chosen)
+      await user.click(screen.getByRole('button', { name: /Save/i }))
+
+      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled())
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ [field]: chosen, name: 'Jane Doe' })
+      )
+    }
+  )
 })

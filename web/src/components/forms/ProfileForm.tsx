@@ -118,9 +118,9 @@ type SelectOption = [value: string, label: string]
 /**
  * `price` (free text per DECISIONS D3) and `experience` are TEXT columns, while
  * these selects only offer a few suggestions. An uncontrolled <select> whose
- * defaultValue matches no <option> reports the FIRST option instead, so saving
- * an unrelated field silently rewrote a migrated "$75" to "Free". Keep the
- * stored value as its own option so it round-trips untouched.
+ * defaultValue matches no <option> reports the FIRST option instead, which
+ * rewrites a stored "$75" to "Free" on any save — so keep the stored value as an
+ * option of its own and it round-trips untouched.
  */
 function withStoredOption(
   options: SelectOption[],
