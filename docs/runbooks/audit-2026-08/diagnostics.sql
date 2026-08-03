@@ -177,25 +177,44 @@ WHERE price = 'Free'
   AND updated_at > created_at
 ORDER BY updated_at DESC;
 
--- Exposure. Note '' (empty string) is deliberately counted: it is not one of
--- the select's options either, so it triggers the same first-option fallback.
+-- Exposure. '' (empty string) is deliberately counted: it is not one of the
+-- select's options either, so it triggers the same first-option fallback.
+--
+-- NULL IS COUNTED TOO, and an earlier `IS NOT NULL` filter here hid those
+-- rows. `price` is plain nullable TEXT (migration 000001, `price TEXT`) with no
+-- CHECK and no default, so NULL is a value the schema permits and NULL is not
+-- one of the six options either. Its consequence is in fact WORSE than an
+-- off-list string, and it is the D1 failure on a second column: models.ScanMentor
+-- scans `price` into a non-pointer `Mentor.Price string` (models/mentor.go:23,138),
+-- so pgx fails the WHOLE row. Verified with pgx v5.9.2 against a scratch
+-- database: scanning a NULL `price` into *string returns
+--   can't scan into dest[N] (col: price): cannot scan NULL into *string
+-- while COALESCE(price,'') on the same row returns ''. So a NULL price breaks
+-- GetByEmail (login), the public profile page and the catalog exactly as a NULL
+-- `sort_order` does — and on the paths that DO COALESCE it (the admin/moderation
+-- reads at mentor_repository.go:607,661 and the worker's GetJobMentorByID) it
+-- surfaces as '', which is off-list, which is one save from 'Free'.
+-- `experience` (Mentor.Experience string) has the identical shape, which is why
+-- D2d has always counted NULL. Both filters now agree.
 \echo ''
 \echo '## D2b — mentors holding a price the profile select cannot represent'
 
 SELECT count(*) AS off_list_prices
 FROM mentors
-WHERE price IS NOT NULL
-  AND price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable');
+WHERE price IS NULL
+   OR price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable');
 
 \echo ''
 \echo '## D2c — the actual off-list values (input for the recompute in data-repair.md)'
 
-SELECT price, count(*) AS mentors
+-- COALESCE so a NULL is a visible '<NULL>' bucket rather than a blank cell an
+-- operator reads as the empty string. Same shape as D2d.
+SELECT COALESCE(price, '<NULL>') AS price, count(*) AS mentors
 FROM mentors
-WHERE price IS NOT NULL
-  AND price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable')
-GROUP BY price
-ORDER BY mentors DESC, price;
+WHERE price IS NULL
+   OR price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable')
+GROUP BY 1
+ORDER BY mentors DESC, 1;
 
 -- ---------------------------------------------------------------------------
 -- D2d — THE SAME BUG ON A SECOND FIELD (not in the original audit plan)
@@ -259,6 +278,18 @@ ORDER BY mentors DESC, 1;
 --              too free-form for the profile <select> is also an email sink.
 --            mentors.calendar_url        -> `calendly_url` in
 --              new-request-calendly (job_new_request_watcher.go:102-104)
+--            mentors.moderation_note     -> `reviewer_note` in
+--              new-mentor-returned (job_mentor_moderation.go:166-174, via
+--              JobMentor.ModerationNote). The moderator's own "please fix this"
+--              note, written by the API's return-to-draft action
+--              (mentor_repository.go ReturnMentorToDraft) and mailed to the
+--              mentor unescaped. The remediation plan's P6 sink table lists it
+--              (`reviewer_note`, max 2000); D3 used to skip straight from
+--              calendar URLs to the review fields, so a clean D3 said nothing
+--              about it. Its author is a moderator, not an attacker, so a hit
+--              here is far more likely to be prose about markup than an
+--              injection — but "we never checked" is not an answer to "was this
+--              exercised?".
 --            reviews.mentor_review       -> `review_text` in new-review
 --              (truncated to 500 chars, job_process_review.go)
 --          reviews.platform_review and reviews.improvements are stored and
@@ -299,30 +330,43 @@ ORDER BY mentors DESC, 1;
 --          `\s` inside the bracket expression: unambiguous in every regex
 --          flavour, which matters in a file operators copy into other tools.
 --
--- REGEX    The tag-name branch ends in `\y`, PostgreSQL's word-boundary
---          constraint. Do NOT change it to `\b`: in PostgreSQL's regex flavour
+-- REGEX    EVERY free-text sink uses the same deliberately permissive
+--          predicate, `<\s*[a-z]` — '<' followed by a letter.
+--
+--          `description` used to carry a tag allowlist instead,
+--          `<\s*(a|img|div|table|script|style)\y`, which is a denylist wearing
+--          an allowlist's clothes: `<form>`, `<iframe>`, `<svg>` and `<input>`
+--          are not on the list and every one of them reaches the same
+--          unescaped `{{request_details}}` / `{{mentee_request}}` interpolation
+--          (job_new_request_watcher.go:98,124) in DKIM-signed mail. An
+--          unauthenticated contact request using any of them was reported
+--          CLEAN, so D3 would have concluded the injection was never exercised.
+--          Verified on a scratch database: '<iframe src=x>' does not match the
+--          tag list and does match `<\s*[a-z]`. D3 answers "was this ever
+--          exercised?", where a false negative ends the investigation and a
+--          false positive costs one eyeballed row — so the permissive form is
+--          the right trade in every one of these fields, not just the short
+--          ones.
+--
+--          Expect benign hits and read them, do not tune them away. In long
+--          prose: 'if a < b' matches (`\s*` spans the space). In
+--          preferred_contact: an address written '<me@example.com>'. A price is
+--          not expected to hit at all — '<50' and '<$50' do not match, because
+--          a digit and '$' are not [a-z].
+--
+--          If you ever re-add a tag-name branch, end it with PostgreSQL's `\y`
+--          word-boundary constraint and NOT with `\b`: in this regex flavour
 --          `\b` is the BACKSPACE character (U+0008), so `...(img|...)\b` never
 --          matches and the branch silently returns zero rows. Verified:
 --            SELECT '<img src=x>' ~* '<\s*(a|img)\b';  -- false
 --            SELECT '<img src=x>' ~* '<\s*(a|img)\y';  -- true
---          `\y` also avoids false positives on words that merely start with a
---          tag name ('<image ...>' does not match).
---
---          The short free-text fields (name, preferred_contact, price) use the
---          deliberately permissive `<\s*[a-z]` instead: nobody has a legitimate
---          reason to put '<' followed by a letter in a name or a price, and
---          missing a real injection costs more than a row to eyeball. Known
---          benign shape to expect in preferred_contact: an address written
---          '<me@example.com>'. A price is not expected to hit this at all —
---          '<50' and '<$50' do not match, because a digit and '$' are not
---          [a-z].
 -- ===========================================================================
 \echo ''
 \echo '## D3 — markup / non-https scheme in fields that reach email templates'
 
   SELECT id, created_at, 'client_requests.description' AS field
     FROM client_requests
-   WHERE description ~* '<\s*(a|img|div|table|script|style)\y'
+   WHERE description ~* '<\s*[a-z]'
 UNION ALL
   SELECT id, created_at, 'client_requests.name'
     FROM client_requests
@@ -346,6 +390,10 @@ UNION ALL
      AND calendar_url <> ''
      AND (calendar_url !~* '^https://'
           OR calendar_url ~ '[<>"''`[:space:]]')
+UNION ALL
+  SELECT id, created_at, 'mentors.moderation_note'
+    FROM mentors
+   WHERE moderation_note ~* '<\s*[a-z]'
 UNION ALL
   SELECT id, created_at, 'reviews.mentor_review'
     FROM reviews
@@ -439,9 +487,11 @@ FROM (
     UNION ALL
     SELECT 4,
            'D2b',
+           -- NULL included, matching the D2b/D2c detail queries and D2d: see the
+           -- D2b comment for why a NULL price is the worse case, not the safe one.
            (SELECT count(*) FROM mentors
-             WHERE price IS NOT NULL
-               AND price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable'))::text
+             WHERE price IS NULL
+                OR price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable'))::text
                || ' mentor row(s) hold an off-list price',
            'each is one profile save from losing it; fix the form first'
     UNION ALL
@@ -457,7 +507,7 @@ FROM (
            'D3 ',
            (SELECT count(*) FROM (
                   SELECT 1 FROM client_requests
-                   WHERE description ~* '<\s*(a|img|div|table|script|style)\y'
+                   WHERE description ~* '<\s*[a-z]'
                UNION ALL
                   SELECT 1 FROM client_requests WHERE name ~* '<\s*[a-z]'
                UNION ALL
@@ -471,6 +521,8 @@ FROM (
                    WHERE calendar_url IS NOT NULL AND calendar_url <> ''
                      AND (calendar_url !~* '^https://'
                           OR calendar_url ~ '[<>"''`[:space:]]')
+               UNION ALL
+                  SELECT 1 FROM mentors WHERE moderation_note ~* '<\s*[a-z]'
                UNION ALL
                   SELECT 1 FROM reviews WHERE mentor_review ~* '<\s*[a-z]'
                UNION ALL

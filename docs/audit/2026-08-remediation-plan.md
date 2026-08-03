@@ -146,10 +146,10 @@ Two further calibrations, so you size the work correctly:
 - **`P7`'s Turnstile failure self-heals after ~5 minutes** (the widget auto-refreshes on token expiry).
   Every retry a user would realistically make still fails, but "requires a page reload" is inexact.
 
-### 4.1 Corrections to this plan itself (review rounds 2–3)
+### 4.1 Corrections to this plan itself (review rounds 2–6)
 
 The table above corrects the **source audits**. This section corrects **this document**. Successive
-review passes over the round-1 fixes found seven wrong or unsafe statements here. Where following the
+review passes over the round-1 fixes found ten wrong or unsafe statements here. Where following the
 text would have caused harm, the text was changed in place; what it originally said is recorded below
 so the audit trail survives.
 
@@ -163,8 +163,13 @@ so the audit trail survives.
 | 6 | `P8` fix steps 1–2 | "`touch /backups/.last_success`" plus "a compose `healthcheck` that fails when that file is older than ~26h", with an acceptance criterion of the container turning "unhealthy" | **Necessary but inert as written: the new healthcheck has no consumer.** Docker keeps an **unhealthy** container in `running` state, and the only deploy-time liveness signal is `docker inspect -f '{{.State.Status}}' == running` (`infra/deploy-remote.sh:173`, `infra/rollback.sh:209` — lines this plan's own **Where** block cites without saying to change them). `grep -rn 'State.Health' infra/` returns nothing. So a stale-backup container still reads as healthy to both scripts and the deploy still reports success. Step 2 now requires the gate to consume `.State.Health.Status` for this service. Verified against `infra/` on `main`; the infra-side change lands separately. |
 | 7 | `P14` fix step 1 | "stop passing `RequestDistinctID` for review and contact events" | **Understates the scope by an order of magnitude.** `RequestDistinctID` had **26 call sites across 6 producer files**, not two flows: `review_service.go` (6), `contact_service.go` (2), `mentor_requests_service.go` (7), and the worker jobs `job_new_request_watcher.go` (4), `job_request_finished.go` (5), `job_process_review.go` (2) — so a mentor changing a request's status, or any worker touching the request, kept minting `request:<uuid>` person records. Fixing only the two named flows would have left the capability flowing to PostHog. The helper itself (`analytics/tracker.go:322`) is the 27th occurrence; the implementation **deletes it outright**, which is why `RequestDistinctID` now has zero occurrences in `api/`. |
 
-Items 3, 4, 5 and 7 are this plan being wrong about code that is already correct. Items 1, 2 and 6 are
-operator instructions that were dangerous, useless or inert as written.
+| 8 | `D3` query, again | `description` matched against a list of tag names, `<\s*(a\|img\|div\|table\|script\|style)\y`, and no `mentors.moderation_note` branch at all | **A tag allowlist is a denylist wearing an allowlist's clothes, and one sink was missing outright.** `<form>`, `<iframe>`, `<svg>` and `<input>` are absent from that list and every one of them reaches `{{request_details}}` / `{{mentee_request}}` unescaped from an **unauthenticated** contact request (`job_new_request_watcher.go:98,124`), so `D3` reported the row CLEAN and would have concluded the injection was never exercised. Verified on a scratch database: `'<iframe src=x>'` does not match the tag list and does match `<\s*[a-z]`. Every free-text sink now uses the same permissive `<\s*[a-z]`. Separately, `mentors.moderation_note` → `{{reviewer_note}}` in `new-mentor-returned` (`job_mentor_moderation.go:166-174`) was never in `D3`, although this plan's own `P6` sink table lists it; it is now in the detail query, the summary count and the copy above. |
+| 9 | `P2` fix step 4 | "the selection is what keeps the job safe: `sort_order IS NULL AND status='draft' AND activated_at IS NULL`, with the same age cutoff, so a row that finalized normally is never touched a second time" | **A selection predicate cannot make a non-idempotent handler safe.** It decides which rows are *candidates*; it does not stop two runs selecting the same candidate. A scheduled tick overlapping a manual `POST /jobs/cron/finalize-stuck-registrations`, or a redelivered `POST /jobs/new-mentor-watcher`, can both read the row before either writes — and then both replace the confirmation token, re-randomize `sort_order` and send email, with the first link dead on arrival. Safety has to live in the write: an exclusive claim (compare-and-swap on the token that was read, plus a refusal to rewrite a token whose window is still open), the email gated on the claim's affected-row count, a compare-and-swap release when the send fails, and `cron.SkipIfStillRunning` for scheduled overlap. The implementation does all four (`FinalizeNewMentor` / `ReleaseNewMentorFinalization` in `worker/repository.go`, the `applied` gate in `job_new_mentor_watcher.go`, `cron.go`); only this plan's instruction was wrong. |
+| 10 | `D2` exposure query | `WHERE price IS NOT NULL AND price NOT IN (…)` | **The `IS NOT NULL` filter hid exposed rows.** `price` is nullable `TEXT` with no default or `CHECK` (migration `000001`), so NULL is a value the schema permits and it is not one of the six select options either. It is also the *worse* case, not the safe one: `models.ScanMentor` scans `price` into a non-pointer `Mentor.Price string` (`models/mentor.go:23,138`), so a NULL fails the whole row — measured with pgx v5.9.2, `can't scan into dest[N] (col: price): cannot scan NULL into *string` — which is the `D1` lockout on a second column, while the paths that do `COALESCE(m.price,'')` (`mentor_repository.go:607,661`, the worker's `GetJobMentorByID`) surface `''`, which is off-list, which is one save from `Free`. `experience` has the identical shape, which is why `D2d` always counted NULL; both filters now agree. |
+
+Items 3, 4, 5, 7 and 9 are this plan being wrong about code that is already correct. Items 1, 2, 6, 8
+and 10 are operator instructions or diagnostics that were dangerous, useless or silently blind as
+written.
 
 ---
 
@@ -257,10 +262,13 @@ FROM mentors
 WHERE price = 'Free' AND updated_at > created_at
 ORDER BY updated_at DESC;
 
--- exposure: how many mentors are one save away from losing their price
+-- exposure: how many mentors hold a price the select cannot represent.
+-- NULL counts (§4.1): `price` is nullable TEXT with no default, NULL is not one
+-- of the six options either, and it is in fact the WORSE case — `ScanMentor`
+-- fails the whole row on a NULL `price` just as it does on a NULL `sort_order`.
 SELECT count(*) FROM mentors
-WHERE price IS NOT NULL
-  AND price NOT IN ('Free','$50','$100','$150','$200','Negotiable');
+WHERE price IS NULL
+   OR price NOT IN ('Free','$50','$100','$150','$200','Negotiable');
 
 -- the same exposure on `experience`, which has the identical defect (§4.1).
 -- Off-list values are rewritten to the first option, '2-5', on the next save.
@@ -282,9 +290,12 @@ mentors, since `infra/migration/migrate-mentors.js:393-410` (`mapPrice`) is dete
 ### D3 — has the email injection been exercised?
 
 Synced with `docs/runbooks/audit-2026-08/diagnostics.sql` D3, which is the maintained copy — run that
-if you can. Three things this plan originally got wrong (see §4.1): it omitted
+if you can. Five things this plan originally got wrong (see §4.1): it omitted
 `client_requests.preferred_contact` and `mentors.price`, which are unescaped email sinks too; it
-used `\b`, which in PostgreSQL means BACKSPACE — so the tag-name branch matched nothing at all; and
+omitted `mentors.moderation_note`, which its own `P6` sink table lists as `reviewer_note`; it
+used `\b`, which in PostgreSQL means BACKSPACE — so the tag-name branch matched nothing at all; it
+matched `description` against a **list of tag names**, so `<form>`, `<iframe>`, `<svg>` and `<input>`
+were reported clean although all four reach the same unescaped interpolation; and
 it tested `calendar_url`'s **scheme only**, which misses
 `https://evil.example/x"><img src=x onerror=alert(1)>` — a value that keeps the `https://` prefix and
 then breaks out of `href="{{calendly_url}}"`.
@@ -292,7 +303,7 @@ then breaks out of `href="{{calendly_url}}"`.
 ```sql
   SELECT id, created_at, 'client_requests.description' AS field
     FROM client_requests
-   WHERE description ~* '<\s*(a|img|div|table|script|style)\y'
+   WHERE description ~* '<\s*[a-z]'
 UNION ALL
   SELECT id, created_at, 'client_requests.name'
     FROM client_requests
@@ -317,6 +328,10 @@ UNION ALL
      AND (calendar_url !~* '^https://'
           OR calendar_url ~ '[<>"''`[:space:]]')
 UNION ALL
+  SELECT id, created_at, 'mentors.moderation_note'
+    FROM mentors
+   WHERE moderation_note ~* '<\s*[a-z]'
+UNION ALL
   SELECT id, created_at, 'reviews.mentor_review'
     FROM reviews
    WHERE mentor_review ~* '<\s*[a-z]'
@@ -330,7 +345,16 @@ ORDER BY created_at;
 `preferred_contact` → `{{mentee_contact}}` in `new-request-mentor` and `price` → `{{request_price}}`
 in `new-request` / `new-request-calendly` (`job_new_request_watcher.go:99,109-123`). Both are free
 text with only a length bound, so a clean `D3` that skipped them proved nothing about the two sinks
-most likely to be reached.
+most likely to be reached. `moderation_note` → `{{reviewer_note}}` in `new-mentor-returned`
+(`job_mentor_moderation.go:166-174`) is the third, and it is in this plan's own `P6` sink table.
+
+Every free-text sink uses the same permissive `<\s*[a-z]` predicate, including `description`. A list
+of tag names there was a denylist wearing an allowlist's clothes: `<form>`, `<iframe>`, `<svg>` and
+`<input>` are all absent from it and all reach `{{request_details}}` / `{{mentee_request}}` unescaped
+from an **unauthenticated** contact request. `D3` answers "was this exercised?", where a false
+negative ends the investigation and a false positive costs one eyeballed row — so expect benign hits
+(`if a < b` in long prose matches, and so does an address written `<me@example.com>`) and read them
+rather than tuning the predicate.
 
 Hits are not proof of an attack — but a `javascript:` calendar URL or an `<a href>` inside a name is,
 and would turn this into a disclosure question rather than only a code question.
@@ -440,12 +464,22 @@ sort_order = 0     ->  no error, TOKEN ISSUED (verified in DB)
 1. `COALESCE(sort_order, 0)` in **all four** `ScanMentor` queries. (Alternative: give the column a default and backfill. `COALESCE` is preferred — it matches the existing pattern at `:668` and is additive, satisfying §3.)
 2. Fix the log line to distinguish "no such row" from "row failed to scan", and log at `error` for the latter.
 3. Run `D1`, classify with `D1b`, and repair per `data-repair.md` §D1 — **not** by replaying finalization over the whole list (§4.1).
-4. Address the *cause* — the lost finalization — in the same PR or the next: add a `finalize-stuck-registrations` cron job that finds `status='draft'` rows older than N minutes whose finalization never ran and invokes the same handler. The handler is **not** idempotent (§4.1), so the selection is what keeps the job safe: `sort_order IS NULL AND status='draft' AND activated_at IS NULL`, with the same age cutoff, so a row that finalized normally is never touched a second time. ~50 lines, no new dependency; also covers worker downtime and deploy restarts. (See §12 for why a durable queue is deliberately not the Phase 0 answer.)
+4. Address the *cause* — the lost finalization — in the same PR or the next: add a `finalize-stuck-registrations` cron job that finds `status='draft'` rows older than N minutes whose finalization never ran and invokes the same handler. The handler is **not** idempotent (§4.1), and **the selection predicate is not what makes this safe** (§4.1 item 9): `sort_order IS NULL AND status='draft' AND activated_at IS NULL` plus an age cutoff only decides *which* rows are candidates, and a scheduled tick overlapping a manual `POST /jobs/cron/finalize-stuck-registrations` (or a redelivered `POST /jobs/new-mentor-watcher`) can have both runs select the same row before either writes. Safety has to come from the write:
+   - Make the finalization `UPDATE` an **exclusive claim**, not a blind write: compare-and-swap on the `email_confirmation_token` the run read, and refuse to rewrite a token whose expiry window is still open. `WHERE status='draft'` alone does not claim anything, because for a non-duplicate registration the *target* status is `draft` too, so the row still matches after the first claim commits.
+   - **Gate the email on the claim's affected-row count.** Return `RowsAffected() > 0` from the update and send nothing when it is false (a lost claim is a successful no-op, not an error) — otherwise the loser mails a confirmation link that the winner's token already invalidated.
+   - If a claimed send fails, release the claim with a compare-and-swap on exactly the status, `sort_order` and token this run wrote, so the row returns to the candidate set without reverting somebody else's work.
+   - Register the cron entry with `cron.SkipIfStillRunning` so a slow pass cannot stack on the next tick. That covers *scheduled* overlap only; the row-level claim is what covers a manual or redelivered call.
+
+   ~50 lines, no new dependency; also covers worker downtime and deploy restarts. (See §12 for why a durable queue is deliberately not the Phase 0 answer.)
 
 **Acceptance**
 - A mentor row with `sort_order IS NULL` can request a login link and a token is issued.
 - `GET /mentor/profile` succeeds for such a mentor.
 - A registration whose finalization trigger never fires converges within one cron interval.
+- **Concurrent finalization of one row produces exactly one email.** N callers racing the same
+  candidate row: exactly one claim reports an affected row, the others report zero and send nothing,
+  and the token left in the database is the one that was mailed. This needs a real Postgres — a fake
+  repository cannot exercise the `UPDATE … WHERE` that is the whole mechanism.
 - `D1b` returns zero `stuck_registration` rows after repair. **`D1` itself is not expected to reach
   zero** — imported profiles carry a NULL `sort_order` from getmentor.dev and are harmless once the
   `COALESCE` fix ships. Do not chase a zero `D1` by triggering finalization on them (§4.1).
@@ -1421,3 +1455,4 @@ in the repo); the magic-link leak *via logs and PostHog* (both already mitigated
 | 2026-08-03 | Rewritten as a standalone, self-contained plan with a reproduction harness in `verification/`. |
 | 2026-08-03 | Round-2 review of the Phase 0 fixes found five defects in **this document** — recorded in §4.1, and the text changed where following it would have caused harm. Instructions changed: `D1`'s repair (blanket finalization replay → the `D1b`-classified procedure in `data-repair.md`; the handler is not idempotent), `D1`'s acceptance ("`D1` returns zero rows" → `D1b` returns zero `stuck_registration` rows), the embedded `D3` query (added `preferred_contact` and `price`; `\b`→`\y`), `P6` step 4 (naive `template.HTML` wrapping → rebuild the fragments as `html/template` templates). Claims corrected: `P2` touches four `ScanMentor` queries, not three; `P4`'s `experience` field has the identical defect and is in scope. |
 | 2026-08-03 | Round-3 review found two more defects in **this document** — §4.1 items 6 and 7. `P8`'s proposed backup healthcheck had **no consumer**: Docker keeps an unhealthy container `running`, `infra/deploy-remote.sh:173` and `infra/rollback.sh:209` test only `.State.Status`, and `grep -rn 'State.Health' infra/` is empty, so the step as written changed nothing a deploy reports; step 2 and the acceptance criteria now require the gate to read `.State.Health.Status`. `P14`'s containment scope understated the leak by an order of magnitude (26 `RequestDistinctID` call sites across 6 producer files, not two flows); the instruction is now to delete the helper outright, which is what the implementation does. `D3`'s `calendar_url` test was scheme-only and missed an HTTPS value carrying attribute-breaking markup; both the plan copy and `diagnostics.sql` now also match `<`, `>`, `"`, `'`, backtick and whitespace. |
+| 2026-08-03 | Round-6 review found three more defects in **this document** — §4.1 items 8, 9 and 10, each verified by execution before the text was changed. `D3`'s `description` branch matched a **list of tag names**, so `<form>`, `<iframe>`, `<svg>` and `<input>` from an unauthenticated contact request were reported clean; every free-text sink now uses the permissive `<\s*[a-z]`. `mentors.moderation_note` → `{{reviewer_note}}` was missing from `D3` altogether, although `P6`'s own sink table lists it. `P2` step 4 claimed the cron job's **selection predicate** was what made a non-idempotent handler safe; it is not — the instruction now describes the exclusive claim, the affected-row gate on the email, the compare-and-swap release and `cron.SkipIfStillRunning`, which is what the implementation does. `D2`'s exposure query filtered `price IS NOT NULL`, hiding rows whose NULL price is the worse case (it fails `ScanMentor` outright). |

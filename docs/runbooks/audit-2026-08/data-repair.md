@@ -350,7 +350,23 @@ docker exec openmentor-postgres-backup sh -c '
   aws s3 cp "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/openmentor-YYYYMMDD-HHMM.dump" \
             /backups/restore-candidate.dump
 '
-docker cp openmentor-postgres-backup:/backups/restore-candidate.dump /tmp/candidate.dump
+# 2b. Copy it out to the host — but NOT with a bare `docker cp`. `docker cp`
+#     behaves like `cp -a` and applies the mode from the tar header it reads out
+#     of the container, so the sidecar's 0644 (its `aws s3 cp` runs under the
+#     ordinary 022 umask) lands on the host copy: a complete production database
+#     dump readable by every local user on the VM. Setting `umask 077` does NOT
+#     fix that — measured: `docker cp` of a 0644 file produced 0644 on the host
+#     under both umask 022 and umask 077, and only the explicit chmod gave 600.
+#     So refuse a path we did not create, create it under 077, and set the mode
+#     ourselves before the dump exists at a readable one.
+if [ -e /tmp/candidate.dump ] || [ -L /tmp/candidate.dump ]; then
+  echo "refusing: /tmp/candidate.dump already exists — its mode and owner are not ours" >&2
+else
+  ( umask 077
+    docker cp openmentor-postgres-backup:/backups/restore-candidate.dump /tmp/candidate.dump )
+  chmod 600 /tmp/candidate.dump
+  ls -l /tmp/candidate.dump   # must print -rw------- before you continue
+fi
 
 # 3. Restore into a throwaway container — never against production. It gets no
 #    --network, so it cannot reach the production database.

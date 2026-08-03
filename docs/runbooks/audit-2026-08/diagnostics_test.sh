@@ -223,6 +223,79 @@ run_diag both ok "$WORK/argv-pass" --local --out "$WORK/passthrough.txt" -- 'ser
 assert_eq       'an explicit DSN after -- resolves the ambiguity' "$RUN_STATUS" 0
 assert_contains 'uses the passthrough args'                       "$(cat "$WORK/argv-pass")" 'service=openmentor-prod'
 
+section 'diagnostics.sh — PSQL_ARGS may only define a connection'
+
+# psql processes command/file options in command-line order, so a passthrough
+# -c/-f runs BEFORE the wrapper's own `-f -` — i.e. before diagnostics.sql sets
+# default_transaction_read_only. Measured against a scratch Postgres on the
+# unguarded script: `-- -c 'CREATE TABLE …'`, `-- -wc 'CREATE TABLE …'`,
+# `-- -f other.sql` and `-- --command='CREATE TABLE …'` each created their table
+# on a run that reported itself read-only. Hence an allowlist, and hence these
+# rejections.
+#
+# reject_case <label> <report-name> <args...>
+reject_case() {
+    local label="$1" name="$2"
+    shift 2
+    run_diag pg ok "$WORK/argv-reject" --local --out "$WORK/$name" -- "$@"
+    assert_eq      "refuses $label (exit 2)" "$RUN_STATUS" 2
+    assert_no_file "writes no report for $label" "$WORK/$name"
+    assert_contains "explains why it refused $label" "$(cat "$RUN_ERR")" 'may only define a connection'
+    # The stub records its argv; if the option had reached psql it would be here.
+    assert_no_file "never invokes psql for $label" "$WORK/argv-reject"
+}
+
+reject_case '-c (execute a command)'          r-c.txt          -c 'CREATE TABLE t (x int)'
+reject_case '--command= ("="-joined)'         r-command.txt    --command=SELECT
+reject_case '--command (space-separated)'     r-command2.txt   --command 'SELECT 1'
+reject_case '-f (read commands from a file)'  r-f.txt          -f /tmp/other.sql
+reject_case '--file='                         r-file.txt       --file=/tmp/other.sql
+reject_case '-o (write output to a file)'     r-o.txt          -o /tmp/out.txt
+reject_case '-l (list databases and exit)'    r-l.txt          -l
+reject_case '-1 (single transaction)'         r-1.txt          -1
+reject_case '-v (set a psql variable)'        r-v.txt          -v ON_ERROR_STOP=0
+reject_case 'a bare - (SQL from stdin)'       r-dash.txt       -
+# `-wc 'SQL'` is the sharp one: -w takes no value, so psql reads the SECOND
+# letter as the option. A per-token first-letter check that stopped at `w` would
+# wave this straight through.
+reject_case 'a bundled short option (-wc)'    r-bundle.txt     -wc 'CREATE TABLE t (x int)'
+reject_case 'a bundle after a valid flag'     r-bundle2.txt    -w -Wc 'SELECT 1'
+# An option smuggled AFTER a legitimate connection option, so the walk cannot
+# stop at the first accepted token.
+reject_case '-c following a valid -h'         r-after.txt      -h db.invalid -c 'SELECT 1'
+reject_case '-c following an attached -p'     r-after2.txt     -p5432 -c 'SELECT 1'
+
+# A rejection must not echo the VALUE: a DSN can embed a password.
+run_diag pg ok "$WORK/argv-secret" --local --out "$WORK/r-secret.txt" \
+    -- 'postgresql://u:hunter2@db.invalid/x' -c 'SELECT 1'
+assert_eq     'refuses an execution option next to a DSN' "$RUN_STATUS" 2
+assert_absent 'and never echoes the DSN it was passed'    "$(cat "$RUN_ERR")" 'hunter2'
+
+# Everything that DOES define a connection still gets through, in every spelling
+# psql accepts — otherwise this guard would just break the documented workstation
+# path.
+accept_case() {
+    local label="$1" name="$2"
+    shift 2
+    run_diag none ok "$WORK/argv-$name" --local --out "$WORK/$name" -- "$@"
+    assert_eq       "accepts $label (exit 0)" "$RUN_STATUS" 0
+    assert_contains "passes $label to psql"   "$(cat "$WORK/argv-$name")" "$1"
+}
+
+accept_case '-h with a separate value'   a-h.txt        -h db.invalid
+accept_case '-h with an attached value'  a-hattached.txt -hdb.invalid
+accept_case '--host='                    a-hosteq.txt   --host=db.invalid
+accept_case '--host with a value'        a-host.txt     --host db.invalid
+accept_case '-U'                         a-u.txt        -U openmentor
+accept_case '-d'                         a-d.txt        -d openmentor
+accept_case '-w (no password prompt)'    a-w.txt        -w
+accept_case 'a service= positional'      a-svc.txt      service=openmentor-prod
+
+run_diag none ok "$WORK/argv-multi" --local --out "$WORK/a-multi.txt" \
+    -- -h db.invalid -p 5432 -U openmentor -d openmentor -w
+assert_eq       'accepts a full connection spelled out' "$RUN_STATUS" 0
+assert_contains 'and passes all of it through'          "$(cat "$WORK/argv-multi")" 'openmentor'
+
 section 'diagnostics.sh — dry run touches nothing, and its exit code is a preflight'
 
 run_diag pg ok "$WORK/argv" --local --dry-run --out "$WORK/dryrun.txt"
@@ -252,12 +325,25 @@ section 'diagnostics.sql — structure'
 
 count_of() { grep -cF -- "$1" "$DIAG_SQL"; }
 sql_body="$(cat "$DIAG_SQL")"
+# Executable lines only. The comments deliberately quote the predicates that were
+# REMOVED and say why, so an "this must not appear" check has to read the SQL and
+# not the prose around it.
+sql_statements="$(grep -v '^[[:space:]]*--' "$DIAG_SQL")"
 
 # Every D3 sink predicate has to appear in BOTH the detail query and its copy
 # inside the SUMMARY block. Two occurrences each — four for `name`, which covers
 # two tables — is what "keep the two in sync" means mechanically.
+#
+# `description` is checked with the SAME permissive predicate as every other
+# free-text sink. It used to carry a tag allowlist,
+# `<\s*(a|img|div|table|script|style)\y`, which reported `<form>`, `<iframe>`,
+# `<svg>` and `<input>` clean even though all four reach the unescaped
+# {{request_details}} / {{mentee_request}} interpolation from an unauthenticated
+# contact request. `assert_absent` below is what stops that coming back.
 assert_eq 'D3 sink in detail + summary: description' \
-    "$(count_of "description ~* '<\\s*(a|img|div|table|script|style)\\y'")" 2
+    "$(count_of "description ~* '<\\s*[a-z]'")" 2
+assert_absent 'D3 no longer matches description against a list of tag names' \
+    "$sql_statements" '(a|img|div|table|script|style)'
 assert_eq 'D3 sink in detail + summary: name (2 tables)' \
     "$(count_of "name ~* '<\\s*[a-z]'")" 4
 assert_eq 'D3 sink in detail + summary: preferred_contact' \
@@ -268,6 +354,12 @@ assert_eq 'D3 sink in detail + summary: mentor_review' \
     "$(count_of "mentor_review ~* '<\\s*[a-z]'")" 2
 assert_eq 'D3 sink in detail + summary: platform_review' \
     "$(count_of "platform_review ~* '<\\s*[a-z]'")" 2
+# moderation_note -> {{reviewer_note}} in new-mentor-returned
+# (job_mentor_moderation.go:166-174), unescaped, and listed in the plan's own P6
+# sink table. D3 used to jump from calendar URLs straight to the review fields.
+assert_eq 'D3 sink in detail + summary: moderation_note' \
+    "$(count_of "moderation_note ~* '<\\s*[a-z]'")" 2
+assert_contains 'D3 labels the moderation_note rows' "$sql_body" "'mentors.moderation_note'"
 assert_eq 'D3 sink in detail + summary: calendar_url scheme' \
     "$(count_of "calendar_url !~* '^https://'")" 2
 # The scheme test alone passes `https://evil.example/x"><img src=x>`, which is a
@@ -281,6 +373,19 @@ assert_contains 'D3 labels the price rows'             "$sql_body" "'mentors.pri
 assert_eq 'exactly one read-only REPEATABLE READ transaction' \
     "$(count_of 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;')" 1
 assert_eq 'exactly one COMMIT' "$(count_of 'COMMIT;')" 1
+
+# `price` is nullable TEXT with no default (migration 000001), so a NULL is a
+# value the schema permits and is not one of the six select options either — and
+# it is the worse case, since ScanMentor fails the whole row on it
+# (models/mentor.go:23,138: Mentor.Price is a plain string). A `price IS NOT NULL`
+# filter therefore hid an exposed row from D2b, D2c and the summary count.
+# `experience` has the same shape, which is why D2d always counted NULL.
+assert_absent 'D2 no longer filters NULL prices out of the exposure set' \
+    "$sql_statements" 'price IS NOT NULL'
+assert_eq 'NULL prices counted in D2b, D2c and the summary' \
+    "$(count_of 'WHERE price IS NULL')" 3
+assert_eq 'D2d still counts NULL experience the same way' \
+    "$(count_of 'experience IS NULL')" 2
 
 # ---------------------------------------------------------------------------
 # Prose tiers. The blocks below are commands an operator pastes into a
@@ -321,10 +426,29 @@ bare_aws_lines() {
 # $VAR inside single quotes) is the point rather than a mistake.
 # shellcheck disable=SC2016
 check_plan() {
-local plan
+local plan plan_d3_block plan_d2_block plan_p2
 section 'remediation plan — corrected operator instructions'
 
 plan="$(cat "$PLAN_MD")"
+
+# The runnable ```sql blocks, separated from the prose around them: §4.1 quotes
+# the wording each of these used to have, so an absence check has to look at the
+# block an operator actually pastes, not at the whole document.
+plan_sql_block() {
+    awk -v h="^### $1 " '$0 ~ h {f=1} f && /^```sql$/{inb=1;next} inb && /^```$/{exit} inb' "$PLAN_MD"
+}
+plan_d3_block="$(plan_sql_block D3)"
+plan_d2_block="$(plan_sql_block D2)"
+assert_eq 'the plan D3 sql block is extractable' \
+    "$([ -n "$plan_d3_block" ] && printf 'yes')" 'yes'
+assert_eq 'the plan D2 sql block is extractable' \
+    "$([ -n "$plan_d2_block" ] && printf 'yes')" 'yes'
+
+# P2's own item, without §4.1 — which quotes P2's old wording AND describes the
+# replacement, so a whole-document grep passes even with the item left wrong.
+plan_p2="$(awk '/^### P2 /{f=1} /^### P3 /{f=0} f' "$PLAN_MD")"
+assert_eq 'the P2 item is extractable' \
+    "$([ -n "$plan_p2" ] && printf 'yes')" 'yes'
 
 # D1 is a mixed bag (imported, active, just-committed rows), and
 # NewMentorWatcher rewrites status, re-mints the confirmation token and re-sends
@@ -349,10 +473,11 @@ assert_contains 'D1 acceptance targets D1b stuck_registration rows instead' \
 # It shipped without preferred_contact and price, both of which reach signed
 # email unescaped, so a clean D3 read from the plan proved nothing about them.
 for pred in \
-    "description ~* '<\\s*(a|img|div|table|script|style)\\y'" \
+    "description ~* '<\\s*[a-z]'" \
     "name ~* '<\\s*[a-z]'" \
     "preferred_contact ~* '<\\s*[a-z]'" \
     "price ~* '<\\s*[a-z]'" \
+    "moderation_note ~* '<\\s*[a-z]'" \
     "mentor_review ~* '<\\s*[a-z]'" \
     "platform_review ~* '<\\s*[a-z]'" \
     "calendar_url !~* '^https://'" \
@@ -367,6 +492,46 @@ done
 # In PostgreSQL's regex flavour \b is BACKSPACE, so this branch matched nothing.
 assert_absent 'plan D3 no longer uses \b as a word boundary' \
     "$plan" '(a|img|div|table|script|style)\b'
+
+# A tag allowlist is a denylist wearing an allowlist's clothes: <form>, <iframe>,
+# <svg> and <input> are all absent from it and all reach {{request_details}} /
+# {{mentee_request}} unescaped from an UNAUTHENTICATED contact request, so the
+# plan's D3 called them clean. The old predicate survives once, in §4.1 item 8,
+# with markdown-escaped pipes.
+assert_absent 'the plan D3 block matches every tag, not a listed set' \
+    "$plan_d3_block" '(a|img|div|table|script|style)'
+assert_eq     'the tag allowlist survives only as a quoted correction' \
+    "$(count_in "$PLAN_MD" 'a\|img\|div\|table\|script\|style')" 1
+assert_contains 'the plan D3 block covers moderation_note' \
+    "$plan_d3_block" "moderation_note ~* '<\\s*[a-z]'"
+assert_contains 'and names the template prop it reaches' \
+    "$plan" '`moderation_note` → `{{reviewer_note}}`'
+
+# D2's exposure query filtered `price IS NOT NULL`, which hid rows whose NULL
+# price is the WORSE case — ScanMentor fails the whole row on it. Both the old
+# wording (§4.1 item 10) and the changelog entry quote the filter, so this checks
+# the paste-able block.
+assert_absent 'the plan D2 exposure query no longer filters NULL prices out' \
+    "$plan_d2_block" 'price IS NOT NULL'
+assert_contains 'and counts them instead' "$plan_d2_block" 'WHERE price IS NULL'
+
+# P2 step 4 told the reader the cron job's SELECTION predicate was what made a
+# non-idempotent handler safe. It is not: a scheduled tick overlapping a manual
+# POST can have both runs select the same candidate before either writes. Safety
+# lives in the write, which is what the implementation on fix/audit-p0-api does.
+assert_eq '"the selection is what keeps the job safe" survives only as a quoted correction' \
+    "$(count_in "$PLAN_MD" 'the selection is what keeps the job safe')" 1
+assert_contains 'P2 step 4 says the predicate is not what makes this safe' \
+    "$plan_p2" '**the selection predicate is not what makes this safe**'
+assert_contains 'P2 step 4 requires an exclusive claim' "$plan_p2" 'exclusive claim'
+assert_contains 'P2 step 4 names the compare-and-swap on the token that was read' \
+    "$plan_p2" 'compare-and-swap on the `email_confirmation_token` the run read'
+assert_contains 'P2 step 4 gates the email on the affected-row count' \
+    "$plan_p2" "Gate the email on the claim's affected-row count"
+assert_contains 'P2 step 4 keeps SkipIfStillRunning for scheduled overlap' \
+    "$plan_p2" 'cron.SkipIfStillRunning'
+assert_contains 'P2 acceptance exercises concurrent finalization' \
+    "$plan_p2" 'produces exactly one email'
 
 # P2: FetchAllMentorsFromDB (the public catalog) was the missed fourth query.
 assert_contains 'P2 lists all four raw sort_order queries' \
@@ -434,6 +599,24 @@ assert_contains 'the sidecar maps BACKUP_AWS_* onto AWS_*' \
     "$repair" 'AWS_ACCESS_KEY_ID="$BACKUP_AWS_ACCESS_KEY_ID"'
 assert_contains 'the dump is copied out of the sidecar' \
     "$repair" 'docker cp openmentor-postgres-backup:/backups/restore-candidate.dump'
+
+# `docker cp` behaves like `cp -a` and applies the mode from the tar header, so
+# the sidecar's 0644 (aws s3 cp under the ordinary 022 umask) lands on the host
+# copy — a complete production dump readable by every local user on the VM.
+# Measured: `docker cp` of a 0644 file produced 0644 on the host under umask 022
+# AND under umask 077, and only the explicit chmod produced 600. So all three
+# guards are load-bearing and the chmod is the one that actually fixes it.
+assert_contains 'the host dump copy refuses a path it did not create' \
+    "$repair" '[ -e /tmp/candidate.dump ] || [ -L /tmp/candidate.dump ]'
+assert_contains 'the host dump copy is created under umask 077' \
+    "$repair" '( umask 077'
+assert_contains 'the host dump copy is forced to mode 600' \
+    "$repair" 'chmod 600 /tmp/candidate.dump'
+assert_contains 'and the operator is told what mode to expect' \
+    "$repair" 'must print -rw------- before you continue'
+# umask alone would look like a fix and is not one, so the runbook has to say so.
+assert_contains 'the runbook says umask alone does not fix docker cp' \
+    "$repair" 'Setting `umask 077` does NOT'
 assert_contains 'the scratch restore waits for readiness' "$repair" 'pg_isready'
 assert_contains 'the sidecar copy is deleted afterwards' \
     "$repair" 'rm -f /backups/restore-candidate.dump'
@@ -587,7 +770,17 @@ VALUES
    13, now(), NULL, '$150', '10+', 'https://evil.example/x"><img src=x onerror=alert(1)>'),
   -- a real Calendly link with query, fragment and sub-delims must NOT match
   ('77777777-7777-7777-7777-777777777777','calendar-ok','Calendar Ok','active','calok@example.invalid',
-   14, now(), NULL, '$200', '10+', 'https://calendly.com/m/30min?month=2026-08&back=1#pick');
+   14, now(), NULL, '$200', '10+', 'https://calendly.com/m/30min?month=2026-08&back=1#pick'),
+  -- price IS NULL: permitted by the schema (`price TEXT`, no default), not one
+  -- of the six select options, and the case a `price IS NOT NULL` filter hid.
+  ('88888888-8888-8888-8888-888888888888','price-null','Price Null','active','pricenull@example.invalid',
+   15, now(), NULL, NULL, '10+', NULL);
+
+-- moderation_note reaches {{reviewer_note}} in new-mentor-returned unescaped
+-- (job_mentor_moderation.go:166-174). Set separately: it is not in the column
+-- list above, and the point is that D3 has a branch for it at all.
+UPDATE mentors SET moderation_note = 'Please fix <iframe src=x> in your bio'
+WHERE id = '55555555-5555-5555-5555-555555555555';
 
 INSERT INTO client_requests (id, mentor_id, email, name, preferred_contact, description, level, status)
 VALUES
@@ -598,7 +791,12 @@ VALUES
   ('aaaaaaaa-0000-0000-0000-000000000002','55555555-5555-5555-5555-555555555555','mentee2@example.invalid',
    'Mentee Two','telegram: @two','Career advice please.','Senior','done'),
   ('aaaaaaaa-0000-0000-0000-000000000003','55555555-5555-5555-5555-555555555555','mentee3@example.invalid',
-   'Mentee Three','signal','Hello <img src=x onerror=alert(1)> there','Middle','pending');
+   'Mentee Three','signal','Hello <img src=x onerror=alert(1)> there','Middle','pending'),
+  -- <iframe> is NOT in the tag list D3's description branch used to carry, yet it
+  -- reaches {{request_details}} / {{mentee_request}} unescaped from an
+  -- unauthenticated contact request. A tag-allowlist predicate calls this clean.
+  ('aaaaaaaa-0000-0000-0000-000000000004','55555555-5555-5555-5555-555555555555','mentee4@example.invalid',
+   'Mentee Four','email','Hi <iframe src=//evil.example></iframe> please advise','Middle','pending');
 
 INSERT INTO reviews (client_request_id, mentor_review, platform_review)
 VALUES ('aaaaaaaa-0000-0000-0000-000000000002','Great mentor, 10/10','nice site');
@@ -634,9 +832,25 @@ FIXTURES
     assert_contains 'and labels it as calendar_url'  "$d3" 'mentors.calendar_url'
     assert_absent   'D3 leaves a real Calendly link with query + fragment alone' \
         "$d3" '77777777-7777-7777-7777-777777777777'
+    # An unlisted tag in a description. Its id, not just the field label, so this
+    # cannot pass on the <img> row that the old tag list already matched.
+    assert_contains 'D3 finds an unlisted tag (<iframe>) in a description' \
+        "$d3" 'aaaaaaaa-0000-0000-0000-000000000004'
+    assert_contains 'D3 finds markup in a moderation note'  "$d3" 'mentors.moderation_note'
     assert_eq       'D3 detail row count' \
-        "$(printf '%s\n' "$d3" | grep -cE '\| (client_requests|mentors|reviews)\.')" 4
-    assert_contains 'the D3 summary count agrees with the detail rows' "$body" '4 markup / non-https hits'
+        "$(printf '%s\n' "$d3" | grep -cE '\| (client_requests|mentors|reviews)\.')" 6
+    assert_contains 'the D3 summary count agrees with the detail rows' "$body" '6 markup / non-https hits'
+
+    # D2b/D2c/D2d exposure. Off-list prices in the fixtures: '$30 / hour'
+    # (imported), the <a href> price, and the NULL — three rows, and the NULL is
+    # the one a `price IS NOT NULL` filter dropped from both the count and the
+    # value list.
+    d2b="$(awk '/^## D2b /{f=1;next} /^## D2c /{f=0} f' "$report")"
+    d2c="$(awk '/^## D2c /{f=1;next} /^## D2d /{f=0} f' "$report")"
+    assert_contains 'D2b counts the NULL price as exposed' "$d2b" '3'
+    assert_contains 'D2c shows the NULL price as its own bucket' "$d2c" '<NULL>'
+    assert_contains 'the D2b summary count agrees with the detail query' \
+        "$body" '3 mentor row(s) hold an off-list price'
 
     # One snapshot: commit a matching row from a second connection after the
     # detail queries have run but before the summary. Without the transaction the

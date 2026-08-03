@@ -3,7 +3,11 @@
 # diagnostics.sh — run the 2026-08 audit diagnostics (D1-D4) and write a report.
 #
 # Read-only: it feeds diagnostics.sql to psql and captures the output. The SQL
-# pins the session read-only, so nothing here can write to the database.
+# pins the session read-only, so nothing here can write to the database. That
+# guarantee only holds if psql runs no statement before it, which is why
+# PSQL_ARGS after `--` are restricted to connection-defining options (see
+# check_psql_passthrough): psql executes a passthrough -c/-f in command-line
+# order, i.e. ahead of the SQL that sets default_transaction_read_only.
 #
 # Two ways to reach production Postgres (it publishes no host port):
 #
@@ -72,8 +76,14 @@ Options:
                         connect to any database. Exits 3 if anything a real run
                         needs is missing, so it works as an automated preflight.
   -h, --help            this text
-  -- PSQL_ARGS...       passed verbatim to psql in --local mode (e.g. a DSN or
-                        a service name). NEVER echoed back.
+  -- PSQL_ARGS...       CONNECTION arguments for psql in --local mode (e.g. a DSN
+                        or a service name). NEVER echoed back. Only
+                        connection-defining arguments are accepted: a
+                        dbname/DSN/service positional, -h/--host, -p/--port,
+                        -U/--username, -d/--dbname, -w/--no-password,
+                        -W/--password. Execution and output options (-c, -f, -o,
+                        -l, -1, -v, ...) are REFUSED — psql would run them
+                        before diagnostics.sql pins the session read-only.
 
 Connection details for --local come from the standard libpq environment
 (PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD, PGPASSFILE, PGSSLMODE) or
@@ -118,6 +128,82 @@ done
 if [ ${#PSQL_PASSTHROUGH[@]} -gt 0 ] && [ "$MODE" = "docker" ]; then
     die "PSQL_ARGS are only used with --local"
 fi
+
+# ---------------------------------------------------------------------------
+# PSQL_ARGS must define a CONNECTION and nothing else.
+#
+# psql processes command and file options in the order they appear on its command
+# line, so a passthrough `-c` or `-f` runs BEFORE this script's own `-f -` — that
+# is, before diagnostics.sql has set default_transaction_read_only. A caller
+# could therefore write to the live database through the one script whose entire
+# promise is that it only reads. Verified against a scratch Postgres, all four on
+# a run that reported itself read-only:
+#     --local -- -c 'CREATE TABLE …'     -> table created
+#     --local -- -wc 'CREATE TABLE …'    -> table created (bundled short flags)
+#     --local -- -f other.sql            -> file executed
+#     --local -- --command='CREATE …'    -> table created ('='-joined long form)
+#
+# So this is an ALLOWLIST of connection options, not a denylist of dangerous
+# ones: a denylist has to enumerate every current and future psql option that can
+# execute or write, and psql keeps adding options.
+#
+# Only the OPTION NAME is ever echoed back, never a value — a DSN can embed a
+# password, and values are skipped without being inspected.
+# ---------------------------------------------------------------------------
+reject_psql_arg() {
+    die "PSQL_ARGS may only define a connection, and $1 does not.
+
+  psql runs a passthrough -c/-f BEFORE diagnostics.sql pins the session
+  read-only, so an execution or output option here could write to the database
+  this script promises only to read.
+
+  Accepted: a dbname / DSN / 'service=NAME' positional, -h/--host, -p/--port,
+  -U/--username, -d/--dbname, -w/--no-password, -W/--password. Pass short
+  options separately (-w -h HOST), not bundled (-wh HOST).
+  Anything else belongs in the libpq environment (PGOPTIONS, PGSSLMODE, ...)."
+}
+
+check_psql_passthrough() {
+    local i=0 arg letter
+    while [ "$i" -lt "${#PSQL_PASSTHROUGH[@]}" ]; do
+        arg="${PSQL_PASSTHROUGH[$i]}"
+        case "$arg" in
+            # Value lives in the NEXT argument; skip it unexamined.
+            --host|--port|--username|--dbname) i=$((i + 2)); continue ;;
+            # '='-joined value: nothing after the '=' is an option.
+            --host=*|--port=*|--username=*|--dbname=*) i=$((i + 1)); continue ;;
+            --no-password|--password) i=$((i + 1)); continue ;;
+            --*=*) reject_psql_arg "${arg%%=*}" ;;
+            --*)   reject_psql_arg "$arg" ;;
+            # A bare '-' makes psql read SQL from stdin, which is where this
+            # script feeds diagnostics.sql from.
+            -)     reject_psql_arg "'-'" ;;
+            -*)
+                # Short options. Of the connection options only h/p/U/d take a
+                # value and only w/W do not, so the FIRST letter decides how the
+                # rest of the token is read — the same rule getopt applies. That
+                # is also why a bundle whose first letter takes no value must be
+                # refused rather than parsed: in `-wc 'DROP …'` the option that
+                # matters is the SECOND letter.
+                letter="${arg:1:1}"
+                case "$letter" in
+                    h|p|U|d)
+                        # -hVALUE (attached) or -h VALUE (next argument).
+                        if [ "${#arg}" -gt 2 ]; then i=$((i + 1)); else i=$((i + 2)); fi
+                        continue ;;
+                    w|W)
+                        [ "${#arg}" -eq 2 ] \
+                            || reject_psql_arg "the bundled short options starting -$letter"
+                        i=$((i + 1)); continue ;;
+                    *) reject_psql_arg "-$letter" ;;
+                esac ;;
+            # Positional. psql's positionals are only dbname and username, which
+            # is how a DSN or a 'service=NAME' string is passed. Never echoed.
+            *) i=$((i + 1)); continue ;;
+        esac
+    done
+}
+check_psql_passthrough
 
 if [ -z "$OUT_FILE" ]; then
     OUT_FILE="./openmentor-diagnostics-$(date -u +%Y%m%d-%H%M%S).txt"
