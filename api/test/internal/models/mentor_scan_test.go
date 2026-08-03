@@ -27,6 +27,13 @@ func (m *mockRow) Scan(dest ...interface{}) error {
 
 		switch d := dest[i].(type) {
 		case *string:
+			if v == nil {
+				// pgx refuses a NULL into a non-pointer destination and fails
+				// the WHOLE row. Mirror that, or this mock quietly accepts the
+				// very bug it exists to catch — which is what happened for
+				// experience and price: a NULL into *string just left "".
+				return fmt.Errorf("cannot scan NULL into *string")
+			}
 			if str, ok := v.(string); ok {
 				*d = str
 			}
@@ -314,12 +321,19 @@ func TestScanMentor_Error(t *testing.T) {
 	}
 }
 
-// TestScanMentor_NullSortOrder covers the row shape every registration
-// creates: mentors.sort_order is nullable and stays NULL until the
-// new-mentor-watcher finalization randomizes it. Scanning that NULL into the
-// plain int it used to target failed the whole row, which took out the login
-// lookup (GetByEmail) and the own-profile read for the affected mentor.
-func TestScanMentor_NullSortOrder(t *testing.T) {
+// TestScanMentor_EveryNullableColumnNull is the Go half of the nullable-column
+// contract: ScanMentor must take EVERY nullable mentors column through a
+// pointer, so that a query missing a COALESCE degrades to a zero value instead
+// of failing the row — and with it the mentor's login, their profile page and
+// (via ScanMentors) the whole catalog.
+//
+// This is deliberately all of them at once rather than sort_order alone. The
+// original report named sort_order; experience and price were the identical bug
+// on two more columns, and a test that pinned one column would not have found
+// them. The SQL half — that the queries really do COALESCE what they select —
+// cannot be checked against a mock and lives in
+// internal/repository/mentor_nullable_columns_db_test.go.
+func TestScanMentor_EveryNullableColumnNull(t *testing.T) {
 	createdAt := time.Now()
 
 	row := &mockRow{
@@ -329,17 +343,17 @@ func TestScanMentor_NullSortOrder(t *testing.T) {
 			11,         // legacy_id
 			"fresh-11", // slug
 			"Fresh Registrant",
-			"Engineer",
-			"Company",
-			"About",
-			"Description",
-			"Skills",
-			"0-2",
-			"free",
+			nil,       // job_title
+			nil,       // workplace
+			nil,       // about
+			nil,       // details
+			nil,       // competencies
+			nil,       // experience
+			nil,       // price
 			"draft",   // status: not finalized yet
 			nil,       // tags
-			"",        // calendar_url
-			nil,       // sort_order IS NULL
+			nil,       // calendar_url
+			nil,       // sort_order
 			createdAt, // created_at
 			createdAt, // updated_at
 			0,         // mentee_count
@@ -351,10 +365,34 @@ func TestScanMentor_NullSortOrder(t *testing.T) {
 
 	mentor, err := models.ScanMentor(row)
 	if err != nil {
-		t.Fatalf("ScanMentor with NULL sort_order failed: %v", err)
+		t.Fatalf("ScanMentor with every nullable column NULL failed: %v", err)
+	}
+
+	// A NULL reads back as the field's zero value, not as an error.
+	blank := map[string]string{
+		"Job":            mentor.Job,
+		"Workplace":      mentor.Workplace,
+		"About":          mentor.About,
+		"Description":    mentor.Description,
+		"Competencies":   mentor.Competencies,
+		"Experience":     mentor.Experience,
+		"Price":          mentor.Price,
+		"CalendarURL":    mentor.CalendarURL,
+		"ModerationNote": mentor.ModerationNote,
+	}
+	for field, got := range blank {
+		if got != "" {
+			t.Errorf("expected %s to be empty for a NULL column, got %q", field, got)
+		}
 	}
 	if mentor.SortOrder != 0 {
 		t.Errorf("expected SortOrder 0 for a NULL column, got %d", mentor.SortOrder)
+	}
+	if mentor.AirtableID != nil {
+		t.Errorf("expected AirtableID to stay nil — nil marks a natively registered mentor")
+	}
+	if mentor.CalendarType != "none" {
+		t.Errorf("expected CalendarType 'none' for a NULL calendar_url, got %q", mentor.CalendarType)
 	}
 	if mentor.Status != "draft" {
 		t.Errorf("expected status draft, got %q", mentor.Status)

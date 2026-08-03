@@ -2,14 +2,11 @@ package worker
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"sort"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/openmentor-io/openmentor/api/test/dbtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,69 +14,10 @@ import (
 // The finalization claim is pure SQL — its exclusivity comes from Postgres
 // re-evaluating the UPDATE's WHERE against the winner's committed row, which no
 // fake repository can model. These tests therefore need a real database and skip
-// without one:
-//
-//	docker run -d --name om-test-pg -e POSTGRES_USER=openmentor \
-//	  -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=openmentor -p 55432:5432 postgres:16-alpine
-//	OPENMENTOR_TEST_DATABASE_URL='postgres://openmentor:pw@127.0.0.1:55432/openmentor?sslmode=disable' \
-//	  go test ./internal/worker/ -run Claim
-//
-// CI / API runs them against its own service container (see ci-api.yml).
-const testDatabaseURLEnv = "OPENMENTOR_TEST_DATABASE_URL"
-
-var schemaOnce sync.Once
-
-// testRepository connects to the throwaway database and makes sure the schema is
-// there, applying every migrations/*.up.sql in order the way cmd/migrate does.
+// without one; see the dbtest package for how to point them at one.
 func testRepository(t *testing.T) *Repository {
 	t.Helper()
-
-	dsn := os.Getenv(testDatabaseURLEnv)
-	if dsn == "" {
-		t.Skipf("%s is not set; skipping the Postgres-backed claim tests", testDatabaseURLEnv)
-	}
-
-	pool, err := pgxpool.New(context.Background(), dsn)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	require.NoError(t, pool.Ping(ctx))
-
-	var applyErr error
-	schemaOnce.Do(func() { applyErr = applyMigrations(ctx, pool) })
-	require.NoError(t, applyErr)
-
-	return NewRepository(pool)
-}
-
-func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	var exists bool
-	if err := pool.QueryRow(ctx, `SELECT to_regclass('mentors') IS NOT NULL`).Scan(&exists); err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-
-	files, err := filepath.Glob(filepath.Join("..", "..", "migrations", "*.up.sql"))
-	if err != nil {
-		return err
-	}
-	sort.Strings(files)
-	for _, file := range files {
-		sql, readErr := os.ReadFile(file) //nolint:gosec // fixed in-repo migrations directory
-		if readErr != nil {
-			return readErr
-		}
-		// pgx sends argument-less queries over the simple protocol, so a whole
-		// multi-statement migration file goes in one Exec.
-		if _, execErr := pool.Exec(ctx, string(sql)); execErr != nil {
-			return execErr
-		}
-	}
-	return nil
+	return NewRepository(dbtest.Pool(t))
 }
 
 // insertDraftRegistration creates the row shape the registration INSERT leaves:

@@ -110,6 +110,18 @@ type FilterOptions struct {
 	AllowAnyStatus bool
 }
 
+// orZero unwraps a column scanned through a pointer: NULL becomes the field's
+// zero value, which is what every consumer of Mentor expects from an unset text
+// field. Nullable columns go through a pointer because pgx fails the whole row
+// scan on a NULL in a non-pointer destination — see ScanMentor.
+func orZero[T any](p *T) T {
+	if p == nil {
+		var zero T
+		return zero
+	}
+	return *p
+}
+
 // ScanMentor scans a single PostgreSQL row into a Mentor struct
 func ScanMentor(row pgx.Row) (*Mentor, error) {
 	var m Mentor
@@ -122,10 +134,14 @@ func ScanMentor(row pgx.Row) (*Mentor, error) {
 	var description *string
 	var competencies *string
 	var moderationNote *string
-	// sort_order is nullable and stays NULL until the new-mentor-watcher
-	// finalization randomizes it. The queries COALESCE it, but scan it through a
-	// pointer anyway: pgx rejects NULL into a plain int, so one query missing the
-	// COALESCE would fail every read of that mentor.
+	var experience *string
+	var price *string
+	// Every nullable mentors column is scanned through a pointer, even though the
+	// queries also COALESCE it (see mentorSelect). pgx fails the WHOLE row scan on
+	// a NULL in a non-pointer destination, so without this a single query missing
+	// a COALESCE makes that mentor unreadable everywhere: no login, no profile
+	// page, and — because ScanMentors shares this function — a broken catalog for
+	// everyone. Belt and braces is cheap; a locked-out mentor is not.
 	var sortOrder *int
 
 	err := row.Scan(
@@ -139,8 +155,8 @@ func ScanMentor(row pgx.Row) (*Mentor, error) {
 		&about,
 		&description,
 		&competencies,
-		&m.Experience,
-		&m.Price,
+		&experience,
+		&price,
 		&m.Status,
 		&tagsStr,
 		&calendarURL,
@@ -156,32 +172,19 @@ func ScanMentor(row pgx.Row) (*Mentor, error) {
 		return nil, err
 	}
 
-	// Set nullable fields
+	// Set nullable fields. AirtableID stays a pointer: nil is meaningful there
+	// (it marks a mentor who registered natively rather than being imported).
 	m.AirtableID = airtableID
-	if sortOrder != nil {
-		m.SortOrder = *sortOrder
-	}
-	if calendarURL != nil {
-		m.CalendarURL = *calendarURL
-	}
-	if moderationNote != nil {
-		m.ModerationNote = *moderationNote
-	}
-	if job != nil {
-		m.Job = *job
-	}
-	if workplace != nil {
-		m.Workplace = *workplace
-	}
-	if about != nil {
-		m.About = *about
-	}
-	if description != nil {
-		m.Description = *description
-	}
-	if competencies != nil {
-		m.Competencies = *competencies
-	}
+	m.SortOrder = orZero(sortOrder)
+	m.CalendarURL = orZero(calendarURL)
+	m.ModerationNote = orZero(moderationNote)
+	m.Job = orZero(job)
+	m.Workplace = orZero(workplace)
+	m.About = orZero(about)
+	m.Description = orZero(description)
+	m.Competencies = orZero(competencies)
+	m.Experience = orZero(experience)
+	m.Price = orZero(price)
 
 	// Parse tags from comma-separated string
 	m.Tags = []string{}

@@ -39,12 +39,14 @@ jobs:
     name: Run Tests
     runs-on: ubuntu-latest
 
-    # The worker's registration-finalization claim is enforced in SQL (an UPDATE
-    # whose WHERE Postgres re-evaluates against the winning writer's row), so its
-    # exclusivity tests need a real database — no fake can model that. They skip
-    # when OPENMENTOR_TEST_DATABASE_URL is unset, which is why they run in this
-    # deep job rather than the fast required-checks gate. Throwaway credentials,
-    # not secrets.
+    # Two facts live in SQL and in pgx, where no fake can model them: the
+    # worker's registration-finalization claim (an UPDATE whose WHERE Postgres
+    # re-evaluates against the winning writer's row) and pgx's refusal to decode
+    # a NULL into a non-pointer destination, which is what makes an
+    # un-COALESCEd nullable column unreadable. The tests for both skip when
+    # OPENMENTOR_TEST_DATABASE_URL is unset, which is why they run in this deep
+    # job rather than the fast required-checks gate. Throwaway credentials, not
+    # secrets.
     services:
       postgres:
         image: postgres:16-alpine
