@@ -1,12 +1,11 @@
 # OpenMentor Grafana-managed alert rules — versioned source of record.
 #
-# !! DESIRED STATE, NOT LIVE STATE. Verified 2026-08-03: the Grafana Cloud stack
-# !! has NO Grafana-managed alert rules at all (/api/v1/provisioning/alert-rules,
-# !! /api/ruler/grafana/api/v1/rules and /api/prometheus/grafana/api/v1/rules all
-# !! come back empty). Nothing in this file pages until an operator applies it —
-# !! see the ordering warning in grafana/README.md first, because the live
-# !! notification policy fans out to telegram/slack/Discord and the rules with
-# !! noDataState: Alerting fire the moment their series is missing.
+# !! DESIRED STATE, NOT LIVE STATE — the stack has no Grafana-managed alert
+# !! rules; nothing here pages until an operator applies it (evidence and
+# !! current status: grafana/README.md § Alert rules). Read the ordering warning
+# !! there first: the live notification policy fans out to telegram/slack/Discord
+# !! and the noDataState: Alerting rules fire the moment their series is missing,
+# !! so applying one before its metric exists pages immediately.
 #
 # Target: folder "openmentor" (uid `repository-7b3d712` — the folder Git Sync
 # created; there is no folder with uid `openmentor`), rule group `openmentor`,
@@ -353,8 +352,7 @@ groups:
         # sidecar publishes this gauge continuously via Alloy's textfile
         # collector, so a missing series means the sidecar, the metrics volume
         # or Alloy is gone — which is precisely the silent-failure mode this
-        # rule exists to catch. Before it existed, pg_dump or the S3 upload
-        # could fail every night indefinitely with zero signal.
+        # rule exists to catch.
         noDataState: Alerting
         execErrState: Error
         labels: { severity: critical, team: openmentor }

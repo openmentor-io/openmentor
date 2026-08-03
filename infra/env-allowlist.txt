@@ -13,11 +13,8 @@
 # Sections are compose SERVICE names. An empty section means "no environment at
 # all". Blank lines and #-comments are ignored.
 #
-# Background (P10): all six app services used to share `env_file: .env.runtime`,
-# so each got all ~101 production values — the internet-facing frontend held
-# DATABASE_URL, POSTGRES_PASSWORD, JWT_SECRET, WORKER_AUTH_TOKEN, the SES/S3/
-# backup keys, CLOUDFLARE_DNS_API_TOKEN and GCLOUD_RW_API_KEY while sharing a
-# network with postgres.
+# Why per-service and not one shared env file: a shared file gives every
+# container every secret (see the `.env.runtime` note in ENVIRONMENT_VARIABLES.md).
 
 [traefik]
 # DNS-01 ACME challenge. The ONE legitimate holder of this token.

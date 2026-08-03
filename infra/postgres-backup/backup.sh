@@ -111,8 +111,9 @@ marker_epoch() {
 # the gauges, which the staleness alert then catches on its own.
 write_metrics() {
     mkdir -p "$BACKUP_METRICS_DIR" 2>/dev/null || true
-    # Plain if/else, not `if ! ...`: bash returns 1 for a negated compound whose
-    # redirection failed, so the `!` form would miss exactly this case.
+    # Plain if/else, not `if ! ...`: bash reports a compound command whose
+    # redirection failed as successful, so `if !` takes the else branch there and
+    # misses exactly this case (ash/dash do not). This form works in every shell.
     if {
         echo "# HELP openmentor_db_backup_last_success_timestamp_seconds Unix time of the last successful pg_dump (plus S3 upload when a bucket is configured). 0 = never."
         echo "# TYPE openmentor_db_backup_last_success_timestamp_seconds gauge"
