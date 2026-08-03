@@ -344,7 +344,7 @@ export default function Home({
               >
                 Support us ↗
               </Link>
-              <span className="meta-mono hidden text-ink-mute lg:block">VIA KO-FI · FROM $3</span>
+              <span className="meta-mono hidden text-ink-mute lg:block">VIA KO-FI · ANY AMOUNT</span>
             </div>
           </div>
         </section>

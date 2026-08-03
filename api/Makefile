@@ -6,6 +6,14 @@
 # CI and local drift apart in the first place.
 GOLANGCI_VERSION := v2.7.2
 
+# The toolchain go.mod selects for this module — deliberately lazy (`=`) so it
+# only runs for the target that needs it. `go install pkg@version` acts outside
+# the main module and so picks a toolchain from the TARGET's go.mod, not ours;
+# for golangci-lint that means a machine whose default go predates our `go`
+# directive installs a linter that then refuses to lint us ("the Go language
+# version used to build golangci-lint is lower than the targeted Go version").
+GO_TOOLCHAIN = $(shell go version | awk '{print $$3}')
+
 # Default target
 help:
 	@echo "Available targets:"
@@ -78,25 +86,40 @@ test-race:
 # It subsumes gofmt/goimports (formatters block), go vet, staticcheck,
 # errcheck, ineffassign and unused, so those need no separate step.
 #
-# The version guard is the point: pinning only the CI installer would still let
-# a developer's PATH binary be a different build, and different builds report
-# different issues — the drift this whole target exists to prevent.
+# The guards are the point: pinning only the CI installer would still let a
+# developer's binary be a different build, and different builds report different
+# issues — the drift this whole target exists to prevent. Two things have to
+# hold. The version must be the pinned one. And the binary must have been built
+# with a Go at least as new as the version go.mod targets, because golangci-lint
+# refuses outright to load a config aimed at a newer Go than itself ("the Go
+# language version used to build golangci-lint is lower than the targeted Go
+# version") — a `go` directive bump breaks every already-installed linter.
+#
+# Candidates are tried in order and the first one satisfying both wins: GOPATH/
+# bin (where install-tools puts it) comes first so a package-manager build on
+# PATH cannot silently shadow the pinned one, but a good PATH binary still works
+# when GOPATH/bin holds a stale one.
 lint:
 	@echo "Running linters..."
-	@command -v golangci-lint >/dev/null 2>&1 || { \
-		echo "❌ golangci-lint is not installed."; \
-		echo "   Run: make install-tools   (installs the pinned $(GOLANGCI_VERSION))"; \
-		exit 1; \
-	}
-	@have=$$(golangci-lint version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-	want=$$(echo "$(GOLANGCI_VERSION)" | sed 's/^v//'); \
-	if [ "$$have" != "$$want" ]; then \
-		echo "❌ golangci-lint $$have is on PATH, but this repo pins $$want."; \
-		echo "   CI runs $$want; a different build reports different issues."; \
-		echo "   Run: make install-tools"; \
-		exit 1; \
-	fi
-	@golangci-lint run
+	@want=$$(echo "$(GOLANGCI_VERSION)" | sed 's/^v//'); \
+	need=$$(awk '/^toolchain /{print $$2; found=1; exit} /^go /{v=$$2} END{if (!found) print v}' go.mod \
+		| sed 's/^go//' | cut -d. -f1,2); \
+	for bin in "$$(go env GOPATH)/bin/golangci-lint" golangci-lint; do \
+		path=$$(command -v "$$bin" 2>/dev/null) || continue; \
+		have=$$("$$path" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+		if [ "$$have" != "$$want" ]; then \
+			why="$$path is golangci-lint $$have, but this repo pins $$want"; continue; \
+		fi; \
+		built=$$(go version "$$path" 2>/dev/null | awk '{print $$2}' | sed 's/^go//' | cut -d. -f1,2); \
+		if [ "$$(echo "$$built" | awk -F. '{print $$1*1000+$$2}')" -lt "$$(echo "$$need" | awk -F. '{print $$1*1000+$$2}')" ]; then \
+			why="$$path was built with go$$built, older than the go$$need go.mod targets"; continue; \
+		fi; \
+		exec "$$path" run; \
+	done; \
+	echo "❌ no usable golangci-lint found."; \
+	[ -n "$$why" ] && echo "   $$why"; \
+	echo "   Run: make install-tools   (installs the pinned $(GOLANGCI_VERSION))"; \
+	exit 1
 
 # Build Docker image
 docker-build:
@@ -175,7 +198,7 @@ pre-commit: fmt vet test
 # Install development tools
 install-tools:
 	@echo "Installing development tools..."
-	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
+	@GOTOOLCHAIN=$(GO_TOOLCHAIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 	@go install github.com/securego/gosec/v2/cmd/gosec@latest
 	@echo "✅ All tools installed (golangci-lint $(GOLANGCI_VERSION))!"
 

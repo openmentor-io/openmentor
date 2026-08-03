@@ -25,6 +25,7 @@ next-env.d.ts
 
 # debug
 npm-debug.log*
+yarn-error.log
 
 # local env files
 .env
@@ -44,7 +45,7 @@ docker-compose.override.yml
 /logs
 
 # IDEA
-.ideaweb/public/sample-images/
+.idea/
 
 # Local dev fixture images (api/scripts/seed-dev-mentors.sql)
 public/sample-images/
