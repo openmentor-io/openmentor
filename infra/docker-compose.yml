@@ -263,11 +263,14 @@ services:
       # The daemon loop swallows per-run failures on purpose (a transient
       # error must not kill the sidecar), so staleness of the success marker
       # is the signal: unhealthy once the last successful dump is older than
-      # BACKUP_MAX_AGE_HOURS. deploy-remote.sh/rollback.sh assert only
-      # .State.Status == running, so a stale backup reports unhealthy WITHOUT
-      # rolling back an application deploy - which is correct: an aging dump
-      # is a paging matter (grafana/alerting/alert-rules.yaml), not a reason
-      # to revert working code.
+      # BACKUP_MAX_AGE_HOURS. deploy-remote.sh/rollback.sh read
+      # .State.Health.Status, NOT just .State.Status: docker keeps an unhealthy
+      # container in state "running", which made this healthcheck invisible to
+      # both deploy gates. Unhealthy now ends those runs non-zero (exit 2)
+      # WITHOUT rolling back application images - an aging dump is a paging
+      # matter (grafana/alerting/alert-rules.yaml), not a reason to revert
+      # working code. "starting" (start_period below) and a VM whose compose
+      # file predates this healthcheck both still pass.
       test: ["CMD", "/usr/local/bin/backup.sh", "healthcheck"]
       interval: 5m
       timeout: 10s
@@ -518,6 +521,9 @@ services:
     # JWT_SECRET, WORKER_AUTH_TOKEN, SES/S3/backup keys or the Cloudflare token.
     environment:
       - APP_ENV=${APP_ENV:-production}
+      # Stable per-VM label on the backup gauges; deploy.sh writes it from the
+      # deploy target because production and --staging share .env.production
+      - DEPLOYMENT_NAME=${DEPLOYMENT_NAME:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PORT=8081
       - WORKER_PORT=8090

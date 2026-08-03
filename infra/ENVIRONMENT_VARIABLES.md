@@ -43,14 +43,25 @@ What it breaks is diagnosis: every optional key would arrive as an empty
 variable, and the troubleshooting bundle's "which variables arrived empty" check
 (`infra/docs/troubleshooting.md`) would list dozens of them and lose its signal.
 
+The same `KEY: null` behaviour is a trap for the allowlist check: compose renders
+an unresolvable bare entry away entirely (v2 deletes it, v5 keeps a null), so a
+`- NEW_SECRET` defined only in the production `.env` would be invisible to a CI
+run that interpolates `.env.example`. `check-service-env.sh` therefore parses the
+keys the compose file *declares* and seeds every bare one before rendering; its
+`--self-test` injects a value-less entry to prove that path still bites.
+
 > **Removed (SECURITY P10): `.env.runtime`.** Six services shared
 > `env_file: .env.runtime`, a copy of the whole production env, so every
 > container held every secret: the internet-facing frontend had `DATABASE_URL`,
 > `POSTGRES_PASSWORD`, `JWT_SECRET`, `WORKER_AUTH_TOKEN`, the SES/S3/backup
 > keys, `CLOUDFLARE_DNS_API_TOKEN` and `GCLOUD_RW_API_KEY` while sharing a
-> network with `postgres`. The deploy scripts no longer generate that file and
-> delete any copy left on the VM. Image tags are still absent from container
-> env, so a tag-only deploy still recreates only the retagged service.
+> network with `postgres`. The deploy scripts delete the file on the first
+> deploy that ships this `docker-compose.yml` to the VM, and keep regenerating
+> it until then — compose treats `env_file` as required, so removing it while
+> the VM still runs the pre-P10 compose file aborts the deploy (see "First
+> deploy after the per-service env allowlists" in `DEPLOYMENT.md`). Image tags
+> are still absent from container env, so a tag-only deploy still recreates
+> only the retagged service.
 
 ### Changing the contract
 
@@ -141,6 +152,7 @@ enforced by [`check-service-env.sh`](check-service-env.sh). Sensitive keys are
 | Key | traefik | frontend | postgres | postgres-backup | migrate | backend | worker | alloy |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | `APP_ENV`, `LOG_LEVEL` | | ● | | | ● | ● | ● | ● |
+| `DEPLOYMENT_NAME` | | | | | | | | ● |
 | `LOG_DIR` | | ● | | | ● | ● | ● | |
 | `PORT` / `WORKER_PORT` | | ● | | | | ● | ● | ● |
 | `SERVICE_INSTANCE_ID` | | ● | | | | ● | ● | |

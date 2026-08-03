@@ -325,6 +325,14 @@ jobs:
       # stdin, so the executed logic always matches this commit regardless of
       # what the rsync step shipped. The workflow always syncs infra/, hence
       # always --remove-orphans (same as deploy.sh's infra target).
+      #
+      # Exit codes (header of infra/deploy-remote.sh): 1 = the deploy failed and
+      # was auto-rolled-back; 2 = the deploy CONVERGED and every app health check
+      # passed, but the postgres-backup sidecar reports UNHEALTHY (stale nightly
+      # dumps). 2 fails this step on purpose — it is the only off-VM signal until
+      # DatabaseBackupStale is applied to Grafana — while the running code is
+      # fine and nothing was reverted. Don't "fix" a red run by dropping the
+      # check; fix the backups.
       - name: Deploy on VM
         env:
           RESTART_ALLOY: ${{ steps.sync.outputs.restart_alloy }}

@@ -3,9 +3,11 @@
 # !! DESIRED STATE, NOT LIVE STATE — the stack has no Grafana-managed alert
 # !! rules; nothing here pages until an operator applies it (evidence and
 # !! current status: grafana/README.md § Alert rules). Read the ordering warning
-# !! there first: the live notification policy fans out to telegram/slack/Discord
-# !! and the noDataState: Alerting rules fire the moment their series is missing,
-# !! so applying one before its metric exists pages immediately.
+# !! there first: the live notification policy fans out to telegram/slack/Discord,
+# !! the noDataState: Alerting rules fire the moment their series is missing, and
+# !! DatabaseBackupPipelineAbsent fires while its gauges do not exist yet (its
+# !! absent() query IS the alarm) — so applying any of them before the metric
+# !! exists pages immediately.
 #
 # Target: folder "openmentor" (uid `repository-7b3d712` — the folder Git Sync
 # created; there is no folder with uid `openmentor`), rule group `openmentor`,
@@ -349,27 +351,56 @@ groups:
         condition: B
         for: 10m
         # NoData=Alerting, unlike most rules in this file: the postgres-backup
-        # sidecar publishes this gauge continuously via Alloy's textfile
-        # collector, so a missing series means the sidecar, the metrics volume
-        # or Alloy is gone — which is precisely the silent-failure mode this
-        # rule exists to catch.
+        # sidecar publishes these gauges continuously via Alloy's textfile
+        # collector, so an EMPTY result means the sidecar, the metrics volume or
+        # Alloy is gone — the silent-failure mode this rule exists to catch.
+        #
+        # It does NOT cover one deployment going silent while another keeps
+        # publishing, which is a direct consequence of the `max by (deployment)`
+        # below. noDataState is a property of the whole query result, not of
+        # individual label values: with production's series expired and staging's
+        # still arriving, `max by (deployment)` returns one row, so the rule is
+        # Normal rather than NoData and production's instance simply stops
+        # existing. Grafana then treats that as a missing series and resolves it
+        # after missing_series_evals_to_resolve evaluations — so a production page
+        # already firing would auto-RESOLVE the moment the pipeline died. That
+        # setting therefore cannot close the gap; it only delays the resolve.
+        # Confirmed on this tenant 2026-08-03 with the identical shape:
+        # `(time() - max by (job) (up{job=~"integrations/db-o11y|job-that-vanished"}))
+        #  - max by (job) (...)` returns exactly one row, for the surviving job.
+        # om-db-backup-pipeline-absent below is what catches the vanished one.
         noDataState: Alerting
         execErrState: Error
         labels: { severity: critical, team: openmentor }
         annotations:
-          summary: "No successful Postgres backup in over 26 hours"
-          description: "No successful nightly pg_dump for {{ printf \"%.1f\" (divf $values.A.Value 3600) }} hours (threshold 26h, dumps run daily at BACKUP_TIME). The documented RPO of 24h is no longer met. If the sidecar has never produced one, the age counts from its first start instead. Check `docker logs openmentor-postgres-backup` for a FAILURE line and follow docs/runbooks/postgres-backup-restore.md."
+          summary: "Postgres backups on {{ $labels.deployment }} are past their configured freshness window"
+          description: "Deployment {{ $labels.deployment }}: the newest successful nightly pg_dump is {{ printf \"%.1f\" (divf $values.A.Value 3600) }} hours PAST the window the sidecar enforces (BACKUP_MAX_AGE_HOURS, published as openmentor_db_backup_max_age_seconds; dumps run daily at BACKUP_TIME). The documented RPO of 24h is no longer met. If the sidecar has never produced a dump, the age counts from its first start instead. Check `docker logs openmentor-postgres-backup` for a FAILURE line and follow docs/runbooks/postgres-backup-restore.md."
         data:
+          # One alert instance per deployment, and the threshold is the sidecar's
+          # own configured window rather than a copy of it:
+          #
+          #   • `max by (deployment)`, not a global `max()`. `./deploy.sh
+          #     --staging` uploads the same .env.production, so a staging VM
+          #     remote-writes these gauges to this same tenant; a global max()
+          #     would let one fresh staging backup hold this rule Normal while
+          #     production dumps rot. Alloy stamps `deployment` from
+          #     DEPLOYMENT_NAME (infra/alloy/config.alloy); before that config
+          #     reaches a VM the label is empty, which is one instance — today's
+          #     behaviour. `instance` would not do: it is the alloy container id.
+          #   • subtracting openmentor_db_backup_max_age_seconds instead of
+          #     comparing against a literal, so changing BACKUP_MAX_AGE_HOURS in
+          #     .env.production moves the alert with it. Result is "seconds past
+          #     the window", hence the `> 0` threshold below.
+          #   • `a or b` unions two differently-named gauges (no label set can
+          #     match), so max() is the NEWEST of: the last success, and the
+          #     sidecar's first start on this volume. A fresh volume therefore
+          #     gets one grace window without .last_success ever claiming a dump
+          #     that never ran — it stays 0, which the `> 0` filter drops.
           - refId: A
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: grafanacloud-prom
             model:
-              # `a or b` unions two differently-named gauges (no label set can
-              # match), so max() is the NEWEST of: the last success, and the
-              # sidecar's first start on this volume. A fresh volume therefore
-              # gets one 26h grace window without .last_success ever claiming a
-              # dump that never ran — it stays 0, which the `> 0` filter drops.
-              expr: 'time() - max(openmentor_db_backup_last_success_timestamp_seconds > 0 or openmentor_db_backup_first_start_timestamp_seconds)'
+              expr: '(time() - max by (deployment) (openmentor_db_backup_last_success_timestamp_seconds > 0 or openmentor_db_backup_first_start_timestamp_seconds)) - max by (deployment) (openmentor_db_backup_max_age_seconds)'
               instant: true
               refId: A
           - refId: B
@@ -378,4 +409,62 @@ groups:
               type: threshold
               expression: A
               refId: B
-              conditions: [{ evaluator: { type: gt, params: [93600] } }]
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: om-db-backup-pipeline-absent
+        title: DatabaseBackupPipelineAbsent
+        condition: B
+        # 15 evaluations at the group's 1m interval: long enough to ride out an
+        # Alloy restart (a deploy does restart it when config.alloy changes) or a
+        # VM reboot, short enough that a dead pipeline is caught the same hour.
+        for: 15m
+        # noDataState: OK is correct HERE and nowhere else in this file. The query
+        # is absent()-based, so an empty result is the HEALTHY case — every
+        # expected deployment is publishing. Alerting would page forever. A
+        # datasource that is broken rather than empty lands in execErrState.
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: critical, team: openmentor }
+        annotations:
+          summary: "Backup gauges for deployment {{ $labels.deployment }} have disappeared"
+          description: "Deployment {{ $labels.deployment }} has stopped remote-writing at least one openmentor_db_backup_* gauge, so DatabaseBackupStale can no longer evaluate it: that rule's instance for this deployment ceases to exist instead of firing, because noDataState applies to an empty query result and not to a label value that vanished while other deployments keep reporting. Likely causes: the postgres-backup sidecar is gone or crash-looping, the openmentor-backup-metrics volume is unmounted or unwritable, Alloy's textfile collector or its remote_write is broken, or DEPLOYMENT_NAME changed on the VM. Check `docker ps` and `docker logs openmentor-postgres-backup`, then `docker logs grafana-alloy`, and confirm with `count by (deployment) (openmentor_db_backup_last_success_timestamp_seconds)`. Runbook: docs/runbooks/postgres-backup-restore.md."
+        data:
+          # One absent() term per gauge per EXPECTED deployment. Three properties
+          # are load-bearing, and infra/alert-consistency-test.sh enforces each:
+          #
+          #   • absent() gives a per-deployment instance because it propagates the
+          #     equality matcher: absent(m{deployment="production"}) returns
+          #     {deployment="production"} 1 (verified against this tenant
+          #     2026-08-03). A regex matcher would NOT — it yields one unlabelled
+          #     row, and only once EVERY deployment is gone, which is precisely
+          #     the blind spot this rule exists to remove.
+          #   • every gauge om-db-backup-stale reads gets its own term. That
+          #     rule's expression joins them on `deployment`, so a SINGLE missing
+          #     gauge (e.g. a sidecar too old to publish max_age_seconds) drops
+          #     the whole deployment out of it just as completely.
+          #   • the expected list is written down, because "which deployments
+          #     ought to exist" cannot be derived from the metrics — that is the
+          #     whole problem. Adding a deploy target means adding it to one of
+          #     the two lists below; the test fails until it is in exactly one.
+          #
+          # expected-deployments: production
+          # absence-not-expected: staging, local
+          #   staging — ./deploy.sh --staging creates and destroys that VM, so an
+          #     absence rule for it would page on every intentional teardown.
+          #   local — infra/deploy-dev.sh sets DEPLOYMENT_NAME=local, and the dev
+          #     overlay runs neither postgres-backup nor (by default) alloy, so
+          #     nothing local ever reaches this tenant.
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'absent(openmentor_db_backup_last_success_timestamp_seconds{deployment="production"}) or absent(openmentor_db_backup_first_start_timestamp_seconds{deployment="production"}) or absent(openmentor_db_backup_max_age_seconds{deployment="production"})'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]

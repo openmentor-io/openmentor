@@ -11,6 +11,8 @@
 #   3. an expired grace window with no successful dump is unhealthy
 #   4. a real success is reported and published
 #   5. an unwritable metrics dir does not turn a successful dump into a failure
+#   6. the configured freshness window is published, so the staleness alert can
+#      compare against it instead of hardcoding a duration
 #
 # Usage: ./backup-test.sh   (SH=<shell> to test another /bin/sh implementation)
 # ============================================================================
@@ -48,6 +50,10 @@ bad() { printf '  FAIL %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
 case_start() { printf '%s\n' "$1"; }
 
+# Freshness window the next run() uses; a case may change it to prove the
+# published gauge follows the configuration.
+MAX_AGE_HOURS=26
+
 # run <mode> <backup-dir> <metrics-dir> -> stdout+stderr in $OUT, status in $STATUS
 run() {
     local mode="$1" backup_dir="$2" metrics_dir="$3"
@@ -56,6 +62,7 @@ run() {
         POSTGRES_PASSWORD=stub \
         BACKUP_DIR="$backup_dir" \
         BACKUP_METRICS_DIR="$metrics_dir" \
+        BACKUP_MAX_AGE_HOURS="$MAX_AGE_HOURS" \
         BACKUP_TIME=03:30 \
         "$SH" "$SUBJECT" "$mode" 2>&1)
     STATUS=$?
@@ -128,6 +135,7 @@ assert_missing_file "$B/.last_success"
 assert_file "$B/.first_start"
 assert_gauge "$M/openmentor_db_backup.prom" openmentor_db_backup_last_success_timestamp_seconds 0
 assert_gauge_positive "$M/openmentor_db_backup.prom" openmentor_db_backup_first_start_timestamp_seconds
+assert_gauge "$M/openmentor_db_backup.prom" openmentor_db_backup_max_age_seconds 93600
 run healthcheck "$B" "$M"
 assert_status 0
 assert_contains "grace window"
@@ -172,6 +180,16 @@ assert_status 0
 assert_contains "SUCCESS db="
 assert_contains "WARNING: cannot write"
 assert_file "$B/.last_success"
+
+# --- 6. the alert threshold is not a second copy of the window -------------
+# grafana/alerting/alert-rules.yaml subtracts this gauge instead of comparing
+# against a literal, so a window change here has to reach the alert.
+case_start "the configured freshness window is published as a gauge"
+B="$ROOT/6/backups"; M="$ROOT/6/metrics"; mkdir -p "$B" "$M"
+MAX_AGE_HOURS=48
+run daemon "$B" "$M"
+assert_gauge "$M/openmentor_db_backup.prom" openmentor_db_backup_max_age_seconds 172800
+MAX_AGE_HOURS=26
 
 echo
 if [ "$FAILURES" -eq 0 ]; then

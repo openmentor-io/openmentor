@@ -1,4 +1,4 @@
-.PHONY: help check compose-config env-allowlist backup-tests
+.PHONY: help check compose-config env-allowlist backup-tests deploy-tests alert-tests
 
 # The fast infra checks, in one place. .github/workflows/checks.yml calls these
 # targets (as web/ and api/ do), so `make check` here runs exactly what the
@@ -15,8 +15,10 @@ help:
 	@echo "  compose-config - Validate the prod and dev compose renders"
 	@echo "  env-allowlist  - Per-service env allowlist + secret ownership"
 	@echo "  backup-tests   - postgres-backup sidecar behaviour tests"
+	@echo "  deploy-tests   - blocks the deploy scripts share (.env.runtime, backup gate)"
+	@echo "  alert-tests    - backup alert + panels vs Alloy labels vs sidecar gauges"
 
-check: compose-config env-allowlist backup-tests
+check: compose-config env-allowlist backup-tests deploy-tests alert-tests
 	@echo "✅ Infra checks passed!"
 
 compose-config:
@@ -31,3 +33,11 @@ env-allowlist:
 
 backup-tests:
 	@./postgres-backup/backup-test.sh
+
+deploy-tests:
+	@./deploy-transition-test.sh
+
+# Reads ../grafana/alerting and ../grafana/dashboards; the checks.yml infra
+# filter covers both, so a Grafana-only PR still runs this.
+alert-tests:
+	@./alert-consistency-test.sh

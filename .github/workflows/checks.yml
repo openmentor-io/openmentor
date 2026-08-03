@@ -14,9 +14,13 @@ name: Checks
 #
 #   web changed        -> lint + type check + tests
 #   api changed        -> golangci-lint + tests
-#   infra changed      -> compose renders + per-service env allowlist + backup tests
-#   .github/ changed   -> actionlint
+#   infra changed      -> compose renders + per-service env allowlist + infra tests
+#   .github/ changed   -> actionlint + dispatch-input scan
 #   none of the above  -> passes trivially
+#
+# Every group is a STEP of the single required-checks job, never a job of its
+# own: a second required job name deadlocks every PR whose paths do not match
+# it, which is the same trap as requiring "CI / Web".
 #
 # ci-web.yml / ci-api.yml keep only what this cannot cheaply do: the production
 # build, the race detector + coverage floor, the gosec SARIF upload for the
@@ -64,6 +68,12 @@ jobs:
               - '.github/workflows/checks.yml'
             infra:
               - 'infra/**'
+              # `make check` also asserts the backup alert, its dashboard panels,
+              # the Alloy labels and the sidecar gauges stay consistent
+              # (alert-consistency-test.sh), so a change to either Grafana file
+              # has to run it
+              - 'grafana/alerting/**'
+              - 'grafana/dashboards/**'
               - '.github/workflows/checks.yml'
             workflows:
               - '.github/workflows/**'
