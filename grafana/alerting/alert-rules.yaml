@@ -352,13 +352,18 @@ groups:
         labels: { severity: critical, team: openmentor }
         annotations:
           summary: "No successful Postgres backup in over 26 hours"
-          description: "The last successful nightly pg_dump finished {{ printf \"%.1f\" (divf $values.A.Value 3600) }} hours ago (threshold 26h, dumps run daily at BACKUP_TIME). The documented RPO of 24h is no longer met. Check `docker logs openmentor-postgres-backup` for a FAILURE line and follow docs/runbooks/postgres-backup-restore.md."
+          description: "No successful nightly pg_dump for {{ printf \"%.1f\" (divf $values.A.Value 3600) }} hours (threshold 26h, dumps run daily at BACKUP_TIME). The documented RPO of 24h is no longer met. If the sidecar has never produced one, the age counts from its first start instead. Check `docker logs openmentor-postgres-backup` for a FAILURE line and follow docs/runbooks/postgres-backup-restore.md."
         data:
           - refId: A
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: grafanacloud-prom
             model:
-              expr: 'time() - max(openmentor_db_backup_last_success_timestamp_seconds)'
+              # `a or b` unions two differently-named gauges (no label set can
+              # match), so max() is the NEWEST of: the last success, and the
+              # sidecar's first start on this volume. A fresh volume therefore
+              # gets one 26h grace window without .last_success ever claiming a
+              # dump that never ran — it stays 0, which the `> 0` filter drops.
+              expr: 'time() - max(openmentor_db_backup_last_success_timestamp_seconds > 0 or openmentor_db_backup_first_start_timestamp_seconds)'
               instant: true
               refId: A
           - refId: B

@@ -26,14 +26,17 @@ not kill the sidecar — so three things carry the signal instead:
 
 | Layer | Where | Behaviour |
 |---|---|---|
-| Freshness marker | `/backups/.last_success` (and `.last_failure`) in the `openmentor-postgres-backups` volume, epoch seconds | Rewritten by every run |
+| Freshness marker | `/backups/.last_success` (and `.last_failure`) in the `openmentor-postgres-backups` volume, epoch seconds | Rewritten by every run. Absent = no dump has **ever** succeeded; nothing but a real dump creates it |
 | Container healthcheck | `backup.sh healthcheck`, every 5 min | `unhealthy` once the last success is older than `BACKUP_MAX_AGE_HOURS` (26h). Deliberately does **not** roll back a deploy: `deploy-remote.sh` asserts only that the container is *running* |
 | Grafana alert | `DatabaseBackupStale` (`grafana/alerting/alert-rules.yaml`), severity critical | Pages when the age gauge passes 26h **or** disappears (`NoData=Alerting`). Panels: the "Postgres Backups" row on the `om-database-infra` dashboard |
 
 The gauges reach Grafana Cloud as a Prometheus textfile: the sidecar writes
-`openmentor_db_backup_last_{success,failure}_timestamp_seconds` into the
+`openmentor_db_backup_last_{success,failure}_timestamp_seconds` and
+`openmentor_db_backup_first_start_timestamp_seconds` into the
 `openmentor-backup-metrics` volume, which Alloy mounts read-only and scrapes
-(`prometheus.exporter.unix "backup_metrics"`).
+(`prometheus.exporter.unix "backup_metrics"`). Publishing them is best-effort:
+if the metrics volume is full or read-only the dump still succeeds and still
+logs `SUCCESS`, and the gauges going stale is what raises the alarm.
 
 ```bash
 # Is the sidecar happy right now?
@@ -41,10 +44,14 @@ docker inspect -f '{{.State.Health.Status}}' openmentor-postgres-backup
 docker exec openmentor-postgres-backup backup.sh healthcheck
 ```
 
-On a brand-new `/backups` volume the daemon seeds `.last_success` once so the
-first 26 h are a grace window rather than an instant page. It only ever seeds
-when the marker is absent — a redeploy cannot reset the window on a pipeline
-that has been failing for weeks.
+On a brand-new `/backups` volume the daemon stamps `.first_start` once — the
+healthcheck and the alert stay quiet for 26 h from that stamp instead of paging
+before the first scheduled dump can run. `.first_start` is never rewritten, so a
+redeploy cannot reset the window on a pipeline that has been failing for weeks,
+and `.last_success` is **not** seeded: while it is absent the healthcheck says
+`no backup yet, Ns into the grace window` and the dashboard stat reads `never`.
+Don't wait out the window on a first rollout — run `backup.sh once` and confirm
+the `SUCCESS` line.
 
 ## (a) Restore the latest dump into a fresh container/volume
 

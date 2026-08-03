@@ -29,6 +29,11 @@
 # unattended nightly dump has stopped working: the daemon loop deliberately
 # swallows failures so a transient error doesn't kill the sidecar.
 #
+# A third marker, .first_start, records when the daemon first ran against this
+# volume and is never rewritten. It exists so a brand-new volume gets one grace
+# window before the healthcheck and the alert fire, WITHOUT pretending a backup
+# succeeded: .last_success (and its gauge) stay absent/0 until one really does.
+#
 # Usage: backup.sh [daemon|once|healthcheck]
 #   daemon       loop forever, one backup per day at BACKUP_TIME (default)
 #   once         run a single backup immediately and exit (manual/drill runs:
@@ -57,6 +62,7 @@ BACKUP_METRICS_DIR="${BACKUP_METRICS_DIR:-/var/lib/backup-metrics}"
 
 SUCCESS_MARKER="${BACKUP_DIR}/.last_success"
 FAILURE_MARKER="${BACKUP_DIR}/.last_failure"
+FIRST_START_MARKER="${BACKUP_DIR}/.first_start"
 METRICS_FILE="${BACKUP_METRICS_DIR}/openmentor_db_backup.prom"
 
 export PGPASSWORD="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
@@ -97,18 +103,36 @@ marker_epoch() {
     fi
 }
 
-# Export both markers as Prometheus gauges for Alloy's textfile collector.
+# Export the markers as Prometheus gauges for Alloy's textfile collector.
 # Written via a temp file + rename so a scrape never sees a partial file.
+#
+# Best-effort on purpose: publishing metrics must never turn a backup that
+# actually succeeded into a reported failure. An unwritable metrics dir loses
+# the gauges, which the staleness alert then catches on its own.
 write_metrics() {
-    mkdir -p "$BACKUP_METRICS_DIR" 2>/dev/null || return 0
-    {
+    mkdir -p "$BACKUP_METRICS_DIR" 2>/dev/null || true
+    # Plain if/else, not `if ! ...`: bash returns 1 for a negated compound whose
+    # redirection failed, so the `!` form would miss exactly this case.
+    if {
         echo "# HELP openmentor_db_backup_last_success_timestamp_seconds Unix time of the last successful pg_dump (plus S3 upload when a bucket is configured). 0 = never."
         echo "# TYPE openmentor_db_backup_last_success_timestamp_seconds gauge"
         echo "openmentor_db_backup_last_success_timestamp_seconds $(marker_epoch "$SUCCESS_MARKER")"
         echo "# HELP openmentor_db_backup_last_failure_timestamp_seconds Unix time of the last failed backup attempt. 0 = never."
         echo "# TYPE openmentor_db_backup_last_failure_timestamp_seconds gauge"
         echo "openmentor_db_backup_last_failure_timestamp_seconds $(marker_epoch "$FAILURE_MARKER")"
-    } > "${METRICS_FILE}.tmp" && mv "${METRICS_FILE}.tmp" "$METRICS_FILE"
+        echo "# HELP openmentor_db_backup_first_start_timestamp_seconds Unix time the backup daemon first ran against this volume, never rewritten. Start of the one grace window allowed before a never-successful pipeline is alerted on. 0 = the daemon has never started."
+        echo "# TYPE openmentor_db_backup_first_start_timestamp_seconds gauge"
+        echo "openmentor_db_backup_first_start_timestamp_seconds $(marker_epoch "$FIRST_START_MARKER")"
+    } > "${METRICS_FILE}.tmp" 2>/dev/null; then
+        mv "${METRICS_FILE}.tmp" "$METRICS_FILE" 2>/dev/null ||
+            log "WARNING: cannot replace ${METRICS_FILE} - the backup gauges will go stale."
+    else
+        rm -f "${METRICS_FILE}.tmp" 2>/dev/null || true
+        log "WARNING: cannot write ${METRICS_FILE} - the backup gauges will go" \
+            "stale and DatabaseBackupStale will fire on NoData. Is" \
+            "${BACKUP_METRICS_DIR} full or mounted read-only?"
+    fi
+    return 0
 }
 
 mark_success() {
@@ -221,12 +245,21 @@ case "${1:-daemon}" in
         run_backup
         ;;
     healthcheck)
-        age=$(( $(date -u +%s) - $(marker_epoch "$SUCCESS_MARKER") ))
+        now=$(date -u +%s)
         max=$(( BACKUP_MAX_AGE_HOURS * 3600 ))
-        if [ ! -f "$SUCCESS_MARKER" ]; then
+        last_success=$(marker_epoch "$SUCCESS_MARKER")
+        if [ "$last_success" -eq 0 ]; then
+            # Nothing has ever succeeded. Stay healthy for one window measured
+            # from the daemon's first start on this volume, then say so.
+            waiting=$(( now - $(marker_epoch "$FIRST_START_MARKER") ))
+            if [ -f "$FIRST_START_MARKER" ] && [ "$waiting" -le "$max" ]; then
+                echo "healthy: no backup yet, ${waiting}s into the ${max}s grace window since first start"
+                exit 0
+            fi
             echo "unhealthy: no backup has ever succeeded (${SUCCESS_MARKER} missing)" >&2
             exit 1
         fi
+        age=$(( now - last_success ))
         if [ "$age" -gt "$max" ]; then
             echo "unhealthy: last successful backup was ${age}s ago (max ${max}s)" >&2
             exit 1
@@ -240,19 +273,19 @@ case "${1:-daemon}" in
         if [ -z "$BACKUP_S3_BUCKET" ]; then
             warn_local_only
         fi
-        # First start on a fresh /backups volume: seed the success marker so
-        # the healthcheck and the staleness alert get one grace window instead
-        # of firing before the first scheduled dump can run. Only when absent -
-        # seeding on every start would let a redeploy silently reset the window
-        # on a pipeline that has been failing for weeks.
-        if [ ! -f "$SUCCESS_MARKER" ]; then
-            log "no ${SUCCESS_MARKER} yet - seeding it, so the first" \
-                "${BACKUP_MAX_AGE_HOURS}h are a grace window; after that a" \
-                "missing dump turns this container unhealthy"
-            mark_success
-        else
-            write_metrics
+        # First start against this /backups volume: stamp .first_start, which
+        # opens the one grace window the healthcheck and the staleness alert
+        # honour before a never-successful pipeline counts as broken. Written
+        # only when absent and never touched again, so a redeploy cannot reset
+        # the window on a pipeline that has been failing for weeks - and,
+        # unlike seeding .last_success, it does not claim a backup happened.
+        if [ ! -f "$FIRST_START_MARKER" ]; then
+            date -u +%s > "$FIRST_START_MARKER"
+            log "first start against ${BACKUP_DIR} - no backup has succeeded" \
+                "yet, so the next ${BACKUP_MAX_AGE_HOURS}h are a grace window;" \
+                "after that a missing dump turns this container unhealthy"
         fi
+        write_metrics
         while true; do
             wait_s=$(seconds_until "$BACKUP_TIME")
             log "next backup in ${wait_s}s"
