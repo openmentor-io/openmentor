@@ -42,20 +42,19 @@ env:
   DOMAIN: ${{ secrets.DOMAIN }}
 
 jobs:
-  # Resolve the image tag ONCE, before any credential is minted or any image
-  # pushed, and hand the vetted value to every other job through outputs.
+  # Preflight: everything checkable without touching production, so a
+  # misconfigured deploy dies before the first credential, push or VM change.
+  # The vetted tag reaches every other job through this job's output.
   validate-inputs:
-    name: Validate Inputs
+    name: Preflight
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.TAG }}
     steps:
-      # SECURITY (L6/P5): image_tag is free-text workflow_dispatch input, and
-      # it reaches a shell three times over — this runner's `run:` line, the
-      # command line ssh assembles for the VM, and the replacement half of a
-      # `sed -i "s|^KEY=.*|KEY=$TAG|"` in the VM's .env. So read it from env
-      # (never interpolate an input into a shell word) and whitelist Docker's
-      # own tag grammar, which admits no shell metacharacter and no `|`.
+      # SECURITY (L6/P5): image_tag is free text and reaches three shells (this
+      # runner, the VM via ssh, and a `sed s|^KEY=.*|KEY=$TAG|` in the VM's
+      # .env), so it arrives via env and must match Docker's tag grammar, which
+      # admits no shell metacharacter and no `|`.
       - name: Resolve and validate image tag
         id: tag
         env:
@@ -68,6 +67,31 @@ jobs:
           fi
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
           echo "Image tag: $TAG"
+
+      # A deploy converges production step by step, so a secret needed only by
+      # the LAST step (DOMAIN, for the public probe) still has to be checked
+      # here — otherwise the VM is already changed when it turns out to be
+      # missing. Names only: never echo a secret value.
+      - name: Check required secrets
+        env:
+          # DOMAIN comes from the workflow-level env block above.
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_CI_ROLE_ARN: ${{ secrets.AWS_CI_ROLE_ARN }}
+          VM_SSH_HOST: ${{ secrets.VM_SSH_HOST }}
+          VM_SSH_USER: ${{ secrets.VM_SSH_USER }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        run: |
+          missing=()
+          for name in DOMAIN ECR_REGISTRY AWS_REGION AWS_CI_ROLE_ARN \
+                      VM_SSH_HOST VM_SSH_USER VM_SSH_KEY; do
+            if [ -z "${!name}" ]; then missing+=("$name"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required repository secrets: ${missing[*]}. Nothing has been deployed."
+            exit 1
+          fi
+          echo "All required secrets are set."
 
   # Build and push frontend
   build-frontend:
@@ -162,13 +186,11 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: [validate-inputs, build-frontend, build-backend]
-    # A single-service deploy leaves the OTHER build 'skipped', which is why
-    # success() can't be used here. The old gate spelled that as
-    # `build-frontend == success || build-backend == success`, and that `||`
-    # also let a FAILED build through: with service=both and a broken frontend
-    # build, deploy still wrote a never-pushed tag into the VM's .env, and the
-    # next deploy's `cp .env .env.backup` enshrined it as the rollback target.
-    # Required: at least one build succeeded AND neither failed.
+    # A single-service deploy leaves the OTHER build 'skipped', so success()
+    # can't be used here. Requiring "at least one success AND neither failed"
+    # is what keeps a failed build's never-pushed tag out of the VM's .env,
+    # where the next deploy's `cp .env .env.backup` would make it the rollback
+    # target.
     if: >-
       !cancelled()
       && needs.validate-inputs.result == 'success'
@@ -313,21 +335,11 @@ jobs:
             "bash -s -- $(printf '%q ' "--remove-orphans" "$RESTART_ALLOY" "$REBUILD_BACKUP")" \
             < infra/deploy-remote.sh
 
-      # P15: this is the ONLY check in either deploy path that traverses DNS,
-      # TLS and Traefik. Everything deploy-remote.sh gates on is
-      # `docker exec <container> curl http://localhost:...` — loopback INSIDE
-      # the container. So an ACME/DNS-01 failure, the duplicate-router
-      # collision docker-compose.yml documents, a broken sec-headers or
-      # edge-ratelimit middleware, the www-redirect regex, or plain bad DNS
-      # all produce a hard outage that every container-local probe calls
-      # healthy. Hence: mandatory (no DOMAIN, no green deploy) and fatal.
+      # Mandatory and fatal: deploy-remote.sh only probes container loopback, so
+      # a broken cert, router or middleware still looks healthy to it. DOMAIN is
+      # guaranteed non-empty by the preflight job.
       - name: Verify public endpoint
         run: |
-          if [ -z "$DOMAIN" ]; then
-            echo "::error::DOMAIN secret is not set, so the public endpoint cannot be probed - and that probe is the only end-to-end check of DNS/TLS/Traefik. Set the DOMAIN secret."
-            exit 1
-          fi
-
           URL="https://$DOMAIN/api/healthcheck"
           # ~2 min budget: the frontend container has a 40s start_period, and
           # Traefik needs a moment to pick up the recreated container (longer
@@ -390,14 +402,11 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # Notify on failure.
-  #
-  # This job does NOT page anyone: its only effect is an error annotation and
-  # a line in the run's step summary, which someone has to go and look at.
-  # TODO: to make this a real notification, add a SLACK_WEBHOOK_URL repository
-  # secret (an incoming-webhook URL) and POST to it from the step below, or
-  # swap the step for slackapi/slack-github-action. Until that secret exists,
-  # a failed production deploy is silent unless a human is watching the run.
+  # This job does NOT page anyone — it only annotates the run, which someone
+  # has to go and look at.
+  # TODO: add a SLACK_WEBHOOK_URL secret and POST to it here (or use
+  # slackapi/slack-github-action); until then a failed production deploy is
+  # silent unless a human is watching.
   notify-failure:
     name: Notify on Failure
     runs-on: ubuntu-latest
