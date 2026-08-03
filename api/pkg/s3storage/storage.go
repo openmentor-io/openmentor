@@ -85,19 +85,6 @@ func DecodeImageData(imageData string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(imageData)
 }
 
-// UploadImage uploads a base64-encoded image to the S3-compatible object
-// storage. Returns the public URL of the uploaded image.
-func (s *StorageClient) UploadImage(ctx context.Context, imageData, key, contentType string) (string, error) {
-	start := time.Now()
-	imageBytes, err := DecodeImageData(imageData)
-	if err != nil {
-		metrics.S3StorageRequestDuration.WithLabelValues("uploadImage", "error").Observe(metrics.MeasureDuration(start))
-		metrics.S3StorageRequestTotal.WithLabelValues("uploadImage", "error").Inc()
-		return "", fmt.Errorf("failed to decode base64 image: %w", err)
-	}
-	return s.UploadImageBytes(ctx, imageBytes, key, contentType)
-}
-
 // UploadImageBytes uploads already-decoded image bytes.
 func (s *StorageClient) UploadImageBytes(ctx context.Context, imageBytes []byte, key, contentType string) (string, error) {
 	start := time.Now()
@@ -137,11 +124,6 @@ func (s *StorageClient) UploadImageBytes(ctx context.Context, imageBytes []byte,
 	return imageURL, nil
 }
 
-// ValidateImageType validates the image content type.
-func (s *StorageClient) ValidateImageType(contentType string) error {
-	return ValidateImageType(contentType)
-}
-
 // ValidateImageType validates the declared image content type.
 func ValidateImageType(contentType string) error {
 	validTypes := map[string]bool{
@@ -156,16 +138,6 @@ func ValidateImageType(contentType string) error {
 	}
 
 	return nil
-}
-
-// ValidateImageContent sniffs the decoded bytes and confirms they really are
-// one of the allowed image formats.
-func (s *StorageClient) ValidateImageContent(imageData string) error {
-	imageBytes, err := DecodeImageData(imageData)
-	if err != nil {
-		return fmt.Errorf("failed to decode image for content validation: %w", err)
-	}
-	return ValidateImageContent(imageBytes)
 }
 
 // ValidateImageContent checks the magic bytes of an image payload.
@@ -186,15 +158,6 @@ func ValidateImageContent(imageBytes []byte) error {
 	}
 
 	return nil
-}
-
-// ValidateImageSize validates the image size (max 10MB).
-func (s *StorageClient) ValidateImageSize(imageData string) error {
-	imageBytes, err := DecodeImageData(imageData)
-	if err != nil {
-		return fmt.Errorf("failed to decode image for size validation: %w", err)
-	}
-	return ValidateImageSize(imageBytes)
 }
 
 // maxImageBytes caps the COMPRESSED payload. It bounds transfer and storage
@@ -227,21 +190,11 @@ func ValidateImage(imageBytes []byte, contentType string) error {
 	return imageclass.CheckBounds(imageBytes)
 }
 
-// UploadImageAllSizes uploads the same image in 3 sizes (full, large, small) synchronously
+// UploadImageAllSizesBytes stores the same validated payload under each size.
 // NOTE: Currently uploads same image 3 times (tech debt - future: generate thumbnails)
-// Validates image type and size before uploading. Returns the URL of the 'full' size image.
+// Returns the URL of the 'full' size image.
 // keyBase is the immutable mentor UUID (mentors.id) — NOT the slug: usernames are
 // user-changeable, and keying objects on the UUID makes renames free (no S3 moves).
-func (s *StorageClient) UploadImageAllSizes(ctx context.Context, imageData, keyBase, contentType string) (string, error) {
-	imageBytes, err := DecodeImageData(imageData)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode base64 image: %w", err)
-	}
-	return s.UploadImageAllSizesBytes(ctx, imageBytes, keyBase, contentType)
-}
-
-// UploadImageAllSizesBytes is UploadImageAllSizes for an already-decoded
-// payload: one ValidateImage pass, then the same bytes stored under each size.
 func (s *StorageClient) UploadImageAllSizesBytes(ctx context.Context, imageBytes []byte, keyBase, contentType string) (string, error) {
 	if err := ValidateImage(imageBytes, contentType); err != nil {
 		return "", err
@@ -278,7 +231,7 @@ func (s *StorageClient) UploadImageAllSizesBytes(ctx context.Context, imageBytes
 // NOTE: Currently uploads same image 3 times (tech debt - future: generate thumbnails)
 // This is non-blocking and returns immediately. Errors are logged but not returned.
 // Use this when you don't need to wait for upload completion (e.g., during registration).
-// Objects are keyed by the mentor UUID (see UploadImageAllSizes).
+// Objects are keyed by the mentor UUID (see UploadImageAllSizesBytes).
 //
 // Takes decoded bytes: the caller has already validated and classified them
 // (services.preparePhoto), and a background goroutine is the last place that

@@ -1,9 +1,7 @@
 package s3storage
 
 import (
-	"context"
 	"encoding/base64"
-	"strings"
 	"testing"
 
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
@@ -11,8 +9,6 @@ import (
 )
 
 func TestValidateImageType(t *testing.T) {
-	client := &StorageClient{}
-
 	tests := []struct {
 		name        string
 		contentType string
@@ -62,7 +58,7 @@ func TestValidateImageType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := client.ValidateImageType(tt.contentType)
+			err := ValidateImageType(tt.contentType)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateImageType() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -71,7 +67,15 @@ func TestValidateImageType(t *testing.T) {
 }
 
 func TestValidateImageSize(t *testing.T) {
-	client := &StorageClient{}
+	// The production path decodes once and then validates the bytes
+	// (services.preparePhoto), so the test walks the same two steps.
+	validate := func(imageData string) error {
+		raw, err := DecodeImageData(imageData)
+		if err != nil {
+			return err
+		}
+		return ValidateImageSize(raw)
+	}
 
 	// Create test images of different sizes
 	createBase64Image := func(sizeBytes int) string {
@@ -139,7 +143,7 @@ func TestValidateImageSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := client.ValidateImageSize(tt.imageData)
+			err := validate(tt.imageData)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateImageSize() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -206,10 +210,7 @@ func TestNewStorageClient_Validation(t *testing.T) {
 	}
 }
 
-func TestUploadImage_Base64Decoding(t *testing.T) {
-	// Note: This is a unit test for base64 decoding logic only
-	// Integration tests with actual S3 uploads should be done separately
-
+func TestDecodeImageData(t *testing.T) {
 	tests := []struct {
 		name      string
 		imageData string
@@ -218,12 +219,12 @@ func TestUploadImage_Base64Decoding(t *testing.T) {
 		{
 			name:      "valid plain base64",
 			imageData: base64.StdEncoding.EncodeToString([]byte("test image data")),
-			wantErr:   false, // Will fail at S3 upload, but base64 decode should work
+			wantErr:   false,
 		},
 		{
 			name:      "valid data URI",
 			imageData: "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("test image data")),
-			wantErr:   false, // Will fail at S3 upload, but base64 decode should work
+			wantErr:   false,
 		},
 		{
 			name:      "invalid base64",
@@ -239,25 +240,10 @@ func TestUploadImage_Base64Decoding(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Simulate base64 decoding logic from UploadImage
-			var imageBytes []byte
-			var err error
-
-			if strings.HasPrefix(tt.imageData, "data:") {
-				parts := strings.SplitN(tt.imageData, ",", 2)
-				if len(parts) != 2 {
-					err = context.DeadlineExceeded // Simulate error
-				} else {
-					imageBytes, err = base64.StdEncoding.DecodeString(parts[1])
-				}
-			} else {
-				imageBytes, err = base64.StdEncoding.DecodeString(tt.imageData)
-			}
-
+			imageBytes, err := DecodeImageData(tt.imageData)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("base64 decode error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("DecodeImageData() error = %v, wantErr %v", err, tt.wantErr)
 			}
-
 			if err == nil && len(imageBytes) == 0 {
 				t.Error("decoded image bytes should not be empty")
 			}
