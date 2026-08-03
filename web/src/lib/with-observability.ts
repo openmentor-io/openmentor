@@ -42,12 +42,75 @@ export function normalizeRoute(url: string): string {
 }
 
 /**
+ * Every route template that may appear as an http_route label value.
+ *
+ * normalizeRoute only collapses UUID-shaped segments, so anything else in the
+ * path survives verbatim — and these metrics are labelled before the handler
+ * authenticates anything. The live vector is any dynamic route reached with a
+ * non-UUID id: 20 requests to /api/mentor/requests/rec<n>/status measurably
+ * produced 20 series on a counter, a histogram and a gauge, all remote-written
+ * to Grafana Cloud. (A path matching no route at all never reaches this
+ * wrapper — Next answers it itself — so the exposure is the id segments.)
+ *
+ * A route missing from this list still works, it just aggregates into `other`.
+ * Add new API routes here; `routeLabel` has a test that fails if you forget.
+ */
+const KNOWN_ROUTES = new Set([
+  '/api/admin/auth/logout',
+  '/api/admin/auth/request-login',
+  '/api/admin/auth/session',
+  '/api/admin/auth/verify',
+  '/api/admin/mentors',
+  '/api/admin/mentors/:id',
+  '/api/admin/mentors/:id/approve',
+  '/api/admin/mentors/:id/decline',
+  '/api/admin/mentors/:id/picture',
+  '/api/admin/mentors/:id/requests',
+  '/api/admin/mentors/:id/requests/:id',
+  '/api/admin/mentors/:id/requests/:id/status',
+  '/api/admin/mentors/:id/return',
+  '/api/admin/mentors/:id/status',
+  '/api/admin/mentors/:id/username',
+  '/api/contact-mentor',
+  '/api/healthcheck',
+  '/api/mentor/auth/logout',
+  '/api/mentor/auth/request-login',
+  '/api/mentor/auth/session',
+  '/api/mentor/auth/verify',
+  '/api/mentor/confirm',
+  '/api/mentor/confirm-resend',
+  '/api/mentor/profile',
+  '/api/mentor/profile/picture',
+  '/api/mentor/profile/status',
+  '/api/mentor/profile/submit',
+  '/api/mentor/requests',
+  '/api/mentor/requests/:id',
+  '/api/mentor/requests/:id/decline',
+  '/api/mentor/requests/:id/status',
+  '/api/mentor/username',
+  '/api/register-mentor',
+  '/api/reviews/check',
+  '/api/reviews/submit',
+  '/api/schedule-migration',
+  '/api/username-availability',
+])
+
+/**
+ * The http_route label value for a request URL: a known route template, or
+ * `other` for anything else. Caps cardinality at len(KNOWN_ROUTES) + 1.
+ */
+export function routeLabel(url: string): string {
+  const route = normalizeRoute(url)
+  return KNOWN_ROUTES.has(route) ? route : 'other'
+}
+
+/**
  * Higher-order function that wraps API routes with observability instrumentation
  */
 export function withObservability(handler: NextApiHandler): NextApiHandler {
   return async (req: NextApiRequest, res: NextApiResponse): Promise<void> => {
     const start = Date.now()
-    const route = normalizeRoute(req.url || '')
+    const route = routeLabel(req.url || '')
     const method = req.method || 'UNKNOWN'
 
     // Track active requests
