@@ -61,7 +61,7 @@ func (h *Handlers) SessionsWatcher(ctx context.Context) (JobSummary, error) {
 				"mentor_id":              mentor.ID,
 				"pending_requests_count": len(requests),
 				"outcome":                "error",
-				"error_type":             "email_send_failed",
+				"error_type":             errTypeEmailSendFailed,
 			})
 			continue
 		}
@@ -93,7 +93,7 @@ func (h *Handlers) SessionsWatcher(ctx context.Context) (JobSummary, error) {
 func (h *Handlers) trackSessionsWatcherError(ctx context.Context) {
 	h.track(ctx, analytics.EventMentorPendingRequestsReminded, analytics.SystemDistinctID("worker"), map[string]interface{}{
 		"outcome":    "error",
-		"error_type": "db_error",
+		"error_type": errTypeDBError,
 	})
 }
 

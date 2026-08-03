@@ -41,7 +41,7 @@ func (h *Handlers) FinalizeStuckRegistrations(ctx context.Context) (JobSummary, 
 				zap.String("error_type", res.ErrorType),
 				zap.Error(finalizeErr),
 			)
-			if res.ErrorType == "email_send_failed" {
+			if res.ErrorType == errTypeEmailSendFailed {
 				// Nothing was committed (finalizeNewMentor sends first), so the
 				// row stays in the replay set for the next pass.
 				summary.EmailFailures++

@@ -44,7 +44,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 	request, err := h.repo.GetJobRequestByID(ctx, requestID)
 	if err != nil {
 		logger.Error("[New Client Request] Failed to fetch request", zap.String("request_ref", redact.ID(requestID)), zap.Error(err))
-		trackError("db_error")
+		trackError(errTypeDBError)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch request"})
 		return
 	}
@@ -61,7 +61,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 
 	if err := h.repo.SetRequestContactPending(ctx, request.ID, request.PreferredContact); err != nil {
 		logger.Error("[New Client Request] Failed to update request", zap.String("request_ref", redact.ID(requestID)), zap.Error(err))
-		trackError("db_error")
+		trackError(errTypeDBError)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to update request"})
 		return
 	}
@@ -70,7 +70,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 	if err != nil {
 		logger.Error("[New Client Request] Failed to fetch mentor",
 			zap.String("request_ref", redact.ID(requestID)), zap.String("mentor_id", request.MentorID), zap.Error(err))
-		trackError("db_error")
+		trackError(errTypeDBError)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch mentor"})
 		return
 	}
@@ -136,7 +136,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 		},
 	)
 	if sendErr != nil {
-		trackError("email_send_failed")
+		trackError(errTypeEmailSendFailed)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to send emails"})
 		return
 	}

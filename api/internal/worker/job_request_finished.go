@@ -40,7 +40,7 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 		logger.Error("[Request Process Finished] Failed to fetch request", zap.String("request_ref", redact.ID(requestID)), zap.Error(err))
 		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.SystemDistinctID("worker"), map[string]interface{}{
 			"outcome":    "error",
-			"error_type": "db_error",
+			"error_type": errTypeDBError,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Internal error"})
 		return
@@ -91,7 +91,7 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.MentorDistinctID(request.MentorID), map[string]interface{}{
 			"mentor_id":  request.MentorID,
 			"outcome":    "error",
-			"error_type": "email_send_failed",
+			"error_type": errTypeEmailSendFailed,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Internal error"})
 		return

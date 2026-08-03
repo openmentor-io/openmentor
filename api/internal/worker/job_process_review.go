@@ -41,7 +41,7 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 		h.track(ctx, analytics.EventReviewSubmitted, analytics.ReviewDistinctID(reviewID), map[string]interface{}{
 			"review_id":  reviewID,
 			"outcome":    "error",
-			"error_type": "db_error",
+			"error_type": errTypeDBError,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch review"})
 		return
@@ -63,7 +63,7 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 		h.track(ctx, analytics.EventReviewSubmitted, analytics.ReviewDistinctID(reviewID), map[string]interface{}{
 			"review_id":  reviewID,
 			"outcome":    "error",
-			"error_type": "db_error",
+			"error_type": errTypeDBError,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch mentor"})
 		return
@@ -93,7 +93,7 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 		h.track(ctx, analytics.EventReviewSubmitted, analytics.ReviewDistinctID(reviewID), map[string]interface{}{
 			"review_id":  reviewID,
 			"outcome":    "error",
-			"error_type": "email_send_failed",
+			"error_type": errTypeEmailSendFailed,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to send email"})
 		return
