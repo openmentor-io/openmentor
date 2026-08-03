@@ -40,7 +40,7 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.RequestDistinctID(requestID), map[string]interface{}{
 			"request_id": requestID,
 			"outcome":    "error",
-			"error_type": "db_error",
+			"error_type": errTypeDBError,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Internal error"})
 		return
@@ -93,7 +93,7 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.RequestDistinctID(requestID), map[string]interface{}{
 			"request_id": requestID,
 			"outcome":    "error",
-			"error_type": "email_send_failed",
+			"error_type": errTypeEmailSendFailed,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Internal error"})
 		return

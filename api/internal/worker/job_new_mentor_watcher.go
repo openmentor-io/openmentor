@@ -120,7 +120,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 	mentor, err := h.repo.GetJobMentorByID(ctx, mentorID)
 	if err != nil {
 		logger.Error("[New Mentor] Failed to fetch mentor", zap.String("mentor_id", mentorID), zap.Error(err))
-		res.ErrorType, res.Message = "db_error", "failed to fetch mentor"
+		res.ErrorType, res.Message = errTypeDBError, "failed to fetch mentor"
 		return res, err
 	}
 	if mentor == nil {
@@ -131,7 +131,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 	duplicates, err := h.repo.CountActiveMentorsByEmail(ctx, mentor.Email)
 	if err != nil {
 		logger.Error("[New Mentor] Failed to check duplicates", zap.String("mentor_id", mentorID), zap.Error(err))
-		res.ErrorType, res.Message = "db_error", "failed to check duplicates"
+		res.ErrorType, res.Message = errTypeDBError, "failed to check duplicates"
 		return res, err
 	}
 	res.Duplicates = duplicates
@@ -194,7 +194,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		})
 	}
 	if sendErr != nil {
-		res.ErrorType, res.Message = "email_send_failed", "failed to send emails"
+		res.ErrorType, res.Message = errTypeEmailSendFailed, "failed to send emails"
 		return res, sendErr
 	}
 
@@ -209,7 +209,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		EmailConfirmationExpiresAt: confirmExpiresAt,
 	}); err != nil {
 		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), zap.Error(err))
-		res.ErrorType, res.Message = "db_error", "failed to update mentor"
+		res.ErrorType, res.Message = errTypeDBError, "failed to update mentor"
 		return res, err
 	}
 

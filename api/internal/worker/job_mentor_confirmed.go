@@ -35,7 +35,7 @@ func (h *Handlers) MentorConfirmed(c *gin.Context) {
 		h.track(ctx, analytics.EventMentorConfirmedProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id":  mentorID,
 			"outcome":    "error",
-			"error_type": "db_error",
+			"error_type": errTypeDBError,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch mentor"})
 		return
@@ -70,7 +70,7 @@ func (h *Handlers) MentorConfirmed(c *gin.Context) {
 		h.track(ctx, analytics.EventMentorConfirmedProcessed, analytics.MentorDistinctID(mentor.ID), map[string]interface{}{
 			"mentor_id":  mentor.ID,
 			"outcome":    "error",
-			"error_type": "email_send_failed",
+			"error_type": errTypeEmailSendFailed,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to send emails"})
 		return
@@ -107,7 +107,7 @@ func (h *Handlers) MentorConfirmEmail(c *gin.Context) {
 		h.track(ctx, analytics.EventMentorConfirmEmailSent, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id":  mentorID,
 			"outcome":    "error",
-			"error_type": "db_error",
+			"error_type": errTypeDBError,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch mentor"})
 		return
@@ -143,7 +143,7 @@ func (h *Handlers) MentorConfirmEmail(c *gin.Context) {
 		h.track(ctx, analytics.EventMentorConfirmEmailSent, analytics.MentorDistinctID(mentor.ID), map[string]interface{}{
 			"mentor_id":  mentor.ID,
 			"outcome":    "error",
-			"error_type": "email_send_failed",
+			"error_type": errTypeEmailSendFailed,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to send email"})
 		return

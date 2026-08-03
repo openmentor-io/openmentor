@@ -36,6 +36,13 @@ const (
 	mentorStatusDeclined = "declined"
 )
 
+// Failure kinds reported on job results and as the analytics `error_type`
+// property. Tests keep the literals on purpose: they pin the wire values.
+const (
+	errTypeDBError         = "db_error"
+	errTypeEmailSendFailed = "email_send_failed"
+)
+
 // EmailSender is the subset of pkg/email.Sender the job handlers use;
 // tests substitute a fake.
 type EmailSender interface {
