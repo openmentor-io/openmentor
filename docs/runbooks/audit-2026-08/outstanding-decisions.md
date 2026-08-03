@@ -50,9 +50,16 @@ So whether backups work is genuinely unknown until someone checks.
 
 **What to check.** Both halves, in order — the second is the one that counts:
 
-1. A dump **exists** and predates the corruption:
+1. A dump **exists** and predates the corruption. On the VM — the `aws` call has
+   to run inside the sidecar, because that container is the only holder of the
+   backup credentials (`data-repair.md` §D2.3 explains why):
    ```bash
-   aws s3 ls "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/" | sort
+   docker exec openmentor-postgres-backup sh -c '
+     export AWS_ACCESS_KEY_ID="$BACKUP_AWS_ACCESS_KEY_ID" \
+            AWS_SECRET_ACCESS_KEY="$BACKUP_AWS_SECRET_ACCESS_KEY" \
+            AWS_DEFAULT_REGION="${BACKUP_AWS_REGION:-eu-central-1}"
+     aws s3 ls "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/"
+   ' | sort
    docker logs openmentor-postgres-backup --tail 20   # SUCCESS line < 24 h old?
    ```
    Retention is `BACKUP_RETENTION_DAYS`, default 30 — anything older is pruned.
@@ -186,26 +193,36 @@ rehearsed**, and nothing outside the VM would notice if the VM went away.
   append-only from the user's side, so a lost write is a lost request from a real
   mentee.
 
-  Verify without touching public DNS:
+  Verify without touching public DNS. The rehearsal server will not hold a
+  certificate for the live hostname (the ACME data stays on production, and
+  solving a public challenge from the scratch box is another way to disturb
+  production), so **pick which of the two things you are verifying** — one
+  command cannot do both:
 
   ```bash
-  # Resolve openmentor.io to the rehearsal server for THIS machine only.
-  # /etc/hosts wins over DNS, so the browser and curl exercise the real
-  # hostname, real TLS SNI and the real Traefik routing.
+  # (1) ROUTING AND SERVING, with TLS verification explicitly OFF.
+  #     -k is required: without it curl aborts at certificate validation, prints
+  #     nothing about HTTP and reports 000 — it cannot tell "Traefik is broken"
+  #     from "the certificate is not for this name". This probe proves the
+  #     restored Traefik + app answer on the real hostname and SNI. It proves
+  #     NOTHING about the certificate.
+  curl -sSk --resolve "openmentor.io:443:<rehearsal-ip>" https://openmentor.io/ \
+       -o /dev/null -w 'http=%{http_code} tls=%{ssl_verify_result}\n'
+
+  # (2) TLS end to end. Needs a hostname the drill server can legitimately hold
+  #     a certificate for — give it its own record, its own ACME cert, and drop
+  #     --resolve entirely. Verification on, nothing skipped.
+  curl -sS https://drill.openmentor.io/ -o /dev/null -w 'http=%{http_code}\n'
+
+  # For a browser walk-through of the real hostname, /etc/hosts wins over DNS
+  # (expect and click through the certificate warning — that is (1), by hand).
+  # Undo the entry the moment you are done.
   echo "<rehearsal-ip> openmentor.io www.openmentor.io" | sudo tee -a /etc/hosts
-
-  # Or skip hosts editing entirely:
-  curl -sS --resolve "openmentor.io:443:<rehearsal-ip>" https://openmentor.io/ -o /dev/null -w '%{http_code}\n'
-
-  # Undo the hosts entry the moment you are done.
   ```
 
-  A certificate warning is expected and fine — the rehearsal server has no
-  certificate for the real hostname unless you also gave it the ACME data, and
-  chasing one by solving a public challenge from the scratch box is another way
-  to disturb production. If you want a clean TLS path, give the rehearsal server
-  its **own** hostname (`drill.openmentor.io`) with its own record and its own
-  certificate; nothing about the restore depends on the name being the live one.
+  Do the drill with its **own** hostname (`drill.openmentor.io`) if you want a
+  clean run — nothing about the restore depends on the name being the live one,
+  and it is the only version of this check that exercises TLS for real.
 
   **The only safe way to point real DNS at it is a coordinated failover**: stop
   the production writers first (`docker compose stop backend worker frontend` on

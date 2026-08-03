@@ -12,7 +12,11 @@
 # SHELL tier — always runs, needs no database. Puts a stub `psql` on PATH and
 # drives diagnostics.sh through its file-handling, error and connection-choice
 # paths. Also checks diagnostics.sql structurally, which is what keeps the D3
-# detail query and its duplicated summary predicate from drifting apart.
+# detail query and its duplicated summary predicate from drifting apart, and
+# checks the prose runbooks for instructions that were removed because an
+# operator following them would damage data or verify nothing. Documentation is
+# not usually testable, but these particular sentences are executable: they are
+# commands someone pastes into a production shell.
 #
 # DATABASE tier — opt-in. Applies api/migrations/*.up.sql to a throwaway
 # database, seeds fixtures and runs diagnostics.sql for real.
@@ -35,7 +39,11 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIAG_SH="$SCRIPT_DIR/diagnostics.sh"
 DIAG_SQL="$SCRIPT_DIR/diagnostics.sql"
-MIGRATIONS_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)/api/migrations"
+REPAIR_MD="$SCRIPT_DIR/data-repair.md"
+DECISIONS_MD="$SCRIPT_DIR/outstanding-decisions.md"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+PLAN_MD="$REPO_ROOT/docs/audit/2026-08-remediation-plan.md"
+MIGRATIONS_DIR="$REPO_ROOT/api/migrations"
 TEST_DB="om_diag_test"
 
 # Stands in for a mentor name / email / request body. If this string reaches the
@@ -55,11 +63,16 @@ section() { printf '\n%s\n' "$1"; }
 assert_eq() {
     if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "expected [$3], got [$2]"; fi
 }
+# A here-string, not `printf | grep`: grep -q exits on the first match, and on a
+# haystack larger than the pipe buffer that leaves printf with SIGPIPE, whose
+# non-zero status `pipefail` then promotes into the pipeline's — so a matched
+# needle reported as missing. Bit when these assertions started reading whole
+# documents instead of short reports.
 assert_contains() {
-    if printf '%s' "$2" | grep -qF -- "$3"; then pass "$1"; else fail "$1" "missing [$3]"; fi
+    if grep -qF -- "$3" <<<"$2"; then pass "$1"; else fail "$1" "missing [$3]"; fi
 }
 assert_absent() {
-    if printf '%s' "$2" | grep -qF -- "$3"; then fail "$1" "found [$3], which must never appear here"; else pass "$1"; fi
+    if grep -qF -- "$3" <<<"$2"; then fail "$1" "found [$3], which must never appear here"; else pass "$1"; fi
 }
 assert_no_file() {
     if [ -e "$2" ]; then fail "$1" "$2 exists"; else pass "$1"; fi
@@ -233,6 +246,161 @@ assert_eq 'exactly one read-only REPEATABLE READ transaction' \
     "$(count_of 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;')" 1
 assert_eq 'exactly one COMMIT' "$(count_of 'COMMIT;')" 1
 
+# ---------------------------------------------------------------------------
+# Prose tiers. The blocks below are commands an operator pastes into a
+# production shell, so they get pinned like code: each assertion corresponds to
+# an instruction that was removed because following it damaged data or verified
+# nothing. Claims the audit originally made are quoted in the plan's own
+# corrections section (§4.1) and must survive there — that is why some of these
+# assert a count of one rather than absence.
+# ---------------------------------------------------------------------------
+count_in() { grep -cF -- "$2" "$1"; }
+
+# Counts `aws` command lines that are NOT inside a `docker exec … sh -c '…'`
+# block. Must be zero in every runbook: the VM holds no AWS credentials, so an
+# `aws` call anywhere else fails before the operator gets started.
+bare_aws_lines() {
+    awk -v q="'" '
+        index($0, "sh -c " q)             { inblock = 1; next }
+        inblock && index($0, q)           { inblock = 0; next }
+        !inblock && /(^|[[:space:]])aws / { n++ }
+        END { print n + 0 }' "$1"
+}
+
+# Every needle below is a literal fragment of markdown, so SC2016 (backticks and
+# $VAR inside single quotes) is the point rather than a mistake.
+# shellcheck disable=SC2016
+check_plan() {
+local plan
+section 'remediation plan — corrected operator instructions'
+
+plan="$(cat "$PLAN_MD")"
+
+# D1 is a mixed bag (imported, active, just-committed rows), and
+# NewMentorWatcher rewrites status, re-mints the confirmation token and re-sends
+# email. "Finalize every D1 row, the handler is idempotent" is none of those.
+# The old wording survives once, quoted in §4.1, which is the audit trail.
+assert_eq       '"POST /jobs/..., idempotent" survives only as a quoted correction' \
+    "$(count_in "$PLAN_MD" '`POST /jobs/...`, idempotent')" 1
+assert_contains 'D1 repair states the handler is not idempotent' \
+    "$plan" 'is **not idempotent**'
+assert_contains 'D1 repair points at the classified runbook procedure' \
+    "$plan" 'runbooks/audit-2026-08/data-repair.md'
+assert_contains 'D1 repair keeps the in-flight age cutoff' "$plan" '**15 minutes**'
+assert_contains 'D1 repair keeps the immediate re-check'   "$plan" 're-check each row'
+# "D1 returns zero rows" is what drove the blanket replay: imported profiles
+# never reach zero without damaging them.
+assert_absent   'D1 acceptance no longer demands a zero D1' \
+    "$plan" '`D1` returns zero rows after repair'
+assert_contains 'D1 acceptance targets D1b stuck_registration rows instead' \
+    "$plan" 'returns zero `stuck_registration` rows'
+
+# The plan's embedded D3 must carry every sink predicate diagnostics.sql checks.
+# It shipped without preferred_contact and price, both of which reach signed
+# email unescaped, so a clean D3 read from the plan proved nothing about them.
+for pred in \
+    "description ~* '<\\s*(a|img|div|table|script|style)\\y'" \
+    "name ~* '<\\s*[a-z]'" \
+    "preferred_contact ~* '<\\s*[a-z]'" \
+    "price ~* '<\\s*[a-z]'" \
+    "mentor_review ~* '<\\s*[a-z]'" \
+    "platform_review ~* '<\\s*[a-z]'" \
+    "calendar_url !~* '^https://'"
+do
+    if grep -qF -- "$pred" "$DIAG_SQL" && grep -qF -- "$pred" "$PLAN_MD"; then
+        pass "plan D3 matches diagnostics.sql: $pred"
+    else
+        fail "plan D3 matches diagnostics.sql: $pred" 'the two D3 copies have drifted'
+    fi
+done
+# In PostgreSQL's regex flavour \b is BACKSPACE, so this branch matched nothing.
+assert_absent 'plan D3 no longer uses \b as a word boundary' \
+    "$plan" '(a|img|div|table|script|style)\b'
+
+# P2: FetchAllMentorsFromDB (the public catalog) was the missed fourth query.
+assert_contains 'P2 lists all four raw sort_order queries' \
+    "$plan" 'mentor_repository.go:115, 379, 513, 547'
+assert_contains 'P2 fixes all four'    "$plan" 'in **all four** `ScanMentor` queries'
+
+# P4: the experience select has the identical uncontrolled-select defect.
+assert_contains 'P4 covers the experience select' "$plan" '`experience` has the same bug'
+assert_contains 'P4 asserts an experience round-trip' "$plan" 'Rendering with `experience:'
+assert_eq       '"experience is unaffected" survives only as a quoted correction' \
+    "$(count_in "$PLAN_MD" 'is unaffected')" 1
+
+# P6: html/template does not inspect a template.HTML value, so wrapping today's
+# concatenated fragment and deleting html.EscapeString re-creates the injection.
+assert_absent   'P6 no longer says to wrap the fragments as they are' \
+    "$plan" '`template.HTML` at their producing sites'
+assert_contains 'P6 says to rebuild the fragments as html/template templates' \
+    "$plan" 'as `html/template` templates and return the result as `template.HTML`'
+assert_contains 'P6 warns that wrapping alone re-creates the injection' \
+    "$plan" 'Do not simply wrap'
+}
+check_plan
+
+# shellcheck disable=SC2016  # literal markdown fragments, as above
+check_repair_md() {
+local repair ssh_line
+section 'data-repair.md — commands that can run where they are written'
+
+repair="$(cat "$REPAIR_MD")"
+
+# The VM holds no AWS credentials (infra/.env.production.example), and the backup
+# keys reach only openmentor-postgres-backup — which is also the only container
+# carrying aws-cli. A bare `aws s3 ls` on the VM fails before recovery starts.
+assert_eq       'no bare aws command outside the backup sidecar' \
+    "$(bare_aws_lines "$REPAIR_MD")" 0
+assert_contains 'S3 reads run inside the backup sidecar' \
+    "$repair" 'docker exec openmentor-postgres-backup sh -c'
+assert_contains 'the sidecar maps BACKUP_AWS_* onto AWS_*' \
+    "$repair" 'AWS_ACCESS_KEY_ID="$BACKUP_AWS_ACCESS_KEY_ID"'
+assert_contains 'the dump is copied out of the sidecar' \
+    "$repair" 'docker cp openmentor-postgres-backup:/backups/restore-candidate.dump'
+assert_contains 'the scratch restore waits for readiness' "$repair" 'pg_isready'
+assert_contains 'the sidecar copy is deleted afterwards' \
+    "$repair" 'rm -f /backups/restore-candidate.dump'
+
+# Inside `ssh <vm>`, ./db.sh cannot work: it reads VM_SSH_HOST/VM_SSH_USER from
+# infra/.env.production, and deployment puts the live environment in .env.
+ssh_line="$(grep -n '^ssh <vm>' "$REPAIR_MD" | head -1 | cut -d: -f1)"
+assert_eq 'the runbook still has the ssh step this check depends on' \
+    "$([ -n "$ssh_line" ] && printf 'yes')" 'yes'
+assert_eq 'no ./db.sh command after the operator has ssh-ed into the VM' \
+    "$(awk -v n="${ssh_line:-0}" 'NR > n && /^\.\/db\.sh/' "$REPAIR_MD" | wc -l | tr -d ' ')" 0
+assert_contains 'the post-trigger check queries Postgres on the VM' \
+    "$repair" 'docker exec openmentor-postgres psql'
+}
+check_repair_md
+
+check_decisions_md() {
+local decisions
+section 'outstanding-decisions.md — the rehearsal TLS check'
+
+decisions="$(cat "$DECISIONS_MD")"
+
+# A drill server has no certificate for the live hostname, so curl aborts at
+# verification and reports http 000 without ever seeing a response — it cannot
+# confirm that Traefik and the restored app serve. Reproduced against a local
+# self-signed TLS server: `curl -sS --resolve ...` exits 60 and prints 000;
+# the same call with -k prints 200 (and ssl_verify_result 18).
+# Same credential split as data-repair.md: no bare aws call, in either file.
+assert_eq 'no bare aws command outside the backup sidecar' \
+    "$(bare_aws_lines "$DECISIONS_MD")" 0
+assert_contains 'the dump listing runs inside the backup sidecar' \
+    "$decisions" 'docker exec openmentor-postgres-backup sh -c'
+
+assert_eq 'every --resolve probe is explicitly insecure' \
+    "$(grep -cE 'curl -sSk .*--resolve' "$DECISIONS_MD")" \
+    "$(grep -cE 'curl .*--resolve' "$DECISIONS_MD")"
+assert_contains 'the insecure probe says what it does not prove' \
+    "$decisions" 'NOTHING about the certificate'
+assert_contains 'it explains the 000 an unverified probe reports' "$decisions" 'reports 000'
+assert_contains 'a TLS-verifying alternative uses the drill hostname' \
+    "$decisions" 'curl -sS https://drill.openmentor.io/'
+}
+check_decisions_md
+
 section 'diagnostics.sql — behaviour against a scratch database'
 
 db_tier_ready() {
@@ -304,6 +472,17 @@ FIXTURES
         pass 'diagnostics.sql runs clean against a migrated database'
     else
         fail 'diagnostics.sql runs clean against a migrated database' "$(cat "$WORK/db.err")"
+    fi
+
+    # The plan is handed to operators as self-contained, so its embedded copy of
+    # D3 has to run, not just match diagnostics.sql textually.
+    plan_d3="$WORK/plan-d3.sql"
+    awk '/^### D3 /{f=1} f && /^```sql$/{inb=1;next} inb && /^```$/{exit} inb' \
+        "$PLAN_MD" > "$plan_d3"
+    if [ -s "$plan_d3" ] && test_psql -f "$plan_d3" >/dev/null 2>"$WORK/plan-d3.err"; then
+        pass "the plan's embedded D3 query executes against the schema"
+    else
+        fail "the plan's embedded D3 query executes against the schema" "$(cat "$WORK/plan-d3.err")"
     fi
 
     body="$(cat "$report")"

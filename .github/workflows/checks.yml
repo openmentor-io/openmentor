@@ -67,6 +67,10 @@ jobs:
               - '.github/workflows/checks.yml'
             runbooks:
               - 'docs/runbooks/audit-2026-08/**'
+              # diagnostics_test.sh also asserts that the remediation plan's own
+              # operator instructions match the runbooks, so a plan-only edit has
+              # to run the gate too.
+              - 'docs/audit/2026-08-remediation-plan.md'
               - 'api/migrations/**'
               - '.github/workflows/checks.yml'
 

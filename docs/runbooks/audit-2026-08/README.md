@@ -40,8 +40,9 @@ Everything here is read-only or explicitly guarded. Nothing here changes code.
    after step 1.
 
 [`diagnostics_test.sh`](diagnostics_test.sh) is not part of the procedure — it is
-the regression suite for the two files above, run by `Checks / required-checks`.
-Run it before changing either of them:
+the regression suite for the files above, run by `Checks / required-checks`. It
+also pins the operator instructions in the remediation plan against these
+runbooks, so a plan edit runs it too. Run it before changing any of them:
 
 ```bash
 ./diagnostics_test.sh          # shell tier: no database needed
@@ -60,7 +61,7 @@ docker rm -f pg-diagtest
 |---|---|---|
 | D1 / D1b | Mentors with `sort_order IS NULL` — they silently cannot log in, **and their public profile page cannot be rendered**. D1b separates lost registrations from imported profiles, because the repair for one damages the other. | `data-repair.md` §D1 |
 | D2a–D2c | Prices overwritten with `Free` by an uncontrolled `<select>`, plus the exposure count. | `data-repair.md` §D2 |
-| D2d | The same bug on the `experience` field. **Not in the audit plan** — found while writing these files. | `data-repair.md` §D2.1 |
+| D2d | The same bug on the `experience` field. Found while writing these files; the plan originally called `experience` unaffected and has been corrected (plan §4.1). | `data-repair.md` §D2.1 |
 | D3 | Whether the unescaped-email-template injection has been exercised in stored data. Covers all seven fields that reach an SES template: request description / name / **preferred contact**, mentor name / **price** / calendar URL, and mentor review. | investigation, not repair |
 | D4 | Live review capabilities (completed requests with no review). | sizes the H4 redesign |
 

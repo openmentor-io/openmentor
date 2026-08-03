@@ -4,6 +4,8 @@
 **Baseline commit:** `9b63e73`
 **Verified:** 2026-08-03, by executing code against a running dev stack — see
 [`verification/README.md`](./verification/README.md) to reproduce any finding yourself.
+**Corrections to this document itself are in [§4.1](#41-corrections-to-this-plan-itself-round-2-review).
+Read it before you act on any step — two of the instructions it corrects would have damaged live data.**
 
 ---
 
@@ -144,6 +146,24 @@ Two further calibrations, so you size the work correctly:
 - **`P7`'s Turnstile failure self-heals after ~5 minutes** (the widget auto-refreshes on token expiry).
   Every retry a user would realistically make still fails, but "requires a page reload" is inexact.
 
+### 4.1 Corrections to this plan itself (round-2 review)
+
+The table above corrects the **source audits**. This section corrects **this document**. A second
+review pass over the round-1 fixes found five wrong or unsafe statements here. Where following the
+text would have caused harm, the text was changed in place; what it originally said is recorded below
+so the audit trail survives.
+
+| # | Where | What this plan originally said | Reality |
+|---|---|---|---|
+| 1 | `D1` repair | "run finalization for each row via the worker's manual trigger endpoint (`POST /jobs/...`, idempotent)" | **Unsafe, and the handler is not idempotent.** `NewMentorWatcher` rewrites `status` unconditionally, mints a *new* confirmation token (killing the link already in the mentor's inbox), re-randomizes `sort_order` and sends another email. `D1` also contains imported (`inactive`), `active` and just-committed rows: replaying an `active` row makes it count *itself* as a duplicate and sets `declined`. Now points at the `D1b` classification, the 15-minute age cutoff, the duplicate check and the immediate re-check in `data-repair.md` §D1. |
+| 2 | `D3` query | A query covering `client_requests.description`/`name`, `mentors.name`/`calendar_url` and the review bodies, with a `\b` word boundary | **Incomplete, and one branch never matched.** It missed `client_requests.preferred_contact` (`{{mentee_contact}}`) and `mentors.price` (`{{request_price}}`) — both reach signed mail unescaped — so a clean `D3` proved nothing about them. In PostgreSQL's regex flavour `\b` is BACKSPACE, so the tag-name branch silently returned zero rows. Now synced with `diagnostics.sql` D3, which is the maintained copy. |
+| 3 | `P2` | "three `ScanMentor` queries select `sort_order` raw" | **Four.** `FetchAllMentorsFromDB` (`mentor_repository.go:513`, the public catalog) was missed. Fixing three leaves one NULL able to break the whole catalog listing. The implementation fixes all four. |
+| 4 | `P4` acceptance | "`experience` (same uncontrolled shape, closed option set) is unaffected" | **Wrong.** `experience` (`ProfileForm.tsx:404-409`) has the identical uncontrolled-`<select>` corruption path and silently rewrites any off-list value to `2-5`. `diagnostics.sql` D2d counts it; the fix must cover both fields. |
+| 5 | `P6` step 4 | "wrap the two intentional server-generated fragments in `template.HTML` … remove their now-redundant manual escaping" | **Doing that literally recreates the injection.** `html/template` does not inspect a `template.HTML` value, so a concatenated fragment carrying `DeclineComment`/`reviewer_note` would ship raw markup with the escaping removed. The fragments must be *rebuilt as `html/template` templates* so inner values are escaped structurally. The implementation does this (`declineInfoTpl` + `renderFragment`); only this plan's instruction was wrong. |
+
+Items 3, 4 and 5 are this plan being wrong about code that is already correct. Items 1 and 2 are
+operator instructions that were dangerous or useless as written.
+
 ---
 
 ## 5. Two failure chains worth understanding first
@@ -210,9 +230,22 @@ ORDER BY created_at;
 Every row is a person who signed up and silently cannot log in. They will not have complained through
 the app, because the login endpoint returns an enumeration-safe success message either way.
 
-**Repair:** apply `P2`'s `COALESCE` fix, then run finalization for each row via the worker's manual
-trigger endpoint (`POST /jobs/...`, idempotent — see `api/internal/worker/cron.go:81-90` for how those
-routes are registered). Consider emailing the affected people; from their side the product was broken.
+**Repair — apply `P2`'s `COALESCE` fix first; for most rows that is the whole repair.** Once it ships,
+login, the public profile page and the catalog all work again for every `D1` row, with no data change.
+
+**Then do NOT replay finalization across the list.** `POST /jobs/new-mentor-watcher?mentorId=…`
+(`api/internal/worker/jobs.go:110`) is **not idempotent**: `NewMentorWatcher` rewrites `status`
+unconditionally, mints a fresh confirmation token — invalidating the link already sitting in the
+mentor's inbox — re-randomizes `sort_order` and sends another email. `D1` is a mixed bag: imported
+profiles land there with `status='inactive'`, and an `active` row would count *itself* as a duplicate
+and be set to `declined`, removing a live mentor from the catalog.
+
+Follow [`docs/runbooks/audit-2026-08/data-repair.md`](../runbooks/audit-2026-08/data-repair.md) §D1,
+which is written for this: classify with `D1b` (`diagnostics.sql`), act only on `stuck_registration`
+rows, exclude anything created in the last **15 minutes** (its own fire-and-forget finalization may
+still be in flight), skip rows that have an active same-email duplicate, and re-check each row
+immediately before the call. Consider emailing the affected people; from their side the product was
+broken.
 
 ### D2 — prices silently overwritten with `Free` (Chain: `P4`)
 
@@ -226,9 +259,17 @@ ORDER BY updated_at DESC;
 SELECT count(*) FROM mentors
 WHERE price IS NOT NULL
   AND price NOT IN ('Free','$50','$100','$150','$200','Negotiable');
+
+-- the same exposure on `experience`, which has the identical defect (§4.1).
+-- Off-list values are rewritten to the first option, '2-5', on the next save.
+SELECT COALESCE(experience, '<NULL>') AS experience, count(*) AS mentors
+FROM mentors
+WHERE experience IS NULL OR experience NOT IN ('2-5', '5-10', '10+')
+GROUP BY 1 ORDER BY mentors DESC, 1;
 ```
 
 On the dev database the second query returned **5 of 14 mentors (36%)**, holding `$20`, `$30`, `$40`.
+`diagnostics.sql` runs these as `D2a`–`D2d` with the reasoning attached.
 
 **This is not cleanly recoverable from the database** — the old value was overwritten in place with no
 audit trail. Recovery sources, best first: a pre-corruption `pg_dump` from S3 (but see `P8` — backup
@@ -238,18 +279,52 @@ mentors, since `infra/migration/migrate-mentors.js:393-410` (`mapPrice`) is dete
 
 ### D3 — has the email injection been exercised?
 
+Synced with `docs/runbooks/audit-2026-08/diagnostics.sql` D3, which is the maintained copy — run that
+if you can. Two things this plan originally got wrong (see §4.1): it omitted
+`client_requests.preferred_contact` and `mentors.price`, which are unescaped email sinks too, and it
+used `\b`, which in PostgreSQL means BACKSPACE — so the tag-name branch matched nothing at all.
+
 ```sql
-SELECT id, created_at, 'client_request.description' AS field
-FROM client_requests WHERE description ~* '<\s*(a|img|div|table|script|style)\b'
-UNION ALL SELECT id, created_at, 'client_request.name'
-FROM client_requests WHERE name ~* '<\s*[a-z]'
-UNION ALL SELECT id, created_at, 'mentor.name'
-FROM mentors WHERE name ~* '<\s*[a-z]'
-UNION ALL SELECT id, created_at, 'mentor.calendar_url'
-FROM mentors WHERE calendar_url IS NOT NULL AND calendar_url !~* '^https://'
-UNION ALL SELECT id, created_at, 'review.text'
-FROM reviews WHERE mentor_review ~* '<\s*[a-z]' OR platform_review ~* '<\s*[a-z]';
+  SELECT id, created_at, 'client_requests.description' AS field
+    FROM client_requests
+   WHERE description ~* '<\s*(a|img|div|table|script|style)\y'
+UNION ALL
+  SELECT id, created_at, 'client_requests.name'
+    FROM client_requests
+   WHERE name ~* '<\s*[a-z]'
+UNION ALL
+  SELECT id, created_at, 'client_requests.preferred_contact'
+    FROM client_requests
+   WHERE preferred_contact ~* '<\s*[a-z]'
+UNION ALL
+  SELECT id, created_at, 'mentors.name'
+    FROM mentors
+   WHERE name ~* '<\s*[a-z]'
+UNION ALL
+  SELECT id, created_at, 'mentors.price'
+    FROM mentors
+   WHERE price ~* '<\s*[a-z]'
+UNION ALL
+  SELECT id, created_at, 'mentors.calendar_url'
+    FROM mentors
+   WHERE calendar_url IS NOT NULL
+     AND calendar_url <> ''
+     AND calendar_url !~* '^https://'
+UNION ALL
+  SELECT id, created_at, 'reviews.mentor_review'
+    FROM reviews
+   WHERE mentor_review ~* '<\s*[a-z]'
+UNION ALL
+  SELECT id, created_at, 'reviews.platform_review'
+    FROM reviews
+   WHERE platform_review ~* '<\s*[a-z]'
+ORDER BY created_at;
 ```
+
+`preferred_contact` → `{{mentee_contact}}` in `new-request-mentor` and `price` → `{{request_price}}`
+in `new-request` / `new-request-calendly` (`job_new_request_watcher.go:99,109-123`). Both are free
+text with only a length bound, so a clean `D3` that skipped them proved nothing about the two sinks
+most likely to be reached.
 
 Hits are not proof of an attack — but a `javascript:` calendar URL or an `<a href>` inside a name is,
 and would turn this into a disclosure question rather than only a code question.
@@ -329,7 +404,7 @@ The three image validators are nil-safe (`nil.ValidateImageSize(...)` returns `n
 
 **Where**
 - `api/internal/services/registration_service.go:150-170` — inserts `sort_order = nil`.
-- `api/internal/repository/mentor_repository.go:115, 379, 547` — three `ScanMentor` queries select `sort_order` raw.
+- `api/internal/repository/mentor_repository.go:115, 379, 513, 547` — **four** `ScanMentor` queries select `sort_order` raw (§4.1: this plan first said three). In order: `fetchMentorByUUIDFromDB`, `GetByEmail` (login), `FetchAllMentorsFromDB` (**the public catalog** — one active row with a NULL breaks the listing for everyone), `FetchSingleMentorFromDB` (the public profile page at `/<slug>`). `GetByLoginToken` (`:404`) scans into `*int` and is not affected.
 - `api/internal/models/mentor.go:35, 142` — `SortOrder int`, scanned via `&m.SortOrder`.
 - `api/internal/repository/mentor_repository.go:668` — `GetForModerationByID` already does `COALESCE(m.sort_order, 0)`. The fix pattern is in the file.
 - `api/internal/services/mentor_auth_service.go:80` — the misleading log line.
@@ -356,16 +431,18 @@ sort_order = 0     ->  no error, TOKEN ISSUED (verified in DB)
 - **The log actively misleads the operator.** "Login request for unknown email" leads whoever debugs it to conclude the user mistyped their address. The email is not unknown; the row exists and the scan failed.
 
 **Fix**
-1. `COALESCE(sort_order, 0)` in the three `ScanMentor` queries. (Alternative: give the column a default and backfill. `COALESCE` is preferred — it matches the existing pattern at `:668` and is additive, satisfying §3.)
+1. `COALESCE(sort_order, 0)` in **all four** `ScanMentor` queries. (Alternative: give the column a default and backfill. `COALESCE` is preferred — it matches the existing pattern at `:668` and is additive, satisfying §3.)
 2. Fix the log line to distinguish "no such row" from "row failed to scan", and log at `error` for the latter.
-3. Run `D1` and repair existing stuck rows.
-4. Address the *cause* — the lost finalization — in the same PR or the next: add a `finalize-stuck-registrations` cron job that finds `status='draft'` rows older than N minutes whose finalization never ran and invokes the same idempotent handler. ~50 lines, no new dependency; also covers worker downtime and deploy restarts. (See §12 for why a durable queue is deliberately not the Phase 0 answer.)
+3. Run `D1`, classify with `D1b`, and repair per `data-repair.md` §D1 — **not** by replaying finalization over the whole list (§4.1).
+4. Address the *cause* — the lost finalization — in the same PR or the next: add a `finalize-stuck-registrations` cron job that finds `status='draft'` rows older than N minutes whose finalization never ran and invokes the same handler. The handler is **not** idempotent (§4.1), so the selection is what keeps the job safe: `sort_order IS NULL AND status='draft' AND activated_at IS NULL`, with the same age cutoff, so a row that finalized normally is never touched a second time. ~50 lines, no new dependency; also covers worker downtime and deploy restarts. (See §12 for why a durable queue is deliberately not the Phase 0 answer.)
 
 **Acceptance**
 - A mentor row with `sort_order IS NULL` can request a login link and a token is issued.
 - `GET /mentor/profile` succeeds for such a mentor.
 - A registration whose finalization trigger never fires converges within one cron interval.
-- `D1` returns zero rows after repair.
+- `D1b` returns zero `stuck_registration` rows after repair. **`D1` itself is not expected to reach
+  zero** — imported profiles carry a NULL `sort_order` from getmentor.dev and are harmless once the
+  `COALESCE` fix ships. Do not chase a zero `D1` by triggering finalization on them (§4.1).
 
 **Regression test** A repository/service test asserting a NULL-`sort_order` mentor is returned by `GetByEmail`; a worker test asserting a dropped trigger still converges.
 
@@ -431,14 +508,22 @@ Exposure `[MEASURED]` on dev: **5 of 14 mentors (36%)** hold out-of-list prices 
 
 **Why it matters** Silent, unrecoverable, revenue-relevant data loss triggered by the victim's own unrelated edit. The value also flows into the mentee confirmation email (`api/internal/worker/job_new_request_watcher.go:99`) and re-buckets the profile in catalog filters.
 
-**Fix** Preserve unknown values. Simplest: render the stored value as an extra `<option>` when it is not in the list. Cleaner long-term: make the field a free-text input or `<datalist>`, matching the fact that the column is free text. Either is acceptable — pick one and note it.
+**`experience` has the same bug — fix both fields in this change.** §4.1: this plan first claimed
+`experience` was unaffected. It is rendered identically (`ProfileForm.tsx:404-409`, uncontrolled
+`{...register('experience')}` + `defaultValue`, no placeholder) against the three options `2-5`,
+`5-10`, `10+`, and the column is free `TEXT` with no `CHECK`. The importer's `mapExperience`
+(`migrate-mentors.js:412-417`) passes unknown source values through verbatim, so imported profiles are
+the likely holders — and their next save silently rewrites the value to `2-5`. `diagnostics.sql` **D2d**
+counts the exposed rows, and `data-repair.md` §D2 covers it with the same recovery sources as `price`.
+
+**Fix** Preserve unknown values, in **both** selects. Simplest: render the stored value as an extra `<option>` when it is not in the list. Cleaner long-term: make the field a free-text input or `<datalist>`, matching the fact that the column is free text. Either is acceptable — pick one and note it.
 
 **Acceptance**
 - Rendering `ProfileForm` with `price: '$75'` shows `$75`, and saving an unrelated field submits `price: '$75'`.
 - `price: '$100'` still round-trips.
-- `experience` (same uncontrolled shape, closed option set) is unaffected.
+- Rendering with `experience: 'lots'` shows `lots`, and saving an unrelated field submits `experience: 'lots'`; `experience: '5-10'` still round-trips.
 
-**Regression test** A `ProfileForm` test parameterised over `['$75','$30 / hour','$5','$125']` asserting round-trip, plus the `$100` control.
+**Regression test** A `ProfileForm` test parameterised over `['$75','$30 / hour','$5','$125']` asserting round-trip, plus the `$100` control — and the same shape for `experience` over an off-list value plus an on-list control.
 
 **Gotchas** When testing the admin page, hoist mocked `useAdminAuth`/`useRouter` return values to module-level constants — returning a fresh object per render causes an infinite render loop and a 15s timeout.
 
@@ -525,7 +610,7 @@ Local rendering is also cheap, because there is nothing to reimplement: template
 1. At template load, rewrite `{{name}}` → `{{.name}}` with one regex. Go templates index a `map[string]any` fine. **No asset edits needed.**
 2. Parse the `html` part with `html/template`; parse `subject` and `text` with `text/template`. Use `missingkey=error`. This is the point: the HTML part gets *context-aware* escaping while subject and plaintext get none — correct in all three contexts at once, which one shared blob cannot achieve.
 3. Send as SES `Simple` content (`Subject`, `Body.Html`, `Body.Text`) instead of `Template` + `TemplateData`.
-4. Wrap the two intentional server-generated fragments in `template.HTML` at their producing sites (`job_request_finished.go`, `job_cron.go`) so they are not double-escaped; remove their now-redundant manual escaping once parity tests pass.
+4. **Rebuild** the two intentional server-generated fragments (`job_request_finished.go`, `job_cron.go`) as `html/template` templates and return the result as `template.HTML`, so the fragment's own markup survives while the values inside it are escaped structurally. **Do not simply wrap today's concatenated string in `template.HTML` and delete the `html.EscapeString` calls** — `html/template` does not inspect a `template.HTML` value, so that hands the outer template pre-rendered raw markup and re-creates the injection through `DeclineComment` and `reviewer_note`. §4.1: that is what this step originally said. A parity test on the escaped inner value (`Try again <soon>` must render as `Try again &lt;soon&gt;` in the HTML part and verbatim in the `_text` part) is what tells the two constructions apart.
 5. Independently, validate calendar URLs as https-with-host at ingest (`api/internal/models/profile.go:15`, `mentor_registration.go:24`, `admin_moderation.go:157`).
 
 Roughly 40 lines plus tests. `html/template` additionally neutralises dangerous schemes in `href` for free, case-insensitively, while preserving benign URLs:
@@ -1323,3 +1408,4 @@ in the repo); the magic-link leak *via logs and PostHog* (both already mitigated
 | 2026-08-03 | Operating context corrected — the system is **live**; rotation, incident response and additive-migration constraints added. |
 | 2026-08-03 | Every P-item reproduced by executing code. `P3` reachability upgraded (un-captcha'd path found); `P1`/`P2` false-success responses documented; `P6`'s escape-at-the-boundary alternative empirically refuted; `P7` severity wording softened; a schema error in this plan's own SQL found and fixed. |
 | 2026-08-03 | Rewritten as a standalone, self-contained plan with a reproduction harness in `verification/`. |
+| 2026-08-03 | Round-2 review of the Phase 0 fixes found five defects in **this document** — recorded in §4.1, and the text changed where following it would have caused harm. Instructions changed: `D1`'s repair (blanket finalization replay → the `D1b`-classified procedure in `data-repair.md`; the handler is not idempotent), `D1`'s acceptance ("`D1` returns zero rows" → `D1b` returns zero `stuck_registration` rows), the embedded `D3` query (added `preferred_contact` and `price`; `\b`→`\y`), `P6` step 4 (naive `template.HTML` wrapping → rebuild the fragments as `html/template` templates). Claims corrected: `P2` touches four `ScanMentor` queries, not three; `P4`'s `experience` field has the identical defect and is in scope. |

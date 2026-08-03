@@ -164,11 +164,11 @@ mandatory in production (`api/config/config.go:415-420`). The token reaches the
 container through `env_file: .env.runtime`, so read it *inside* the container
 and it never touches your shell history or the host process list.
 
-**Step 3a — re-check the row, immediately before the call.** The worklist is
-minutes or hours old by now: the reconciliation cron may have shipped, the
-mentor's own trigger may have landed late, or a moderator may have touched the
-row. One query, and it is the difference between an idempotent procedure and one
-that mails a dead confirmation link.
+**Step 3a — re-check the row, immediately before the call. On your workstation.**
+The worklist is minutes or hours old by now: the reconciliation cron may have
+shipped, the mentor's own trigger may have landed late, or a moderator may have
+touched the row. One query, and it is the difference between a safe procedure and
+one that mails a dead confirmation link.
 
 ```bash
 # Must print exactly one row. NO ROW -> skip this mentor, do not call the
@@ -185,7 +185,8 @@ that mails a dead confirmation link.
                                   AND a.status = 'active')"
 ```
 
-**Step 3b — call the worker.** Only for a mentor that just returned a row.
+**Step 3b — call the worker. On the VM.** Only for a mentor that just returned a
+row.
 
 ```bash
 ssh <vm>
@@ -200,11 +201,18 @@ docker exec openmentor-worker sh -c '
 
 Expect `HTTP 200` and a body like
 `{"success":true,"mentorId":"…","status":"draft"}`. A `401` means the token is
-wrong; `404` means the mentor id does not exist. Confirm afterwards:
+wrong; `404` means the mentor id does not exist.
+
+Confirm afterwards — **still in the same SSH session, so query Postgres
+directly.** `./db.sh` is a workstation tool: it reads `VM_SSH_HOST`/`VM_SSH_USER`
+from `infra/.env.production`, which does not exist on the VM (deployment writes
+`.env` and `.env.runtime` there), so running it inside the SSH session exits
+`❌ .../.env.production not found` instead of verifying anything.
 
 ```bash
-./db.sh -c "SELECT status, sort_order, email_confirmation_expires_at
-              FROM mentors WHERE id = '<MENTOR-UUID>'"
+docker exec openmentor-postgres psql -U openmentor -d openmentor -c \
+    "SELECT status, sort_order, email_confirmation_expires_at
+       FROM mentors WHERE id = '<MENTOR-UUID>'"
 ```
 
 `sort_order` must now be non-NULL and `status` must still be `draft`.
@@ -307,26 +315,66 @@ corruption predates the retention window there is no dump to find.
 > nothing alerts on it. "A file is listed in S3" is not "a dump restores", and
 > a truncated or aborted upload lists just fine.
 
-```bash
-# 1. What is actually there?
-aws s3 ls "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/" | sort
+**There is no `aws` credential on the VM, so the S3 calls run inside the backup
+sidecar.** `.env.production.example` states it outright ("The VM needs NO AWS
+credentials"), and the backup keys are handed *only* to
+`openmentor-postgres-backup` (`BACKUP_AWS_ACCESS_KEY_ID` /
+`BACKUP_AWS_SECRET_ACCESS_KEY` / `BACKUP_AWS_REGION` in
+`infra/docker-compose.yml`) — a deliberate split, since those keys can delete
+every backup. That container is the one place with both the keys and `aws-cli`
+(`infra/postgres-backup/Dockerfile` installs it), so run `aws` there. `backup.sh`
+exports `AWS_*` from the `BACKUP_AWS_*` names inside its own process only, so a
+`docker exec` has to do that mapping itself.
 
-# 2. Pick the newest dump that PREDATES the corruption and restore it into a
-#    throwaway container — never against production.
-aws s3 cp "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/openmentor-YYYYMMDD-HHMM.dump" /tmp/candidate.dump
+Everything below runs **on the VM** (`ssh <vm>`). Check `df -h` first: this
+lands three copies of the dump on the VM (sidecar volume, host `/tmp`, restored
+container).
+
+```bash
+# 1. What is actually there? Single quotes matter: the variables expand in the
+#    container, so no key ever reaches your shell history or the host process list.
+docker exec openmentor-postgres-backup sh -c '
+  export AWS_ACCESS_KEY_ID="$BACKUP_AWS_ACCESS_KEY_ID" \
+         AWS_SECRET_ACCESS_KEY="$BACKUP_AWS_SECRET_ACCESS_KEY" \
+         AWS_DEFAULT_REGION="${BACKUP_AWS_REGION:-eu-central-1}"
+  aws s3 ls "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/"
+' | sort
+
+# 2. Pick the newest dump that PREDATES the corruption and pull it into the
+#    sidecar's /backups volume. The name deliberately does NOT match
+#    'openmentor-*.dump', so the retention pruner leaves it alone.
+docker exec openmentor-postgres-backup sh -c '
+  export AWS_ACCESS_KEY_ID="$BACKUP_AWS_ACCESS_KEY_ID" \
+         AWS_SECRET_ACCESS_KEY="$BACKUP_AWS_SECRET_ACCESS_KEY" \
+         AWS_DEFAULT_REGION="${BACKUP_AWS_REGION:-eu-central-1}"
+  aws s3 cp "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/openmentor-YYYYMMDD-HHMM.dump" \
+            /backups/restore-candidate.dump
+'
+docker cp openmentor-postgres-backup:/backups/restore-candidate.dump /tmp/candidate.dump
+
+# 3. Restore into a throwaway container — never against production. It gets no
+#    --network, so it cannot reach the production database.
 docker run -d --name pg-pricecheck \
     -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD="$(openssl rand -hex 16)" \
     -e POSTGRES_DB=openmentor postgres:16.14-alpine
+until docker exec pg-pricecheck pg_isready -U openmentor -q; do sleep 1; done
 docker cp /tmp/candidate.dump pg-pricecheck:/tmp/c.dump
 docker exec pg-pricecheck pg_restore -U openmentor -d openmentor /tmp/c.dump
 
-# 3. Read the prices out of the restored copy.
+# 4. Read the prices out of the restored copy.
 docker exec pg-pricecheck psql -U openmentor -d openmentor -c \
     "SELECT id, email, price, experience, updated_at FROM mentors ORDER BY email"
 
-# 4. Clean up when done — it holds a full copy of production personal data.
-docker rm -f pg-pricecheck && rm -f /tmp/candidate.dump
+# 5. Clean up when done — all three copies hold production personal data.
+docker rm -f pg-pricecheck
+rm -f /tmp/candidate.dump
+docker exec openmentor-postgres-backup rm -f /backups/restore-candidate.dump
 ```
+
+If you would rather do this on a workstation, that needs **your own** read
+credentials for the backup bucket — do not copy the container's keys out. The
+backup identity is deliberately separate from the app's S3 keys (SECURITY M12),
+and it holds delete rights on every dump.
 
 A `pg_restore` that ends without errors and gives sane row counts is the
 verification. If it does not restore, try the next-older dump; if none restores,
@@ -507,7 +555,10 @@ spent their goodwill for nothing.
   operational one. Neither repair should start before its fix is deployed.
 - `./db.sh` (in `infra/`) is the shortest path to production psql from a
   workstation; `./db.sh -c "…"` for one statement, `./db.sh < file.sql` for a
-  file. It runs `psql` inside `openmentor-postgres` over SSH.
+  file. It runs `psql` inside `openmentor-postgres` over SSH. **Workstation only**
+  — it needs `infra/.env.production` for `VM_SSH_HOST`/`VM_SSH_USER`, which the
+  VM does not have. Once you are inside an SSH session, use
+  `docker exec openmentor-postgres psql -U openmentor -d openmentor` instead.
 - Any file you produce along the way (diagnostics report, restored dump, mentor
   worklist) contains personal data. Delete it when the repair is done, and keep
   it off shared drives — `../data-deletion.md` explains why that matters here.
