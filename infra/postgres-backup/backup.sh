@@ -15,15 +15,26 @@
 #                               retention and logs a loud warning: local-only
 #                               backups die with the VM.
 #
-# S3 credentials: BACKUP_AWS_ACCESS_KEY_ID / BACKUP_AWS_SECRET_ACCESS_KEY
-# take precedence; when empty we fall back to the backend's S3_STORAGE_*
-# keys (same AWS account per DECISIONS D15). Prefer a dedicated IAM user
-# scoped to the backup bucket.
+# S3 credentials: BACKUP_AWS_ACCESS_KEY_ID / BACKUP_AWS_SECRET_ACCESS_KEY are
+# REQUIRED whenever BACKUP_S3_BUCKET is set — there is NO fallback to the
+# backend's S3_STORAGE_* keys (removed by SECURITY M12, see below), and this
+# script exits 1 without them. Use a dedicated IAM user scoped to the backup
+# bucket.
 #
-# Usage: backup.sh [daemon|once]
-#   daemon  loop forever, one backup per day at BACKUP_TIME (default)
-#   once    run a single backup immediately and exit (manual/drill runs:
-#           docker exec openmentor-postgres-backup backup.sh once)
+# Every successful run refreshes $BACKUP_DIR/.last_success (and a failure
+# refreshes .last_failure); `backup.sh healthcheck` — the compose healthcheck —
+# fails once the success marker ages past BACKUP_MAX_AGE_HOURS. Both markers
+# are also exported as Prometheus gauges into BACKUP_METRICS_DIR, which Alloy
+# scrapes with its textfile collector. That chain is the ONLY signal that an
+# unattended nightly dump has stopped working: the daemon loop deliberately
+# swallows failures so a transient error doesn't kill the sidecar.
+#
+# Usage: backup.sh [daemon|once|healthcheck]
+#   daemon       loop forever, one backup per day at BACKUP_TIME (default)
+#   once         run a single backup immediately and exit (manual/drill runs:
+#                docker exec openmentor-postgres-backup backup.sh once)
+#   healthcheck  exit 0 if the last success is younger than
+#                BACKUP_MAX_AGE_HOURS, else 1 (used by compose)
 #
 # Restore procedure: ../docs/runbooks/postgres-backup-restore.md (docs repo).
 # NOTE: must stay busybox-ash compatible (no bashisms).
