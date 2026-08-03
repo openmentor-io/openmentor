@@ -404,36 +404,25 @@ func main() { //nolint:gocyclo
 	// SECURITY: Rate limiters to prevent abuse and DoS attacks
 	// Different limits for different endpoint types
 	generalRateLimiter := middleware.NewRateLimiter(100, 200) // 100 req/sec, burst of 200
-	// contactRateLimiter is DELIBERATELY left IP-keyed, i.e. global: behind the
-	// BFF every request shares one source IP, so this is one bucket for
-	// contact-mentor, review submission, migration intents and confirm. That is
-	// the right shape here — the endpoints are captcha-gated per request, and
-	// the only payload field that could key them (a mentee's self-declared
-	// email) is attacker-chosen, so keying on it would let a spammer opt out of
-	// the limit entirely by varying it. This stays a coarse anti-spam ceiling;
-	// legitimate volume is orders of magnitude below 5/sec.
+	// contactRateLimiter stays IP-keyed, i.e. global behind the BFF: these
+	// endpoints are captcha-gated per request, and the only payload field that
+	// could key them (a mentee's self-declared email) is attacker-chosen, so
+	// keying on it would let a spammer opt out by varying it.
 	contactRateLimiter := middleware.NewRateLimiter(5, 10)  // 5 req/sec, burst of 10 (prevent spam)
 	profileRateLimiter := middleware.NewRateLimiter(10, 20) // 10 req/sec, burst of 20
-	// Registration abuse is stopped by server-verified, single-use Turnstile
-	// tokens (RegistrationService.captchaVerifier), so this is NOT a per-user
-	// throttle — the old 2/5min was IP-keyed and, behind the BFF's shared IP,
-	// collapsed into one global bucket that would lock out registrations under
-	// a launch surge. Kept only as a coarse GLOBAL DoS ceiling (bounds the
-	// blast radius of a captcha-solver flood on the DB + confirmation emails);
-	// legitimate volume is a few per minute, nowhere near this.
+	// Registration abuse is stopped by the server-verified, single-use Turnstile
+	// token (RegistrationService.captchaVerifier). This limiter is only a coarse
+	// GLOBAL ceiling on a captcha-solver flood — per-user it cannot be, because
+	// behind the BFF every registration shares one source IP.
 	registrationRateLimiter := middleware.NewRateLimiter(5, 20) // coarse global cap: ~5/sec, burst 20
 	// Login-link limiters are keyed on the target EMAIL (EmailRateLimitMiddleware),
 	// not the shared BFF IP — burst 3 then ~1 per 3 min lets a mentor retry a
 	// couple of times without locking every other mentor out.
 	mentorAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3) // 3 emails/addr, then 1 per 3 min
 	adminAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3)  // 3 emails/addr, then 1 per 3 min
-	// Confirmation resends are keyed on the TOKEN (FieldRateLimitMiddleware):
-	// 2 per 5 minutes per mentor. IP-keyed, this was 2 per 5 minutes for the
-	// ENTIRE platform — one mentor's two resends locked everyone else out, and
-	// because the limiter ran before validation even malformed payloads spent
-	// the budget. confirmResendFloodLimiter keeps a coarse global ceiling on the
-	// endpoint (bounds token-guessing lookups), exactly like the registration
-	// limiter above.
+	// Confirmation resends are keyed on the TOKEN (FieldRateLimitMiddleware) so
+	// one mentor's retries cannot spend everyone else's budget; the flood limiter
+	// keeps the coarse global ceiling on token-guessing lookups.
 	confirmResendRateLimiter := middleware.NewRateLimiter(0.00667, 2) // per token: 2 per 5 min
 	confirmResendFloodLimiter := middleware.NewRateLimiter(5, 20)     // coarse global cap: ~5/sec, burst 20
 

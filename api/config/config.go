@@ -427,11 +427,11 @@ func (c *Config) validateWorkerConfig() error {
 
 // validateS3StorageConfig enforces a COMPLETE object storage configuration.
 // main.go only builds the storage client when the credentials are present, so
-// a half-configured bucket used to boot green and then nil-deref on the first
-// profile picture — inside a detached goroutine, where recover() cannot save
-// the process. Production must be fully configured; off production an
-// entirely empty block is allowed (uploads self-disable and the photo paths
-// reject with ErrUploadsUnavailable), but a PARTIAL block is always a typo.
+// a half-configured bucket boots green and then nil-derefs on the first profile
+// picture — inside a detached goroutine, where recover() cannot save the
+// process. Production must be fully configured; off production an entirely
+// empty block is allowed (uploads self-disable and the photo paths reject with
+// ErrUploadsUnavailable), but a PARTIAL block is always a typo.
 func (c *Config) validateS3StorageConfig() error {
 	settings := []struct {
 		name  string

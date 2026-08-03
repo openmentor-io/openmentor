@@ -122,10 +122,10 @@ func ScanMentor(row pgx.Row) (*Mentor, error) {
 	var description *string
 	var competencies *string
 	var moderationNote *string
-	// sort_order is nullable in the schema and stays NULL until the
-	// new-mentor-watcher finalization randomizes it. The queries COALESCE it,
-	// but scan it through a pointer anyway: pgx rejects NULL into a plain int,
-	// and one query missing the COALESCE locked mentors out of login entirely.
+	// sort_order is nullable and stays NULL until the new-mentor-watcher
+	// finalization randomizes it. The queries COALESCE it, but scan it through a
+	// pointer anyway: pgx rejects NULL into a plain int, so one query missing the
+	// COALESCE would fail every read of that mentor.
 	var sortOrder *int
 
 	err := row.Scan(

@@ -160,10 +160,9 @@ func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID s
 		return "", ErrUploadsUnavailable
 	}
 
-	// Validate and classify the image FIRST: this endpoint is reachable with
-	// nothing but a mentor session (no captcha), and it used to store the
-	// upload before decoding it, so a decompression bomb both OOM-killed the
-	// API and burned three S3 objects on every attempt.
+	// Validate and classify the image FIRST: this endpoint takes nothing but a
+	// mentor session (no captcha), so a rejected upload must cost neither the
+	// three S3 objects nor an unbounded decode.
 	photo, err := preparePhoto(req.Image, req.ContentType)
 	if err != nil {
 		metrics.ProfilePictureUploads.WithLabelValues("invalid_image").Inc()

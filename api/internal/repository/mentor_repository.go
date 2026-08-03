@@ -382,9 +382,8 @@ func (r *MentorRepository) GetAllTags(ctx context.Context) (map[string]string, e
 //
 // sort_order is COALESCEd here and in every other mentor read (as
 // GetForModerationByID always did): registration inserts the row with
-// sort_order NULL and only the new-mentor-watcher finalization fills it in. A
-// NULL used to fail the scan, and this login path reported any scan failure as
-// "unknown email" — a permanent, silent lockout.
+// sort_order NULL and only the new-mentor-watcher finalization fills it in, and
+// a NULL fails the scan — which this login path reports as "unknown email".
 func (r *MentorRepository) GetByEmail(ctx context.Context, email string) (*models.Mentor, error) {
 	query := `
 		SELECT id, airtable_id, legacy_id, slug, name, job_title, workplace, about, details,
