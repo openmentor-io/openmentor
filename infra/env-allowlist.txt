@@ -41,8 +41,9 @@ O11Y_EXPORTER_ENDPOINT
 O11Y_FE_SERVICE_NAME
 O11Y_FE_SERVICE_VERSION
 O11Y_SERVICE_NAMESPACE
-# NEXT_PUBLIC_*: public by definition (already in the browser bundle), and
-# re-read by next.config.js at server start.
+# NEXT_PUBLIC_*: public by definition (already in the browser bundle). Baked in
+# at build time - the standalone server.js never re-reads next.config.js - and
+# passed at runtime only so the container env matches the build args.
 NEXT_PUBLIC_GO_API_URL
 NEXT_PUBLIC_APP_ENV
 NEXT_PUBLIC_ANALYTICS_PROVIDER

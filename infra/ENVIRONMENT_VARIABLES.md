@@ -179,12 +179,15 @@ Deploy- and build-only values, kept out of runtime env entirely:
 | `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID` | `next build` sourcemap upload (`next.config.js`) |
 | `FARO_API_KEY`, `FARO_API_ENDPOINT`, `FARO_APP_ID`, `FARO_STACK_ID` | `next build` sourcemap upload |
 
-`next.config.js` is re-evaluated by `next start`, so it does see a missing
-`POSTHOG_PERSONAL_API_KEY` at runtime and skips the `withPostHogConfig` wrapper.
-That wrapper only configures build-time sourcemap upload
-(`@posthog/nextjs-config` is a devDependency), so runtime behaviour is
-unchanged — and a full-access personal API key has no business in a
-public-facing container.
+Dropping `POSTHOG_PERSONAL_API_KEY` / `POSTHOG_PROJECT_ID` from the frontend's
+runtime env changes nothing: `web/` builds with `output: 'standalone'`, and the
+`server.js` Next generates inlines the evaluated config as a literal
+(`const nextConfig = {…}`) instead of requiring `next.config.js`. The container
+runs `node server.js`, so the file — and the `withPostHogConfig` wrapper it
+applies, which only configures build-time sourcemap upload
+(`@posthog/nextjs-config` is a devDependency) — is never on the runtime path.
+The same is true of every `NEXT_PUBLIC_*` value: baked in at build time. A
+full-access personal API key has no business in a public-facing container.
 
 ## Security Best Practices
 

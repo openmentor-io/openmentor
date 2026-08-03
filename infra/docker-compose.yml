@@ -90,7 +90,7 @@ services:
     # the value from .env and stay UNSET when .env has no such line (a
     # `KEY=${KEY}` entry would inject an empty string instead).
     # Contract + rationale per key: ENVIRONMENT_VARIABLES.md; enforced by
-    # ./check-service-env.sh against env-allowlist.yml.
+    # ./check-service-env.sh against env-allowlist.txt.
     environment:
       - NODE_ENV=production
       - APP_ENV=${APP_ENV:-production}
@@ -107,10 +107,13 @@ services:
       - O11Y_FE_SERVICE_NAME
       - O11Y_FE_SERVICE_VERSION
       - O11Y_SERVICE_NAMESPACE
-      # NEXT_PUBLIC_* are baked into the image at build time AND re-read by
-      # next.config.js at server start (image remotePatterns, the Faro rewrite),
-      # so they must be present at runtime too. All of them are public by
-      # definition - they already ship in the browser bundle.
+      # NEXT_PUBLIC_* are resolved at BUILD time only: web/ builds with
+      # `output: 'standalone'`, whose generated server.js inlines the whole
+      # next.config.js result (remotePatterns, the Faro rewrite) as a literal,
+      # so `node server.js` never re-evaluates the config file. Kept here
+      # anyway so the runtime env matches the build args an operator sets in
+      # .env - all of them are public by definition, they already ship in the
+      # browser bundle.
       - NEXT_PUBLIC_GO_API_URL=http://backend:8081
       - NEXT_PUBLIC_APP_ENV=${NEXT_PUBLIC_APP_ENV:-production}
       - NEXT_PUBLIC_ANALYTICS_PROVIDER=${NEXT_PUBLIC_ANALYTICS_PROVIDER:-posthog}
