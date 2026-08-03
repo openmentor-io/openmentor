@@ -144,6 +144,7 @@ enforced by [`check-service-env.sh`](check-service-env.sh). Sensitive keys are
 | `LOG_DIR` | | ● | | | ● | ● | ● | |
 | `PORT` / `WORKER_PORT` | | ● | | | | ● | ● | ● |
 | `SERVICE_INSTANCE_ID` | | ● | | | | ● | ● | |
+| `GOMEMLIMIT` | | | | | | ●² | ●² | |
 | `NODE_ENV`, `NEXT_PUBLIC_*` | | ● | | | | | | |
 | `DOMAIN` | | ● | | | | | | |
 | **`GO_API_INTERNAL_TOKEN`** | | ● | | | | | | |
@@ -178,6 +179,13 @@ enforced by [`check-service-env.sh`](check-service-env.sh). Sensitive keys are
 ¹ the worker gets all `O11Y_PROFILING_*` except `O11Y_PROFILING_APP_NAME`: it
 names its profile stream from `O11Y_WORKER_SERVICE_NAME` so its profiles never
 mix with the API's.
+
+² fixed in `docker-compose.yml`, not read from `.env`. Go's GC targets ~2x live
+heap and ignores the cgroup limit, so without it a healthy heap can still get
+the container OOM-killed. Each value is ~20% under that service's own
+`mem_limit` (backend 512m → `400MiB`, worker 256m → `200MiB`) to leave room for
+non-heap memory — change one and change the other, or the soft limit lands
+above the hard one and stops doing anything.
 
 ○ = passed **only** to satisfy `config.Validate()`. `cmd/migrate` and
 `cmd/worker` call the same `config.Load()` as `cmd/api`, which rejects a missing

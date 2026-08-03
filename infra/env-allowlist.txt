@@ -102,6 +102,9 @@ POSTHOG_CAPTURE_ENDPOINT
 [backend]
 GIN_MODE
 PORT
+# Go soft heap ceiling. Fixed in docker-compose.yml from that service's
+# mem_limit, never from .env — the two must move together.
+GOMEMLIMIT
 APP_ENV
 LOG_LEVEL
 LOG_DIR
@@ -154,6 +157,8 @@ O11Y_PROFILING_UPLOAD_INTERVAL_SECONDS
 [worker]
 GIN_MODE
 WORKER_PORT
+# See [backend]: sized to this service's own mem_limit.
+GOMEMLIMIT
 APP_ENV
 LOG_LEVEL
 LOG_DIR

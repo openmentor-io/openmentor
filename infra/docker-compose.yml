@@ -332,6 +332,12 @@ services:
     environment:
       - GIN_MODE=release
       - PORT=8081
+      # Go's GC targets ~2x live heap and does not read the cgroup limit, so a
+      # 200 MiB live heap makes it reach for ~400 MiB and the kernel OOM-kills
+      # the container while nothing is actually leaking. GOMEMLIMIT is the soft
+      # limit that makes the GC back off first; keep it ~20% under mem_limit so
+      # non-heap memory (stacks, mmap'd runtime) still fits.
+      - GOMEMLIMIT=400MiB
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_DIR=/app/logs
@@ -417,6 +423,10 @@ services:
     environment:
       - GIN_MODE=release
       - WORKER_PORT=8090
+      # Same reason as backend, sized to THIS container: the value has to sit
+      # under mem_limit or the GC never backs off before the kernel kills the
+      # process. 256m here, so 200MiB — not the backend's 400MiB.
+      - GOMEMLIMIT=200MiB
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_DIR=/app/logs
