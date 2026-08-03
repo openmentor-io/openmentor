@@ -8,19 +8,20 @@ import (
 )
 
 const (
-	// MaxPixels bounds the DECODED pixel count of an uploaded image. The
-	// compressed size is no protection at all: a crafted 1-bit grayscale PNG
-	// amplifies ~8,200x, so a 47 KiB file declaring 40000x40000 needs ~400 MiB
-	// and a 190 KiB one ~1.5 GiB — against a 512 MiB container limit, with two
-	// concurrent requests enough to OOM-kill the API. GOMEMLIMIT cannot help
-	// either: the allocation is a single contiguous live []uint8.
+	// MaxPixels bounds the DECODED pixel count of an uploaded image, because the
+	// compressed size bounds nothing: a crafted PNG amplifies thousands of
+	// times, and the decode is one contiguous live []uint8, so GOMEMLIMIT cannot
+	// soften it either.
 	//
-	// 40M px is comfortably above any real camera output (a 24 MP photo is
-	// 24M px) while keeping one decode inside the container budget.
-	MaxPixels = 40_000_000
+	// The bound is a memory budget, not a guess at what a camera produces: at
+	// 16M px an RGBA decode measures ~74 MiB, so several concurrent uploads
+	// still fit the API container's 512 MiB. It clears a 12 MP phone photo
+	// (12.2M px); bigger originals have to be cropped or resized, which is what
+	// a profile picture wants anyway.
+	MaxPixels = 16_000_000
 
-	// MaxAspectRatio rejects extreme strips. A 40000x1000 image fits the pixel
-	// budget yet is no more a profile picture than the bomb is, and it still
+	// MaxAspectRatio rejects extreme strips. A 16000x1000 image fits the pixel
+	// budget yet is no more a profile picture than a bomb is, and it still
 	// forces a huge single-dimension allocation.
 	MaxAspectRatio = 20
 )
@@ -30,10 +31,8 @@ var ErrImageTooLarge = errors.New("image is too large to process")
 
 // CheckBounds parses ONLY the image header (image.DecodeConfig: microseconds,
 // no pixel buffer) and rejects geometry whose full decode would blow the
-// container's memory budget. It MUST run before image.Decode — the whole
-// vulnerability is that decoding is what allocates, and by then it is too late
-// (measured: 5.6 µs to read the header versus 2.49 s and 397 MiB to decode the
-// same 47 KiB file).
+// container's memory budget. It MUST run before image.Decode: decoding is what
+// allocates, so by then it is too late.
 func CheckBounds(data []byte) error {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
@@ -47,7 +46,9 @@ func checkConfigBounds(cfg image.Config) error {
 		return fmt.Errorf("image has no pixels (%dx%d)", cfg.Width, cfg.Height)
 	}
 	if int64(cfg.Width)*int64(cfg.Height) > MaxPixels {
-		return fmt.Errorf("%w: %dx%d pixels (max %d)", ErrImageTooLarge, cfg.Width, cfg.Height, MaxPixels)
+		// The reason reaches the uploader verbatim, so say what to do about it.
+		return fmt.Errorf("%w: %dx%d pixels — please crop or resize it to under %d megapixels",
+			ErrImageTooLarge, cfg.Width, cfg.Height, MaxPixels/1_000_000)
 	}
 
 	long, short := cfg.Width, cfg.Height

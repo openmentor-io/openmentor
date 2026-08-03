@@ -23,6 +23,21 @@ import (
 // 40000x40000 file (397 MiB against a 512 MiB container).
 func BombPNG(tb testing.TB, width, height int) []byte {
 	tb.Helper()
+	// bit depth 1, grayscale: one bit per pixel on the wire.
+	return bombPNG(tb, width, height, 1, 0, 1+(width+7)/8)
+}
+
+// RGBABombPNG is BombPNG declared as 8-bit RGBA — the most expensive shape an
+// upload can ask for, since every pixel costs 4 bytes once decoded (4x the
+// grayscale bomb at the same geometry). This is what the pixel bound has to be
+// sized against.
+func RGBABombPNG(tb testing.TB, width, height int) []byte {
+	tb.Helper()
+	return bombPNG(tb, width, height, 8, 6, 1+width*4)
+}
+
+func bombPNG(tb testing.TB, width, height, bitDepth, colourType, rowBytes int) []byte {
+	tb.Helper()
 
 	var out bytes.Buffer
 	out.WriteString("\x89PNG\r\n\x1a\n")
@@ -30,13 +45,13 @@ func BombPNG(tb testing.TB, width, height int) []byte {
 	header := make([]byte, 0, 13)
 	header = binary.BigEndian.AppendUint32(header, uint32(width))  //nolint:gosec // test fixture dimensions
 	header = binary.BigEndian.AppendUint32(header, uint32(height)) //nolint:gosec // test fixture dimensions
-	// bit depth 1, grayscale, deflate, adaptive filtering, no interlace.
-	header = append(header, 1, 0, 0, 0, 0)
+	// deflate, adaptive filtering, no interlace.
+	header = append(header, byte(bitDepth), byte(colourType), 0, 0, 0)
 	writeChunk(tb, &out, "IHDR", header)
 
 	var idat bytes.Buffer
 	zw := zlib.NewWriter(&idat)
-	row := make([]byte, 1+(width+7)/8) // filter byte + one bit per pixel
+	row := make([]byte, rowBytes) // filter byte + the scanline itself
 	for y := 0; y < height; y++ {
 		if _, err := zw.Write(row); err != nil {
 			tb.Fatalf("deflate row %d: %v", y, err)
