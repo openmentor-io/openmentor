@@ -162,6 +162,10 @@ jobs:
           # which hard-requires these vars in production (APP_ENV defaults to
           # production) — including JWT_SECRET (>=32 chars) and WORKER_AUTH_TOKEN
           # per the security hardening. Share one env file so they can't drift.
+          #
+          # The S3_STORAGE_* block must be COMPLETE or config validation fails
+          # in production; the values are unused here because NewStorageClient
+          # makes no network call and the smoke test uploads nothing.
           printf '%s\n' \
             "DATABASE_URL=$DBURL" \
             'INTERNAL_MENTORS_API=test-token' \
@@ -169,6 +173,11 @@ jobs:
             'TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA' \
             'JWT_SECRET=ci-jwt-secret-not-a-real-secret-0123456789' \
             'WORKER_AUTH_TOKEN=ci-worker-token' \
+            'S3_STORAGE_ACCESS_KEY=ci-access-key' \
+            'S3_STORAGE_SECRET_KEY=ci-secret-key' \
+            'S3_STORAGE_BUCKET=ci-bucket' \
+            'S3_STORAGE_ENDPOINT=http://s3.invalid' \
+            'S3_STORAGE_REGION=auto' \
             > ci.env
 
           docker run -d --name pg --network ci-net \
