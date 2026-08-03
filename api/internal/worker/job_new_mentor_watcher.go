@@ -64,7 +64,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 
 	mentor, err := h.repo.GetJobMentorByID(ctx, mentorID)
 	if err != nil {
-		logger.Error("[New Mentor] Failed to fetch mentor", zap.String("mentor_id", mentorID), zap.Error(err))
+		logger.Error("[New Mentor] Failed to fetch mentor", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id":  mentorID,
 			"outcome":    "error",
@@ -87,7 +87,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 
 	duplicates, err := h.repo.CountActiveMentorsByEmail(ctx, mentor.Email)
 	if err != nil {
-		logger.Error("[New Mentor] Failed to check duplicates", zap.String("mentor_id", mentorID), zap.Error(err))
+		logger.Error("[New Mentor] Failed to check duplicates", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id":  mentorID,
 			"outcome":    "error",
@@ -118,7 +118,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 	if newStatus == mentorStatusDraft {
 		token, tokenErr := generateConfirmationToken()
 		if tokenErr != nil {
-			logger.Error("[New Mentor] Failed to generate confirmation token", zap.String("mentor_id", mentorID), zap.Error(tokenErr))
+			logger.Error("[New Mentor] Failed to generate confirmation token", zap.String("mentor_id", mentorID), logger.RedactedError(tokenErr))
 			h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 				"mentor_id":  mentorID,
 				"outcome":    "error",
@@ -143,7 +143,7 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		EmailConfirmationExpiresAt: confirmExpiresAt,
 	})
 	if err != nil {
-		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), zap.Error(err))
+		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id":  mentorID,
 			"outcome":    "error",

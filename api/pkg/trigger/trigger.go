@@ -20,19 +20,6 @@ import (
 // sent, matching the worker's allow-when-unset behavior.
 const WorkerTokenHeader = "X-Worker-Token" //nolint:gosec // header name, not a credential
 
-// redactedError replaces zap.Error for the transport error paths here.
-// http.Client.Do and http.NewRequestWithContext both return a *url.Error, and
-// its Error() renders the COMPLETE target URL — which for CallAsync is the
-// trigger URL with the client_requests id appended. So zap.Error(err) put back
-// exactly the capability the explicit url and record_ref fields dropped (P14).
-// The field name stays "error" so existing Loki queries keep working.
-func redactedError(err error) zap.Field {
-	if err == nil {
-		return zap.Skip()
-	}
-	return zap.String("error", redact.Text(err.Error()))
-}
-
 // CallAsync calls a trigger URL asynchronously with the record id appended
 // verbatim to the URL (so GET-style trigger URLs must end with "?param=").
 // This is used to notify the background worker after database operations.
@@ -64,7 +51,7 @@ func CallAsync(ctx context.Context, triggerURL, recordID, authToken string, http
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, http.NoBody)
 		if err != nil {
 			logger.Error("Failed to build trigger request",
-				redactedError(err), loggedURL, recordRef)
+				logger.RedactedError(err), loggedURL, recordRef)
 			return
 		}
 		if authToken != "" {
@@ -74,7 +61,7 @@ func CallAsync(ctx context.Context, triggerURL, recordID, authToken string, http
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			logger.Error("Failed to call trigger URL",
-				redactedError(err), loggedURL, recordRef)
+				logger.RedactedError(err), loggedURL, recordRef)
 			return
 		}
 		defer resp.Body.Close()
@@ -120,7 +107,7 @@ func CallAsyncWithPayload(ctx context.Context, triggerURL string, payload interf
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, triggerURL, bytes.NewBuffer(jsonData))
 		if err != nil {
 			logger.Error("Failed to build trigger request",
-				redactedError(err),
+				logger.RedactedError(err),
 				zap.String("url", triggerURL))
 			return
 		}
@@ -132,7 +119,7 @@ func CallAsyncWithPayload(ctx context.Context, triggerURL string, payload interf
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			logger.Error("Failed to call trigger URL",
-				redactedError(err),
+				logger.RedactedError(err),
 				zap.String("url", triggerURL))
 			return
 		}

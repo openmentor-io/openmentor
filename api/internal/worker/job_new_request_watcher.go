@@ -43,7 +43,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 
 	request, err := h.repo.GetJobRequestByID(ctx, requestID)
 	if err != nil {
-		logger.Error("[New Client Request] Failed to fetch request", zap.String("request_ref", redact.ID(requestID)), zap.Error(err))
+		logger.Error("[New Client Request] Failed to fetch request", zap.String("request_ref", redact.ID(requestID)), logger.RedactedError(err))
 		trackError("db_error")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch request"})
 		return
@@ -60,7 +60,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 	request.PreferredContact = strings.TrimSpace(request.PreferredContact)
 
 	if err := h.repo.SetRequestContactPending(ctx, request.ID, request.PreferredContact); err != nil {
-		logger.Error("[New Client Request] Failed to update request", zap.String("request_ref", redact.ID(requestID)), zap.Error(err))
+		logger.Error("[New Client Request] Failed to update request", zap.String("request_ref", redact.ID(requestID)), logger.RedactedError(err))
 		trackError("db_error")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to update request"})
 		return
@@ -69,7 +69,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 	mentor, err := h.repo.GetJobMentorByID(ctx, request.MentorID)
 	if err != nil {
 		logger.Error("[New Client Request] Failed to fetch mentor",
-			zap.String("request_ref", redact.ID(requestID)), zap.String("mentor_id", request.MentorID), zap.Error(err))
+			zap.String("request_ref", redact.ID(requestID)), zap.String("mentor_id", request.MentorID), logger.RedactedError(err))
 		trackError("db_error")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch mentor"})
 		return

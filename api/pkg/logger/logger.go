@@ -10,6 +10,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
+
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 )
 
 var (
@@ -153,6 +155,19 @@ func Error(msg string, fields ...zap.Field) {
 // Fatal logs a fatal message and exits
 func Fatal(msg string, fields ...zap.Field) {
 	Log.Fatal(msg, fields...)
+}
+
+// RedactedError replaces zap.Error wherever the error can have traveled through
+// the database or an HTTP client: err.Error() is a telemetry sink of its own.
+// *url.Error renders the complete target URL, the repository layer names the row
+// it failed on, and Postgres reports the offending value itself in a constraint
+// DETAIL — so zap.Error puts back exactly the capability the explicit fields
+// dropped (P14). The field name stays "error" so existing Loki queries work.
+func RedactedError(err error) zap.Field {
+	if err == nil {
+		return zap.Skip()
+	}
+	return zap.String("error", redact.Text(err.Error()))
 }
 
 // With creates a child logger with additional fields

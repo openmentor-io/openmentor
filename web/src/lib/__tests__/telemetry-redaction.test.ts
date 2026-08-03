@@ -177,6 +177,31 @@ describe('redact', () => {
     expect(maskIp('::1')).toBe('::1')
     expect(maskIp(undefined)).toBe('')
   })
+
+  it('masks the IPv4 embedded in an IPv4-mapped IPv6 address', () => {
+    // A client reaching a dual-stack socket over IPv4 arrives as ::ffff:<v4>,
+    // which node renders in either notation. Both carry all four octets, so
+    // neither may pass through on the strength of its `::` prefix.
+    expect(maskIp('::ffff:203.0.113.42')).toBe('::ffff:203.0.113.0')
+    expect(maskIp('::ffff:cb00:712a')).toBe('::ffff:203.0.113.0')
+    expect(maskIp('::FFFF:CB00:712A')).toBe('::ffff:203.0.113.0')
+    // The deprecated IPv4-compatible form embeds an address the same way.
+    expect(maskIp('::cb00:712a')).toBe('::203.0.113.0')
+    // Some proxies bracket the address; it is still the same address.
+    expect(maskIp('[::ffff:203.0.113.42]')).toBe('::ffff:203.0.113.0')
+  })
+
+  it('masks compressed, uppercase and zone-suffixed IPv6 addresses', () => {
+    expect(maskIp('2001:DB8:85A3::8A2E:370:7348')).toBe('2001:db8:85a3::')
+    expect(maskIp('fe80::1%eth0')).toBe('fe80::')
+    expect(maskIp('64:ff9b::203.0.113.42')).toBe('64:ff9b::')
+    expect(maskIp('::')).toBe('::')
+    // Not an address at all: fail closed rather than log the value.
+    expect(maskIp('2001:db8:::1')).toBe(REDACTED_VALUE)
+    expect(maskIp('not-an-ip')).toBe(REDACTED_VALUE)
+    expect(maskIp('203.0.113')).toBe(REDACTED_VALUE)
+    expect(maskIp('999.0.113.42')).toBe(REDACTED_VALUE)
+  })
 })
 
 describe('logger', () => {

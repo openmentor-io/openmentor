@@ -31,7 +31,7 @@ func (h *Handlers) MentorConfirmed(c *gin.Context) {
 
 	mentor, err := h.repo.GetJobMentorByID(ctx, mentorID)
 	if err != nil {
-		logger.Error("[Mentor Confirmed] Failed to fetch mentor", zap.String("mentor_id", mentorID), zap.Error(err))
+		logger.Error("[Mentor Confirmed] Failed to fetch mentor", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		h.track(ctx, analytics.EventMentorConfirmedProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id":  mentorID,
 			"outcome":    "error",
@@ -103,7 +103,7 @@ func (h *Handlers) MentorConfirmEmail(c *gin.Context) {
 
 	mentor, err := h.repo.GetJobMentorByID(ctx, mentorID)
 	if err != nil {
-		logger.Error("[Mentor Confirm Email] Failed to fetch mentor", zap.String("mentor_id", mentorID), zap.Error(err))
+		logger.Error("[Mentor Confirm Email] Failed to fetch mentor", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		h.track(ctx, analytics.EventMentorConfirmEmailSent, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id":  mentorID,
 			"outcome":    "error",

@@ -10,6 +10,9 @@ import (
 // like a real request id so nothing can pass by rejecting the format.
 const sentinel = "11111111-2222-4333-8444-555555555555"
 
+// otherSentinel is a second capability, used where a message names two rows.
+const otherSentinel = "99999999-8888-4777-8666-555555555555"
+
 func TestSensitiveKeyMatchesEverySpelling(t *testing.T) {
 	sensitive := []string{
 		"request_id", "requestId", "REQUEST-ID", "client_request_id",
@@ -131,11 +134,19 @@ func TestTextRedactsURLsEmbeddedInProse(t *testing.T) {
 		"rejected login_token=abc.def.ghi": "rejected login_token=" + Placeholder,
 		// Trailing sentence punctuation is not part of the URL.
 		"timeout on /api/v1/reviews/" + sentinel + "/check.": "timeout on /api/v1/reviews/" + Placeholder + "/check.",
-		// Nothing to do: prose stays byte-identical, including text that merely
-		// mentions an id under a name that is not a capability parameter.
-		"connection reset by peer":       "connection reset by peer",
-		"mentor " + sentinel + " is new": "mentor " + sentinel + " is new",
-		"":                               "",
+		// A bare id in prose, which is how the repository layer names the row it
+		// failed on and how Postgres reports a constraint violation. Neither shape
+		// has a URL or a parameter name for the other rules to match on.
+		"failed to fetch client request " + sentinel + ": timeout": "failed to fetch client request " + ID(sentinel) + ": timeout",
+		`failed to fetch request id="` + sentinel + `": not found`: `failed to fetch request id="` + ID(sentinel) + `": not found`,
+		"Key (id)=(" + sentinel + ") already exists":               "Key (id)=(" + ID(sentinel) + ") already exists",
+		"mentor " + sentinel + " is new":                           "mentor " + ID(sentinel) + " is new",
+		// Two ids in one message keep separate references.
+		sentinel + " -> " + otherSentinel: ID(sentinel) + " -> " + ID(otherSentinel),
+		// Nothing to do: prose stays byte-identical.
+		"connection reset by peer": "connection reset by peer",
+		"mentor m-42 is new":       "mentor m-42 is new",
+		"":                         "",
 	}
 
 	for raw, want := range cases {

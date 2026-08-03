@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -166,6 +167,45 @@ func TestObservabilityRedactsCapabilityUnderAnInnocentParamName(t *testing.T) {
 		})
 	}
 }
+
+// TestObservabilityRedactsAttachedErrorText covers the sink that the path and
+// route_params rules do not reach: handlers attach the reason for a 4xx with the
+// row id inside the message (`failed to fetch request id="<uuid>"`), and the
+// middleware logs that message verbatim — so a routine not-found or ownership
+// mismatch logged the capability next to the redacted path.
+func TestObservabilityRedactsAttachedErrorText(t *testing.T) {
+	logs := observeLogs(t)
+
+	r := gin.New()
+	r.Use(ObservabilityMiddleware())
+	r.GET("/api/v1/mentor/requests/:id", func(c *gin.Context) {
+		// Verbatim shape from MentorRequestsHandler.GetRequestByID.
+		_ = c.Error(fmt.Errorf("failed to fetch request id=%q: %w", reviewCapability, errRequestNotFound)) //nolint:errcheck
+		c.JSON(http.StatusNotFound, gin.H{"error": "Request not found"})
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/mentor/requests/"+reviewCapability, http.NoBody))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+
+	entries := logs.All()
+	if len(entries) != 1 {
+		t.Fatalf("recorded %d log entries, want 1", len(entries))
+	}
+	rendered := fmt.Sprint(entries[0].ContextMap())
+	assertNoSecrets(t, "log entry", rendered)
+	if !strings.Contains(rendered, "failed to fetch request") {
+		t.Errorf("log entry lost the reason, redaction is too broad: %s", rendered)
+	}
+	// The reason still points at a row: the hashed ref matches route_params.
+	if !strings.Contains(rendered, redact.ID(reviewCapability)) {
+		t.Errorf("error text carries no hashed reference: %s", rendered)
+	}
+}
+
+var errRequestNotFound = errors.New("request not found")
 
 func TestObservabilityKeepsNonSensitiveParamsReadable(t *testing.T) {
 	logs := observeLogs(t)

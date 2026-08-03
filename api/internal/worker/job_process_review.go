@@ -37,7 +37,7 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 
 	review, err := h.repo.GetJobReviewByID(ctx, reviewID)
 	if err != nil {
-		logger.Error("[Mentor Review] Failed to fetch review", zap.String("review_id", reviewID), zap.Error(err))
+		logger.Error("[Mentor Review] Failed to fetch review", zap.String("review_id", reviewID), logger.RedactedError(err))
 		h.track(ctx, analytics.EventReviewSubmitted, analytics.ReviewDistinctID(reviewID), map[string]interface{}{
 			"review_id":  reviewID,
 			"outcome":    "error",
@@ -59,7 +59,7 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 	mentor, err := h.repo.GetJobMentorByID(ctx, review.MentorID)
 	if err != nil {
 		logger.Error("[Mentor Review] Failed to fetch mentor",
-			zap.String("review_id", reviewID), zap.String("mentor_id", review.MentorID), zap.Error(err))
+			zap.String("review_id", reviewID), zap.String("mentor_id", review.MentorID), logger.RedactedError(err))
 		h.track(ctx, analytics.EventReviewSubmitted, analytics.ReviewDistinctID(reviewID), map[string]interface{}{
 			"review_id":  reviewID,
 			"outcome":    "error",

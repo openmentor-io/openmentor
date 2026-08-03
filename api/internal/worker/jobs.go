@@ -127,7 +127,7 @@ func (h *Handlers) sendEmail(ctx context.Context, job string, msg email.Message)
 			zap.String("job", job),
 			zap.String("template", msg.TemplateName),
 			zap.String("recipient", msg.Recipient),
-			zap.Error(err),
+			logger.RedactedError(err),
 		)
 		return err
 	}

@@ -195,25 +195,95 @@ export function redactUrl(url: string | undefined): string {
  * Truncates a client IP to its network prefix. Logs go to Loki, where a full
  * address is personal data under GDPR and, combined with a timestamp, identifies
  * an individual visitor.
+ *
+ * Anything that does not parse as an address is replaced outright: an
+ * unrecognized shape is the case where a whole address would otherwise slip
+ * through, which is how `::ffff:cb00:712a` (a hex-notated IPv4) used to be
+ * logged in full.
  */
 export function maskIp(ip: string | string[] | undefined): string {
   const first = Array.isArray(ip) ? ip[0] : ip
   if (!first) return ''
   // X-Forwarded-For is a list; the left-most entry is the client.
-  const client = first.split(',')[0].trim()
+  let client = first.split(',')[0].trim()
+  // A zone id (fe80::1%eth0) is local routing information, not part of the
+  // address, and brackets are quoting some proxies add.
+  client = client.split('%')[0].replace(/^\[/, '').replace(/\]$/, '')
   if (!client) return ''
 
-  if (client.includes('.')) {
-    const octets = client.split('.')
-    return octets.length === 4 ? `${octets[0]}.${octets[1]}.${octets[2]}.0` : REDACTED
+  if (!client.includes(':')) return maskIpv4(client)
+  return maskIpv6(client.toLowerCase())
+}
+
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+
+function parseIpv4(address: string): number[] | null {
+  const match = IPV4.exec(address)
+  if (!match) return null
+  const octets = match.slice(1).map(Number)
+  return octets.every((octet) => octet <= 255) ? octets : null
+}
+
+/** Keeps the /24 network and drops the host octet. */
+function maskIpv4(address: string): string {
+  const octets = parseIpv4(address)
+  return octets ? `${octets[0]}.${octets[1]}.${octets[2]}.0` : REDACTED
+}
+
+function maskIpv6(address: string): string {
+  const groups = parseIpv6(address)
+  if (!groups) return REDACTED
+
+  // `::` and `::1` are the unspecified and loopback addresses: no network prefix
+  // to drop, and neither identifies a visitor.
+  if (groups.every((group) => group === 0)) return '::'
+  if (groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1) return '::1'
+
+  // ::ffff:0:0/96 (IPv4-mapped, what a dual-stack socket reports for an IPv4
+  // client) and ::/96 (the deprecated IPv4-compatible form) carry a full IPv4
+  // address in the low 32 bits. Masking the IPv6 prefix would leave all four
+  // octets visible, so the embedded address is masked as IPv4 instead.
+  const zeroPrefix = groups.slice(0, 5).every((group) => group === 0)
+  if (zeroPrefix && groups[5] === 0xffff) return `::ffff:${maskedLowIpv4(groups)}`
+  if (zeroPrefix && groups[5] === 0) return `::${maskedLowIpv4(groups)}`
+
+  // Everything else keeps its /48 routing prefix and loses the rest, which
+  // includes the interface identifier that pins the address to one device.
+  const prefix = groups.slice(0, 3)
+  while (prefix.length > 0 && prefix[prefix.length - 1] === 0) prefix.pop()
+  return `${prefix.map((group) => group.toString(16)).join(':')}::`
+}
+
+/** The IPv4 address in the low 32 bits, masked to its /24. */
+function maskedLowIpv4(groups: number[]): string {
+  return `${groups[6] >> 8}.${groups[6] & 0xff}.${groups[7] >> 8}.0`
+}
+
+/** Expands an IPv6 literal to its eight groups, or null when it is not one. */
+function parseIpv6(address: string): number[] | null {
+  const halves = address.split('::')
+  if (halves.length > 2) return null
+
+  // A trailing dotted quad (::ffff:192.0.2.1, 64:ff9b::192.0.2.1) is two groups.
+  const tail = halves[halves.length - 1]
+  if (tail.includes('.')) {
+    const lastColon = tail.lastIndexOf(':') + 1
+    const octets = parseIpv4(tail.slice(lastColon))
+    if (!octets) return null
+    const asGroups = [(octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]]
+    halves[halves.length - 1] =
+      tail.slice(0, lastColon) + asGroups.map((group) => group.toString(16)).join(':')
   }
-  if (client.includes(':')) {
-    // Loopback and other addresses with no network prefix have nothing to drop.
-    if (client.startsWith('::')) return client
-    // Otherwise keep the routing prefix and drop the interface identifier.
-    return `${client.split(':').slice(0, 3).filter(Boolean).join(':')}::`
-  }
-  return REDACTED
+
+  const head = halves[0] ? halves[0].split(':') : []
+  const rest = halves.length === 2 && halves[1] ? halves[1].split(':') : []
+  // `::` stands for at least one omitted group; without it all eight are spelled.
+  const omitted = 8 - head.length - rest.length
+  if (halves.length === 1 ? omitted !== 0 : omitted < 1) return null
+
+  const groups = [...head, ...Array<string>(omitted).fill('0'), ...rest]
+  const parsed = groups.map((group) => (/^[0-9a-f]{1,4}$/.test(group) ? parseInt(group, 16) : NaN))
+  return parsed.some(Number.isNaN) ? null : parsed
 }
 
 /**

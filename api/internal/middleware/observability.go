@@ -79,7 +79,11 @@ func ObservabilityMiddleware() gin.HandlerFunc {
 			}
 
 			if len(c.Errors) > 0 {
-				fields = append(fields, zap.String("error", c.Errors.String()))
+				// The attached reason is a sink of its own: handlers name the row
+				// inside the message (`failed to fetch request id="<uuid>"`), so
+				// logging it verbatim hands back the capability that the path and
+				// route_params rules above just dropped.
+				fields = append(fields, zap.String("error", redact.Text(c.Errors.String())))
 			}
 		}
 
