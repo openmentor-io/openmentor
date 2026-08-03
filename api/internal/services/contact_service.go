@@ -111,9 +111,8 @@ func (s *ContactService) SubmitContactForm(ctx context.Context, req *models.Cont
 		logger.Error("Failed to get mentor for calendar URL", zap.Error(err))
 		// Still return success as the request was saved
 		metrics.ContactFormSubmissions.WithLabelValues("success").Inc()
-		s.tracker.Track(ctx, analytics.EventMenteeContactSubmitted, analytics.RequestDistinctID(requestID), map[string]interface{}{
+		s.tracker.Track(ctx, analytics.EventMenteeContactSubmitted, analytics.MentorDistinctID(req.MentorID), map[string]interface{}{
 			"mentor_id":              req.MentorID,
-			"request_id":             requestID,
 			"experience":             req.Experience,
 			"has_contact":            strings.TrimSpace(req.PreferredContact) != "",
 			"calendar_url_requested": true,
@@ -127,14 +126,15 @@ func (s *ContactService) SubmitContactForm(ctx context.Context, req *models.Cont
 	}
 
 	metrics.ContactFormSubmissions.WithLabelValues("success").Inc()
-	successProperties := make(map[string]interface{}, len(baseProperties)+4)
+	successProperties := make(map[string]interface{}, len(baseProperties)+2)
 	for key, value := range baseProperties {
 		successProperties[key] = value
 	}
-	successProperties["request_id"] = requestID
 	successProperties["calendar_url_available"] = strings.TrimSpace(mentor.CalendarURL) != ""
 	successProperties["outcome"] = "success"
-	s.tracker.Track(ctx, analytics.EventMenteeContactSubmitted, analytics.RequestDistinctID(requestID), successProperties)
+	// SECURITY (P14): keyed by mentor, never by the new request id — that id is
+	// the capability the confirmation email hands the mentee for the review flow.
+	s.tracker.Track(ctx, analytics.EventMenteeContactSubmitted, analytics.MentorDistinctID(req.MentorID), successProperties)
 	return &models.ContactMentorResponse{
 		Success:     true,
 		RequestID:   requestID,

@@ -73,6 +73,7 @@ const queue: PendingCommand[] = []
 let flushTimer: number | null = null
 let flushRetries = 0
 
+// Compared in the separator-free spelling produced by normalizePropertyKey.
 const blockedPropertyKeys = new Set([
   'email',
   'mentoremail',
@@ -90,7 +91,14 @@ const blockedPropertyKeys = new Set([
   'about',
   'competencies',
   'loginurl',
+  'confirmurl',
 ])
+
+// SECURITY (P14): capability- and credential-shaped keys, blocked by suffix so
+// that request_id, requestId and client_request_id are all covered without
+// listing each one. A review request_id is a bearer token for submitting a
+// review — it must not become a PostHog property.
+const blockedPropertyKeySuffixes = ['requestid', 'token', 'secret', 'password']
 
 function resolveProvider(): AnalyticsProvider {
   const explicit = ANALYTICS_PROVIDER
@@ -116,9 +124,16 @@ function normalizePropertyKey(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-function isBlockedProperty(key: string): boolean {
+function isBlockedProperty(key: string, value: unknown): boolean {
   const normalized = normalizePropertyKey(key)
-  return blockedPropertyKeys.has(normalized)
+  if (blockedPropertyKeys.has(normalized)) return true
+
+  // A capability or credential is always a string, so a shape-matched key that
+  // carries a boolean or a number is a derived fact worth keeping
+  // (has_request_id, captcha_token_length).
+  if (typeof value === 'boolean' || typeof value === 'number') return false
+
+  return blockedPropertyKeySuffixes.some((suffix) => normalized.endsWith(suffix))
 }
 
 function trimString(value: string): string {
@@ -131,7 +146,7 @@ function sanitizeProperties(params?: AnalyticsProperties): AnalyticsProperties {
 
   const sanitized: AnalyticsProperties = {}
   for (const [key, value] of Object.entries(params)) {
-    if (!key || value === undefined || value === null || isBlockedProperty(key)) {
+    if (!key || value === undefined || value === null || isBlockedProperty(key, value)) {
       continue
     }
 

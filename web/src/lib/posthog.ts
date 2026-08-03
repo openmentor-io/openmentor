@@ -1,19 +1,22 @@
 import posthog from 'posthog-js'
 import type { CaptureResult } from 'posthog-js'
+import { REDACTED, isSensitiveKey, redactQueryValues } from '@/lib/redact'
 
 let initialized = false
 
-// SECURITY (M10): strip one-time tokens (magic-link/confirm token, review
-// request_id) from any URL captured in event properties before it is sent.
-const SENSITIVE_QUERY_PARAMS = /([?&](?:token|request_id)=)[^&#\s"']+/gi
-
+// SECURITY (M10, widened for P14): strip one-time tokens (magic-link/confirm
+// token, review request_id) from event properties before they are sent. The
+// autocaptured $current_url is the main carrier: /reviews/new and the auth
+// callbacks drop their query string on mount, but the first pageview fires
+// before that. The rules are shared with the server-side sinks so there is one
+// list to keep current, and they now also cover login_token, confirm_token and
+// the camelCase spellings the old two-name regex missed.
 function redactSensitiveEvent(event: CaptureResult | null): CaptureResult | null {
   if (!event || !event.properties) return event
   for (const key of Object.keys(event.properties)) {
     const value = event.properties[key]
-    if (typeof value === 'string') {
-      event.properties[key] = value.replace(SENSITIVE_QUERY_PARAMS, '$1[REDACTED]')
-    }
+    if (typeof value !== 'string') continue
+    event.properties[key] = isSensitiveKey(key) ? REDACTED : redactQueryValues(value)
   }
   return event
 }

@@ -22,9 +22,12 @@ func NewReviewRepository(pool *pgxpool.Pool) *ReviewRepository {
 	}
 }
 
-// ReviewCheckResult holds the result of checking if a review can be submitted
+// ReviewCheckResult holds the result of checking if a review can be submitted.
+// MentorID is what review telemetry is attributed to; the request id cannot be,
+// because it is a bearer capability for this flow (P14).
 type ReviewCheckResult struct {
 	CanSubmit  bool
+	MentorID   string
 	MentorName string
 }
 
@@ -32,7 +35,7 @@ type ReviewCheckResult struct {
 // Returns whether the request exists, has status 'done', and has no existing review.
 func (r *ReviewRepository) CheckCanSubmitReview(ctx context.Context, requestID string) (*ReviewCheckResult, error) {
 	query := `
-		SELECT cr.status, m.name as mentor_name,
+		SELECT cr.status, m.id as mentor_id, m.name as mentor_name,
 			EXISTS(SELECT 1 FROM reviews rv WHERE rv.client_request_id = cr.id) as has_review
 		FROM client_requests cr
 		JOIN mentors m ON m.id = cr.mentor_id
@@ -40,10 +43,11 @@ func (r *ReviewRepository) CheckCanSubmitReview(ctx context.Context, requestID s
 	`
 
 	var status string
+	var mentorID string
 	var mentorName string
 	var hasReview bool
 
-	err := r.pool.QueryRow(ctx, query, requestID).Scan(&status, &mentorName, &hasReview)
+	err := r.pool.QueryRow(ctx, query, requestID).Scan(&status, &mentorID, &mentorName, &hasReview)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return &ReviewCheckResult{CanSubmit: false}, nil
@@ -52,14 +56,14 @@ func (r *ReviewRepository) CheckCanSubmitReview(ctx context.Context, requestID s
 	}
 
 	if status != "done" {
-		return &ReviewCheckResult{CanSubmit: false, MentorName: mentorName}, nil
+		return &ReviewCheckResult{CanSubmit: false, MentorID: mentorID, MentorName: mentorName}, nil
 	}
 
 	if hasReview {
-		return &ReviewCheckResult{CanSubmit: false, MentorName: mentorName}, nil
+		return &ReviewCheckResult{CanSubmit: false, MentorID: mentorID, MentorName: mentorName}, nil
 	}
 
-	return &ReviewCheckResult{CanSubmit: true, MentorName: mentorName}, nil
+	return &ReviewCheckResult{CanSubmit: true, MentorID: mentorID, MentorName: mentorName}, nil
 }
 
 // CreateReview creates a new review for a client request.

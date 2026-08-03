@@ -8,14 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
-
-// sensitiveQueryParams are redacted from logs to avoid leaking secrets.
-var sensitiveQueryParams = map[string]bool{
-	"token": true, "password": true, "secret": true, "key": true,
-	"auth": true, "api_key": true, "apikey": true,
-}
 
 // ObservabilityMiddleware instruments HTTP requests with metrics and logging
 func ObservabilityMiddleware() gin.HandlerFunc {
@@ -48,8 +45,10 @@ func ObservabilityMiddleware() gin.HandlerFunc {
 		metrics.HTTPRequestDuration.WithLabelValues(method, path, statusStr).Observe(duration)
 		metrics.HTTPRequestTotal.WithLabelValues(method, path, statusStr).Inc()
 
-		// Log request (use actual path for debugging, but route template for metrics)
-		actualPath := c.Request.URL.Path
+		// The path itself can be a capability: /api/v1/reviews/<uuid> is a bearer
+		// URL for submitting a review, so the id is stripped before the path is
+		// logged or left on the span (P14).
+		loggedPath := redactedPath(c)
 		fields := []zap.Field{
 			zap.String("client_ip", c.ClientIP()),
 			zap.String("user_agent", c.Request.UserAgent()),
@@ -61,21 +60,17 @@ func ObservabilityMiddleware() gin.HandlerFunc {
 			if len(c.Params) > 0 {
 				params := make(map[string]string, len(c.Params))
 				for _, p := range c.Params {
+					if redact.SensitiveKey(p.Key) {
+						params[p.Key] = redact.Placeholder
+						continue
+					}
 					params[p.Key] = p.Value
 				}
 				fields = append(fields, zap.Any("route_params", params))
 			}
 
 			if query := c.Request.URL.Query(); len(query) > 0 {
-				sanitized := make(map[string]string, len(query))
-				for k, v := range query {
-					if !sensitiveQueryParams[strings.ToLower(k)] && len(v) > 0 {
-						sanitized[k] = v[0]
-					}
-				}
-				if len(sanitized) > 0 {
-					fields = append(fields, zap.Any("query_params", sanitized))
-				}
+				fields = append(fields, zap.Any("query_params", redact.Query(query)))
 			}
 
 			if len(c.Errors) > 0 {
@@ -83,7 +78,43 @@ func ObservabilityMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		// Log with actual path for debugging purposes
-		logger.LogHTTPRequest(c.Request.Context(), method, actualPath, status, duration, fields...)
+		redactSpanURL(c, loggedPath)
+
+		logger.LogHTTPRequest(c.Request.Context(), method, loggedPath, status, duration, fields...)
+	}
+}
+
+// redactedPath replaces the values of capability-bearing path parameters (the
+// review request id in /api/v1/reviews/:requestId) in the raw request path.
+func redactedPath(c *gin.Context) string {
+	path := c.Request.URL.Path
+	for _, p := range c.Params {
+		if p.Value != "" && redact.SensitiveKey(p.Key) {
+			path = strings.ReplaceAll(path, p.Value, redact.Placeholder)
+		}
+	}
+	return path
+}
+
+// redactSpanURL overwrites the url.* attributes otelgin tagged the server span
+// with at span start. Writing the same key again is what redacts it: the SDK
+// keeps the last value per key when it deduplicates attributes.
+func redactSpanURL(c *gin.Context, loggedPath string) {
+	span := trace.SpanFromContext(c.Request.Context())
+	if !span.IsRecording() {
+		return
+	}
+
+	attrs := make([]attribute.KeyValue, 0, 2)
+	if loggedPath != c.Request.URL.Path {
+		attrs = append(attrs, attribute.String("url.path", loggedPath))
+	}
+	if raw := c.Request.URL.RawQuery; raw != "" {
+		if redacted := redact.QueryString(raw); redacted != raw {
+			attrs = append(attrs, attribute.String("url.query", redacted))
+		}
+	}
+	if len(attrs) > 0 {
+		span.SetAttributes(attrs...)
 	}
 }

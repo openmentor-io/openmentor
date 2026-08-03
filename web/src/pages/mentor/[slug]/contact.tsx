@@ -265,10 +265,12 @@ export default function OrderMentor({
           mentor.calendarUrl = responseData.calendar_url
           setReadyStatus('success')
           incrementRequestsPerDay()
+          // SECURITY (P14): the requestId is deliberately NOT sent — it is the
+          // capability the confirmation email hands the mentee for the review
+          // flow, which /reviews/new already strips from the address bar.
           analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
             mentor_id: mentor.mentorId,
             mentor_slug: mentor.slug,
-            request_id: responseData.requestId,
             calendar_url_available: Boolean(responseData.calendar_url),
             outcome: 'success',
           })

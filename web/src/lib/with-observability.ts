@@ -72,8 +72,9 @@ export function withObservability(handler: NextApiHandler): NextApiHandler {
       })
       activeRequests.dec({ http_request_method: method, http_route: route })
 
-      // Log the request
-      logHttpRequest(req, res, duration * 1000) // Convert back to ms for logging
+      // Log the normalized route, never the raw url — it carries the review
+      // request_id and the magic-link token in its query string (P14).
+      logHttpRequest(req, res, duration * 1000, route) // Convert back to ms for logging
 
       return originalEnd(...args)
     }) as NextApiResponse['end']
