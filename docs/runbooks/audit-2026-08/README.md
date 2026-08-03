@@ -42,6 +42,24 @@ Everything here is read-only or explicitly guarded. Nothing here changes code.
    that need the owner. §1 and §2 are gated on the diagnostics above, so do them
    after step 1.
 
+## After the deploy: arm the backup alert
+
+One remediation item does not finish when the code ships. P8 added the
+`DatabaseBackupStale` rule to `grafana/alerting/alert-rules.yaml`, but nothing in
+this repository applies that file to Grafana Cloud — the stack has no
+Grafana-managed alert rules at all. Until an operator applies it, a nightly dump
+can fail forever and the only signal is a container healthcheck that nothing off
+the VM watches.
+
+**Apply it after the `postgres-backup` sidecar is deployed, not before.** The rule
+sets `noDataState: Alerting`, so landing it while the gauges it reads do not yet
+exist pages immediately and keeps paging every 4h.
+
+Procedure, prerequisites and the paused-first alternative:
+[`../postgres-backup-restore.md`](../postgres-backup-restore.md) § *Operator step:
+apply `DatabaseBackupStale`*, with the API/MCP details in
+[`../../../grafana/README.md`](../../../grafana/README.md) § *Alert rules*.
+
 ## What the checks are
 
 | Check | Detects | Repair |
