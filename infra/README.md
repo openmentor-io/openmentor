@@ -363,7 +363,8 @@ procedures + quarterly drill: `../docs/runbooks/postgres-backup-restore.md`):
    Every success refreshes `/backups/.last_success`; the container healthcheck
    turns `unhealthy` once that marker ages past `BACKUP_MAX_AGE_HOURS`
    (default 26h, also published as `openmentor_db_backup_max_age_seconds` so
-   the alert compares against the configured window instead of a copy of it).
+   the alert and its dashboard panels compare against the configured window
+   instead of a copy of it).
    Nothing off the VM watches that healthcheck until an operator applies the
    `DatabaseBackupStale` alert — it is not on the stack yet, see the operator
    step in `../docs/runbooks/postgres-backup-restore.md`.

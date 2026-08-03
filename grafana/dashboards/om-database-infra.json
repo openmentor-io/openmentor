@@ -1795,8 +1795,8 @@
     },
     {
       "type": "stat",
-      "title": "Last Successful DB Backup",
-      "description": "Age of the newest successful nightly pg_dump (postgres-backup sidecar, gauge published via Alloy's textfile collector). Reads \"never\" until a dump has actually succeeded — the sidecar never seeds the marker, so this panel cannot show a backup that did not happen. Red past 26h is the DatabaseBackupStale alert threshold; the series disappearing entirely also alerts.",
+      "title": "DB Backup Age vs Configured Window",
+      "description": "How far the newest successful nightly pg_dump is PAST the freshness window the postgres-backup sidecar itself publishes (openmentor_db_backup_max_age_seconds, i.e. BACKUP_MAX_AGE_HOURS) — the same expression DatabaseBackupStale evaluates, so red means that rule's condition is true (the rule is desired state, not applied yet: grafana/README.md). Negative is healthy and reads as the window left; orange is the last 2h before the page. One tile per deployment: ./deploy.sh --staging remote-writes these gauges into this same tenant, so a global max() would let one fresh staging dump mask stale production ones, and `instance` cannot stand in for a VM — it is the Alloy container id and changes on every recreate. \"never\" = the gauges are absent entirely, which the alert also pages on (NoData=Alerting); the sidecar never seeds .last_success, so this panel cannot show a backup that did not happen.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1807,11 +1807,12 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "time() - max(openmentor_db_backup_last_success_timestamp_seconds > 0)",
+          "expr": "(time() - max by (deployment) (openmentor_db_backup_last_success_timestamp_seconds > 0 or openmentor_db_backup_first_start_timestamp_seconds)) - max by (deployment) (openmentor_db_backup_max_age_seconds)",
           "refId": "A",
           "range": true,
           "instant": false,
-          "editorMode": "code"
+          "editorMode": "code",
+          "legendFormat": "{{deployment}}"
         }
       ],
       "fieldConfig": {
@@ -1829,11 +1830,11 @@
               },
               {
                 "color": "orange",
-                "value": 86400
+                "value": -7200
               },
               {
                 "color": "red",
-                "value": 93600
+                "value": 0
               }
             ]
           },
@@ -1871,7 +1872,7 @@
     {
       "type": "timeseries",
       "title": "DB Backup Age",
-      "description": "Exactly what DatabaseBackupStale evaluates: age of the last successful dump, or - until one has ever succeeded - age of the sidecar's first start on this volume, which is the one grace window it gets. Should saw-tooth back to ~0 once a day at BACKUP_TIME. A line that keeps climbing past 26h means pg_dump or the S3 upload is failing - see docs/runbooks/postgres-backup-restore.md.",
+      "description": "What DatabaseBackupStale evaluates, drawn per deployment: age of the last successful dump, or - until one has ever succeeded - age of the sidecar's first start on this volume, which is the one grace window it gets. Should saw-tooth back to ~0 once a day at BACKUP_TIME. The dashed line is the window the sidecar publishes (openmentor_db_backup_max_age_seconds, i.e. BACKUP_MAX_AGE_HOURS), so it moves with that setting instead of hardcoding 26h here; an age series crossing its own window means pg_dump or the S3 upload is failing - see docs/runbooks/postgres-backup-restore.md. Grouped by deployment because production and ./deploy.sh --staging remote-write into this same tenant and a global max() would report only the newest backup anywhere; `instance` is the Alloy container id, not a VM identity.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1882,12 +1883,24 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "time() - max(openmentor_db_backup_last_success_timestamp_seconds > 0 or openmentor_db_backup_first_start_timestamp_seconds)",
+          "expr": "time() - max by (deployment) (openmentor_db_backup_last_success_timestamp_seconds > 0 or openmentor_db_backup_first_start_timestamp_seconds)",
           "refId": "A",
           "range": true,
           "instant": false,
           "editorMode": "code",
-          "legendFormat": "age since last success (first start until one succeeds)"
+          "legendFormat": "{{deployment}} backup age"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max by (deployment) (openmentor_db_backup_max_age_seconds)",
+          "refId": "B",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "{{deployment}} configured window"
         }
       ],
       "fieldConfig": {
@@ -1921,7 +1934,7 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "line"
+              "mode": "off"
             },
             "hideFrom": {
               "legend": false,
@@ -1935,16 +1948,46 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 93600
               }
             ]
           },
           "mappings": []
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".* configured window$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {

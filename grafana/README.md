@@ -130,7 +130,8 @@ Notes:
 
   Two properties of the query are load-bearing, and
   `infra/alert-consistency-test.sh` (part of `cd infra && make check`) fails if
-  either is lost:
+  either is lost — in the rule **or** in the panels, which have to carry both
+  properties for the same reasons:
 
   - **One instance per deployment.** `./deploy.sh --staging` uploads the same
     `.env.production` to the staging VM, so both VMs remote-write these gauges
@@ -149,9 +150,14 @@ Notes:
     alert with it. The `> 0` threshold reads "seconds past the configured
     window"; there is no duration in the rule to keep in sync.
 
-  The "Postgres Backups" panels still aggregate globally. That is fine for a
-  chart (it is a reading, not a page) and dashboards are Git-Synced, so
-  changing them changes live Grafana — do it deliberately, not as a side effect.
+  The "Postgres Backups" panels carry both properties too: the stat plots the
+  rule's own expression (seconds past the published window, red at 0) and the
+  timeseries draws that window as a dashed line next to the per-deployment age.
+  A panel that maxed globally would show a fresh staging dump while production
+  dumps rot — the person triaging reads the row, not the rule. Note the
+  asymmetry in how the two halves ship: the dashboard is **Git-Synced hourly**,
+  so a merge to `main` changes live Grafana with no operator action, while the
+  rule above still has to be applied by hand.
 - **PostgresDown** watches `pg_up`, shipped continuously by the Database
   Observability pipeline (live since 2026-07-18; setup in
   `docs/runbooks/database-observability.md`). `NoData=Alerting`, so the

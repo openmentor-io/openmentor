@@ -63,9 +63,12 @@ jobs:
               - '.github/workflows/checks.yml'
             infra:
               - 'infra/**'
-              # `make check` also asserts the backup alert stays consistent with
-              # the Alloy labels and the sidecar gauges (alert-consistency-test.sh)
+              # `make check` also asserts the backup alert, its dashboard panels,
+              # the Alloy labels and the sidecar gauges stay consistent
+              # (alert-consistency-test.sh), so a change to either Grafana file
+              # has to run it
               - 'grafana/alerting/**'
+              - 'grafana/dashboards/**'
               - '.github/workflows/checks.yml'
 
       # --- Web quick gates -------------------------------------------------

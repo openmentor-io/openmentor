@@ -16,7 +16,7 @@ help:
 	@echo "  env-allowlist  - Per-service env allowlist + secret ownership"
 	@echo "  backup-tests   - postgres-backup sidecar behaviour tests"
 	@echo "  deploy-tests   - .env.runtime transition shared by the deploy scripts"
-	@echo "  alert-tests    - backup alert vs Alloy labels vs sidecar gauges"
+	@echo "  alert-tests    - backup alert + panels vs Alloy labels vs sidecar gauges"
 
 check: compose-config env-allowlist backup-tests deploy-tests alert-tests
 	@echo "✅ Infra checks passed!"
@@ -37,7 +37,7 @@ backup-tests:
 deploy-tests:
 	@./deploy-transition-test.sh
 
-# Reads ../grafana/alerting; the checks.yml infra filter includes grafana/ so
-# an alert-rule-only PR still runs this.
+# Reads ../grafana/alerting and ../grafana/dashboards; the checks.yml infra
+# filter covers both, so a Grafana-only PR still runs this.
 alert-tests:
 	@./alert-consistency-test.sh

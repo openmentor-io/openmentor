@@ -2,12 +2,13 @@
 # ============================================================================
 # Backup-freshness alert consistency (SECURITY P8)
 # ============================================================================
-# DatabaseBackupStale spans three files that nothing else ties together, and
+# DatabaseBackupStale spans four files that nothing else ties together, and
 # every seam has already produced a silent-failure bug:
 #
 #   postgres-backup/backup.sh   publishes the gauges
 #   alloy/config.alloy          labels them on the way to Grafana Cloud
 #   ../grafana/alerting/alert-rules.yaml   evaluates them
+#   ../grafana/dashboards/om-database-infra.json   is what a human reads
 #
 # Cases:
 #   1. every openmentor_db_backup_* series the rule reads is really published
@@ -17,9 +18,12 @@
 #      not a hardcoded duration that drifts from BACKUP_MAX_AGE_HOURS
 #   4. every sys.env() Alloy reads is passed to the container, so a label does
 #      not silently fall back to its default
+#   5. the backup panels carry 2 and 3 too: a panel that maxes globally or
+#      draws a fixed 26h line contradicts the alert it exists to illustrate
 #
 # The alert rules are DESIRED state (the stack has no Grafana-managed rules —
-# ../grafana/README.md); this test guards the file an operator applies.
+# ../grafana/README.md); that half of this test guards the file an operator
+# applies. The dashboard is Git-Synced hourly, so case 5 guards live Grafana.
 #
 # Usage: ./alert-consistency-test.sh
 # ============================================================================
@@ -28,10 +32,13 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 RULES=../grafana/alerting/alert-rules.yaml
+DASHBOARD=../grafana/dashboards/om-database-infra.json
 ALLOY=alloy/config.alloy
 SIDECAR=postgres-backup/backup.sh
 COMPOSE=docker-compose.yml
 ALLOWLIST=env-allowlist.txt
+
+command -v jq >/dev/null || { echo "error: jq is required" >&2; exit 1; }
 
 FAILURES=0
 ok() { printf '  ok   %s\n' "$1"; }
@@ -115,9 +122,56 @@ for key in $( { grep -oE 'sys\.env\("[A-Za-z_][A-Za-z0-9_]*"\)' "$ALLOY" || true
 done
 [ "$MISSING" -eq 1 ] || ok "all sys.env() keys are declared and allowlisted"
 
+# --- 5. the dashboard panels say the same thing as the rule -----------------
+# Nobody reads the rule during an incident; they read this row. A global max()
+# there hides a stale production dump behind a fresh staging one just as it
+# would in the rule, and a fixed threshold silently stops matching the alert
+# the first time BACKUP_MAX_AGE_HOURS moves.
+echo "the backup panels evaluate per deployment, against the published window"
+PANEL_EXPRS=$(jq -r '.panels[] | .targets[]?.expr? // empty
+                     | select(test("openmentor_db_backup_"))' "$DASHBOARD")
+if [ -z "$PANEL_EXPRS" ]; then
+    bad "no panel in $DASHBOARD queries the backup gauges, so this check would pass vacuously"
+fi
+PANEL_SCOPE_OK=1
+while IFS= read -r expr; do
+    [ -n "$expr" ] || continue
+    if printf '%s\n' "$expr" | grep -qE 'max[[:space:]]*\('; then
+        bad "panel query aggregates globally, so one healthy deployment hides the rest: $expr"
+        PANEL_SCOPE_OK=0
+    fi
+    for label in $( { printf '%s\n' "$expr" | grep -oE 'max by \([a-z_]+\)' || true; } |
+        sed 's/.*(//;s/)//' | sort -u); do
+        if ! printf '%s\n' "$GROUP_LABELS" | grep -qx "$label"; then
+            bad "panel groups by '$label', the rule by '$(printf '%s' "$GROUP_LABELS" | tr '\n' ' ')' — they would disagree about scope"
+            PANEL_SCOPE_OK=0
+        fi
+    done
+done <<PANEL_EOF
+$PANEL_EXPRS
+PANEL_EOF
+[ "$PANEL_SCOPE_OK" -eq 1 ] && [ -n "$PANEL_EXPRS" ] &&
+    ok "every backup panel query groups by the label the rule groups by"
+if printf '%s\n' "$PANEL_EXPRS" | grep -q 'openmentor_db_backup_max_age_seconds'; then
+    ok "the panels read the published window, so raising BACKUP_MAX_AGE_HOURS moves them too"
+else
+    bad "no panel reads openmentor_db_backup_max_age_seconds: the row would keep showing the old window after BACKUP_MAX_AGE_HOURS changes"
+fi
+# Steps must be offsets from that window (<= 0, e.g. red at "0s past it"), never
+# an absolute age like 93600.
+FIXED_STEPS=$(jq -r '[.panels[]
+                      | select([.targets[]?.expr? // ""] | join(" ") | test("openmentor_db_backup_"))
+                      | .fieldConfig.defaults.thresholds.steps[]?.value
+                      | select(. != null) | select(. > 0)] | map(tostring) | join(", ")' "$DASHBOARD")
+if [ -n "$FIXED_STEPS" ]; then
+    bad "backup panel threshold(s) at ${FIXED_STEPS}s are absolute ages, not offsets from the published window"
+else
+    ok "no backup panel threshold hardcodes a duration"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-    echo "OK: the backup alert, the Alloy labels and the sidecar gauges agree"
+    echo "OK: the backup alert, its panels, the Alloy labels and the sidecar gauges agree"
 else
     echo "$FAILURES assertion(s) failed"
     exit 1
