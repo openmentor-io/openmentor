@@ -1,12 +1,8 @@
 import posthog from 'posthog-js'
 import type { CaptureResult } from 'posthog-js'
-import { REDACTED, isSensitiveKey, redactPathIds, redactQueryValues } from '@/lib/redact'
+import { REDACTED, isSensitiveKey, redactFreeText } from '@/lib/redact'
 
 let initialized = false
-
-/** rrweb event types whose payload carries the page URL. */
-const RRWEB_META = 4
-const RRWEB_CUSTOM = 5
 
 // SECURITY (M10, widened for P14): strip one-time tokens (magic-link/confirm
 // token, review request_id) from event properties before they are sent. The
@@ -35,34 +31,57 @@ function redactProperties(properties: Record<string, unknown> | undefined): void
     // URL-valued keys: the capability travels in $current_url, $pathname,
     // $referrer, $initial_current_url and $elements_chain, and an allowlist
     // goes stale the next time posthog-js adds a URL property.
-    properties[key] = isSensitiveKey(key) ? REDACTED : redactPathIds(redactQueryValues(value))
+    properties[key] = isSensitiveKey(key) ? REDACTED : redactFreeText(value)
   }
 }
 
 /**
- * Scrubs the URLs inside a session-replay snapshot batch. PostHog derives a
- * recording's `first_url` from these, and they bypass redactProperties twice
- * over: they are nested inside the $snapshot_data array, and the recorder reads
- * window.location.href itself rather than the (already scrubbed) $current_url.
+ * Scrubs every URL-bearing string inside a session-replay snapshot batch, which
+ * `redactProperties` cannot reach: they are nested in the `$snapshot_data` array,
+ * and the recorder reads `window.location.href` itself rather than the
+ * already-scrubbed `$current_url`.
+ *
+ * The whole payload is walked rather than the two known offsets (the Meta href
+ * that becomes a recording's `first_url`, and the `$pageview` custom event's
+ * payload). rrweb full snapshots (type 2) carry a SERIALIZED DOM whose anchors
+ * keep `href="/mentor/requests/<uuid>"`, and incremental mutations (type 3) carry
+ * the same hrefs under `adds[].node` and `attributes[].attributes` — so
+ * inspecting only types 4 and 5 exported the capability with every replay.
+ *
+ * Cost: the walk is iterative, so a deep DOM cannot overflow the stack inside
+ * `before_send`, and every string is gated on two `indexOf`s before any regex
+ * runs. The bulk of a snapshot (tag names, css property names, text) therefore
+ * costs a single character scan — far less than the JSON serialization posthog-js
+ * already does on the same payload.
  */
 function redactSnapshotUrls(properties: Record<string, unknown> | undefined): void {
   const batch = properties?.$snapshot_data
-  if (!batch) return
+  if (!batch || typeof batch !== 'object') return
 
-  type RrwebEvent = { type?: number; data?: Record<string, unknown> } | null
-  for (const entry of (Array.isArray(batch) ? batch : [batch]) as RrwebEvent[]) {
-    if (!entry?.data) continue
-    if (entry.type === RRWEB_META) {
-      redactHref(entry.data)
-    } else if (entry.type === RRWEB_CUSTOM) {
-      redactHref(entry.data.payload as Record<string, unknown> | undefined)
+  const pending: object[] = [batch]
+  while (pending.length > 0) {
+    const node = pending.pop() as Record<string, unknown>
+    // Array index access goes through the same string-keyed path, so one branch
+    // covers both the batch array and the node objects inside it.
+    for (const key of Object.keys(node)) {
+      const value = node[key]
+      if (typeof value === 'string') {
+        node[key] = redactSnapshotString(value)
+      } else if (value && typeof value === 'object') {
+        pending.push(value)
+      }
     }
   }
 }
 
-function redactHref(holder: Record<string, unknown> | undefined): void {
-  if (typeof holder?.href !== 'string') return
-  holder.href = redactPathIds(redactQueryValues(holder.href))
+function redactSnapshotString(value: string): string {
+  // A data: URI is a base64 blob, not a URL: the `key=value` rule can bite on its
+  // `=` padding and corrupt the asset in playback, and it cannot carry a
+  // capability path.
+  if (value.startsWith('data:')) return value
+  // Neither rule can match without one of these two characters.
+  if (!value.includes('/') && !value.includes('=')) return value
+  return redactFreeText(value)
 }
 
 export function initializePostHog(): typeof posthog | null {

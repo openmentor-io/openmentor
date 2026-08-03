@@ -6,6 +6,7 @@
 
 import { PassThrough } from 'stream'
 import winston from 'winston'
+import { redactFaroItem } from '@/lib/faro'
 import { redactSensitiveEvent } from '@/lib/posthog'
 import { isSensitiveKey, maskIp, redactQueryValues, redactUrl, redactValue } from '@/lib/redact'
 import {
@@ -18,6 +19,7 @@ import {
 const REVIEW_CAPABILITY = '1b0c9e42-a072-47ed-8ce9-edd306874ec9'
 // A mentor magic-link token from /mentor/auth/callback?token=...
 const LOGIN_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.c2VudGluZWw.s1gn4tur3'
+const REDACTED_VALUE = '[REDACTED]'
 
 /** Every spelling the value travels in across the codebase and the wire. */
 const spellings = (secret: string): Record<string, string> => ({
@@ -45,6 +47,27 @@ describe('redact', () => {
     for (const key of ['id', 'mentor_id', 'slug', 'status', 'route', 'duration_ms']) {
       expect(isSensitiveKey(key)).toBe(false)
     }
+  })
+
+  it('exempts PostHog reserved identifiers without exempting session credentials', () => {
+    // `$session_id` normalizes to `sessionid`, which the `session` rule matched.
+    for (const key of [
+      '$session_id',
+      '$window_id',
+      '$session_entry_url',
+      '$session_entry_utm_source',
+      '$session_recording_start_reason',
+      '$feature_flag_request_id',
+    ]) {
+      expect(isSensitiveKey(key)).toBe(false)
+    }
+    // The `$` sigil is the whole safety margin: an application session
+    // credential normalizes identically and must still be redacted.
+    for (const key of ['sessionid', 'session_id', 'session_token', 'SessionToken', 'cookie']) {
+      expect(isSensitiveKey(key)).toBe(true)
+    }
+    expect(redactValue({ cookie: `sessionid=${LOGIN_TOKEN}` })).toEqual({ cookie: REDACTED_VALUE })
+    expect(redactQueryValues(`?sessionid=${LOGIN_TOKEN}`)).toBe('?sessionid=[REDACTED]')
   })
 
   it('strips capabilities from a url in path and query position', () => {
@@ -109,6 +132,28 @@ describe('redact', () => {
     )
     expect(redactValue(`verify failed: token=${LOGIN_TOKEN}`)).toBe(
       'verify failed: token=[REDACTED]'
+    )
+  })
+
+  it('strips a capability PATH from free text, where there is no key= to match', () => {
+    // GoApiClient.request builds this message itself on timeout, and logError
+    // sends it (and the stack) as an arbitrary string, not as a url field.
+    expect(
+      redactValue(`Go API request timeout after 10000ms: /api/v1/reviews/${REVIEW_CAPABILITY}/check`)
+    ).toBe('Go API request timeout after 10000ms: /api/v1/reviews/:id/check')
+    // Under a key that is not on the URL-valued list either.
+    expect(redactValue({ detail: `see /mentor/requests/${REVIEW_CAPABILITY}` })).toEqual({
+      detail: 'see /mentor/requests/:id',
+    })
+  })
+
+  it('keeps a matching key that is only three characters from firing on a word', () => {
+    // `otp` as a bare substring also matches botpageview / notpurchased, and — the
+    // reason it matters — base64 that happens to contain "otp" and end in `=`
+    // padding, which would corrupt a replay asset.
+    expect(redactQueryValues('?otp=123456&otp_code=7')).toBe('?otp=[REDACTED]&otp_code=[REDACTED]')
+    expect(redactQueryValues('?botpageview=1&notpurchased=2')).toBe(
+      '?botpageview=1&notpurchased=2'
     )
   })
 
@@ -187,6 +232,28 @@ describe('logger', () => {
 
     expectClean(output)
     expect(output).toContain('check-review-proxy')
+  })
+
+  it('scrubs the capability out of an error message and its stack', async () => {
+    // The real shape: GoApiClient.request builds this message when the review
+    // proxy times out, and logError forwards message + stack to Loki. Neither is
+    // a url field, so only the free-form rules see them.
+    const output = await captureLogs(({ logError }) => {
+      const error = new Error(
+        `Go API request timeout after 10000ms: /api/v1/reviews/${REVIEW_CAPABILITY}/check`
+      )
+      error.stack =
+        `Error: ${error.message}\n` +
+        '    at GoApiClient.request (/app/src/lib/go-api-client.ts:120:15)\n' +
+        `    at checkReview (/app/src/pages/api/reviews/check.ts:40:7) /api/v1/reviews/${REVIEW_CAPABILITY}/check`
+      logError(error, { context: 'check-review-proxy' })
+    })
+
+    expectClean(output)
+    // Still diagnosable: the route, the timeout and the frames all survive.
+    expect(output).toContain('/api/v1/reviews/:id/check')
+    expect(output).toContain('Go API request timeout after 10000ms')
+    expect(output).toContain('go-api-client.ts:120:15')
   })
 
   it('scrubs context logger metadata', async () => {
@@ -341,9 +408,172 @@ describe('posthog before_send', () => {
     expect(batch[2].data).toEqual({ source: 2, id: 7 })
   })
 
+  it('scrubs hrefs inside the serialized DOM and its mutations', () => {
+    // A full snapshot (type 2) carries the rendered anchors, and an incremental
+    // mutation (type 3) carries added nodes and attribute changes. Inspecting only
+    // the Meta and Custom events left the capability in every replay.
+    const event = redactSensitiveEvent({
+      uuid: 'evt-5',
+      event: '$snapshot',
+      properties: {
+        $session_id: '0198f0aa-1111-7000-8000-aaaaaaaaaaaa',
+        $snapshot_data: [
+          {
+            type: 2,
+            data: {
+              node: {
+                type: 1,
+                childNodes: [
+                  {
+                    type: 2,
+                    tagName: 'a',
+                    attributes: { href: `/mentor/requests/${REVIEW_CAPABILITY}`, class: 'btn' },
+                    childNodes: [{ type: 3, textContent: 'Open request' }],
+                  },
+                  {
+                    type: 2,
+                    tagName: 'img',
+                    // A base64 asset must survive byte-identical: running the
+                    // `key=value` rule over its `=` padding would corrupt playback.
+                    attributes: { src: 'data:image/png;base64,iVBORw0KGgotp/8AAAAA==' },
+                  },
+                ],
+              },
+            },
+          },
+          {
+            type: 3,
+            data: {
+              source: 0,
+              adds: [
+                {
+                  node: {
+                    type: 2,
+                    tagName: 'a',
+                    attributes: { href: `https://openmentor.io/reviews/new?request_id=${REVIEW_CAPABILITY}` },
+                  },
+                },
+              ],
+              attributes: [{ id: 9, attributes: { href: `/mentor/requests/${REVIEW_CAPABILITY}` } }],
+            },
+          },
+        ],
+      },
+    })
+
+    expectClean(JSON.stringify(event))
+
+    type Attributes = Record<string, string>
+    const batch = event?.properties.$snapshot_data as [
+      { data: { node: { childNodes: Array<{ attributes: Attributes }> } } },
+      {
+        data: {
+          adds: Array<{ node: { attributes: Attributes } }>
+          attributes: Array<{ id: number; attributes: Attributes }>
+        }
+      },
+    ]
+
+    const nodes = batch[0].data.node.childNodes
+    expect(nodes[0].attributes.href).toBe('/mentor/requests/:id')
+    // Everything that is not a capability is untouched, base64 included.
+    expect(nodes[0].attributes.class).toBe('btn')
+    expect(nodes[1].attributes.src).toBe('data:image/png;base64,iVBORw0KGgotp/8AAAAA==')
+
+    const mutation = batch[1].data
+    expect(mutation.adds[0].node.attributes.href).toBe(
+      'https://openmentor.io/reviews/new?request_id=[REDACTED]'
+    )
+    expect(mutation.attributes[0].attributes.href).toBe('/mentor/requests/:id')
+    expect(mutation.attributes[0].id).toBe(9)
+  })
+
+  it('keeps the PostHog session id, which is what stitches a session together', () => {
+    // The `session` key rule matched `$session_id` (it normalizes to `sessionid`),
+    // so every event carried the SAME redacted id: no session grouping, no replay
+    // correlation, no exception-to-session link.
+    const first = redactSensitiveEvent({
+      uuid: 'evt-6',
+      event: '$pageview',
+      properties: {
+        $session_id: '0198f0aa-1111-7000-8000-aaaaaaaaaaaa',
+        $window_id: '0198f0aa-2222-7000-8000-bbbbbbbbbbbb',
+        $session_entry_url: `https://openmentor.io/mentor/requests/${REVIEW_CAPABILITY}`,
+        $session_recording_start_reason: 'sampling_override',
+      },
+    })
+    const second = redactSensitiveEvent({
+      uuid: 'evt-7',
+      event: '$pageview',
+      properties: { $session_id: '0198f0bb-3333-7000-8000-cccccccccccc' },
+    })
+
+    expect(first?.properties.$session_id).toBe('0198f0aa-1111-7000-8000-aaaaaaaaaaaa')
+    expect(first?.properties.$window_id).toBe('0198f0aa-2222-7000-8000-bbbbbbbbbbbb')
+    expect(second?.properties.$session_id).toBe('0198f0bb-3333-7000-8000-cccccccccccc')
+    expect(first?.properties.$session_id).not.toBe(second?.properties.$session_id)
+    expect(first?.properties.$session_recording_start_reason).toBe('sampling_override')
+    // Exempt from the KEY rule, still swept as a string: shape kept, capability gone.
+    expect(first?.properties.$session_entry_url).toBe('https://openmentor.io/mentor/requests/:id')
+    expectClean(JSON.stringify(first))
+  })
+
   it('passes an event with no person properties through', () => {
     const event = redactSensitiveEvent({ uuid: 'evt-2', event: '$pageview', properties: {} })
     expect(event).toEqual({ uuid: 'evt-2', event: '$pageview', properties: {} })
     expect(redactSensitiveEvent(null)).toBeNull()
+  })
+})
+
+describe('faro beforeSend', () => {
+  it('scrubs the capability from the paths faro instruments automatically', () => {
+    // Faro records page.url / view.name and the frames of every error it catches.
+    // On /mentor/requests/<uuid> the capability is a PATH segment, so the
+    // query-value rule alone never saw it.
+    const item = {
+      type: 'exception',
+      payload: {
+        type: 'TypeError',
+        value: 'submit failed',
+        stacktrace: {
+          frames: [
+            {
+              filename: `https://openmentor.io/mentor/requests/${REVIEW_CAPABILITY}`,
+              function: 'onSubmit',
+            },
+          ],
+        },
+      },
+      meta: {
+        page: { url: `https://openmentor.io/mentor/requests/${REVIEW_CAPABILITY}?tab=notes` },
+        view: { name: `/mentor/requests/${REVIEW_CAPABILITY}` },
+        // Faro's OWN session id must survive: it is how a Frontend Observability
+        // session is stitched together.
+        session: { id: 'FARO-SESSION-1' },
+      },
+    }
+
+    redactFaroItem(item)
+
+    expectClean(JSON.stringify(item))
+    expect(item.meta.page.url).toBe('https://openmentor.io/mentor/requests/:id?tab=notes')
+    expect(item.meta.view.name).toBe('/mentor/requests/:id')
+    expect(item.payload.stacktrace.frames[0].filename).toBe(
+      'https://openmentor.io/mentor/requests/:id'
+    )
+    expect(item.payload.stacktrace.frames[0].function).toBe('onSubmit')
+    expect(item.meta.session.id).toBe('FARO-SESSION-1')
+  })
+
+  it('still redacts a token faro picked up from a query string', () => {
+    const item = {
+      meta: { page: { url: `https://openmentor.io/mentor/auth/callback?token=${LOGIN_TOKEN}` } },
+      payload: { context: { confirmToken: LOGIN_TOKEN } },
+    }
+
+    redactFaroItem(item)
+
+    expectClean(JSON.stringify(item))
+    expect(item.payload.context.confirmToken).toBe(REDACTED_VALUE)
   })
 })

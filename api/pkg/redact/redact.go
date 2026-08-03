@@ -176,6 +176,72 @@ func URL(raw string) string {
 	return Path(raw)
 }
 
+// Text redacts capability-bearing values inside free-form text: an error
+// message, a response body preview, a span name. URL is not usable here because
+// the string is not a URL — it CONTAINS one, in the middle of a sentence.
+//
+// The case that matters is *url.Error, which is what http.Client.Do returns:
+// its Error() renders `Get "<the whole target URL>": dial tcp ...`, so
+// zap.Error(err) re-leaks the id that the explicit url field dropped (P14).
+//
+// Tokenizing on characters that cannot appear inside a URL and running the
+// existing URL/Path/QueryString rules per token is what keeps this correct where
+// a regex over the whole string is not: consecutive capability segments
+// (/mentors/<uuid>/requests/<uuid>) need the slash between them to be both a
+// terminator and a separator, which Path's split already handles and a
+// non-backtracking regexp does not.
+func Text(raw string) string {
+	// Every rule needs one of these; prose has neither.
+	if !strings.ContainsAny(raw, "/=") {
+		return raw
+	}
+
+	var b strings.Builder
+	b.Grow(len(raw))
+	start := 0
+	for i := 0; i <= len(raw); i++ {
+		if i < len(raw) && !isTextBoundary(raw[i]) {
+			continue
+		}
+		if i > start {
+			b.WriteString(redactTextToken(raw[start:i]))
+		}
+		if i < len(raw) {
+			b.WriteByte(raw[i])
+		}
+		start = i + 1
+	}
+	return b.String()
+}
+
+// isTextBoundary reports whether c ends a URL-shaped token. url.Error wraps the
+// target in double quotes and follows it with `: `, and log messages put URLs in
+// parentheses and lists.
+func isTextBoundary(c byte) bool {
+	switch c {
+	case ' ', '\t', '\n', '\r', '"', '\'', '`', '<', '>', ',', ';', '(', ')', '[', ']', '{', '}':
+		return true
+	}
+	return false
+}
+
+func redactTextToken(token string) string {
+	// Sentence punctuation is not part of the URL: `... /reviews/<uuid>/check.`
+	trimmed := strings.TrimRight(token, ".:;!?")
+	suffix := token[len(trimmed):]
+
+	switch {
+	case strings.Contains(trimmed, "?"):
+		return URL(trimmed) + suffix
+	// A bare pair with no `?` in front of it: `rejected login_token=<jwt>`.
+	case strings.Contains(trimmed, "="):
+		return QueryString(trimmed) + suffix
+	case strings.Contains(trimmed, "/"):
+		return Path(trimmed) + suffix
+	}
+	return token
+}
+
 // ID returns a short, non-reversible reference for a capability value so log
 // lines about the same request can still be correlated without carrying the
 // value that grants access.

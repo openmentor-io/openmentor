@@ -36,6 +36,41 @@ const SENSITIVE_KEY_PARTS = [
  */
 const SENSITIVE_WHOLE_KEYS = ['key'] as const
 
+/**
+ * PostHog's own reserved properties, which the substring rules above would
+ * otherwise destroy: `$session_id` normalizes to `sessionid` and so matched the
+ * `session` rule, turning EVERY session id into the same `[REDACTED]` string.
+ * That collapses session grouping, session-replay correlation and the
+ * exception-to-session link (`instrumentation.ts` sends `$session_id` on server
+ * exceptions) on every event, `$snapshot` included. None of these authorizes
+ * anything — the SDK mints them in the browser.
+ *
+ * Matched on the RAW key with its `$` intact, which is what makes the exemption
+ * safe: `$` is PostHog's reserved namespace, so `$session_id` survives while an
+ * application cookie named `sessionid` — identical once normalized — does not.
+ *
+ * Verified against posthog-js 1.409.5 by matching the rules against every
+ * `$`-prefixed reserved property name in its bundle.
+ */
+const RESERVED_TELEMETRY_KEYS = new Set([
+  '$session_id',
+  // Not currently matched, but it is the id `$session_id` is always paired with
+  // and it must not start being eaten if the rules grow.
+  '$window_id',
+  '$session_is_sampled',
+  // PostHog's own flag-evaluation request id, unrelated to our `request_id`.
+  '$feature_flag_request_id',
+])
+
+/**
+ * Open-ended reserved families, matched by prefix: `$session_entry_url`,
+ * `$session_entry_pathname`, `$session_entry_utm_*`,
+ * `$session_recording_start_reason`. These are exempt from the KEY rules only —
+ * every one of them is still swept as a free-form string, so
+ * `$session_entry_url` keeps its shape and loses the capability path.
+ */
+const RESERVED_TELEMETRY_PREFIXES = ['$session_entry_', '$session_recording_'] as const
+
 /** Log/span fields whose value is a URL and needs the query-string treatment. */
 const URL_VALUED_KEYS = new Set([
   'url',
@@ -63,6 +98,20 @@ const URL_VALUED_KEYS = new Set([
 const UUID_SEGMENT = /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-z_-])/gi
 
 /**
+ * Parts that need a pattern rather than the literal substring, keyed by the
+ * SENSITIVE_KEY_PARTS entry they replace.
+ */
+const QUERY_PAIR_PATTERNS: Record<string, string> = {
+  // request_id, requestId, request-id and the percent-encoded request%5Fid.
+  requestid: 'request(?:_|-|%5f)?id',
+  // `otp` is only three characters, so as a bare substring it also fires inside
+  // words (botpageview, notpurchased) and, worse, inside a base64 blob that ends
+  // in `=` padding — which would rewrite a replay's inline image. The lookahead
+  // keeps `otp`, `otp_code` and `loginOtp` and drops the accidents.
+  otp: 'otp(?![a-z])',
+}
+
+/**
  * `key=value` pairs whose key looks sensitive, in any casing and with the
  * separator written literally or percent-encoded. The leading delimiter is `?`,
  * `&`, whitespace or the start of the string: `?`/`&` for a URL, start-of-string
@@ -71,8 +120,8 @@ const UUID_SEGMENT = /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  * too — this runs over every winston `message`.
  */
 const SENSITIVE_QUERY_PAIR = new RegExp(
-  `(^|[?&\\s])((?:[^=&\\s]*(?:${SENSITIVE_KEY_PARTS.map((part) =>
-    part === 'requestid' ? 'request(?:_|-|%5f)?id' : part
+  `(^|[?&\\s])((?:[^=&\\s]*(?:${SENSITIVE_KEY_PARTS.map(
+    (part) => QUERY_PAIR_PATTERNS[part] ?? part
   ).join('|')})[^=&\\s]*|${SENSITIVE_WHOLE_KEYS.join('|')})=)([^&\\s"'\\\\]*)`,
   'gi'
 )
@@ -81,7 +130,21 @@ export function normalizeKey(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
+/**
+ * True for a PostHog-reserved telemetry identifier that must survive redaction
+ * verbatim (see RESERVED_TELEMETRY_KEYS).
+ */
+export function isReservedTelemetryKey(key: string): boolean {
+  const raw = key.trim()
+  if (!raw.startsWith('$')) return false
+  return (
+    RESERVED_TELEMETRY_KEYS.has(raw) ||
+    RESERVED_TELEMETRY_PREFIXES.some((prefix) => raw.startsWith(prefix))
+  )
+}
+
 export function isSensitiveKey(key: string): boolean {
+  if (isReservedTelemetryKey(key)) return false
   const normalized = normalizeKey(key)
   if (!normalized) return false
   if (SENSITIVE_WHOLE_KEYS.some((whole) => normalized === whole)) return true
@@ -100,6 +163,18 @@ export function redactQueryValues(value: string): string {
  */
 export function redactPathIds(value: string): string {
   return value.replace(UUID_SEGMENT, '/:id')
+}
+
+/**
+ * Both rules that are safe over a string of unknown shape. Free-form strings
+ * need the PATH rule too, not just the query rule: `GoApiClient.request` builds
+ * `Go API request timeout after 10000ms: /api/v1/reviews/<uuid>/check`, and that
+ * message plus its stack go to Loki through `logError` with no `key=` anywhere
+ * for the query rule to bite on. Both rules are anchored (a `?`/`&`/whitespace
+ * delimiter, a leading `/`), so a bare id under an innocent key stays readable.
+ */
+export function redactFreeText(value: string): string {
+  return redactPathIds(redactQueryValues(value))
 }
 
 /**
@@ -157,7 +232,7 @@ export function redactValue(value: unknown, key = ''): unknown {
 
   if (typeof value === 'string') {
     if (key && URL_VALUED_KEYS.has(normalizeKey(key))) return redactUrl(value)
-    return redactQueryValues(value)
+    return redactFreeText(value)
   }
 
   if (Array.isArray(value)) {
