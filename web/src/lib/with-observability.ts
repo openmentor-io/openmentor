@@ -11,15 +11,12 @@ import { logHttpRequest, logError } from './logger'
 type NextApiHandler = (req: NextApiRequest, res: NextApiResponse) => Promise<void> | void
 
 /**
- * Normalize dynamic route segments to prevent cardinality explosion in metrics.
- * Converts actual IDs to route templates (e.g., /api/mentor/requests/rec123 -> /api/mentor/requests/:id)
+ * Collapse id segments into route templates
+ * (/api/mentor/requests/<uuid>/status -> /api/mentor/requests/:id/status).
  *
- * Every id-bearing segment MUST be normalized: http_route labels a counter, a
- * histogram and a gauge, so one raw id per request means an unbounded series
- * per request. This used to enumerate routes one at a time, which silently
- * missed nested ids — /api/admin/mentors/:id/requests/<requestId> kept its
- * second UUID. Matching UUID segments at any depth is what keeps it bounded as
- * routes are added.
+ * http_route labels a counter, a histogram and a gauge, so every id-bearing
+ * segment has to collapse or one request mints three series. Matched at any
+ * depth rather than route by route, so a nested id cannot be missed.
  */
 export function normalizeRoute(url: string): string {
   const path = url.split('?')[0]
@@ -30,9 +27,9 @@ export function normalizeRoute(url: string): string {
     '/:id'
   )
 
-  // Public mentor profile pages (/mentor/<slug>) only. Scoped away from /api/*
-  // because the slug pattern also matches fixed segments: it was rewriting
-  // /api/mentor/requests/:id into the nonsense label /api/mentor/:slug/:id.
+  // Public mentor profile pages (/mentor/<slug>) only: the slug pattern also
+  // matches fixed segments, so unscoped it rewrites /api/mentor/requests/:id
+  // into the nonsense label /api/mentor/:slug/:id.
   const withSlug = normalized.startsWith('/api/')
     ? normalized
     : normalized.replace(/\/mentor\/[a-z0-9-]+(?:\/|$)/, '/mentor/:slug/')
@@ -44,13 +41,10 @@ export function normalizeRoute(url: string): string {
 /**
  * Every route template that may appear as an http_route label value.
  *
- * normalizeRoute only collapses UUID-shaped segments, so anything else in the
- * path survives verbatim — and these metrics are labelled before the handler
- * authenticates anything. The live vector is any dynamic route reached with a
- * non-UUID id: 20 requests to /api/mentor/requests/rec<n>/status measurably
- * produced 20 series on a counter, a histogram and a gauge, all remote-written
- * to Grafana Cloud. (A path matching no route at all never reaches this
- * wrapper — Next answers it itself — so the exposure is the id segments.)
+ * normalizeRoute only collapses UUID-shaped segments, so a dynamic route reached
+ * with any other id (an Airtable `rec…`, a numeric id) keeps it verbatim and
+ * mints a series per value — and these metrics are labelled before the handler
+ * authenticates anything. Mapping through this set caps the label set instead.
  *
  * A route missing from this list still works, it just aggregates into `other`.
  * Add new API routes here; `routeLabel` has a test that fails if you forget.

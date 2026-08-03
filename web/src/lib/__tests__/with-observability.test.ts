@@ -1,8 +1,9 @@
 import fs from 'fs'
 import path from 'path'
 import type { NextApiRequest, NextApiResponse } from 'next'
+import type { Counter, Gauge, Histogram } from 'prom-client'
 import { normalizeRoute, routeLabel, withObservability } from '@/lib/with-observability'
-import register, { httpRequestTotal } from '@/lib/metrics'
+import register, { activeRequests, httpRequestDuration, httpRequestTotal } from '@/lib/metrics'
 
 const MENTOR_ID = '11111111-1111-1111-1111-111111111111'
 const REQUEST_ID = '1b0c9e42-a072-47ed-8ce9-edd306874ec9'
@@ -146,13 +147,21 @@ describe('withObservability label cardinality', () => {
     await handler(req, res)
   }
 
+  type LabelledMetric = Counter<string> | Histogram<string> | Gauge<string>
+
+  async function routesSeenOn(metric: LabelledMetric): Promise<string[]> {
+    const collected = await metric.get()
+    return [...new Set(collected.values.map((v) => String(v.labels.http_route)))].sort()
+  }
+
   async function routesSeen(): Promise<string[]> {
-    const metric = await httpRequestTotal.get()
-    return [...new Set(metric.values.map((v) => String(v.labels.http_route)))].sort()
+    return routesSeenOn(httpRequestTotal)
   }
 
   beforeEach(() => {
     httpRequestTotal.reset()
+    httpRequestDuration.reset()
+    activeRequests.reset()
   })
 
   it('is registered on the registry the /api/metrics endpoint scrapes', () => {
@@ -178,6 +187,56 @@ describe('withObservability label cardinality', () => {
     expect(await routesSeen()).toEqual([
       '/api/admin/mentors/:id/requests/:id',
       '/api/contact-mentor',
+      '/api/mentor/requests/:id/status',
+      'other',
+    ])
+  })
+
+  // The live vector: a real dynamic route template reached with ids that are not
+  // UUID-shaped (Airtable `rec…` ids, numeric ids). normalizeRoute leaves those
+  // verbatim, so without the allowlist each value is its own series on each of
+  // the three metrics.
+  const NON_UUID_ROUTES = [
+    '/api/mentor/requests/<id>',
+    '/api/mentor/requests/<id>/status',
+    '/api/mentor/requests/<id>/decline',
+    '/api/admin/mentors/<id>',
+    '/api/admin/mentors/<id>/requests/<id>/status',
+  ]
+
+  it.each(NON_UUID_ROUTES)(
+    'holds http_route to one series for 500 non-UUID ids on %s',
+    async (template) => {
+      const urls = Array.from({ length: 500 }, (_, i) =>
+        template.replace(/<id>/g, `rec${i}AbCdEfGhIjK`)
+      )
+
+      // The premise: without the allowlist each id is its own label value.
+      expect(new Set(urls.map(normalizeRoute)).size).toBe(500)
+
+      for (const url of urls) {
+        await call(url)
+      }
+
+      expect(await routesSeen()).toEqual(['other'])
+      expect(await routesSeenOn(httpRequestDuration)).toEqual(['other'])
+      expect(await routesSeenOn(activeRequests)).toEqual(['other'])
+    }
+  )
+
+  // Mixed traffic: the ids collapse, the templates keep their own labels, and the
+  // total label set is bounded by the allowlist rather than by the flood.
+  it('bounds the label set when non-UUID ids arrive alongside real traffic', async () => {
+    for (let i = 0; i < 500; i += 1) {
+      await call(`/api/mentor/requests/rec${i}/status`)
+      await call(`/api/admin/mentors/${i}/approve`)
+      await call(`/mentor/mentor-number-${i}`)
+    }
+    await call('/api/healthcheck')
+    await call(`/api/mentor/requests/${REQUEST_ID}/status`)
+
+    expect(await routesSeen()).toEqual([
+      '/api/healthcheck',
       '/api/mentor/requests/:id/status',
       'other',
     ])
