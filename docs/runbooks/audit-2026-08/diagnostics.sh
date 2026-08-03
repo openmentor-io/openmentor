@@ -16,6 +16,8 @@
 #       ./diagnostics.sh --local -- "service=openmentor-prod"
 #       PGHOST=localhost PGPORT=5433 PGUSER=openmentor ./diagnostics.sh --local
 #     (infra/db.sh tunnel 5433 opens that tunnel.)
+#     If your shell also exports DATABASE_URL (a dev URL, usually), the script
+#     REFUSES to guess — unset it for this command, or pass the DSN after `--`.
 #
 # Zero-setup alternative that needs no copy of this script on the VM:
 #       infra/db.sh < docs/runbooks/audit-2026-08/diagnostics.sql
@@ -27,7 +29,9 @@
 # which connects over the container's local socket and needs none.
 #
 # The report contains PERSONAL DATA (names, emails, request text). It is
-# written with mode 600. Delete it when you are done.
+# created fresh with mode 600 and the script REFUSES an existing path (see
+# "Report file" below). Delete it when you are done. The console only ever
+# gets the SUMMARY block, never detail rows — not even on error.
 
 set -euo pipefail
 
@@ -61,7 +65,9 @@ Options:
   --db NAME             database name for --docker (default: openmentor,
                         or $OM_PG_DB)
   --out FILE            report path (default: ./openmentor-diagnostics-<UTC>.txt,
-                        or $OM_DIAG_OUT)
+                        or $OM_DIAG_OUT). MUST NOT EXIST: an existing file keeps
+                        its own mode, so reusing one could write personal data
+                        into a world-readable path.
   -n, --dry-run         show what would run and check preconditions; do not
                         connect to any database
   -h, --help            this text
@@ -70,9 +76,12 @@ Options:
 
 Connection details for --local come from the standard libpq environment
 (PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD, PGPASSFILE, PGSSLMODE) or
-from PSQL_ARGS. DATABASE_URL is used if set and nothing else is given; note
-that a DSN on a command line is visible in the host process list, so prefer
-PG* variables or a service file when the DSN embeds a password.
+from PSQL_ARGS. DATABASE_URL is used only when NO connection-defining PG*
+variable is set; setting both is rejected rather than silently resolved, because
+a DSN passed to psql wins over PGHOST/PGDATABASE and you would get a report
+describing a different database than the one you named. Note also that a DSN on
+a command line is visible in the host process list, so prefer PG* variables or a
+service file when the DSN embeds a password.
 
 Exit codes: 0 ok (findings are not failures) · 1 psql/query failed
             2 bad usage · 3 precondition missing
@@ -131,6 +140,28 @@ case "$MODE" in
             cmd+=("${PSQL_PASSTHROUGH[@]}")
             target_label="local psql (connection from the arguments after --, not shown)"
         elif [ -n "${DATABASE_URL:-}" ]; then
+            # A DSN handed to psql as an argument OVERRIDES PGHOST/PGDATABASE
+            # etc. — libpq gives explicit connection parameters precedence over
+            # the environment. So an operator following the documented
+            # `PGHOST=... PGDATABASE=... --local` example from a shell that also
+            # exports DATABASE_URL (typically a dev URL) would silently get a
+            # report about the wrong database and then make production repair
+            # decisions from it. Refuse instead of picking a winner.
+            pg_conflicts=()
+            for var in PGSERVICE PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER; do
+                if [ -n "${!var:-}" ]; then
+                    pg_conflicts+=("$var")
+                fi
+            done
+            if [ ${#pg_conflicts[@]} -gt 0 ]; then
+                die "ambiguous connection: DATABASE_URL and ${pg_conflicts[*]} are both set.
+  A DSN argument wins over the PG* environment, so the report would describe the
+  database in DATABASE_URL, not the one you named. Pick one:
+    unset DATABASE_URL                            # use the PG* variables
+    ./diagnostics.sh --local -- \"\$DATABASE_URL\"   # use the DSN, explicitly
+  (Credential-only variables — PGPASSWORD, PGPASSFILE, PGSSLMODE — are fine
+  alongside either choice; they do not select a database.)"
+            fi
             cmd+=("$DATABASE_URL")
             target_label="local psql (connection from \$DATABASE_URL, not shown)"
         else
@@ -170,7 +201,12 @@ if [ "$DRY_RUN" -eq 1 ]; then
             printf '  would run: psql <connection args, not shown> -X -v ON_ERROR_STOP=1 -f - < diagnostics.sql\n'
             ;;
     esac
-    printf '  would write the report to: %s\n' "$OUT_FILE"
+    if [ -e "$OUT_FILE" ] || [ -L "$OUT_FILE" ]; then
+        printf '  BLOCKED : report path already exists: %s\n' "$OUT_FILE"
+        printf '            a real run will refuse it (an existing file keeps its own mode)\n'
+    else
+        printf '  ok      : would create the report at %s (new file, mode 600)\n' "$OUT_FILE"
+    fi
     printf '\nNothing was read or written. Re-run without --dry-run.\n'
     exit 0
 fi
@@ -189,9 +225,38 @@ case "$MODE" in
         ;;
 esac
 
-# The report holds personal data: create it 0600 and keep it that way.
+# Report file. It holds personal data, so it must be a NEW file we own at 0600.
+#
+# umask only applies when an inode is created; it does nothing to a path that
+# already exists, and `: > file` truncates in place and keeps the existing mode.
+# So reusing a path left over at 0644 (or one someone else prepared, or a
+# symlink into a shared directory) would publish names, emails and request text.
+# Refuse the path instead of trying to fix it up.
 umask 077
-: > "$OUT_FILE"
+if [ -e "$OUT_FILE" ] || [ -L "$OUT_FILE" ]; then
+    die "report path already exists: $OUT_FILE
+  It is not created by this run, so its mode and ownership are not ours to
+  trust, and the report contains personal data. Delete it (after checking what
+  it is) or pass a new --out path." "$EXIT_PRECONDITION"
+fi
+# noclobber closes the gap between the test above and the create: `>` fails if
+# the path appeared in between. The -L test above is still needed — noclobber
+# follows a dangling symlink and would create its target.
+( set -o noclobber; : > "$OUT_FILE" ) \
+    || die "could not create the report file: $OUT_FILE" "$EXIT_PRECONDITION"
+chmod 600 "$OUT_FILE" || die "could not set mode 600 on $OUT_FILE" "$EXIT_PRECONDITION"
+
+# psql's own stderr (connection errors, timeouts, SQL errors) goes here, kept
+# apart from stdout so a failure can be reported WITHOUT replaying report rows.
+ERR_FILE="$OUT_FILE.psql-stderr"
+if [ -e "$ERR_FILE" ] || [ -L "$ERR_FILE" ]; then
+    die "stderr scratch path already exists: $ERR_FILE (delete it or use --out)" "$EXIT_PRECONDITION"
+fi
+( set -o noclobber; : > "$ERR_FILE" ) \
+    || die "could not create $ERR_FILE" "$EXIT_PRECONDITION"
+chmod 600 "$ERR_FILE" || die "could not set mode 600 on $ERR_FILE" "$EXIT_PRECONDITION"
+cleanup() { rm -f "$ERR_FILE"; }
+trap cleanup EXIT
 
 {
     printf '# OpenMentor audit diagnostics (2026-08)\n'
@@ -204,12 +269,31 @@ umask 077
 printf 'Running diagnostics...\n'
 
 status=0
-"${cmd[@]}" < "$SQL_FILE" >> "$OUT_FILE" 2>&1 || status=$?
+"${cmd[@]}" < "$SQL_FILE" >> "$OUT_FILE" 2>> "$ERR_FILE" || status=$?
+
+# Whatever happened, psql's diagnostics belong in the report next to the rows.
+if [ -s "$ERR_FILE" ]; then
+    {
+        printf '\n## psql stderr\n'
+        cat "$ERR_FILE"
+    } >> "$OUT_FILE"
+fi
 
 if [ "$status" -ne 0 ]; then
-    printf '\npsql exited %d. Last 20 lines of the report:\n\n' "$status" >&2
-    tail -n 20 "$OUT_FILE" >&2
-    printf '\nFull output: %s\n' "$OUT_FILE" >&2
+    # Show psql's own error text — that is what identifies the failure — and
+    # NOT the report. The old version tailed the last 20 report lines to
+    # stderr, which puts mentor names, emails and request text into the
+    # terminal and into whatever records that session (tmux/CI/screen logs),
+    # defeating the summary-only console design.
+    printf '\npsql exited %d.\n' "$status" >&2
+    if [ -s "$ERR_FILE" ]; then
+        printf '\npsql reported:\n\n' >&2
+        cat "$ERR_FILE" >&2
+    else
+        printf '\npsql printed no diagnostics.\n' >&2
+    fi
+    printf '\nThe partial report (mode 600, personal data) is at: %s\n' "$OUT_FILE" >&2
+    printf 'Read it there. Nothing from it is echoed to this terminal.\n' >&2
     exit 1
 fi
 

@@ -81,17 +81,79 @@ It is also **re-runnable but not side-effect-free**: every run re-randomizes
 `sort_order`, mints a *new* confirmation token (invalidating any link already
 mailed) and sends another confirmation email. Run it once per mentor.
 
-Get the worklist from the diagnostics report's `## D1b` section, or directly:
+That last point is why **the D1b list is a snapshot, not a work queue**.
+Registration commits the mentor row with `sort_order` NULL and *then* fires
+finalization from a goroutine — `trigger.CallAsync`
+(`api/pkg/trigger/trigger.go`), called at
+`api/internal/services/registration_service.go:203` after `CreateMentor`
+returns. A registration that committed seconds before you ran the diagnostics
+is in the report while its own finalization call is still in flight (the HTTP
+client timeout is 30 s, `api/pkg/httpclient/client.go:33`, and the worker may
+be restarting or backlogged on top of that). If that call lands after the
+report is written, triggering from the static list runs finalization a **second**
+time: it replaces the confirmation token the mentor was just emailed with a new
+one, so the link in their inbox is already dead when they click it, and sends a
+duplicate email.
+
+Two guards, both cheap:
+
+**(a) Only act on rows old enough that their own trigger has certainly
+finished.** 15 minutes is comfortably past the 30 s client timeout plus a worker
+restart.
+
+**(b) Classify same-email duplicates before you trigger anything** — see the
+`has_active_duplicate` column below and step 2a.
 
 ```sql
-SELECT id, email, name, created_at
-FROM mentors
-WHERE sort_order IS NULL
-  AND status = 'draft'
-  AND activated_at IS NULL
-  AND COALESCE(airtable_id, '') NOT LIKE 'getmentor:%'
-ORDER BY created_at;
+SELECT
+    m.id,
+    m.email,
+    m.name,
+    m.created_at,
+    EXISTS (
+        SELECT 1 FROM mentors a
+         WHERE a.email = m.email AND a.status = 'active'
+    ) AS has_active_duplicate
+FROM mentors m
+WHERE m.sort_order IS NULL
+  AND m.status = 'draft'
+  AND m.activated_at IS NULL
+  AND COALESCE(m.airtable_id, '') NOT LIKE 'getmentor:%'
+  -- (a): exclude registrations whose own fire-and-forget finalization may
+  -- still be in flight. Do not lower this.
+  AND m.created_at < now() - interval '15 minutes'
+ORDER BY m.created_at;
 ```
+
+`mentors.email` is `citext`, so `a.email = m.email` is case-insensitive — the
+same comparison `CountActiveMentorsByEmail`
+(`api/internal/worker/repository.go:175-180`) makes. A `draft` row never counts
+itself, because that query filters `status = 'active'`.
+
+### 2a. `has_active_duplicate = true` → do not trigger. `declined` is correct.
+
+For those rows the worker will find the active sibling, set
+`status = 'declined'` and send the "duplicate profile" email — and **that is the
+right answer, not a mistake**. Someone already has a live profile on that
+address; the second registration is the duplicate the check exists to catch.
+`declined` is its correct terminal state.
+
+So there is nothing to repair on those rows beyond the `COALESCE` fix in step 1,
+which is what makes them loadable again. Options, in order of preference:
+
+1. **Leave them.** Once P2 ships they no longer break anything. A `draft` row
+   with a NULL `sort_order` is invisible to the catalog and harmless.
+2. **Trigger it anyway** if you want the state written down explicitly. Expect
+   `{"status":"declined"}` and a duplicate-profile email to the mentor — decide
+   whether you want that email sent before you do it.
+
+**Do not "fix" a `declined` duplicate with an UPDATE.** Setting it back to
+`draft` re-opens exactly the duplicate the check closed, and setting it to
+`active` is rejected by the database anyway: `mentors_active_email_uniq`
+(`api/migrations/000001_initial_schema.up.sql`) is a UNIQUE index on `email`
+`WHERE status = 'active'`. If the person genuinely needs the *new* row and not
+the old one, that is a merge decision — deactivate the old profile first,
+deliberately, and record why.
 
 ### 3. Trigger finalization, one mentor at a time
 
@@ -100,7 +162,30 @@ The worker is `openmentor-worker`, internal to the compose network, port 8090
 the `X-Worker-Token` header whenever `WORKER_AUTH_TOKEN` is set — which is
 mandatory in production (`api/config/config.go:415-420`). The token reaches the
 container through `env_file: .env.runtime`, so read it *inside* the container
-and it never touches your shell history or the host process list:
+and it never touches your shell history or the host process list.
+
+**Step 3a — re-check the row, immediately before the call.** The worklist is
+minutes or hours old by now: the reconciliation cron may have shipped, the
+mentor's own trigger may have landed late, or a moderator may have touched the
+row. One query, and it is the difference between an idempotent procedure and one
+that mails a dead confirmation link.
+
+```bash
+# Must print exactly one row. NO ROW -> skip this mentor, do not call the
+# worker: something already finalized it. Calling anyway would re-randomize
+# sort_order, invalidate the confirmation link already sitting in their inbox,
+# and send a second email.
+./db.sh -c "SELECT id, email, status FROM mentors
+             WHERE id = '<MENTOR-UUID>'
+               AND sort_order IS NULL
+               AND status = 'draft'
+               AND activated_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM mentors a
+                                WHERE a.email = mentors.email
+                                  AND a.status = 'active')"
+```
+
+**Step 3b — call the worker.** Only for a mentor that just returned a row.
 
 ```bash
 ssh <vm>
@@ -122,10 +207,12 @@ wrong; `404` means the mentor id does not exist. Confirm afterwards:
               FROM mentors WHERE id = '<MENTOR-UUID>'"
 ```
 
-`sort_order` must now be non-NULL and `status` must still be `draft`. **If it
-came back `declined`, you ran it on the wrong row** — the mentor had an active
-row with the same email. Fix it with an explicit, single-row update and check
-the duplicate situation by hand before doing anything else.
+`sort_order` must now be non-NULL and `status` must still be `draft`.
+
+**If it came back `declined`,** the mentor has an active row on the same email
+and the duplicate check fired. That is the intended outcome, not an error, and
+**it is not something to undo** — step 3a should have caught it, so the sibling
+row went active in between. Read step 2a before touching anything.
 
 ### 4. The reconciliation cron
 
@@ -246,10 +333,54 @@ verification. If it does not restore, try the next-older dump; if none restores,
 say so out loud — that is `outstanding-decisions.md` §2, and it makes the
 backup-alerting work urgent rather than scheduled.
 
-Then write back **only** rows where production says `Free`, the dump says
-something else, and the dump's `updated_at` is older than production's. Do it
-with an explicit, id-listed statement you have read line by line. Do not join
-across the two databases and do not write a clever bulk `UPDATE`.
+#### Which rows may be written back — and it is fewer than you think
+
+"Production says `Free`, the dump says `$100`, the dump is older" is **not**
+evidence the bug did it. A mentor who deliberately switched to `Free` after the
+dump was taken matches all three conditions exactly. §D2.2 above says D2a is a
+candidate list, not a list of victims; that applies here too.
+
+There is one hard filter, and it comes straight from the mechanism. The select
+offers `Free, $50, $100, $150, $200, Negotiable`
+(`web/src/config/filters.ts` → `filters.price`) and is rendered
+`<select {...register('price')} defaultValue={mentor.price}>`
+(`ProfileForm.tsx:426`). If the stored price **is** one of those six, the browser
+selects that option and the value round-trips correctly. The clobber can only
+happen when the stored price was **off-list**.
+
+| Dump's price | Can the select bug explain production's `Free`? | Action |
+|---|---|---|
+| Off-list (`$30 / hour`, `75 USD`, `''`, …) | Yes — this is the bug's signature | Candidate for write-back |
+| On-list and not `Free` (`$100`, `Negotiable`) | **No.** The option existed and would have been preselected | **Do not write back** — this was a deliberate change |
+| `Free` | Nothing was lost | Nothing to do |
+
+Even for the first row of that table, an off-list dump value is consistent with
+the bug, not proof of it — the mentor could have set `Free` on purpose from an
+off-list value. So require **one** of these before writing:
+
+- **Mentor confirmation.** Ask: "our records show you charged `<X>` — is that
+  still right?" One email, and it removes all doubt. Do this for anything you
+  are not sure about; it is cheaper than getting it wrong.
+- **Corroborating evidence that the save was not a price change** — for example
+  the mentor emailed support about editing their bio around the `updated_at`
+  timestamp, or a moderation note records the edit.
+
+Write back **nothing** you cannot put in one of those two boxes. A price left
+wrong is a bug the mentor can fix in ten seconds; a price you overwrote against
+their intent is you editing someone's public listing without asking.
+
+#### The statement
+
+Explicit, id-listed, read line by line. Do not join across the two databases and
+do not write a clever bulk `UPDATE`.
+
+Carry the `updated_at` you observed during triage into the `VALUES` list and
+compare it. Without that, the statement races the mentor: if they edit their
+profile after you take the list and the result is still `Free` (they edited their
+bio, or they chose `Free` on purpose), `AND m.price = 'Free'` still matches and
+you overwrite the newer value. Verified on a scratch database — with only the
+price guard the stale write lands (`UPDATE 1`); with the `updated_at` guard it
+does not (`UPDATE 0`).
 
 ```sql
 BEGIN;
@@ -257,20 +388,40 @@ BEGIN;
 UPDATE mentors AS m
    SET price = v.price
   FROM (VALUES
-          ('00000000-0000-0000-0000-000000000000'::uuid, '$30'),
-          ('00000000-0000-0000-0000-000000000000'::uuid, '$40')
-       ) AS v(id, price)
+          -- id, price to restore, updated_at EXACTLY as triage printed it
+          ('00000000-0000-0000-0000-000000000000'::uuid, '$30',
+           '2026-08-01 09:14:22.518731+00'::timestamptz),
+          ('00000000-0000-0000-0000-000000000001'::uuid, '$40',
+           '2026-07-28 16:02:07.994612+00'::timestamptz)
+       ) AS v(id, price, observed_updated_at)
  WHERE m.id = v.id
-   AND m.price = 'Free';   -- guard: no-op if the row already changed again
+   AND m.price = 'Free'                        -- still the value you saw
+   AND m.updated_at = v.observed_updated_at;   -- and nobody has touched it since
 
 -- psql prints UPDATE <n>. If n does not equal the number of rows you listed,
 -- something is different from what you expected: ROLLBACK and look again.
 COMMIT;
 ```
 
-The `AND m.price = 'Free'` guard is what makes this safe to get wrong: a
-mis-typed id, or a row a mentor has edited since you took the list, simply does
-not match. `updated_at` will move — expected, the trigger does that.
+Copy `observed_updated_at` from psql's own output verbatim, including all six
+fractional digits — `timestamptz` is microsecond-precision and a truncated value
+simply will not match. Get it in the same query that gives you the price:
+
+```sql
+SELECT id, email, price, updated_at FROM mentors WHERE id IN (…);
+```
+
+The two guards together make this safe to get wrong: a mis-typed id, a row that
+moved since triage, or a row somebody already repaired all fail to match instead
+of overwriting something. A short `UPDATE <n>` is the procedure working — go
+re-read those rows, do not remove the guard. `updated_at` moves on the rows you
+do write; expected, the `trg_mentors_updated_at` trigger does that.
+
+If you would rather hold the rows still than re-read a moving target, the
+equivalent is `SELECT … FOR UPDATE` on the id list inside the same transaction,
+re-checking `price = 'Free'` on what comes back before you run the `UPDATE`. The
+`updated_at` comparison above achieves the same thing without holding row locks
+while a human reads output, which is why it is the version written out here.
 
 ### 4. Recovery source (b) — recompute for imported mentors
 

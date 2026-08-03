@@ -7,6 +7,12 @@
 -- ordinary ACCESS SHARE locks are taken (unavoidable for any SELECT); nothing
 -- here blocks a writer.
 --
+-- D1-D4 and the SUMMARY run inside ONE read-only REPEATABLE READ transaction,
+-- so the summary counts always describe the same instant as the detail rows
+-- above them. Consequence for running single checks by hand: the BEGIN is near
+-- the top and the COMMIT is at the bottom, so copy a query out on its own
+-- rather than pasting a fragment that starts mid-transaction.
+--
 -- Every column referenced here was checked against api/migrations/*.up.sql and
 -- the whole file was executed against a scratch database built from those
 -- migrations. Do not "fix" a column name from the Go models — `reviews` has
@@ -33,7 +39,9 @@
 \pset pager off
 \timing off
 
--- Safety rails. Session-local; they vanish when psql exits.
+-- Safety rails. Session-local; they vanish when psql exits. Set BEFORE the
+-- transaction opens, so they are plain session settings and not something a
+-- rollback could undo halfway through.
 SET default_transaction_read_only = on;   -- any write in this session fails
 SET statement_timeout = '120s';
 SET lock_timeout = '5s';
@@ -42,6 +50,31 @@ SET idle_in_transaction_session_timeout = '120s';
 -- Provenance for the report. \conninfo prints database/user/host/port and
 -- never a password.
 \conninfo
+
+-- ---------------------------------------------------------------------------
+-- ONE SNAPSHOT FOR THE WHOLE REPORT.
+--
+-- Without this every statement below would run in its own transaction
+-- (psql is in autocommit), so the SUMMARY counts would be taken from a
+-- different point in time than the detail rows above them — a profile save, a
+-- request finalization or a review submission landing mid-run makes the two
+-- disagree, and the operator cannot tell which half is stale. Verified on a
+-- scratch database: with autocommit, a concurrent INSERT between two counts is
+-- visible to the second one; inside this transaction it is not.
+--
+-- REPEATABLE READ (not SERIALIZABLE) is enough: we only read, so there is no
+-- write skew to serialize and no chance of a serialization failure forcing a
+-- retry. READ ONLY is belt-and-braces on top of the session setting above.
+--
+-- It takes only ACCESS SHARE locks and blocks no writer. It does hold back
+-- the vacuum horizon for as long as it runs, which is why statement_timeout
+-- stays at 120s: the whole report is a handful of seconds on this data size,
+-- and no single query can run away.
+--
+-- If any statement fails, ON_ERROR_STOP aborts psql with the transaction still
+-- open; disconnecting rolls it back. Nothing is written either way.
+-- ---------------------------------------------------------------------------
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 
 
 -- ===========================================================================
@@ -212,7 +245,18 @@ ORDER BY mentors DESC, 1;
 --              new-request-calendly (to the mentee) and `mentee_request` in
 --              new-request-mentor (to the mentor)
 --            client_requests.name        -> `first_name` / `mentee_name`
+--            client_requests.preferred_contact -> `mentee_contact` in
+--              new-request-mentor (job_new_request_watcher.go:109-123, via the
+--              "not provided" fallback). Mentee-supplied free text: the API
+--              binding is `omitempty,max=100` (models/contact.go), no charset
+--              or format check, and the template drops it into a <div>.
 --            mentors.name                -> `mentor_name` / `first_name`
+--            mentors.price               -> `request_price` in new-request AND
+--              new-request-calendly (job_new_request_watcher.go:99). Mentor-
+--              supplied free text: `required,max=100` (models/profile.go) with
+--              no option-list check server-side, and the template drops it into
+--              a <div>. This is the field D2 is about — the same column that is
+--              too free-form for the profile <select> is also an email sink.
 --            mentors.calendar_url        -> `calendly_url` in
 --              new-request-calendly (job_new_request_watcher.go:102-104)
 --            reviews.mentor_review       -> `review_text` in new-review
@@ -220,6 +264,11 @@ ORDER BY mentors DESC, 1;
 --          reviews.platform_review and reviews.improvements are stored and
 --          counted in analytics but reach NO email template — a hit there is
 --          worth knowing about but is not an email-injection vector.
+--
+--          NOT a sink, deliberately: client_requests.level (-> `mentee_level`
+--          in new-request-moderator). It is bound `oneof=Junior Middle Senior
+--          Manager 'Manager of managers' C-level` (models/contact.go), so it
+--          cannot carry markup, and adding it would only produce noise.
 --
 --          A hit is NOT proof of an attack. Mentors legitimately write "<3"
 --          or paste HTML into their bio. What IS close to proof: an <a href>
@@ -241,6 +290,15 @@ ORDER BY mentors DESC, 1;
 --            SELECT '<img src=x>' ~* '<\s*(a|img)\y';  -- true
 --          `\y` also avoids false positives on words that merely start with a
 --          tag name ('<image ...>' does not match).
+--
+--          The short free-text fields (name, preferred_contact, price) use the
+--          deliberately permissive `<\s*[a-z]` instead: nobody has a legitimate
+--          reason to put '<' followed by a letter in a name or a price, and
+--          missing a real injection costs more than a row to eyeball. Known
+--          benign shape to expect in preferred_contact: an address written
+--          '<me@example.com>'. A price is not expected to hit this at all —
+--          '<50' and '<$50' do not match, because a digit and '$' are not
+--          [a-z].
 -- ===========================================================================
 \echo ''
 \echo '## D3 — markup / non-https scheme in fields that reach email templates'
@@ -253,9 +311,17 @@ UNION ALL
     FROM client_requests
    WHERE name ~* '<\s*[a-z]'
 UNION ALL
+  SELECT id, created_at, 'client_requests.preferred_contact'
+    FROM client_requests
+   WHERE preferred_contact ~* '<\s*[a-z]'
+UNION ALL
   SELECT id, created_at, 'mentors.name'
     FROM mentors
    WHERE name ~* '<\s*[a-z]'
+UNION ALL
+  SELECT id, created_at, 'mentors.price'
+    FROM mentors
+   WHERE price ~* '<\s*[a-z]'
 UNION ALL
   SELECT id, created_at, 'mentors.calendar_url'
     FROM mentors
@@ -377,7 +443,11 @@ FROM (
                UNION ALL
                   SELECT 1 FROM client_requests WHERE name ~* '<\s*[a-z]'
                UNION ALL
+                  SELECT 1 FROM client_requests WHERE preferred_contact ~* '<\s*[a-z]'
+               UNION ALL
                   SELECT 1 FROM mentors WHERE name ~* '<\s*[a-z]'
+               UNION ALL
+                  SELECT 1 FROM mentors WHERE price ~* '<\s*[a-z]'
                UNION ALL
                   SELECT 1 FROM mentors
                    WHERE calendar_url IS NOT NULL AND calendar_url <> ''
@@ -399,6 +469,10 @@ FROM (
            'sizes the H4 redesign; see outstanding-decisions.md §1'
 ) s
 ORDER BY ord;
+
+-- Ends the single snapshot opened before D1. Nothing was written, so this
+-- COMMIT is just the release of the snapshot and its ACCESS SHARE locks.
+COMMIT;
 
 \echo ''
 \echo '## END'

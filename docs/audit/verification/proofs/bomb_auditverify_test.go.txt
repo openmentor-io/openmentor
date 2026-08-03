@@ -1,0 +1,126 @@
+package imageclass_test
+
+import (
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	"image"
+	_ "image/png"
+	"os"
+	"runtime"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/openmentor-io/openmentor/api/pkg/imageclass"
+	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
+)
+
+const mib = 1024 * 1024
+
+func maxRSSMiB() float64 {
+	var ru syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {
+		return -1
+	}
+	// Darwin reports ru_maxrss in bytes; Linux in KiB.
+	if runtime.GOOS == "darwin" {
+		return float64(ru.Maxrss) / mib
+	}
+	return float64(ru.Maxrss) / 1024
+}
+
+func loadBomb(t *testing.T, path string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("bomb fixture missing: %v", err)
+	}
+	return raw
+}
+
+// TestAuditBombValidators: do the app's own validators reject the bomb?
+func TestAuditBombValidators(t *testing.T) {
+	sc := &s3storage.StorageClient{}
+	for _, n := range []int{10000, 20000, 40000} {
+		raw := loadBomb(t, fmt.Sprintf("/tmp/av/bomb_%d.png", n))
+		b64 := base64.StdEncoding.EncodeToString(raw)
+		dataURI := "data:image/png;base64," + b64
+
+		cfg, format, cfgErr := image.DecodeConfig(bytes.NewReader(raw))
+		t.Logf("--- bomb %dx%d: file=%d bytes (%.1f KiB), base64=%d bytes",
+			n, n, len(raw), float64(len(raw))/1024, len(b64))
+		t.Logf("    DecodeConfig: format=%q w=%d h=%d err=%v", format, cfg.Width, cfg.Height, cfgErr)
+		t.Logf("    ValidateImageSize(raw b64)     = %v", sc.ValidateImageSize(b64))
+		t.Logf("    ValidateImageContent(raw b64)  = %v", sc.ValidateImageContent(b64))
+		t.Logf("    ValidateImageSize(dataURI)     = %v", sc.ValidateImageSize(dataURI))
+		t.Logf("    ValidateImageContent(dataURI)  = %v", sc.ValidateImageContent(dataURI))
+	}
+}
+
+// TestAuditBombDecodeConfigVsDecode times header-only parse vs full decode.
+func TestAuditBombDecodeConfigVsDecode(t *testing.T) {
+	for _, n := range []int{10000, 20000, 40000} {
+		raw := loadBomb(t, fmt.Sprintf("/tmp/av/bomb_%d.png", n))
+
+		start := time.Now()
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+		cfgDur := time.Since(start)
+		if err != nil {
+			t.Fatalf("DecodeConfig(%d): %v", n, err)
+		}
+
+		start = time.Now()
+		img, _, err := image.Decode(bytes.NewReader(raw))
+		decDur := time.Since(start)
+		if err != nil {
+			t.Logf("bomb %d: full Decode FAILED after %v: %v", n, decDur, err)
+			continue
+		}
+		b := img.Bounds()
+		t.Logf("bomb %dx%d: DecodeConfig %v (%d x %d, %d px) | full Decode %v -> %T %dx%d | speedup %.0fx",
+			n, n, cfgDur, cfg.Width, cfg.Height, cfg.Width*cfg.Height,
+			decDur, img, b.Dx(), b.Dy(), float64(decDur)/float64(cfgDur))
+		runtime.KeepAlive(img)
+	}
+}
+
+// TestAuditBombClassifyMemory measures heap + peak RSS of imageclass.Classify.
+// Run one size per process via -run to get a clean peak RSS:
+//
+//	go test -run 'TestAuditBombClassifyMemory/40000' -v ./pkg/imageclass
+func TestAuditBombClassifyMemory(t *testing.T) {
+	for _, n := range []int{10000, 20000, 40000} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			raw := loadBomb(t, fmt.Sprintf("/tmp/av/bomb_%d.png", n))
+			b64 := base64.StdEncoding.EncodeToString(raw)
+
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			rssBefore := maxRSSMiB()
+
+			start := time.Now()
+			style, err := imageclass.ClassifyBase64(b64)
+			dur := time.Since(start)
+
+			runtime.ReadMemStats(&after)
+			rssAfter := maxRSSMiB()
+
+			pixels := n * n
+			t.Logf("bomb %dx%d (%d px, file %.1f KiB): style=%q err=%v in %v",
+				n, n, pixels, float64(len(raw))/1024, style, err, dur)
+			t.Logf("  HeapAlloc  before=%.1f MiB after=%.1f MiB (delta %.1f MiB)",
+				float64(before.HeapAlloc)/mib, float64(after.HeapAlloc)/mib,
+				(float64(after.HeapAlloc)-float64(before.HeapAlloc))/mib)
+			t.Logf("  TotalAlloc delta = %.1f MiB",
+				(float64(after.TotalAlloc)-float64(before.TotalAlloc))/mib)
+			t.Logf("  HeapSys    before=%.1f MiB after=%.1f MiB",
+				float64(before.HeapSys)/mib, float64(after.HeapSys)/mib)
+			t.Logf("  Sys        after=%.1f MiB", float64(after.Sys)/mib)
+			t.Logf("  peak RSS   before=%.1f MiB after=%.1f MiB", rssBefore, rssAfter)
+			t.Logf("  amplification: %.0fx file size (TotalAlloc/file)",
+				(float64(after.TotalAlloc)-float64(before.TotalAlloc))/float64(len(raw)))
+		})
+	}
+}

@@ -4,9 +4,12 @@ Operator-facing material for the 2026-08 audit remediation. The audit found
 defects that may **already** have damaged production data; these files are what
 you run against production to find out, and what you do about what you find.
 
-They accompany the remediation plan (`docs/audit/2026-08-remediation-plan.md`,
-which lands with the audit branch) — the plan is for whoever writes the code,
-this directory is for whoever holds the production credentials.
+They accompany the remediation plan
+([`../../audit/2026-08-remediation-plan.md`](../../audit/2026-08-remediation-plan.md))
+— the plan is for whoever writes the code, this directory is for whoever holds
+the production credentials. Item ids referenced below (`P2`, `P4`, `H4`, `P14`,
+`P15`, …) are that plan's; [`../../audit/README.md`](../../audit/README.md)
+indexes it and the source audits it was built from.
 
 Everything here is read-only or explicitly guarded. Nothing here changes code.
 
@@ -36,6 +39,21 @@ Everything here is read-only or explicitly guarded. Nothing here changes code.
    that need the owner. §1 and §2 are gated on the diagnostics above, so do them
    after step 1.
 
+[`diagnostics_test.sh`](diagnostics_test.sh) is not part of the procedure — it is
+the regression suite for the two files above, run by `Checks / required-checks`.
+Run it before changing either of them:
+
+```bash
+./diagnostics_test.sh          # shell tier: no database needed
+# full run, against a THROWAWAY database (it creates and drops om_diag_test):
+docker run -d --name pg-diagtest -e POSTGRES_USER=openmentor \
+    -e POSTGRES_PASSWORD=scratch -e POSTGRES_DB=openmentor \
+    -p 55444:5432 postgres:16.14-alpine
+PGHOST=127.0.0.1 PGPORT=55444 PGUSER=openmentor PGPASSWORD=scratch \
+    PGDATABASE=openmentor OM_DIAG_TEST_DB=1 ./diagnostics_test.sh
+docker rm -f pg-diagtest
+```
+
 ## What the checks are
 
 | Check | Detects | Repair |
@@ -43,17 +61,26 @@ Everything here is read-only or explicitly guarded. Nothing here changes code.
 | D1 / D1b | Mentors with `sort_order IS NULL` — they silently cannot log in, **and their public profile page cannot be rendered**. D1b separates lost registrations from imported profiles, because the repair for one damages the other. | `data-repair.md` §D1 |
 | D2a–D2c | Prices overwritten with `Free` by an uncontrolled `<select>`, plus the exposure count. | `data-repair.md` §D2 |
 | D2d | The same bug on the `experience` field. **Not in the audit plan** — found while writing these files. | `data-repair.md` §D2.1 |
-| D3 | Whether the unescaped-email-template injection has been exercised in stored data. | investigation, not repair |
+| D3 | Whether the unescaped-email-template injection has been exercised in stored data. Covers all seven fields that reach an SES template: request description / name / **preferred contact**, mentor name / **price** / calendar URL, and mentor review. | investigation, not repair |
 | D4 | Live review capabilities (completed requests with no review). | sizes the H4 redesign |
 
 ## Before you start
 
 - **The report contains personal data** — names, email addresses, request text.
-  `diagnostics.sh` writes it mode 600. Keep it off shared drives and delete it
-  when you are done (`../data-deletion.md` explains why that matters here).
+  `diagnostics.sh` creates it as a new file, mode 600, and **refuses a path that
+  already exists** (an existing file keeps its own mode, so reusing one could
+  publish the report). Keep it off shared drives and delete it when you are done
+  (`../data-deletion.md` explains why that matters here).
+- **The console only ever shows the SUMMARY block** — never detail rows, not even
+  when a query fails. On failure you get psql's own error text and the report
+  path; read the detail from the file.
 - **`diagnostics.sql` pins the session read-only** (`default_transaction_read_only`,
   plus statement and lock timeouts). A stray write aborts instead of landing. No
   `ANALYZE`, no `EXPLAIN ANALYZE`, no exclusive locks.
+- **The whole report is one snapshot.** D1–D4 and the summary run inside a single
+  read-only `REPEATABLE READ` transaction, so the summary counts always match the
+  detail rows above them even if someone saves a profile mid-run. It takes only
+  `ACCESS SHARE` locks and blocks no writer.
 - **Two repairs are gated on a code fix landing first.** D1's repair needs P2's
   `COALESCE`; D2's needs P4's form fix. Restoring prices before the form is fixed
   means the mentor's next save re-corrupts them.

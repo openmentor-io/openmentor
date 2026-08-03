@@ -172,9 +172,47 @@ rehearsed**, and nothing outside the VM would notice if the VM went away.
 **What the answers imply.**
 
 - **Rehearse once, end to end**, on a scratch server built from a snapshot:
-  restore, point DNS at it, confirm the site serves and the database is intact,
-  and write down the actual time it took. That number is your real RTO; the
-  ~30 min in the runbook is an estimate.
+  restore, confirm the site serves and the database is intact, and write down the
+  actual time it took. That number is your real RTO; the ~30 min in the runbook
+  is an estimate.
+
+  **Do not point the public DNS record at the rehearsal server while the
+  original VM is still serving.** DNS propagation and resolver caching are not
+  atomic: for as long as both answers are live you have **two writable copies of
+  production**. New mentorship requests, profile edits and reviews land on
+  whichever database the visitor's resolver happened to return, the two diverge
+  immediately, and everything written to the scratch copy is thrown away when the
+  drill ends. There is no merge back — `client_requests` and `reviews` are
+  append-only from the user's side, so a lost write is a lost request from a real
+  mentee.
+
+  Verify without touching public DNS:
+
+  ```bash
+  # Resolve openmentor.io to the rehearsal server for THIS machine only.
+  # /etc/hosts wins over DNS, so the browser and curl exercise the real
+  # hostname, real TLS SNI and the real Traefik routing.
+  echo "<rehearsal-ip> openmentor.io www.openmentor.io" | sudo tee -a /etc/hosts
+
+  # Or skip hosts editing entirely:
+  curl -sS --resolve "openmentor.io:443:<rehearsal-ip>" https://openmentor.io/ -o /dev/null -w '%{http_code}\n'
+
+  # Undo the hosts entry the moment you are done.
+  ```
+
+  A certificate warning is expected and fine — the rehearsal server has no
+  certificate for the real hostname unless you also gave it the ACME data, and
+  chasing one by solving a public challenge from the scratch box is another way
+  to disturb production. If you want a clean TLS path, give the rehearsal server
+  its **own** hostname (`drill.openmentor.io`) with its own record and its own
+  certificate; nothing about the restore depends on the name being the live one.
+
+  **The only safe way to point real DNS at it is a coordinated failover**: stop
+  the production writers first (`docker compose stop backend worker frontend` on
+  the original VM, or shut the VM down), confirm they are stopped, *then* move the
+  record. That is a real cutover with real downtime — plan it as one, or do not do
+  it. If you do, note that this is also the moment to check the DNS TTL: a long
+  TTL is the difference between minutes and hours of split traffic.
 - **Add an external uptime check** (any third-party HTTP monitor hitting
   `https://openmentor.io` and the API health endpoint from outside). This also
   compensates for audit item **P15** — a broken edge currently reports a

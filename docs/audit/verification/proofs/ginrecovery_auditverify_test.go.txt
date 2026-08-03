@@ -1,0 +1,71 @@
+package s3storage_test
+
+import (
+	"bytes"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/openmentor-io/openmentor/api/internal/middleware"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
+)
+
+// TestAuditGinRecoveryCannotCatchDetachedGoroutine drives a real Gin router
+// with the app's RecoveryMiddleware:
+//   - control handler: panics inline  -> should be recovered, 500 returned
+//   - async handler:   nil-client UploadImageAllSizesAsync -> detached
+//     goroutine, recover() cannot see it, process dies
+func TestAuditGinRecoveryCannotCatchDetachedGoroutine(t *testing.T) {
+	if os.Getenv("AV_GIN_CHILD") != "" {
+		// Initialize the global zap logger, as cmd/api/main.go does — otherwise
+		// RecoveryMiddleware's own logger.Error() nil-panics and muddies the result.
+		if err := logger.Initialize(logger.Config{
+			Level: "info", Environment: "production", ServiceName: "auditverify",
+		}); err != nil {
+			panic(err)
+		}
+		gin.SetMode(gin.TestMode)
+		r := gin.New()
+		r.Use(middleware.RecoveryMiddleware())
+		r.POST("/inline-panic", func(c *gin.Context) {
+			panic("inline panic in the request goroutine")
+		})
+		r.POST("/register-mentor", func(c *gin.Context) {
+			var storageClient *s3storage.StorageClient // nil, as in main.go with empty S3 creds
+			storageClient.UploadImageAllSizesAsync(c.Request.Context(), tinyPNG, "image/png", "mentor-uuid")
+			c.JSON(http.StatusOK, gin.H{"success": true})
+		})
+
+		path := os.Getenv("AV_GIN_CHILD")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, path, nil))
+		fmt.Fprintf(os.Stderr, "child: handler %s returned HTTP %d body=%s\n", path, w.Code, w.Body.String())
+
+		// Give the detached goroutine time to run, as the real server would.
+		time.Sleep(2 * time.Second)
+		fmt.Fprintln(os.Stderr, "child: process STILL ALIVE 2s after the response")
+		os.Exit(0)
+	}
+
+	for _, path := range []string{"/inline-panic", "/register-mentor"} {
+		cmd := exec.Command(os.Args[0],
+			"-test.run=TestAuditGinRecoveryCannotCatchDetachedGoroutine")
+		cmd.Env = append(os.Environ(), "AV_GIN_CHILD="+path)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+		err := cmd.Run()
+
+		alive := bytes.Contains(out.Bytes(), []byte("STILL ALIVE"))
+		t.Logf("===== %s =====", path)
+		t.Logf("child err=%v  survived=%v", err, alive)
+		t.Logf("child output:\n%s", out.String())
+	}
+}
