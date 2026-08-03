@@ -3,7 +3,11 @@
 # Note: Grafana Alloy runs in a separate container in Docker Compose
 
 # Stage 1: Build the Go application
-FROM golang:1.26-alpine AS builder
+# Pinned to a patch release, not the floating `1.26-alpine`: with layer caching
+# a floating tag keeps resolving to whatever digest is already local, so the
+# binary can silently keep shipping stdlib advisories that a newer 1.26.x fixed.
+# Bump together with the `go` directive in go.mod.
+FROM golang:1.26.5-alpine AS builder
 WORKDIR /app
 
 # Install build dependencies

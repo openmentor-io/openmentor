@@ -21,22 +21,13 @@ const nextConfig = {
   transpilePackages: ['@marsidev/react-turnstile'],
 
   images: {
-    // Entries with an unset/empty hostname are dropped: Next.js rejects
-    // empty remotePattern hostnames at build time.
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: process.env.NEXT_PUBLIC_S3_STORAGE_ENDPOINT,
-        port: '',
-        pathname: `/${process.env.NEXT_PUBLIC_S3_STORAGE_BUCKET || 'mentor-images'}/**`,
-      },
-      {
-        protocol: 'https',
-        hostname: process.env.NEXT_PUBLIC_CDN_ENDPOINT,
-        port: '',
-        pathname: `/**`,
-      },
-    ].filter((pattern) => pattern.hostname),
+    // Next's image optimizer is off entirely: the Go API already pre-generates
+    // the size variants every <Image> asks for, so optimizing again only added
+    // a sharp/libvips attack surface and a second copy of every byte. Every
+    // usage already passed `unoptimized`; making it the default means a new one
+    // that forgets the prop can't quietly re-enable /_next/image, and no
+    // remotePatterns allowlist is needed because nothing is ever proxied.
+    unoptimized: true,
   },
 
   experimental: {

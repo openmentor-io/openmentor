@@ -6,6 +6,14 @@
 # CI and local drift apart in the first place.
 GOLANGCI_VERSION := v2.7.2
 
+# The toolchain go.mod selects for this module — deliberately lazy (`=`) so it
+# only runs for the target that needs it. `go install pkg@version` acts outside
+# the main module and so picks a toolchain from the TARGET's go.mod, not ours;
+# for golangci-lint that means a machine whose default go predates our `go`
+# directive installs a linter that then refuses to lint us ("the Go language
+# version used to build golangci-lint is lower than the targeted Go version").
+GO_TOOLCHAIN = $(shell go version | awk '{print $$3}')
+
 # Default target
 help:
 	@echo "Available targets:"
@@ -175,7 +183,7 @@ pre-commit: fmt vet test
 # Install development tools
 install-tools:
 	@echo "Installing development tools..."
-	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
+	@GOTOOLCHAIN=$(GO_TOOLCHAIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 	@go install github.com/securego/gosec/v2/cmd/gosec@latest
 	@echo "✅ All tools installed (golangci-lint $(GOLANGCI_VERSION))!"
 
