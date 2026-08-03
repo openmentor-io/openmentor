@@ -162,7 +162,19 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: [validate-inputs, build-frontend, build-backend]
-    if: always() && (needs.build-frontend.result == 'success' || needs.build-backend.result == 'success')
+    # A single-service deploy leaves the OTHER build 'skipped', which is why
+    # success() can't be used here. The old gate spelled that as
+    # `build-frontend == success || build-backend == success`, and that `||`
+    # also let a FAILED build through: with service=both and a broken frontend
+    # build, deploy still wrote a never-pushed tag into the VM's .env, and the
+    # next deploy's `cp .env .env.backup` enshrined it as the rollback target.
+    # Required: at least one build succeeded AND neither failed.
+    if: >-
+      !cancelled()
+      && needs.validate-inputs.result == 'success'
+      && needs.build-frontend.result != 'failure'
+      && needs.build-backend.result != 'failure'
+      && (needs.build-frontend.result == 'success' || needs.build-backend.result == 'success')
     environment:
       name: production
       url: https://${{ env.DOMAIN }}
@@ -301,27 +313,45 @@ jobs:
             "bash -s -- $(printf '%q ' "--remove-orphans" "$RESTART_ALLOY" "$REBUILD_BACKUP")" \
             < infra/deploy-remote.sh
 
-      - name: Verify deployment
+      # P15: this is the ONLY check in either deploy path that traverses DNS,
+      # TLS and Traefik. Everything deploy-remote.sh gates on is
+      # `docker exec <container> curl http://localhost:...` — loopback INSIDE
+      # the container. So an ACME/DNS-01 failure, the duplicate-router
+      # collision docker-compose.yml documents, a broken sec-headers or
+      # edge-ratelimit middleware, the www-redirect regex, or plain bad DNS
+      # all produce a hard outage that every container-local probe calls
+      # healthy. Hence: mandatory (no DOMAIN, no green deploy) and fatal.
+      - name: Verify public endpoint
         run: |
-          echo "⏳ Waiting for services to stabilize..."
-          sleep 30
-
-          echo "🔍 Verifying public endpoints..."
-
-          # Check if domain is configured in secrets
-          if [ -n "$DOMAIN" ]; then
-            # Check HTTPS health endpoint
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN/api/healthcheck" || echo "000")
-
-            if [ "$HTTP_STATUS" = "200" ]; then
-              echo "✅ Health check passed (HTTP $HTTP_STATUS)"
-            else
-              echo "⚠️  Health check returned HTTP $HTTP_STATUS"
-              echo "This might be expected if DNS/SSL is not yet configured"
-            fi
-          else
-            echo "⚠️  DOMAIN secret not set, skipping public health check"
+          if [ -z "$DOMAIN" ]; then
+            echo "::error::DOMAIN secret is not set, so the public endpoint cannot be probed - and that probe is the only end-to-end check of DNS/TLS/Traefik. Set the DOMAIN secret."
+            exit 1
           fi
+
+          URL="https://$DOMAIN/api/healthcheck"
+          # ~2 min budget: the frontend container has a 40s start_period, and
+          # Traefik needs a moment to pick up the recreated container (longer
+          # if the certificate is being issued or renewed).
+          ATTEMPTS=12
+          DELAY=10
+          HTTP_STATUS=000
+          CURL_EXIT=0
+
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            CURL_EXIT=0
+            # -sS keeps curl's own diagnosis (bad certificate, DNS failure) on
+            # stderr; %{http_code} is 000 when the request never completed.
+            HTTP_STATUS=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$URL") || CURL_EXIT=$?
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "✅ $URL returned HTTP 200 on attempt $attempt"
+              exit 0
+            fi
+            echo "attempt $attempt/$ATTEMPTS: HTTP $HTTP_STATUS (curl exit $CURL_EXIT)"
+            if [ "$attempt" -lt "$ATTEMPTS" ]; then sleep "$DELAY"; fi
+          done
+
+          echo "::error::$URL never returned HTTP 200 (last: HTTP $HTTP_STATUS, curl exit $CURL_EXIT). The containers passed their loopback health checks, so suspect DNS, the Let's Encrypt certificate, or Traefik routing/middleware. The site is very likely down - roll back."
+          exit 1
 
       - name: Deployment summary
         if: always()
@@ -342,7 +372,7 @@ jobs:
 
           if [ "$JOB_STATUS" = "success" ]; then
             {
-              echo "✅ Deployment completed successfully!"
+              echo "✅ Deployment completed successfully - https://$DOMAIN/api/healthcheck returned HTTP 200 through Traefik."
               echo ""
               echo "**Next steps**:"
               echo "1. Verify application at https://$DOMAIN"
@@ -360,20 +390,31 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # Notify on failure
+  # Notify on failure.
+  #
+  # This job does NOT page anyone: its only effect is an error annotation and
+  # a line in the run's step summary, which someone has to go and look at.
+  # TODO: to make this a real notification, add a SLACK_WEBHOOK_URL repository
+  # secret (an incoming-webhook URL) and POST to it from the step below, or
+  # swap the step for slackapi/slack-github-action. Until that secret exists,
+  # a failed production deploy is silent unless a human is watching the run.
   notify-failure:
     name: Notify on Failure
     runs-on: ubuntu-latest
     needs: [deploy]
     if: failure()
     steps:
-      - name: Send failure notification
+      - name: Record deployment failure
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          echo "🚨 Deployment failed!"
-          echo "Check the workflow logs for details"
-
-          # Add Slack/Telegram/Email notification here if needed
-          # Example Slack webhook:
-          # curl -X POST -H 'Content-type: application/json' \
-          #   --data '{"text":"🚨 Deployment failed! Check GitHub Actions."}' \
-          #   ${{ secrets.SLACK_WEBHOOK_URL }}
+          {
+            echo "## 🚨 Deployment failed"
+            echo ""
+            echo "Run: $RUN_URL"
+            echo ""
+            echo "**No alert was sent.** This repository has no notification integration"
+            echo "configured (see the TODO above \`notify-failure\` in"
+            echo ".github/workflows/deploy.yml), so nobody was paged."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Deployment failed. No alerting integration is configured, so nobody was notified automatically."

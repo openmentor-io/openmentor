@@ -152,12 +152,16 @@ source "$SCRIPT_DIR/version"
 
 source "$SCRIPT_DIR/.env.production"
 
-# Validate required variables
+# Validate required variables. DOMAIN is required because the public endpoint
+# probe in step 9/9 is the only check that traverses Traefik — skipping it
+# would let a hard edge outage report a successful deploy. Better to refuse
+# here than after the images are pushed.
 REQUIRED_VARS=(
     "ECR_REGISTRY"
     "AWS_REGION"
     "VM_SSH_HOST"
     "VM_SSH_USER"
+    "DOMAIN"
     # VM_SSH_KEY_FILE is optional: unset = authenticate via your ssh agent
 )
 
@@ -167,6 +171,7 @@ if [ "$STAGING" = true ]; then
         "AWS_REGION"
         "VM_SSH_HOST_STAGING"
         "VM_SSH_USER_STAGING"
+        "DOMAIN"
         # VM_SSH_KEY_FILE_STAGING is optional (ssh agent)
     )
 fi
@@ -649,22 +654,49 @@ echo ""
 
 # --------------------------------------------------------------------------
 # Step 9/9: Verify public endpoint
+#
+# This is the ONLY check in the whole deploy that traverses DNS, TLS and
+# Traefik: every check deploy-remote.sh gates on (and auto-rolls back for) is
+# `docker exec <container> curl http://localhost:...` — loopback INSIDE the
+# container. An ACME/DNS-01 failure, the duplicate-router collision
+# docker-compose.yml documents, a broken sec-headers or edge-ratelimit
+# middleware, or plain bad DNS is a hard outage that every container-local
+# probe calls healthy. So it is mandatory and fatal, not advisory.
 # --------------------------------------------------------------------------
 echo -e "${BLUE}🔍 Step 9/9: Verifying public endpoint...${NC}"
-sleep 10
 
-if [ -n "$DOMAIN" ]; then
-    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN/api/healthcheck" || echo "000")
+URL="https://$DOMAIN/api/healthcheck"
+# ~2 min budget: the frontend container has a 40s start_period, and Traefik
+# needs a moment to pick up the recreated container (longer while a
+# certificate is being issued or renewed).
+ATTEMPTS=12
+DELAY=10
+HTTP_STATUS=000
+CURL_EXIT=0
 
+for attempt in $(seq 1 "$ATTEMPTS"); do
+    CURL_EXIT=0
+    # -sS keeps curl's own diagnosis (bad certificate, DNS failure) on stderr;
+    # %{http_code} is 000 when the request never completed.
+    HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "$URL") || CURL_EXIT=$?
     if [ "$HTTP_STATUS" = "200" ]; then
-        echo -e "${GREEN}✅ Public health check passed (HTTP $HTTP_STATUS)${NC}"
-    else
-        echo -e "${YELLOW}⚠️  Public health check returned HTTP $HTTP_STATUS${NC}"
-        echo -e "${YELLOW}This might be expected if DNS/SSL is still propagating${NC}"
+        break
     fi
-else
-    echo -e "${YELLOW}⚠️  DOMAIN not set, skipping public health check${NC}"
+    echo -e "${YELLOW}   attempt $attempt/$ATTEMPTS: HTTP $HTTP_STATUS (curl exit $CURL_EXIT)${NC}"
+    if [ "$attempt" -lt "$ATTEMPTS" ]; then sleep "$DELAY"; fi
+done
+
+if [ "$HTTP_STATUS" != "200" ]; then
+    echo -e "${RED}❌ $URL never returned HTTP 200 (last: HTTP $HTTP_STATUS, curl exit $CURL_EXIT)${NC}"
+    echo -e "${YELLOW}💡 The containers passed their loopback health checks, so suspect DNS,${NC}"
+    echo -e "${YELLOW}   the Let's Encrypt certificate, or Traefik routing/middleware:${NC}"
+    echo -e "${YELLOW}     ssh $_VM_SSH_USER@$_VM_SSH_HOST 'docker logs traefik --tail 100'${NC}"
+    echo -e "${YELLOW}   The site is very likely down — roll back:${NC}"
+    echo -e "${YELLOW}     ./rollback.sh <previous-sha>${NC}"
+    exit 1
 fi
+
+echo -e "${GREEN}✅ Public health check passed (HTTP 200 through Traefik)${NC}"
 
 echo ""
 echo -e "${GREEN}════════════════════════════════════════${NC}"
@@ -677,9 +709,7 @@ echo "  • Backend: $BACKEND_IMAGE:$BACKEND_IMAGE_TAG"
 if [ "$DEPLOY_INFRA" = true ]; then
     echo "  • Infra: synced (alloy restart: $RESTART_ALLOY, backup sidecar rebuild: $REBUILD_BACKUP_SIDECAR)"
 fi
-if [ -n "$DOMAIN" ]; then
-    echo "  • URL: https://$DOMAIN"
-fi
+echo "  • URL: https://$DOMAIN (verified: HTTP 200 through Traefik)"
 echo ""
 echo "🔗 Next steps:"
 echo "  1. Monitor application at https://$DOMAIN"
