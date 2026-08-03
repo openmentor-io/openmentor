@@ -336,3 +336,35 @@ groups:
               expression: A
               refId: B
               conditions: [{ evaluator: { type: gt, params: [0.5] } }]
+
+      - uid: om-db-backup-stale
+        title: DatabaseBackupStale
+        condition: B
+        for: 10m
+        # NoData=Alerting, unlike most rules in this file: the postgres-backup
+        # sidecar publishes this gauge continuously via Alloy's textfile
+        # collector, so a missing series means the sidecar, the metrics volume
+        # or Alloy is gone — which is precisely the silent-failure mode this
+        # rule exists to catch. Before it existed, pg_dump or the S3 upload
+        # could fail every night indefinitely with zero signal.
+        noDataState: Alerting
+        execErrState: Error
+        labels: { severity: critical, team: openmentor }
+        annotations:
+          summary: "No successful Postgres backup in over 26 hours"
+          description: "The last successful nightly pg_dump finished {{ printf \"%.1f\" (divf $values.A.Value 3600) }} hours ago (threshold 26h, dumps run daily at BACKUP_TIME). The documented RPO of 24h is no longer met. Check `docker logs openmentor-postgres-backup` for a FAILURE line and follow docs/runbooks/postgres-backup-restore.md."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'time() - max(openmentor_db_backup_last_success_timestamp_seconds)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [93600] } }]

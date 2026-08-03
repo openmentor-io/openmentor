@@ -355,6 +355,9 @@ procedures + quarterly drill: `../docs/runbooks/postgres-backup-restore.md`):
    falls back to the local `openmentor-postgres-backups` volume and logs a
    loud warning. Manual/drill run:
    `docker exec openmentor-postgres-backup backup.sh once`.
+   Every success refreshes `/backups/.last_success`; the container healthcheck
+   turns `unhealthy` and the `DatabaseBackupStale` Grafana alert pages once
+   that marker ages past `BACKUP_MAX_AGE_HOURS` (26h).
 
 RPO ≤ 24 h, RTO ≈ 30 min with dumps. Documented next step (not implemented):
 **wal-g** continuous WAL archiving to S3 for ~minutes RPO / PITR. Scale path:

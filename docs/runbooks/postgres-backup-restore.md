@@ -19,6 +19,33 @@ docker exec openmentor-postgres-backup backup.sh once
 docker logs openmentor-postgres-backup --tail 5   # expect a SUCCESS summary line
 ```
 
+### How a broken backup gets noticed
+
+The daemon loop swallows per-run failures on purpose — a transient error must
+not kill the sidecar — so three things carry the signal instead:
+
+| Layer | Where | Behaviour |
+|---|---|---|
+| Freshness marker | `/backups/.last_success` (and `.last_failure`) in the `openmentor-postgres-backups` volume, epoch seconds | Rewritten by every run |
+| Container healthcheck | `backup.sh healthcheck`, every 5 min | `unhealthy` once the last success is older than `BACKUP_MAX_AGE_HOURS` (26h). Deliberately does **not** roll back a deploy: `deploy-remote.sh` asserts only that the container is *running* |
+| Grafana alert | `DatabaseBackupStale` (`grafana/alerting/alert-rules.yaml`), severity critical | Pages when the age gauge passes 26h **or** disappears (`NoData=Alerting`). Panels: the "Postgres Backups" row on the `om-database-infra` dashboard |
+
+The gauges reach Grafana Cloud as a Prometheus textfile: the sidecar writes
+`openmentor_db_backup_last_{success,failure}_timestamp_seconds` into the
+`openmentor-backup-metrics` volume, which Alloy mounts read-only and scrapes
+(`prometheus.exporter.unix "backup_metrics"`).
+
+```bash
+# Is the sidecar happy right now?
+docker inspect -f '{{.State.Health.Status}}' openmentor-postgres-backup
+docker exec openmentor-postgres-backup backup.sh healthcheck
+```
+
+On a brand-new `/backups` volume the daemon seeds `.last_success` once so the
+first 26 h are a grace window rather than an instant page. It only ever seeds
+when the marker is absent — a redeploy cannot reset the window on a pipeline
+that has been failing for weeks.
+
 ## (a) Restore the latest dump into a fresh container/volume
 
 Use this for logical corruption or to rebuild the DB from S3 on a new VM. On the VM, in `/opt/openmentor/infra`:
@@ -95,7 +122,7 @@ docker exec pg-drill psql -U openmentor -c \
 docker rm -f pg-drill && rm /tmp/drill.dump
 ```
 
-Record date, dump filename, row counts and time-to-restore in the ops tracker. Also check the sidecar is alive: `docker logs openmentor-postgres-backup --tail 3` must show a SUCCESS line less than 24 h old (alerting on its absence is a good follow-up).
+Record date, dump filename, row counts and time-to-restore in the ops tracker. Also check the sidecar is alive: `docker inspect -f '{{.State.Health.Status}}' openmentor-postgres-backup` must report `healthy`, and `docker logs openmentor-postgres-backup --tail 3` must show a SUCCESS line less than 24 h old.
 
 ## (d) RPO / RTO
 

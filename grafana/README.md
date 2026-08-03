@@ -69,10 +69,18 @@ If you change a rule in the UI, mirror the change into the YAML file.
 Current set: ServiceDown, HighErrorRate, HighLatencyP99, ContainerHighCPU,
 ContainerHighMemory, GoroutineLeak, ContactFormFailures,
 ReviewSubmissionFailures, EmailSendFailures, PostgresDown, DBErrorRate,
-DBLatencyP95.
+DBLatencyP95, DatabaseBackupStale.
 
 Notes:
 
+- **DatabaseBackupStale** watches
+  `openmentor_db_backup_last_success_timestamp_seconds`, written by the
+  `postgres-backup` sidecar into a shared volume and scraped by Alloy's
+  textfile collector (`prometheus.exporter.unix "backup_metrics"`). The
+  sidecar's daemon loop deliberately swallows per-run failures so a transient
+  error can't kill it, which makes staleness of that gauge the only signal
+  that nightly dumps have stopped — hence `NoData=Alerting` here too. Panels:
+  the "Postgres Backups" row on `om-database-infra`.
 - **PostgresDown** watches `pg_up`, shipped continuously by the Database
   Observability pipeline (live since 2026-07-18; setup in
   `docs/runbooks/database-observability.md`). `NoData=Alerting`, so the
