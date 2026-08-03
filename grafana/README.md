@@ -100,11 +100,12 @@ fans out to `telegram`, `slack` and `Discord` with `repeat_interval: 4h`, so a
 rule that is true the moment it lands pages immediately and keeps paging. In
 particular the four rules with `noDataState: Alerting` (ServiceDown,
 PostgresDown, DatabaseBackupStale, and any future one) fire when their series
-is simply absent. `openmentor_db_backup_first_start_timestamp_seconds` and
-`openmentor_db_backup_last_success_timestamp_seconds` do not exist in
-Prometheus yet — the `postgres-backup` sidecar that publishes them ships with
-the audit P8 change — so either apply DatabaseBackupStale **after** that
-deploy, or apply it with `isPaused: true` and unpause once the gauges appear
+is simply absent. `openmentor_db_backup_first_start_timestamp_seconds`,
+`openmentor_db_backup_last_success_timestamp_seconds` and
+`openmentor_db_backup_max_age_seconds` do not exist in Prometheus yet — the
+`postgres-backup` sidecar that publishes them ships with the audit P8 change —
+so either apply DatabaseBackupStale **after** that deploy, or apply it with
+`isPaused: true` and unpause once the gauges appear
 (`docs/runbooks/postgres-backup-restore.md`).
 
 Desired set: ServiceDown, HighErrorRate, HighLatencyP99, ContainerHighCPU,
@@ -126,6 +127,31 @@ Notes:
   Panels: the "Postgres Backups" row on `om-database-infra`. Until this rule is
   actually applied, the only signal is the container healthcheck, which nothing
   off the VM watches.
+
+  Two properties of the query are load-bearing, and
+  `infra/alert-consistency-test.sh` (part of `cd infra && make check`) fails if
+  either is lost:
+
+  - **One instance per deployment.** `./deploy.sh --staging` uploads the same
+    `.env.production` to the staging VM, so both VMs remote-write these gauges
+    into this tenant with `APP_ENV=production`; a global `max()` would report
+    only the newest backup anywhere and a healthy staging pipeline would hold
+    the rule Normal while production dumps rot. The rule therefore uses
+    `max by (deployment)`, where `deployment` comes from `DEPLOYMENT_NAME` —
+    written into the VM's `.env` by `deploy.sh` from the deploy target and
+    stamped on the target by `infra/alloy/config.alloy`. `instance` cannot serve
+    that purpose: it is the Alloy container id and changes on every recreate.
+    Before that Alloy config reaches a VM the label is empty, i.e. exactly one
+    instance — today's behaviour, not a regression.
+  - **The threshold is the sidecar's own window.** The sidecar publishes
+    `openmentor_db_backup_max_age_seconds` from `BACKUP_MAX_AGE_HOURS` and the
+    rule subtracts it, so changing that variable in `.env.production` moves the
+    alert with it. The `> 0` threshold reads "seconds past the configured
+    window"; there is no duration in the rule to keep in sync.
+
+  The "Postgres Backups" panels still aggregate globally. That is fine for a
+  chart (it is a reading, not a page) and dashboards are Git-Synced, so
+  changing them changes live Grafana — do it deliberately, not as a side effect.
 - **PostgresDown** watches `pg_up`, shipped continuously by the Database
   Observability pipeline (live since 2026-07-18; setup in
   `docs/runbooks/database-observability.md`). `NoData=Alerting`, so the

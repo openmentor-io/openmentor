@@ -196,6 +196,8 @@ JWT_SECRET
 
 [alloy]
 APP_ENV
+# Per-deployment label on the backup freshness gauges (production vs staging)
+DEPLOYMENT_NAME
 LOG_LEVEL
 PORT
 WORKER_PORT

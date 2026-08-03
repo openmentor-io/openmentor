@@ -10,6 +10,11 @@
 #      allowed to hold them  (so widening the allowlist file alone cannot
 #      quietly hand DATABASE_URL to the internet-facing frontend)
 #
+# The compose file is parsed for the keys it DECLARES first, and every bare
+# `- KEY` entry is seeded before rendering: compose drops a value-less entry it
+# cannot resolve, which would hide a key that exists only in the production
+# environment from both checks above. See declared_keys().
+#
 # Only KEY NAMES are ever read or printed. Values are never touched, so this is
 # safe to run in CI on a production-shaped .env.
 #
@@ -76,17 +81,82 @@ command -v docker >/dev/null || { echo "error: docker is required" >&2; exit 1; 
 TMPDIR_CHECK=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_CHECK"' EXIT
 if [ -f .env ]; then
-    ENV_FILE=.env
+    SOURCE_ENV=.env
 else
-    ENV_FILE="$TMPDIR_CHECK/env"
-    cp .env.example "$ENV_FILE"
+    SOURCE_ENV=.env.example
 fi
 
-# Render, then immediately reduce to key names only - the intermediate JSON
-# holds real values, so it never leaves this pipeline.
+# Every environment entry the given compose files DECLARE, as
+# "<service> <KEY> bare|valued". Read from the YAML on purpose: a bare `- KEY`
+# entry (inherit from the deploy environment) is DROPPED from the rendered
+# service when the key has no value at render time - compose v2 removes it,
+# v5 renders it null. CI interpolates from .env.example, so a `- NEW_SECRET`
+# that only exists in the production .env would vanish before check() sees it
+# and BOTH layers would pass a service that really does receive it.
+# Unrecognised entries are a hard error rather than a silent omission.
+declared_keys() {
+    awk '
+        function ind(s) { match(s, /^ */); return RLENGTH }
+        /^services:[[:space:]]*$/                 { in_svcs = 1; in_env = 0; next }
+        /^[^[:space:]#]/                          { in_svcs = 0; in_env = 0; next }
+        !in_svcs                                  { next }
+        /^[[:space:]]*#/                          { next }
+        /^[[:space:]]*$/                          { next }
+        in_env && ind($0) <= env_ind              { in_env = 0 }
+        /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ {
+            svc = substr($0, 3); sub(/:.*/, "", svc); in_env = 0; next
+        }
+        !in_env && /^[[:space:]]+environment:[[:space:]]*$/ {
+            in_env = 1; env_ind = ind($0); next
+        }
+        !in_env                                   { next }
+        /^[[:space:]]*-[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]*|[[:space:]]+#.*)$/ {
+            print svc, $2, "bare"; next
+        }
+        /^[[:space:]]*-[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=/ {
+            key = $2; sub(/=.*/, "", key); print svc, key, "valued"; next
+        }
+        {
+            printf "%s:%d: unrecognised environment entry: %s\n", FILENAME, FNR, $0 > "/dev/stderr"
+            bad = 1
+        }
+        END { if (bad) exit 1 }
+    ' "$@" | sort -u
+}
+
+# Render with every declared bare key seeded, so no entry can render away.
+# Seeds are appended, never substituted: keys the env file already defines keep
+# their real value, and the placeholder is not a credential.
+seed_env_file() {
+    local declared="$1" out="$2" key
+    cp "$SOURCE_ENV" "$out"
+    # $SOURCE_ENV may be the real .env; this copy is short-lived but is still a
+    # full set of production values on disk.
+    chmod 600 "$out"
+    while read -r key; do
+        grep -q "^${key}=" "$out" || printf '%s=seeded-for-key-check\n' "$key" >> "$out"
+    done < <(awk '$3 == "bare" { print $2 }' "$declared" | sort -u)
+}
+
+# render_keys <env-file> [extra compose args] - render, then immediately reduce
+# to key names only: the intermediate JSON holds real values, so it never
+# leaves this pipeline.
 render_keys() {
-    docker compose --env-file "$ENV_FILE" "$@" -f "$COMPOSE_FILE" config --format json 2>/dev/null |
+    local env_file="$1"; shift
+    docker compose --env-file "$env_file" "$@" -f "$COMPOSE_FILE" config --format json 2>/dev/null |
         jq -r '.services | to_entries[] | .key as $s | (.value.environment // {} | keys[]?) | "\($s) \(.)"'
+}
+
+# Nothing the compose file declares may be missing from the render: that is the
+# hole the seeding closes, so assert it instead of trusting it.
+assert_nothing_dropped() {
+    local declared="$1" rendered="$2" missing
+    missing=$(comm -23 <(cut -d' ' -f1,2 "$declared" | sort -u) <(sort -u "$rendered"))
+    [ -n "$missing" ] || return 0
+    echo "error: compose dropped environment entries that $COMPOSE_FILE declares," >&2
+    echo "       so they would escape the allowlist and secret-owner checks:" >&2
+    printf '  %s\n' "$missing" >&2
+    exit 1
 }
 
 section_keys() {
@@ -137,12 +207,24 @@ check() {
     return "$failures"
 }
 
+DECLARED="$TMPDIR_CHECK/declared"
+declared_keys "$COMPOSE_FILE" > "$DECLARED" || {
+    echo "error: cannot enumerate the environment entries in $COMPOSE_FILE (see above)." >&2
+    echo "       The seeding below depends on it, so refusing to report a pass." >&2
+    exit 1
+}
+RENDER_ENV="$TMPDIR_CHECK/env"
+seed_env_file "$DECLARED" "$RENDER_ENV"
+
 KEYS="$TMPDIR_CHECK/keys"
-render_keys > "$KEYS"
+render_keys "$RENDER_ENV" > "$KEYS"
+assert_nothing_dropped "$DECLARED" "$KEYS"
 
 if [ "${1:-}" = "--self-test" ]; then
-    # Prove both layers fire. Layer 1: a key absent from the allowlist.
-    # Layer 2: a key present in the allowlist but owned by another service.
+    # Prove both layers fire, and that neither can be evaded by declaring the
+    # key WITHOUT a value - the form the production-only secret would take.
+    # Layer 1: a key absent from the allowlist. Layer 2: a key present in the
+    # allowlist but owned by another service.
     OVERRIDE="$TMPDIR_CHECK/override.yml"
     cat > "$OVERRIDE" <<'YAML'
 services:
@@ -150,10 +232,24 @@ services:
     environment:
       - TOTALLY_NEW_KEY=x
       - DATABASE_URL=x
+      - BARE_KEY_ONLY_SET_IN_PRODUCTION
 YAML
+    BAD_DECLARED="$TMPDIR_CHECK/bad-declared"
+    declared_keys "$COMPOSE_FILE" "$OVERRIDE" > "$BAD_DECLARED"
+    grep -qx 'frontend BARE_KEY_ONLY_SET_IN_PRODUCTION bare' "$BAD_DECLARED" || {
+        echo "SELF-TEST FAILED: declared_keys did not see the bare entry, so it"
+        echo "                  would never be seeded and could render away"
+        exit 1; }
+    BAD_ENV="$TMPDIR_CHECK/bad-env"
+    seed_env_file "$BAD_DECLARED" "$BAD_ENV"
+    grep -qx 'BARE_KEY_ONLY_SET_IN_PRODUCTION=seeded-for-key-check' "$BAD_ENV" || {
+        echo "SELF-TEST FAILED: the bare key was not seeded into the render env"
+        exit 1; }
+
     BAD="$TMPDIR_CHECK/bad-keys"
-    render_keys -f "$OVERRIDE" > "$BAD"
-    echo "--- self-test: injecting TOTALLY_NEW_KEY + DATABASE_URL into frontend ---"
+    render_keys "$BAD_ENV" -f "$OVERRIDE" > "$BAD"
+    echo "--- self-test: injecting TOTALLY_NEW_KEY, DATABASE_URL and a bare"
+    echo "    BARE_KEY_ONLY_SET_IN_PRODUCTION into frontend ---"
     if out=$(check "$BAD"); then
         echo "SELF-TEST FAILED: the check passed on a stack it should reject"
         exit 1
@@ -163,7 +259,11 @@ YAML
         echo "SELF-TEST FAILED: allowlist layer did not fire"; exit 1; }
     echo "$out" | grep -q "frontend: 'DATABASE_URL' must not reach" || {
         echo "SELF-TEST FAILED: secret-owner layer did not fire"; exit 1; }
-    echo "--- self-test OK: both layers rejected the injected keys ---"
+    echo "$out" | grep -q "frontend: 'BARE_KEY_ONLY_SET_IN_PRODUCTION' is in" || {
+        echo "SELF-TEST FAILED: a value-less entry rendered away, which is how a"
+        echo "                  production-only secret slips past both layers"
+        exit 1; }
+    echo "--- self-test OK: both layers rejected the injected keys, valued and bare ---"
     echo
 fi
 

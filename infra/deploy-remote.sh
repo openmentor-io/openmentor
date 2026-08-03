@@ -64,8 +64,37 @@ echo "  • Backend image tag: $BACKEND_IMAGE_TAG"
 # docker-compose.yml (enforced by check-service-env.sh) and .env alone drives
 # compose interpolation. Image tags still never reach container env, so a
 # tag-only deploy still recreates only the retagged service.
-# Delete any copy left behind by a pre-P10 deploy.
-rm -f .env.runtime
+#
+# The block below is byte-identical to the one in rollback.sh and is extracted
+# from both by deploy-transition-test.sh; keep them in sync.
+# --- P10 .env.runtime transition (mirrored in deploy-remote.sh + rollback.sh) --
+# NOTE: rollback.sh embeds this block in an UNQUOTED here-document, so it must
+# stay free of backticks and shell variables. deploy-transition-test.sh checks.
+#
+# Whether .env.runtime may be deleted depends on the compose file THIS VM has,
+# not on the one in the checkout being deployed: the pre-P10 file gives six
+# services an "env_file: .env.runtime" entry, compose defaults
+# env_file.required to true, and a default "./deploy.sh" (frontend backend)
+# does not sync infra/. Deleting it first would therefore abort the pull/up
+# halfway on a VM that is still one deploy behind. Regenerate it while it is
+# still referenced; it is removed by the first deploy that carries the new
+# compose file.
+sync_env_runtime() {
+    if grep -qE '^[[:space:]]*(- |env_file:[[:space:]]*)\.env\.runtime' docker-compose.yml; then
+        # .env minus the image-tag lines, so a tag-only deploy still changes
+        # only the retagged service's compose config.
+        grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime
+        chmod 600 .env.runtime
+        echo "⚠️  This VM still runs the pre-P10 docker-compose.yml (env_file: .env.runtime)."
+        echo "   Regenerated it so this deploy converges. Finish the upgrade with"
+        echo "   './deploy.sh infra' (or 'all') to ship the per-service allowlists;"
+        echo "   that deploy is the one that deletes the shared secret file."
+    else
+        rm -f .env.runtime
+    fi
+}
+sync_env_runtime
+# --- end P10 .env.runtime transition ----------------------------------------
 
 # Ensure the Postgres data volume exists (idempotent). It is declared
 # `external` in docker-compose.yml so `docker compose down -v` can never
@@ -185,6 +214,8 @@ if [ $HEALTH_CHECK_FAILED -eq 1 ]; then
     # before it touched .env)
     if [ -f .env.backup ]; then
         cp .env.backup .env
+        # Re-derive the legacy file from the restored .env on a not-yet-upgraded VM
+        sync_env_runtime
         echo "Restored previous .env file"
     else
         echo "❌ No backup .env file found, cannot rollback!"

@@ -34,6 +34,10 @@
 # window before the healthcheck and the alert fire, WITHOUT pretending a backup
 # succeeded: .last_success (and its gauge) stay absent/0 until one really does.
 #
+# BACKUP_MAX_AGE_HOURS itself is published as openmentor_db_backup_max_age_seconds
+# so the staleness alert compares against the window this container actually
+# enforces rather than a copy of it (grafana/alerting/alert-rules.yaml).
+#
 # Usage: backup.sh [daemon|once|healthcheck]
 #   daemon       loop forever, one backup per day at BACKUP_TIME (default)
 #   once         run a single backup immediately and exit (manual/drill runs:
@@ -124,6 +128,13 @@ write_metrics() {
         echo "# HELP openmentor_db_backup_first_start_timestamp_seconds Unix time the backup daemon first ran against this volume, never rewritten. Start of the one grace window allowed before a never-successful pipeline is alerted on. 0 = the daemon has never started."
         echo "# TYPE openmentor_db_backup_first_start_timestamp_seconds gauge"
         echo "openmentor_db_backup_first_start_timestamp_seconds $(marker_epoch "$FIRST_START_MARKER")"
+        # The window this container enforces, so the DatabaseBackupStale alert can
+        # compare against it instead of hardcoding one: raising
+        # BACKUP_MAX_AGE_HOURS in .env.production would otherwise leave the alert
+        # paging at the old threshold (and lowering it would page late).
+        echo "# HELP openmentor_db_backup_max_age_seconds Configured freshness window (BACKUP_MAX_AGE_HOURS) the healthcheck and the staleness alert enforce."
+        echo "# TYPE openmentor_db_backup_max_age_seconds gauge"
+        echo "openmentor_db_backup_max_age_seconds $(( BACKUP_MAX_AGE_HOURS * 3600 ))"
     } > "${METRICS_FILE}.tmp" 2>/dev/null; then
         mv "${METRICS_FILE}.tmp" "$METRICS_FILE" 2>/dev/null ||
             log "WARNING: cannot replace ${METRICS_FILE} - the backup gauges will go stale."

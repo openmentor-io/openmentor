@@ -14,7 +14,7 @@ name: Checks
 #
 #   web changed   -> lint + type check + tests
 #   api changed   -> golangci-lint + tests
-#   infra changed -> compose renders + per-service env allowlist + backup tests
+#   infra changed -> compose renders + per-service env allowlist + infra tests
 #   none of them  -> passes trivially
 #
 # ci-web.yml / ci-api.yml keep only what this cannot cheaply do: the production
@@ -63,6 +63,9 @@ jobs:
               - '.github/workflows/checks.yml'
             infra:
               - 'infra/**'
+              # `make check` also asserts the backup alert stays consistent with
+              # the Alloy labels and the sidecar gauges (alert-consistency-test.sh)
+              - 'grafana/alerting/**'
               - '.github/workflows/checks.yml'
 
       # --- Web quick gates -------------------------------------------------

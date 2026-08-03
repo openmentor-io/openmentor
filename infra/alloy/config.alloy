@@ -115,6 +115,19 @@ discovery.relabel "backup_metrics" {
     target_label = "namespace"
     replacement  = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io")
   }
+
+  // Backup freshness has to be evaluated PER DEPLOYMENT, and none of the labels
+  // above can carry that: `./deploy.sh --staging` uploads the same
+  // .env.production, so a staging VM remote-writes to this same Grafana Cloud
+  // tenant with APP_ENV=production too, and `instance` is the alloy container id
+  // (Docker's default HOSTNAME), which changes on every recreate. Without a
+  // stable per-VM label a global max() over these gauges lets one fresh staging
+  // backup hold DatabaseBackupStale Normal while production dumps rot.
+  // deploy.sh writes DEPLOYMENT_NAME into the VM's .env from the deploy target.
+  rule {
+    target_label = "deployment"
+    replacement  = coalesce(sys.env("DEPLOYMENT_NAME"), "production")
+  }
 }
 
 prometheus.scrape "backup_metrics" {

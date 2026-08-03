@@ -125,6 +125,30 @@ Notes:
   in the external `openmentor-postgres-data` volume. Minor/patch versions
   only — major upgrades follow `../docs/runbooks/postgres-backup-restore.md`.
 
+### First deploy after the per-service env allowlists (P10)
+
+Recommended order: **`./deploy.sh infra` (or `all`) first**, then normal
+app-only deploys.
+
+The per-service `environment:` allowlists replaced `env_file: .env.runtime`.
+That change lives in `docker-compose.yml`, which only the `infra` target
+syncs, while `deploy-remote.sh` is always piped from the local checkout — so
+on a default `./deploy.sh` the VM would run the *old* compose file against the
+*new* remote script. Compose treats `env_file` as required, so a VM without
+`.env.runtime` cannot even be inspected:
+
+```
+env file /opt/openmentor/infra/.env.runtime not found
+```
+
+`deploy-remote.sh` and `rollback.sh` therefore decide from the compose file
+**on the VM**: while it still declares `env_file: .env.runtime` they
+regenerate that file (mode 600, image-tag lines stripped) and print the
+upgrade order; the first deploy that carries the new compose file is the one
+that deletes it. An app-only deploy is safe either way — it just leaves the
+shared secret file in place until `infra` is synced. Covered by
+`make deploy-tests`.
+
 ## Rollback
 
 ```bash

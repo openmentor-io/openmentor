@@ -174,6 +174,9 @@ if [ ! -f "$ENV_FILE" ]; then
     cp "$SCRIPT_DIR/.env.example" "$ENV_FILE"
     env_set "DOMAIN" "localhost"
     env_set "APP_ENV" "development"
+    # Keeps a dev stack's metrics out of the production deployment's alert
+    # instances if it is ever pointed at the shared Grafana Cloud tenant
+    env_set "DEPLOYMENT_NAME" "local"
     env_set "LOG_LEVEL" "debug"
     env_set "NEXT_PUBLIC_APP_ENV" "development"
     env_set "JWT_SECRET" "$(openssl rand -hex 32)"

@@ -508,6 +508,9 @@ services:
     # JWT_SECRET, WORKER_AUTH_TOKEN, SES/S3/backup keys or the Cloudflare token.
     environment:
       - APP_ENV=${APP_ENV:-production}
+      # Stable per-VM label on the backup gauges; deploy.sh writes it from the
+      # deploy target because production and --staging share .env.production
+      - DEPLOYMENT_NAME=${DEPLOYMENT_NAME:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PORT=8081
       - WORKER_PORT=8090

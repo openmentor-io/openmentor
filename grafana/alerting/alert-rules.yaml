@@ -349,27 +349,44 @@ groups:
         condition: B
         for: 10m
         # NoData=Alerting, unlike most rules in this file: the postgres-backup
-        # sidecar publishes this gauge continuously via Alloy's textfile
+        # sidecar publishes these gauges continuously via Alloy's textfile
         # collector, so a missing series means the sidecar, the metrics volume
         # or Alloy is gone — which is precisely the silent-failure mode this
-        # rule exists to catch.
+        # rule exists to catch. It also covers a sidecar too old to publish
+        # openmentor_db_backup_max_age_seconds: the query then yields nothing and
+        # pages, rather than silently never firing.
         noDataState: Alerting
         execErrState: Error
         labels: { severity: critical, team: openmentor }
         annotations:
-          summary: "No successful Postgres backup in over 26 hours"
-          description: "No successful nightly pg_dump for {{ printf \"%.1f\" (divf $values.A.Value 3600) }} hours (threshold 26h, dumps run daily at BACKUP_TIME). The documented RPO of 24h is no longer met. If the sidecar has never produced one, the age counts from its first start instead. Check `docker logs openmentor-postgres-backup` for a FAILURE line and follow docs/runbooks/postgres-backup-restore.md."
+          summary: "Postgres backups on {{ $labels.deployment }} are past their configured freshness window"
+          description: "Deployment {{ $labels.deployment }}: the newest successful nightly pg_dump is {{ printf \"%.1f\" (divf $values.A.Value 3600) }} hours PAST the window the sidecar enforces (BACKUP_MAX_AGE_HOURS, published as openmentor_db_backup_max_age_seconds; dumps run daily at BACKUP_TIME). The documented RPO of 24h is no longer met. If the sidecar has never produced a dump, the age counts from its first start instead. Check `docker logs openmentor-postgres-backup` for a FAILURE line and follow docs/runbooks/postgres-backup-restore.md."
         data:
+          # One alert instance per deployment, and the threshold is the sidecar's
+          # own configured window rather than a copy of it:
+          #
+          #   • `max by (deployment)`, not a global `max()`. `./deploy.sh
+          #     --staging` uploads the same .env.production, so a staging VM
+          #     remote-writes these gauges to this same tenant; a global max()
+          #     would let one fresh staging backup hold this rule Normal while
+          #     production dumps rot. Alloy stamps `deployment` from
+          #     DEPLOYMENT_NAME (infra/alloy/config.alloy); before that config
+          #     reaches a VM the label is empty, which is one instance — today's
+          #     behaviour. `instance` would not do: it is the alloy container id.
+          #   • subtracting openmentor_db_backup_max_age_seconds instead of
+          #     comparing against a literal, so changing BACKUP_MAX_AGE_HOURS in
+          #     .env.production moves the alert with it. Result is "seconds past
+          #     the window", hence the `> 0` threshold below.
+          #   • `a or b` unions two differently-named gauges (no label set can
+          #     match), so max() is the NEWEST of: the last success, and the
+          #     sidecar's first start on this volume. A fresh volume therefore
+          #     gets one grace window without .last_success ever claiming a dump
+          #     that never ran — it stays 0, which the `> 0` filter drops.
           - refId: A
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: grafanacloud-prom
             model:
-              # `a or b` unions two differently-named gauges (no label set can
-              # match), so max() is the NEWEST of: the last success, and the
-              # sidecar's first start on this volume. A fresh volume therefore
-              # gets one 26h grace window without .last_success ever claiming a
-              # dump that never ran — it stays 0, which the `> 0` filter drops.
-              expr: 'time() - max(openmentor_db_backup_last_success_timestamp_seconds > 0 or openmentor_db_backup_first_start_timestamp_seconds)'
+              expr: '(time() - max by (deployment) (openmentor_db_backup_last_success_timestamp_seconds > 0 or openmentor_db_backup_first_start_timestamp_seconds)) - max by (deployment) (openmentor_db_backup_max_age_seconds)'
               instant: true
               refId: A
           - refId: B
@@ -378,4 +395,4 @@ groups:
               type: threshold
               expression: A
               refId: B
-              conditions: [{ evaluator: { type: gt, params: [93600] } }]
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
