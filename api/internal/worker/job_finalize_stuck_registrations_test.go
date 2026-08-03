@@ -46,6 +46,45 @@ func TestFinalizeStuckRegistrationsConvergesDroppedTrigger(t *testing.T) {
 	}
 }
 
+// TestFinalizeStuckRegistrationsRetriesFailedConfirmationEmail: a send that
+// fails (SES throttle, transient network) must not consume the replay — the
+// mentor leaves the replay set only once they have actually been emailed.
+func TestFinalizeStuckRegistrationsRetriesFailedConfirmationEmail(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentors["m1"] = testMentor("m1")
+	env.repo.stuckDraftMentors = []JobMentor{{ID: "m1", Name: "John Doe", Email: "john@example.com"}}
+	env.sender.failTemplates["mentor-confirm-email"] = true
+
+	summary, err := env.handlers.FinalizeStuckRegistrations(context.Background())
+	if err != nil {
+		t.Fatalf("FinalizeStuckRegistrations returned error: %v", err)
+	}
+	if summary.MentorsFinalized != 0 || summary.EmailFailures != 1 {
+		t.Errorf("summary = %+v, want 0 finalized / 1 email failure", summary)
+	}
+	if len(env.repo.finalized) != 0 {
+		t.Fatalf("finalized %d rows, want 0: sort_order and the token must stay NULL so the row is picked up again",
+			len(env.repo.finalized))
+	}
+
+	// Next pass, SES healthy: the same row converges.
+	delete(env.sender.failTemplates, "mentor-confirm-email")
+
+	summary, err = env.handlers.FinalizeStuckRegistrations(context.Background())
+	if err != nil {
+		t.Fatalf("FinalizeStuckRegistrations returned error: %v", err)
+	}
+	if summary.MentorsFinalized != 1 || summary.EmailsSent != 1 {
+		t.Errorf("summary = %+v, want 1 finalized / 1 sent on the retry", summary)
+	}
+	if len(env.repo.finalized) != 1 {
+		t.Fatalf("finalized %d rows, want 1", len(env.repo.finalized))
+	}
+	if token := env.repo.finalized[0].EmailConfirmationToken; token == nil || *token == "" {
+		t.Error("the retry must issue a confirmation token")
+	}
+}
+
 func TestFinalizeStuckRegistrationsIsolatesFailures(t *testing.T) {
 	env := newJobsTestEnv()
 	env.repo.mentors["m2"] = testMentor("m2")

@@ -166,21 +166,13 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		confirmExpiresAt = &expiresAt
 	}
 
-	if err := h.repo.FinalizeNewMentor(ctx, FinalizeNewMentorParams{
-		MentorID:                   mentor.ID,
-		Name:                       mentor.Name,
-		PreferredContact:           mentor.PreferredContact,
-		Slug:                       mentor.Slug,
-		Status:                     res.Status,
-		SortOrder:                  rand.IntN(1000), //nolint:gosec // G404: cosmetic catalog shuffle, not a security decision
-		EmailConfirmationToken:     confirmToken,
-		EmailConfirmationExpiresAt: confirmExpiresAt,
-	}); err != nil {
-		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), zap.Error(err))
-		res.ErrorType, res.Message = "db_error", "failed to update mentor"
-		return res, err
-	}
-
+	// The email goes out BEFORE the row is written, and the order is the whole
+	// retry story: the finalization UPDATE is what takes a registration out of
+	// finalize-stuck-registrations' replay set, so committing it first and then
+	// failing to send left a mentor holding a token they were never told about,
+	// which no job would ever look at again. Failing here instead leaves the row
+	// untouched, and the next cron pass replays it with a fresh token.
+	//
 	// A fresh registration only gets the email confirmation request; the
 	// "application received" mentor email and the moderator notification
 	// move to the mentor-confirmed job (after the mentor clicks the link).
@@ -204,6 +196,21 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 	if sendErr != nil {
 		res.ErrorType, res.Message = "email_send_failed", "failed to send emails"
 		return res, sendErr
+	}
+
+	if err := h.repo.FinalizeNewMentor(ctx, FinalizeNewMentorParams{
+		MentorID:                   mentor.ID,
+		Name:                       mentor.Name,
+		PreferredContact:           mentor.PreferredContact,
+		Slug:                       mentor.Slug,
+		Status:                     res.Status,
+		SortOrder:                  rand.IntN(1000), //nolint:gosec // G404: cosmetic catalog shuffle, not a security decision
+		EmailConfirmationToken:     confirmToken,
+		EmailConfirmationExpiresAt: confirmExpiresAt,
+	}); err != nil {
+		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), zap.Error(err))
+		res.ErrorType, res.Message = "db_error", "failed to update mentor"
+		return res, err
 	}
 
 	return res, nil

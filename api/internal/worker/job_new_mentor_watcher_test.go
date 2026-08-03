@@ -124,17 +124,19 @@ func TestNewMentorWatcherMissingRecord(t *testing.T) {
 	}
 }
 
-func TestNewMentorWatcherEmailFailureResilience(t *testing.T) {
+func TestNewMentorWatcherEmailFailureLeavesRowReplayable(t *testing.T) {
 	env := newJobsTestEnv()
 	env.repo.mentors["m1"] = testMentor("m1")
 	env.sender.failTemplates["mentor-confirm-email"] = true
 
 	w := env.do(http.MethodPost, "/jobs/new-mentor-watcher?mentorId=m1", nil)
 
-	// A failed send reports an error, but the DB write stays.
+	// A failed send must leave the row untouched. Committing the finalization
+	// takes the mentor out of finalize-stuck-registrations' replay set, so a row
+	// written here would hold a confirmation token nobody ever received.
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	assert.Equal(t, []string{"mentor-confirm-email"}, env.sender.templates())
-	assert.Len(t, env.repo.finalized, 1)
+	assert.Empty(t, env.repo.finalized)
 
 	event := env.tracker.last()
 	require.NotNil(t, event)

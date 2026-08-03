@@ -477,13 +477,14 @@ func (r *Repository) ListMentorsToDeactivate(ctx context.Context) ([]JobMentor, 
 }
 
 // ListStuckDraftRegistrations returns registrations whose new-mentor-watcher
-// finalization never ran: still 'draft', still carrying the INSERT's NULL
-// sort_order, no confirmation token ever issued, and past the grace window.
-// The API dispatches that finalization through a bare goroutine
-// (pkg/trigger.CallAsync) with no persistence and no retry, so a single lost
-// HTTP call leaves exactly this row shape — a mentor with no confirmation
-// email and no way in, whom no other job touches (randomize-sort-order only
-// selects status='active').
+// finalization never completed: still 'draft', still carrying the INSERT's NULL
+// sort_order, no confirmation token issued, and past the grace window. The API
+// dispatches that finalization through a bare goroutine (pkg/trigger.CallAsync)
+// with no persistence and no retry, so a lost HTTP call — or a confirmation
+// email that failed to send, since finalizeNewMentor commits nothing until it
+// has gone out — leaves exactly this row shape: a mentor with no link and no way
+// in, whom no other job touches (randomize-sort-order only selects
+// status='active').
 //
 // activated_at IS NULL keeps a formerly-live profile out of the replay:
 // finalization can DECLINE a duplicate email, which must never happen to a
