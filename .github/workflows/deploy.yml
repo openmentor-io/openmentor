@@ -21,7 +21,7 @@ on:
           - backend
         default: 'both'
       image_tag:
-        description: 'Image tag (leave empty for commit SHA)'
+        description: 'Image tag, Docker charset only (leave empty for commit SHA)'
         required: false
         type: string
 
@@ -42,10 +42,62 @@ env:
   DOMAIN: ${{ secrets.DOMAIN }}
 
 jobs:
+  # Preflight: everything checkable without touching production, so a
+  # misconfigured deploy dies before the first credential, push or VM change.
+  # The vetted tag reaches every other job through this job's output.
+  validate-inputs:
+    name: Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.TAG }}
+    steps:
+      # SECURITY (L6/P5): image_tag is free text and reaches three shells (this
+      # runner, the VM via ssh, and a `sed s|^KEY=.*|KEY=$TAG|` in the VM's
+      # .env), so it arrives via env and must match Docker's tag grammar, which
+      # admits no shell metacharacter and no `|`.
+      - name: Resolve and validate image tag
+        id: tag
+        env:
+          IMAGE_TAG_INPUT: ${{ github.event.inputs.image_tag }}
+        run: |
+          TAG="${IMAGE_TAG_INPUT:-$GITHUB_SHA}"
+          if [[ ! "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo '::error::Rejected image_tag: must match ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ (Docker tag charset).'
+            exit 1
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Image tag: $TAG"
+
+      # A deploy converges production step by step, so a secret needed only by
+      # the LAST step (DOMAIN, for the public probe) still has to be checked
+      # here — otherwise the VM is already changed when it turns out to be
+      # missing. Names only: never echo a secret value.
+      - name: Check required secrets
+        env:
+          # DOMAIN comes from the workflow-level env block above.
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_CI_ROLE_ARN: ${{ secrets.AWS_CI_ROLE_ARN }}
+          VM_SSH_HOST: ${{ secrets.VM_SSH_HOST }}
+          VM_SSH_USER: ${{ secrets.VM_SSH_USER }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        run: |
+          missing=()
+          for name in DOMAIN ECR_REGISTRY AWS_REGION AWS_CI_ROLE_ARN \
+                      VM_SSH_HOST VM_SSH_USER VM_SSH_KEY; do
+            if [ -z "${!name}" ]; then missing+=("$name"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required repository secrets: ${missing[*]}. Nothing has been deployed."
+            exit 1
+          fi
+          echo "All required secrets are set."
+
   # Build and push frontend
   build-frontend:
     name: Build & Push Frontend
     runs-on: ubuntu-latest
+    needs: [validate-inputs]
     if: github.event.inputs.service == 'frontend' || github.event.inputs.service == 'both'
     steps:
       - name: Checkout code
@@ -63,21 +115,6 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set image tags
-        id: tags
-        # SECURITY (L6): pass the workflow_dispatch input through env, never
-        # interpolate it directly into the shell (script-injection vector).
-        env:
-          IMAGE_TAG_INPUT: ${{ github.event.inputs.image_tag }}
-        run: |
-          if [ -n "$IMAGE_TAG_INPUT" ]; then
-            TAG="$IMAGE_TAG_INPUT"
-          else
-            TAG="${{ github.sha }}"
-          fi
-          echo "TAG=$TAG" >> $GITHUB_OUTPUT
-          echo "Image tag: $TAG"
-
       - name: Build and push frontend image
         uses: docker/build-push-action@v5
         with:
@@ -86,7 +123,7 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tags.outputs.TAG }}
+            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ needs.validate-inputs.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
@@ -97,14 +134,17 @@ jobs:
             NEXT_PUBLIC_CDN_ENDPOINT=${{ secrets.NEXT_PUBLIC_CDN_ENDPOINT }}
 
       - name: Image build summary
+        env:
+          TAG: ${{ needs.validate-inputs.outputs.tag }}
         run: |
           echo "✅ Frontend image built and pushed successfully!"
-          echo "Image: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tags.outputs.TAG }}"
+          echo "Image: $REGISTRY/$FRONTEND_IMAGE:$TAG"
 
   # Build and push backend
   build-backend:
     name: Build & Push Backend
     runs-on: ubuntu-latest
+    needs: [validate-inputs]
     if: github.event.inputs.service == 'backend' || github.event.inputs.service == 'both'
     steps:
       - name: Checkout code
@@ -122,21 +162,6 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set image tags
-        id: tags
-        # SECURITY (L6): pass the workflow_dispatch input through env, never
-        # interpolate it directly into the shell (script-injection vector).
-        env:
-          IMAGE_TAG_INPUT: ${{ github.event.inputs.image_tag }}
-        run: |
-          if [ -n "$IMAGE_TAG_INPUT" ]; then
-            TAG="$IMAGE_TAG_INPUT"
-          else
-            TAG="${{ github.sha }}"
-          fi
-          echo "TAG=$TAG" >> $GITHUB_OUTPUT
-          echo "Image tag: $TAG"
-
       - name: Build and push backend image
         uses: docker/build-push-action@v5
         with:
@@ -145,42 +170,46 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.tags.outputs.TAG }}
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ needs.validate-inputs.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Image build summary
+        env:
+          TAG: ${{ needs.validate-inputs.outputs.tag }}
         run: |
           echo "✅ Backend image built and pushed successfully!"
-          echo "Image: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.tags.outputs.TAG }}"
+          echo "Image: $REGISTRY/$BACKEND_IMAGE:$TAG"
 
   # Deploy to production VM
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [build-frontend, build-backend]
-    if: always() && (needs.build-frontend.result == 'success' || needs.build-backend.result == 'success')
+    needs: [validate-inputs, build-frontend, build-backend]
+    # A single-service deploy leaves the OTHER build 'skipped', so success()
+    # can't be used here. Requiring "at least one success AND neither failed"
+    # is what keeps a failed build's never-pushed tag out of the VM's .env,
+    # where the next deploy's `cp .env .env.backup` would make it the rollback
+    # target.
+    if: >-
+      !cancelled()
+      && needs.validate-inputs.result == 'success'
+      && needs.build-frontend.result != 'failure'
+      && needs.build-backend.result != 'failure'
+      && (needs.build-frontend.result == 'success' || needs.build-backend.result == 'success')
     environment:
       name: production
       url: https://${{ env.DOMAIN }}
+    # SECURITY (L6/P5): every value a `run:` shell needs comes from env, so no
+    # ${{ }} is ever interpolated into a shell word in this job.
+    env:
+      SERVICE: ${{ github.event.inputs.service }}
+      TAG: ${{ needs.validate-inputs.outputs.tag }}
+      VM_SSH_USER: ${{ secrets.VM_SSH_USER }}
+      VM_SSH_HOST: ${{ secrets.VM_SSH_HOST }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set image tag
-        id: tag
-        # SECURITY (L6): pass the workflow_dispatch input through env, never
-        # interpolate it directly into the shell (script-injection vector).
-        env:
-          IMAGE_TAG_INPUT: ${{ github.event.inputs.image_tag }}
-        run: |
-          if [ -n "$IMAGE_TAG_INPUT" ]; then
-            TAG="$IMAGE_TAG_INPUT"
-          else
-            TAG="${{ github.sha }}"
-          fi
-          echo "TAG=$TAG" >> $GITHUB_OUTPUT
-          echo "Deploying with tag: $TAG"
 
       # The VM used to `git pull` a separate infrastructure repo in
       # /opt/openmentor/infra. In the monorepo the compose files live in
@@ -194,20 +223,23 @@ jobs:
       # built on the VM from postgres-backup/ (rebuild).
       - name: Sync infra/ to VM
         id: sync
+        env:
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_SSH_HOST_KEY: ${{ secrets.VM_SSH_HOST_KEY }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           # SECURITY (H2): prefer a pinned host key over trust-on-first-use.
           # Set the VM_SSH_HOST_KEY secret to the VM's public host key
           # (`ssh-keyscan -H <host>` output, run once from a trusted network)
           # so an ephemeral runner can't be MITM'd on first contact. Falls back
           # to keyscan with a warning until the secret is populated.
-          if [ -n "${{ secrets.VM_SSH_HOST_KEY }}" ]; then
-            printf '%s\n' "${{ secrets.VM_SSH_HOST_KEY }}" >> ~/.ssh/known_hosts
+          if [ -n "$VM_SSH_HOST_KEY" ]; then
+            printf '%s\n' "$VM_SSH_HOST_KEY" >> ~/.ssh/known_hosts
           else
             echo "::warning::VM_SSH_HOST_KEY not set - falling back to ssh-keyscan (trust-on-first-use). Pin the host key to remove MITM risk."
-            ssh-keyscan -p 22 -H "${{ secrets.VM_SSH_HOST }}" >> ~/.ssh/known_hosts
+            ssh-keyscan -p 22 -H "$VM_SSH_HOST" >> ~/.ssh/known_hosts
           fi
 
           rsync -az --checksum --itemize-changes \
@@ -217,7 +249,7 @@ jobs:
             --exclude 'alloy-secrets/' \
             -e "ssh -i ~/.ssh/deploy_key -p 22" \
             infra/ \
-            "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}:/opt/openmentor/infra/" \
+            "$VM_SSH_USER@$VM_SSH_HOST:/opt/openmentor/infra/" \
             | tee rsync.log
 
           CHANGED_FILES=$(awk '$1 ~ /^[<>]f/ {print $2}' rsync.log)
@@ -225,8 +257,8 @@ jobs:
           REBUILD_BACKUP=0
           if echo "$CHANGED_FILES" | grep -qx 'alloy/config.alloy'; then RESTART_ALLOY=1; fi
           if echo "$CHANGED_FILES" | grep -q '^postgres-backup/'; then REBUILD_BACKUP=1; fi
-          echo "restart_alloy=$RESTART_ALLOY" >> $GITHUB_OUTPUT
-          echo "rebuild_backup=$REBUILD_BACKUP" >> $GITHUB_OUTPUT
+          echo "restart_alloy=$RESTART_ALLOY" >> "$GITHUB_OUTPUT"
+          echo "rebuild_backup=$REBUILD_BACKUP" >> "$GITHUB_OUTPUT"
           echo "Bind-mount changes: restart_alloy=$RESTART_ALLOY rebuild_backup=$REBUILD_BACKUP"
 
       # CI-specific .env preparation: deploy.sh uploads a fresh .env with the
@@ -240,8 +272,8 @@ jobs:
       - name: Set image tags on VM
         run: |
           ssh -i ~/.ssh/deploy_key -p 22 \
-            "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}" \
-            "bash -s" -- "${{ github.event.inputs.service }}" "${{ steps.tag.outputs.TAG }}" <<'TAG_SCRIPT'
+            "$VM_SSH_USER@$VM_SSH_HOST" \
+            "bash -s -- $(printf '%q ' "$SERVICE" "$TAG")" <<'TAG_SCRIPT'
           set -e
           SERVICE="$1"
           TAG="$2"
@@ -278,11 +310,13 @@ jobs:
       # env files, or on the VM's disk, and the VM holds no AWS credentials
       # and needs no aws CLI. Same mechanism as infra/deploy.sh.
       - name: Log the VM into ECR
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
-          aws ecr get-login-password --region "${{ secrets.AWS_REGION }}" \
+          aws ecr get-login-password --region "$AWS_REGION" \
             | ssh -i ~/.ssh/deploy_key -p 22 \
-                "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}" \
-                "docker login --username AWS --password-stdin '${{ env.REGISTRY }}'"
+                "$VM_SSH_USER@$VM_SSH_HOST" \
+                "docker login --username AWS --password-stdin '$REGISTRY'"
 
       # The remote deploy logic (volume, sidecar rebuild, pull, converge,
       # network-attachment guard, alloy restart, health checks, auto-rollback)
@@ -292,75 +326,104 @@ jobs:
       # what the rsync step shipped. The workflow always syncs infra/, hence
       # always --remove-orphans (same as deploy.sh's infra target).
       - name: Deploy on VM
+        env:
+          RESTART_ALLOY: ${{ steps.sync.outputs.restart_alloy }}
+          REBUILD_BACKUP: ${{ steps.sync.outputs.rebuild_backup }}
         run: |
           ssh -i ~/.ssh/deploy_key -p 22 \
-            "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_SSH_HOST }}" \
-            "bash -s -- $(printf '%q ' "--remove-orphans" "${{ steps.sync.outputs.restart_alloy }}" "${{ steps.sync.outputs.rebuild_backup }}")" \
+            "$VM_SSH_USER@$VM_SSH_HOST" \
+            "bash -s -- $(printf '%q ' "--remove-orphans" "$RESTART_ALLOY" "$REBUILD_BACKUP")" \
             < infra/deploy-remote.sh
 
-      - name: Verify deployment
+      # Mandatory and fatal: deploy-remote.sh only probes container loopback, so
+      # a broken cert, router or middleware still looks healthy to it. DOMAIN is
+      # guaranteed non-empty by the preflight job.
+      - name: Verify public endpoint
         run: |
-          echo "⏳ Waiting for services to stabilize..."
-          sleep 30
+          URL="https://$DOMAIN/api/healthcheck"
+          # ~2 min budget: the frontend container has a 40s start_period, and
+          # Traefik needs a moment to pick up the recreated container (longer
+          # if the certificate is being issued or renewed).
+          ATTEMPTS=12
+          DELAY=10
+          HTTP_STATUS=000
+          CURL_EXIT=0
 
-          echo "🔍 Verifying public endpoints..."
-
-          # Check if domain is configured in secrets
-          if [ -n "${{ secrets.DOMAIN }}" ]; then
-            # Check HTTPS health endpoint
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.DOMAIN }}/api/healthcheck || echo "000")
-
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            CURL_EXIT=0
+            # -sS keeps curl's own diagnosis (bad certificate, DNS failure) on
+            # stderr; %{http_code} is 000 when the request never completed.
+            HTTP_STATUS=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$URL") || CURL_EXIT=$?
             if [ "$HTTP_STATUS" = "200" ]; then
-              echo "✅ Health check passed (HTTP $HTTP_STATUS)"
-            else
-              echo "⚠️  Health check returned HTTP $HTTP_STATUS"
-              echo "This might be expected if DNS/SSL is not yet configured"
+              echo "✅ $URL returned HTTP 200 on attempt $attempt"
+              exit 0
             fi
-          else
-            echo "⚠️  DOMAIN secret not set, skipping public health check"
-          fi
+            echo "attempt $attempt/$ATTEMPTS: HTTP $HTTP_STATUS (curl exit $CURL_EXIT)"
+            if [ "$attempt" -lt "$ATTEMPTS" ]; then sleep "$DELAY"; fi
+          done
+
+          echo "::error::$URL never returned HTTP 200 (last: HTTP $HTTP_STATUS, curl exit $CURL_EXIT). The containers passed their loopback health checks, so suspect DNS, the Let's Encrypt certificate, or Traefik routing/middleware. The site is very likely down - roll back."
+          exit 1
 
       - name: Deployment summary
         if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          COMMIT: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
         run: |
-          echo "## Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Image Tag**: ${{ steps.tag.outputs.TAG }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Deployment Summary 🚀"
+            echo ""
+            echo "**Status**: $JOB_STATUS"
+            echo "**Image Tag**: \`$TAG\`"
+            echo "**Commit**: $COMMIT"
+            echo "**Triggered by**: $ACTOR"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "${{ job.status }}" = "success" ]; then
-            echo "✅ Deployment completed successfully!" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Next steps**:" >> $GITHUB_STEP_SUMMARY
-            echo "1. Verify application at https://${{ secrets.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
-            echo "2. Monitor Grafana dashboards for anomalies" >> $GITHUB_STEP_SUMMARY
-            echo "3. Check error logs if needed" >> $GITHUB_STEP_SUMMARY
+          if [ "$JOB_STATUS" = "success" ]; then
+            {
+              echo "✅ Deployment completed successfully - https://$DOMAIN/api/healthcheck returned HTTP 200 through Traefik."
+              echo ""
+              echo "**Next steps**:"
+              echo "1. Verify application at https://$DOMAIN"
+              echo "2. Monitor Grafana dashboards for anomalies"
+              echo "3. Check error logs if needed"
+            } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "❌ Deployment failed!" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Troubleshooting**:" >> $GITHUB_STEP_SUMMARY
-            echo "1. Check workflow logs above" >> $GITHUB_STEP_SUMMARY
-            echo "2. SSH to VM and run: \`docker compose logs\`" >> $GITHUB_STEP_SUMMARY
-            echo "3. Consider rolling back: \`./rollback.sh <previous-sha>\` from a workstation, or on the VM: \`cp .env.backup .env && docker compose up -d\`" >> $GITHUB_STEP_SUMMARY
+            {
+              echo "❌ Deployment failed!"
+              echo ""
+              echo "**Troubleshooting**:"
+              echo "1. Check workflow logs above"
+              echo "2. SSH to VM and run: \`docker compose logs\`"
+              echo "3. Consider rolling back: \`./rollback.sh <previous-sha>\` from a workstation, or on the VM: \`cp .env.backup .env && docker compose up -d\`"
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # Notify on failure
+  # This job does NOT page anyone — it only annotates the run, which someone
+  # has to go and look at.
+  # TODO: add a SLACK_WEBHOOK_URL secret and POST to it here (or use
+  # slackapi/slack-github-action); until then a failed production deploy is
+  # silent unless a human is watching.
   notify-failure:
     name: Notify on Failure
     runs-on: ubuntu-latest
     needs: [deploy]
     if: failure()
     steps:
-      - name: Send failure notification
+      - name: Record deployment failure
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          echo "🚨 Deployment failed!"
-          echo "Check the workflow logs for details"
-
-          # Add Slack/Telegram/Email notification here if needed
-          # Example Slack webhook:
-          # curl -X POST -H 'Content-type: application/json' \
-          #   --data '{"text":"🚨 Deployment failed! Check GitHub Actions."}' \
-          #   ${{ secrets.SLACK_WEBHOOK_URL }}
+          {
+            echo "## 🚨 Deployment failed"
+            echo ""
+            echo "Run: $RUN_URL"
+            echo ""
+            echo "**No alert was sent.** This repository has no notification integration"
+            echo "configured (see the TODO above \`notify-failure\` in"
+            echo ".github/workflows/deploy.yml), so nobody was paged."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Deployment failed. No alerting integration is configured, so nobody was notified automatically."

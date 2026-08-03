@@ -219,7 +219,7 @@ cp .env.production.example .env.production   # once; fill in everything
 ./deploy.sh all                    # frontend backend infra
 ./deploy.sh backend --tag abc123f  # deploy an already-pushed tag
 ./deploy.sh all --yes --dry-run    # print the plan / skip the prompt
-./deploy.sh --staging              # target the staging VM (VM_SSH_*_STAGING vars)
+./deploy.sh --staging              # target the staging VM (VM_SSH_*_STAGING + DOMAIN_STAGING)
 ```
 
 `deploy.sh`:
@@ -248,7 +248,11 @@ cp .env.production.example .env.production   # once; fill in everything
    worker (`/healthz`) and postgres (`pg_isready`) **inside** the containers
    plus the backup sidecar's running state, and
 8. **automatically rolls back** to the previous `.env` (previous image tags)
-   if any health check fails, then verifies the rollback.
+   if any health check fails, then verifies the rollback, and
+9. probes `https://$DOMAIN/api/healthcheck` from the workstation (12 × 10s) and
+   **fails the deploy** if it never returns 200 — the only check that traverses
+   DNS, TLS and Traefik, since step 7 is container-loopback only. With
+   `--staging` it probes `DOMAIN_STAGING`.
 
 Steps 5–8 run **on the VM** as `deploy-remote.sh` — the single canonical
 remote script, piped over ssh stdin from the local checkout (never executed

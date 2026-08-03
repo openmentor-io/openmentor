@@ -12,9 +12,10 @@ name: Checks
 # (identical commands here and in "CI / Web"), and `go vet` ran three times on
 # an api PR (here, in "CI / API -> Run Tests", and again inside golangci-lint).
 #
-#   web changed -> lint + type check + tests
-#   api changed -> golangci-lint + tests
-#   neither     -> passes trivially
+#   web changed        -> lint + type check + tests
+#   api changed        -> golangci-lint + tests
+#   .github/ changed   -> actionlint
+#   none of the above  -> passes trivially
 #
 # ci-web.yml / ci-api.yml keep only what this cannot cheaply do: the production
 # build, the race detector + coverage floor, the gosec SARIF upload for the
@@ -22,7 +23,7 @@ name: Checks
 #
 # Also runs on pushes to main. `strict_required_status_checks_policy` is off in
 # the ruleset, so a PR can merge against a stale base — post-merge verification
-# is what catches the resulting skew. On push both halves run regardless of
+# is what catches the resulting skew. On push every group runs regardless of
 # paths: main should always be verified end to end.
 
 on:
@@ -60,6 +61,49 @@ jobs:
               - 'api/**'
               - '.github/workflows/ci-api.yml'
               - '.github/workflows/checks.yml'
+            workflows:
+              - '.github/workflows/**'
+
+      # --- Workflow quick gate ---------------------------------------------
+
+      # actionlint flags untrusted `${{ }}` values used in `run:` scripts (the
+      # P5 script-injection class), expression/context errors YAML parsing
+      # cannot see, and shellcheck findings in every `run:` block (shellcheck
+      # is preinstalled on the runner). Pinned release + sha256 instead of a
+      # third-party action: nothing unvetted belongs in the job that lints
+      # workflows.
+      - name: 'Workflows: actionlint'
+        if: steps.filter.outputs.workflows == 'true' || github.event_name == 'push'
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          bindir="$(mktemp -d)"
+          curl -fsSL -o "$bindir/$tarball" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${tarball}"
+          echo "$ACTIONLINT_SHA256  $bindir/$tarball" | sha256sum -c -
+          tar -xzf "$bindir/$tarball" -C "$bindir" actionlint
+          "$bindir/actionlint" -color
+
+      # actionlint's untrusted-input rule does NOT cover workflow_dispatch
+      # inputs (v1.7.12 stays silent on `${{ inputs.x }}` inside a run script),
+      # and that is the exact P5 vector, so gate it here. Only `run:` scripts
+      # are scanned, which leaves the safe `env:`/`with:`/`if:` uses alone. The
+      # leading class stops `needs.validate-inputs.*` from matching.
+      - name: 'Workflows: no dispatch input inside a run script'
+        if: steps.filter.outputs.workflows == 'true' || github.event_name == 'push'
+        run: |
+          rc=0
+          for f in .github/workflows/*.yml; do
+            scripts=$(yq '.jobs[] | .steps[]? | select(has("run")) | .run' "$f")
+            if echo "$scripts" \
+              | grep -nE '\$\{\{(.*[^A-Za-z0-9_.-])?(github\.event\.)?inputs\.'; then
+              echo "::error file=$f::Interpolates a workflow_dispatch input into a run script (script injection). Pass it through env: and validate it instead."
+              rc=1
+            fi
+          done
+          exit "$rc"
 
       # --- Web quick gates -------------------------------------------------
 
