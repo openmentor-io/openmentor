@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -188,4 +189,70 @@ func TestMentorProfileHandler_UpdateProfileStatus_InvalidStatus(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code, "body: %s", body)
 	}
 	mockService.AssertNotCalled(t, "SetProfileStatusByMentorId")
+}
+
+// newProfilePictureRouter builds a test router for the picture endpoint, with
+// the session injected the way MentorSessionMiddleware does.
+func newProfilePictureRouter(profileService services.ProfileServiceInterface, session *models.MentorSession) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	handler := handlers.NewMentorProfileHandler(new(MockMentorService), profileService)
+
+	router := gin.New()
+	router.POST("/profile/picture", func(c *gin.Context) {
+		c.Set(middleware.MentorSessionContextKey, session)
+		c.Next()
+	}, handler.UploadPicture)
+	return router
+}
+
+// TestMentorProfileHandler_UploadPicture_ErrorMapping: every upload failure used
+// to be a 500, so a rejected image looked like a server bug and the mentor was
+// told nothing they could act on.
+func TestMentorProfileHandler_UploadPicture_ErrorMapping(t *testing.T) {
+	tests := []struct {
+		name       string
+		serviceErr error
+		wantStatus int
+		wantError  string
+	}{
+		{
+			name:       "rejected image is the caller's input",
+			serviceErr: &services.PhotoRejectedError{Reason: "image is too large to process: 40000x40000 pixels (max 40000000)"},
+			wantStatus: http.StatusBadRequest,
+			wantError:  "image is too large to process: 40000x40000 pixels (max 40000000)",
+		},
+		{
+			name:       "unconfigured uploads are a server fault",
+			serviceErr: services.ErrUploadsUnavailable,
+			wantStatus: http.StatusServiceUnavailable,
+			wantError:  "Profile picture uploads are temporarily unavailable",
+		},
+		{
+			name:       "anything else stays a 500",
+			serviceErr: errors.New("s3 exploded"),
+			wantStatus: http.StatusInternalServerError,
+			wantError:  "Failed to upload picture",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService := new(MockProfileService)
+			mockService.On("UploadPictureByMentorId", mock.Anything, "mentor-uuid-123", mock.Anything).
+				Return("", tt.serviceErr)
+			router := newProfilePictureRouter(mockService, &models.MentorSession{MentorID: "mentor-uuid-123", Name: "John Doe"})
+
+			req := httptest.NewRequest(http.MethodPost, "/profile/picture",
+				bytes.NewReader([]byte(`{"image":"aGVsbG8=","fileName":"p.png","contentType":"image/png"}`)))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.wantStatus, w.Code)
+
+			var body map[string]interface{}
+			assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			assert.Equal(t, tt.wantError, body["error"])
+		})
+	}
 }

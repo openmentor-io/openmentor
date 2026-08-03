@@ -20,16 +20,18 @@ func init() {
 // recordingRegistrationRepo records every write RegisterMentor performs, so a
 // test can assert that a rejected registration wrote NOTHING.
 type recordingRegistrationRepo struct {
-	createCalls int
-	tagCalls    int
+	createCalls   int
+	tagCalls      int
+	createdFields map[string]interface{}
 }
 
 func (r *recordingRegistrationRepo) GetTagIDByName(_ context.Context, _ string) (string, error) {
 	return "tag-id", nil
 }
 
-func (r *recordingRegistrationRepo) CreateMentor(_ context.Context, _ map[string]interface{}) (string, int, string, error) {
+func (r *recordingRegistrationRepo) CreateMentor(_ context.Context, fields map[string]interface{}) (string, int, string, error) {
 	r.createCalls++
+	r.createdFields = fields
 	return "mentor-uuid", 42, "john-doe-42", nil
 }
 

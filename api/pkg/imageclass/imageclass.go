@@ -15,7 +15,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
-	"io"
 	"math"
 	"strings"
 
@@ -57,11 +56,19 @@ func recordClassification(result string) {
 	}
 }
 
-// Classify decodes an image (jpeg, png or webp) from r and classifies it.
-// This is the shared core of ClassifyBytes/ClassifyBase64: every
-// classification attempt is counted here exactly once.
-func Classify(r io.Reader) (string, error) {
-	img, _, err := image.Decode(r)
+// ClassifyBytes classifies raw (already base64-decoded) image bytes: jpeg, png
+// or webp. This is the shared core of ClassifyBase64 — every classification
+// attempt is counted here exactly once.
+//
+// CheckBounds runs FIRST, deliberately: image.Decode is where a decompression
+// bomb costs hundreds of megabytes, so the header-only geometry check has to
+// come before it on every path into this package.
+func ClassifyBytes(data []byte) (string, error) {
+	if err := CheckBounds(data); err != nil {
+		recordClassification("error")
+		return "", err
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		recordClassification("error")
 		return "", fmt.Errorf("failed to decode image: %w", err)
@@ -69,11 +76,6 @@ func Classify(r io.Reader) (string, error) {
 	style := ClassifyImage(img)
 	recordClassification(style)
 	return style, nil
-}
-
-// ClassifyBytes classifies raw (already decoded from base64) image bytes.
-func ClassifyBytes(data []byte) (string, error) {
-	return Classify(bytes.NewReader(data))
 }
 
 // ClassifyBase64 classifies a base64-encoded image, accepting both raw

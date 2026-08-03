@@ -11,7 +11,6 @@ import (
 	"github.com/openmentor-io/openmentor/api/internal/repository"
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
-	"github.com/openmentor-io/openmentor/api/pkg/imageclass"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
@@ -73,48 +72,54 @@ func NewRegistrationService(
 	}
 }
 
-// classifyPhotoStyle auto-detects the profile picture display style at
-// upload time (pkg/imageclass). Classification failures (or no picture)
-// fall back to the safe default 'frame'.
-func classifyPhotoStyle(imageData string) string {
-	if imageData == "" {
-		return imageclass.StyleFrame
-	}
-	style, err := imageclass.ClassifyBase64(imageData)
-	if err != nil {
-		logger.Warn("Failed to classify profile picture style, defaulting to frame", zap.Error(err))
-		return imageclass.StyleFrame
-	}
-	return style
-}
-
 // resolveProfilePhoto vets the submitted profile picture BEFORE the mentor row
-// is written (and before the single-use captcha token is spent). Returns the
-// rejection response together with its error; (nil, nil) means "carry on".
+// is written (and before the single-use captcha token is spent): storage must
+// exist, and the image itself must pass validation and classification. Returns
+// the prepared photo (nil when none was submitted), or the rejection response
+// together with its error.
 //
-// The upload itself is fired into a detached goroutine AFTER the INSERT
-// commits, so an unconfigured storage client used to mean the registrant was
-// told they had succeeded and the nil dereference then killed the whole
-// process — recover() is per-goroutine, so RecoveryMiddleware never saw it.
+// Both checks have to happen here rather than after the INSERT. The upload is
+// fired into a detached goroutine once the row has committed, so an
+// unconfigured storage client used to mean the registrant was told they had
+// succeeded and the nil dereference then killed the whole process (recover is
+// per-goroutine — RecoveryMiddleware never saw it), and the image used to be
+// classified — i.e. fully decoded — with no size bound at all.
 func (s *RegistrationService) resolveProfilePhoto(
 	ctx context.Context,
 	req *models.RegisterMentorRequest,
 	baseProperties map[string]interface{},
-) (*models.RegisterMentorResponse, error) {
+) (*preparedPhoto, *models.RegisterMentorResponse, error) {
 
-	if req.ProfilePicture.Image == "" || s.storageClient != nil {
-		return nil, nil
+	if req.ProfilePicture.Image == "" {
+		return nil, nil, nil
 	}
 
-	metrics.MentorRegistrations.WithLabelValues("uploads_unavailable").Inc()
-	s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"),
-		registrationProperties(baseProperties, "uploads_unavailable"))
-	logger.Error("Registration with a photo rejected: object storage is not configured")
-	return &models.RegisterMentorResponse{
-		Success: false,
-		Error:   "Profile picture uploads are temporarily unavailable — please try again later",
-		Reason:  "uploads_unavailable",
-	}, ErrUploadsUnavailable
+	if s.storageClient == nil {
+		metrics.MentorRegistrations.WithLabelValues("uploads_unavailable").Inc()
+		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"),
+			registrationProperties(baseProperties, "uploads_unavailable"))
+		logger.Error("Registration with a photo rejected: object storage is not configured")
+		return nil, &models.RegisterMentorResponse{
+			Success: false,
+			Error:   "Profile picture uploads are temporarily unavailable — please try again later",
+			Reason:  "uploads_unavailable",
+		}, ErrUploadsUnavailable
+	}
+
+	photo, err := preparePhoto(req.ProfilePicture.Image, req.ProfilePicture.ContentType)
+	if err != nil {
+		metrics.MentorRegistrations.WithLabelValues("invalid_photo").Inc()
+		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"),
+			registrationProperties(baseProperties, "invalid_photo"))
+		logger.Warn("Registration photo rejected", zap.Error(err))
+		return nil, &models.RegisterMentorResponse{
+			Success: false,
+			Error:   err.Error(),
+			Reason:  "invalid_photo",
+		}, err
+	}
+
+	return photo, nil, nil
 }
 
 // registrationProperties copies the shared registration analytics properties
@@ -138,7 +143,8 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 
 	// 0. Resolve the submitted photo before anything else — see
 	// resolveProfilePhoto for why this cannot wait until after the INSERT.
-	if resp, err := s.resolveProfilePhoto(ctx, req, baseProperties); err != nil {
+	photo, resp, err := s.resolveProfilePhoto(ctx, req, baseProperties)
+	if err != nil {
 		return resp, err
 	}
 
@@ -196,7 +202,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		"details":           req.Description,
 		"competencies":      req.Competencies,
 		"status":            registrationStatusDraft,
-		"photo_style":       classifyPhotoStyle(req.ProfilePicture.Image),
+		"photo_style":       photo.styleOrDefault(),
 	}
 
 	if req.CalendarURL != "" {
@@ -210,8 +216,8 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 	// Note: Tags will be inserted separately into mentor_tags table
 	// This is handled by the repository CreateMentor method
 
-	mentorID, legacyID, mentorSlug, err := s.mentorRepo.CreateMentor(ctx, fields)
-	if err != nil {
+	mentorID, legacyID, mentorSlug, createErr := s.mentorRepo.CreateMentor(ctx, fields)
+	if createErr != nil {
 		if errors.Is(err, repository.ErrSlugTaken) {
 			metrics.MentorRegistrations.WithLabelValues("username_taken").Inc()
 			return &models.RegisterMentorResponse{
@@ -244,9 +250,12 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		}
 	}
 
-	// 5. Upload profile picture (non-blocking on failure). Images are keyed by
-	// the mentor UUID, not the slug — usernames are changeable.
-	s.storageClient.UploadImageAllSizesAsync(ctx, req.ProfilePicture.Image, req.ProfilePicture.ContentType, mentorID)
+	// 5. Upload the already-validated photo bytes (non-blocking on failure).
+	// Images are keyed by the mentor UUID, not the slug — usernames are
+	// changeable.
+	if photo != nil {
+		s.storageClient.UploadImageAllSizesAsync(ctx, photo.bytes, photo.contentType, mentorID)
+	}
 
 	// 6. Trigger mentor created webhook (non-blocking)
 	trigger.CallAsync(ctx, s.config.EventTriggers.MentorCreatedTriggerURL, mentorID, s.config.Worker.AuthToken, s.httpClient)

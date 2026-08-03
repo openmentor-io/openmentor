@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/openmentor-io/openmentor/api/pkg/imageclass"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 	"github.com/openmentor-io/openmentor/api/pkg/safego"
@@ -66,9 +67,14 @@ func NewStorageClient(accessKeyID, secretAccessKey, bucketName, endpoint, region
 	}, nil
 }
 
-// decodeBase64Image decodes a base64-encoded image string, handling both raw base64
-// and data URI format (data:image/png;base64,...). Returns the decoded bytes.
-func decodeBase64Image(imageData string) ([]byte, error) {
+// DecodeImageData decodes a base64-encoded image string, handling both raw
+// base64 and data URI format (data:image/png;base64,...).
+//
+// Callers decode ONCE and pass the bytes down (ValidateImage,
+// UploadImageAllSizesBytes): threading the string around meant the same
+// payload was base64-decoded five to six times per upload — once for the size
+// check, once for the content sniff, and once per stored size.
+func DecodeImageData(imageData string) ([]byte, error) {
 	if strings.HasPrefix(imageData, "data:") {
 		parts := strings.SplitN(imageData, ",", 2)
 		if len(parts) != 2 {
@@ -79,22 +85,26 @@ func decodeBase64Image(imageData string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(imageData)
 }
 
-// UploadImage uploads an image to the S3-compatible object storage
-// Returns the public URL of the uploaded image
+// UploadImage uploads a base64-encoded image to the S3-compatible object
+// storage. Returns the public URL of the uploaded image.
 func (s *StorageClient) UploadImage(ctx context.Context, imageData, key, contentType string) (string, error) {
+	start := time.Now()
+	imageBytes, err := DecodeImageData(imageData)
+	if err != nil {
+		metrics.S3StorageRequestDuration.WithLabelValues("uploadImage", "error").Observe(metrics.MeasureDuration(start))
+		metrics.S3StorageRequestTotal.WithLabelValues("uploadImage", "error").Inc()
+		return "", fmt.Errorf("failed to decode base64 image: %w", err)
+	}
+	return s.UploadImageBytes(ctx, imageBytes, key, contentType)
+}
+
+// UploadImageBytes uploads already-decoded image bytes.
+func (s *StorageClient) UploadImageBytes(ctx context.Context, imageBytes []byte, key, contentType string) (string, error) {
 	start := time.Now()
 	operation := "uploadImage"
 
-	// Decode base64 image data
-	imageBytes, err := decodeBase64Image(imageData)
-	if err != nil {
-		metrics.S3StorageRequestDuration.WithLabelValues(operation, "error").Observe(metrics.MeasureDuration(start))
-		metrics.S3StorageRequestTotal.WithLabelValues(operation, "error").Inc()
-		return "", fmt.Errorf("failed to decode base64 image: %w", err)
-	}
-
 	// Upload to the S3-compatible object storage
-	_, err = s.s3Client.PutObject(ctx, &s3.PutObjectInput{
+	_, err := s.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucketName),
 		Key:         aws.String(key),
 		Body:        bytes.NewReader(imageBytes),
@@ -127,8 +137,13 @@ func (s *StorageClient) UploadImage(ctx context.Context, imageData, key, content
 	return imageURL, nil
 }
 
-// ValidateImageType validates the image content type
+// ValidateImageType validates the image content type.
 func (s *StorageClient) ValidateImageType(contentType string) error {
+	return ValidateImageType(contentType)
+}
+
+// ValidateImageType validates the declared image content type.
+func ValidateImageType(contentType string) error {
 	validTypes := map[string]bool{
 		"image/jpeg": true,
 		"image/jpg":  true,
@@ -144,16 +159,22 @@ func (s *StorageClient) ValidateImageType(contentType string) error {
 }
 
 // ValidateImageContent sniffs the decoded bytes and confirms they really are
-// one of the allowed image formats. SECURITY: the client-supplied Content-Type
-// is untrusted; without a magic-byte check an attacker could store arbitrary
-// bytes under an image MIME (L4). jpeg/png/webp are what the exporter accepts.
+// one of the allowed image formats.
 func (s *StorageClient) ValidateImageContent(imageData string) error {
-	imageBytes, err := decodeBase64Image(imageData)
+	imageBytes, err := DecodeImageData(imageData)
 	if err != nil {
 		return fmt.Errorf("failed to decode image for content validation: %w", err)
 	}
+	return ValidateImageContent(imageBytes)
+}
 
-	// http.DetectContentType only reads the first 512 bytes (the sniff window).
+// ValidateImageContent checks the magic bytes of an image payload.
+// SECURITY: the client-supplied Content-Type is untrusted; without a
+// magic-byte check an attacker could store arbitrary bytes under an image MIME
+// (L4). jpeg/png/webp are what the exporter accepts.
+func ValidateImageContent(imageBytes []byte) error {
+	// http.DetectContentType only reads the first 512 bytes (the sniff window),
+	// which is why it cannot see a decompression bomb — see ValidateImage.
 	detected := http.DetectContentType(imageBytes)
 	allowed := map[string]bool{
 		"image/jpeg": true,
@@ -167,21 +188,43 @@ func (s *StorageClient) ValidateImageContent(imageData string) error {
 	return nil
 }
 
-// ValidateImageSize validates the image size (max 10MB)
+// ValidateImageSize validates the image size (max 10MB).
 func (s *StorageClient) ValidateImageSize(imageData string) error {
-	const maxSize = 10 * 1024 * 1024 // 10MB
-
-	// Decode to check size
-	imageBytes, err := decodeBase64Image(imageData)
+	imageBytes, err := DecodeImageData(imageData)
 	if err != nil {
 		return fmt.Errorf("failed to decode image for size validation: %w", err)
 	}
+	return ValidateImageSize(imageBytes)
+}
 
-	if len(imageBytes) > maxSize {
-		return fmt.Errorf("file too large: %d bytes (max %d bytes)", len(imageBytes), maxSize)
+// maxImageBytes caps the COMPRESSED payload. It bounds transfer and storage
+// only: compressed size says nothing about decoded size (a few KB can declare
+// gigapixels), so imageclass.CheckBounds is the real memory guard.
+const maxImageBytes = 10 * 1024 * 1024 // 10MB
+
+// ValidateImageSize validates the compressed payload size.
+func ValidateImageSize(imageBytes []byte) error {
+	if len(imageBytes) > maxImageBytes {
+		return fmt.Errorf("file too large: %d bytes (max %d bytes)", len(imageBytes), maxImageBytes)
 	}
-
 	return nil
+}
+
+// ValidateImage runs every check an uploaded image must pass, cheapest first:
+// the declared content type, the compressed byte size, the sniffed magic bytes
+// and finally the header-only geometry bound. All of it happens before any
+// pixel is decoded and before a single byte reaches the bucket.
+func ValidateImage(imageBytes []byte, contentType string) error {
+	if err := ValidateImageType(contentType); err != nil {
+		return err
+	}
+	if err := ValidateImageSize(imageBytes); err != nil {
+		return err
+	}
+	if err := ValidateImageContent(imageBytes); err != nil {
+		return err
+	}
+	return imageclass.CheckBounds(imageBytes)
 }
 
 // UploadImageAllSizes uploads the same image in 3 sizes (full, large, small) synchronously
@@ -190,19 +233,17 @@ func (s *StorageClient) ValidateImageSize(imageData string) error {
 // keyBase is the immutable mentor UUID (mentors.id) — NOT the slug: usernames are
 // user-changeable, and keying objects on the UUID makes renames free (no S3 moves).
 func (s *StorageClient) UploadImageAllSizes(ctx context.Context, imageData, keyBase, contentType string) (string, error) {
-	// Validate image type
-	if err := s.ValidateImageType(contentType); err != nil {
-		return "", err
+	imageBytes, err := DecodeImageData(imageData)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode base64 image: %w", err)
 	}
+	return s.UploadImageAllSizesBytes(ctx, imageBytes, keyBase, contentType)
+}
 
-	// Validate image size
-	if err := s.ValidateImageSize(imageData); err != nil {
-		return "", err
-	}
-
-	// SECURITY: verify the bytes are actually an image, not just the claimed
-	// Content-Type (L4).
-	if err := s.ValidateImageContent(imageData); err != nil {
+// UploadImageAllSizesBytes is UploadImageAllSizes for an already-decoded
+// payload: one ValidateImage pass, then the same bytes stored under each size.
+func (s *StorageClient) UploadImageAllSizesBytes(ctx context.Context, imageBytes []byte, keyBase, contentType string) (string, error) {
+	if err := ValidateImage(imageBytes, contentType); err != nil {
 		return "", err
 	}
 
@@ -214,7 +255,7 @@ func (s *StorageClient) UploadImageAllSizes(ctx context.Context, imageData, keyB
 		key := fmt.Sprintf("%s/%s", keyBase, size)
 
 		// Upload to object storage
-		imageURL, err := s.UploadImage(ctx, imageData, key, contentType)
+		imageURL, err := s.UploadImageBytes(ctx, imageBytes, key, contentType)
 		if err != nil {
 			return "", fmt.Errorf("failed to upload image size %s: %w", size, err)
 		}
@@ -238,14 +279,18 @@ func (s *StorageClient) UploadImageAllSizes(ctx context.Context, imageData, keyB
 // This is non-blocking and returns immediately. Errors are logged but not returned.
 // Use this when you don't need to wait for upload completion (e.g., during registration).
 // Objects are keyed by the mentor UUID (see UploadImageAllSizes).
-func (s *StorageClient) UploadImageAllSizesAsync(ctx context.Context, imageData, contentType, mentorID string) {
+//
+// Takes decoded bytes: the caller has already validated and classified them
+// (services.preparePhoto), and a background goroutine is the last place that
+// should be discovering an image is unacceptable.
+func (s *StorageClient) UploadImageAllSizesAsync(ctx context.Context, imageBytes []byte, contentType, mentorID string) {
 	// Detach from the HTTP request context so the upload isn't canceled
 	// when the handler returns the response to the client. safego.Go, not a
 	// bare goroutine: nothing here is allowed to take the process down, and
 	// the caller's recover() (RecoveryMiddleware) cannot reach this stack.
 	bgCtx := context.WithoutCancel(ctx)
 	safego.Go("s3_upload_image_all_sizes", func() {
-		fullImageURL, err := s.UploadImageAllSizes(bgCtx, imageData, mentorID, contentType)
+		fullImageURL, err := s.UploadImageAllSizesBytes(bgCtx, imageBytes, mentorID, contentType)
 		if err != nil {
 			logger.Error("Failed to upload profile picture asynchronously",
 				zap.Error(err),
