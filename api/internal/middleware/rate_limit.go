@@ -127,25 +127,35 @@ func (rl *RateLimiter) Allow(key string) bool {
 	return rl.getVisitor(key).Allow()
 }
 
-// emailKeyMaxBody caps how much of the request body EmailRateLimitMiddleware
-// will buffer to find the email. Login/request bodies are tiny JSON; anything
-// larger is not a legitimate login request. Pair with BodySizeLimitMiddleware.
-const emailKeyMaxBody = 16 << 10 // 16 KB
+// bodyKeyMaxBody caps how much of the request body FieldRateLimitMiddleware
+// will buffer to find its key. Login/confirmation bodies are tiny JSON;
+// anything larger is not a legitimate request. Pair with
+// BodySizeLimitMiddleware.
+const bodyKeyMaxBody = 16 << 10 // 16 KB
 
-// EmailRateLimitMiddleware rate-limits by the lower-cased "email" field in the
-// JSON body instead of the client IP.
+// maxRateLimitKeyLen bounds the key length. A value longer than any the
+// handlers accept (emails and tokens are both capped in their binding tags)
+// cannot belong to a legitimate request, so it passes through unlimited rather
+// than being allowed to occupy an entry in the per-key visitor map.
+const maxRateLimitKeyLen = 256
+
+// FieldRateLimitMiddleware rate-limits by the named field of the JSON body
+// (trimmed and lower-cased) instead of the client IP.
 //
-// SECURITY / CORRECTNESS: the login-link endpoints sit behind the Next.js BFF,
-// so every request reaches this API from the BFF's single source IP. An
-// IP-keyed limiter therefore collapses into ONE global bucket and locks the
-// whole platform out under load (a wave of mentors logging in at once). Keying
-// on the target email both fixes that and matches the real abuse this guards
-// against — email-bombing one address. The body is buffered (bounded) and
-// restored so the downstream handler still reads it. A missing/blank email is
-// left for the handler to reject (it never consumes a token).
-func EmailRateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
+// SECURITY / CORRECTNESS: these endpoints sit behind the Next.js BFF, so every
+// request reaches this API from the BFF's single source IP. An IP-keyed limiter
+// therefore collapses into ONE global bucket and locks the whole platform out —
+// four requests with four different emails were enough to 429 the fifth mentor.
+// Keying on a field of the payload both fixes that and matches the real abuse
+// being guarded against: bombing ONE address or ONE mentor's inbox.
+//
+// The body is buffered (bounded) and restored so the downstream handler still
+// reads it. A missing, blank, non-string or over-long key is left for the
+// handler to reject and never consumes a token — which is also why a flood of
+// malformed payloads can no longer exhaust the budget for valid requests.
+func FieldRateLimitMiddleware(rl *RateLimiter, field string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, emailKeyMaxBody))
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, bodyKeyMaxBody))
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
@@ -153,15 +163,17 @@ func EmailRateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 		// Restore the body for the handler's ShouldBindJSON.
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
 
-		var payload struct {
-			Email string `json:"email"`
-		}
+		var payload map[string]interface{}
 		// Ignore parse errors: a malformed body isn't rate-limited here, the
-		// handler will reject it. Only a well-formed email consumes a token.
+		// handler will reject it. Only a well-formed key consumes a token.
 		_ = json.Unmarshal(body, &payload) //nolint:errcheck // deliberate, see comment above
-		key := strings.ToLower(strings.TrimSpace(payload.Email))
+		value, isString := payload[field].(string)
+		key := ""
+		if isString {
+			key = strings.ToLower(strings.TrimSpace(value))
+		}
 
-		if key != "" && !rl.Allow(key) {
+		if key != "" && len(key) <= maxRateLimitKeyLen && !rl.Allow(field+":"+key) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": "Rate limit exceeded. Please try again later.",
 			})
@@ -170,4 +182,9 @@ func EmailRateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// EmailRateLimitMiddleware rate-limits by the "email" field of the JSON body.
+func EmailRateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
+	return FieldRateLimitMiddleware(rl, "email")
 }

@@ -37,7 +37,8 @@ import (
 func registerAPIRoutes(
 	group *gin.RouterGroup,
 	cfg *config.Config,
-	generalRateLimiter, contactRateLimiter, registrationRateLimiter, confirmResendRateLimiter *middleware.RateLimiter,
+	generalRateLimiter, contactRateLimiter, registrationRateLimiter *middleware.RateLimiter,
+	confirmResendRateLimiter, confirmResendFloodLimiter *middleware.RateLimiter,
 	mentorHandler *handlers.MentorHandler,
 	contactHandler *handlers.ContactHandler,
 	logsHandler *handlers.LogsHandler,
@@ -59,9 +60,12 @@ func registerAPIRoutes(
 	group.POST("/logs", generalRateLimiter.Middleware(), middleware.InternalAPIAuthMiddleware(cfg.Auth.InternalMentorsAPI), middleware.BodySizeLimitMiddleware(1*1024*1024), logsHandler.ReceiveFrontendLogs)
 
 	// Mentor email confirmation (public, draft-status registration flow).
-	// The resend endpoint issues fresh tokens and emails - login-tier limits.
+	// The resend endpoint issues fresh tokens and emails - login-tier limits,
+	// keyed on the confirmation TOKEN (it identifies the mentor) rather than the
+	// BFF's shared source IP: see the limiter declarations in main().
 	group.POST("/mentors/confirm", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024), mentorConfirmationHandler.Confirm)
-	group.POST("/mentors/confirm/resend", confirmResendRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024), mentorConfirmationHandler.Resend)
+	group.POST("/mentors/confirm/resend", confirmResendFloodLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024),
+		middleware.FieldRateLimitMiddleware(confirmResendRateLimiter, "token"), mentorConfirmationHandler.Resend)
 
 	// Review routes (public - uses captcha for protection)
 	group.GET("/reviews/:requestId/check", generalRateLimiter.Middleware(), reviewHandler.CheckReview)
@@ -400,8 +404,16 @@ func main() { //nolint:gocyclo
 	// SECURITY: Rate limiters to prevent abuse and DoS attacks
 	// Different limits for different endpoint types
 	generalRateLimiter := middleware.NewRateLimiter(100, 200) // 100 req/sec, burst of 200
-	contactRateLimiter := middleware.NewRateLimiter(5, 10)    // 5 req/sec, burst of 10 (prevent spam)
-	profileRateLimiter := middleware.NewRateLimiter(10, 20)   // 10 req/sec, burst of 20
+	// contactRateLimiter is DELIBERATELY left IP-keyed, i.e. global: behind the
+	// BFF every request shares one source IP, so this is one bucket for
+	// contact-mentor, review submission, migration intents and confirm. That is
+	// the right shape here — the endpoints are captcha-gated per request, and
+	// the only payload field that could key them (a mentee's self-declared
+	// email) is attacker-chosen, so keying on it would let a spammer opt out of
+	// the limit entirely by varying it. This stays a coarse anti-spam ceiling;
+	// legitimate volume is orders of magnitude below 5/sec.
+	contactRateLimiter := middleware.NewRateLimiter(5, 10)  // 5 req/sec, burst of 10 (prevent spam)
+	profileRateLimiter := middleware.NewRateLimiter(10, 20) // 10 req/sec, burst of 20
 	// Registration abuse is stopped by server-verified, single-use Turnstile
 	// tokens (RegistrationService.captchaVerifier), so this is NOT a per-user
 	// throttle — the old 2/5min was IP-keyed and, behind the BFF's shared IP,
@@ -413,9 +425,17 @@ func main() { //nolint:gocyclo
 	// Login-link limiters are keyed on the target EMAIL (EmailRateLimitMiddleware),
 	// not the shared BFF IP — burst 3 then ~1 per 3 min lets a mentor retry a
 	// couple of times without locking every other mentor out.
-	mentorAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3)  // 3 emails/addr, then 1 per 3 min
-	adminAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3)   // 3 emails/addr, then 1 per 3 min
-	confirmResendRateLimiter := middleware.NewRateLimiter(0.00667, 2) // 2 req/5min, burst of 2 (confirmation resend abuse prevention, login tier)
+	mentorAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3) // 3 emails/addr, then 1 per 3 min
+	adminAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3)  // 3 emails/addr, then 1 per 3 min
+	// Confirmation resends are keyed on the TOKEN (FieldRateLimitMiddleware):
+	// 2 per 5 minutes per mentor. IP-keyed, this was 2 per 5 minutes for the
+	// ENTIRE platform — one mentor's two resends locked everyone else out, and
+	// because the limiter ran before validation even malformed payloads spent
+	// the budget. confirmResendFloodLimiter keeps a coarse global ceiling on the
+	// endpoint (bounds token-guessing lookups), exactly like the registration
+	// limiter above.
+	confirmResendRateLimiter := middleware.NewRateLimiter(0.00667, 2) // per token: 2 per 5 min
+	confirmResendFloodLimiter := middleware.NewRateLimiter(5, 20)     // coarse global cap: ~5/sec, burst 20
 
 	// API routes
 	api := router.Group("/api")
@@ -426,7 +446,8 @@ func main() { //nolint:gocyclo
 	// API v1 routes
 	// SECURITY: Apply body size limits to prevent DoS attacks
 	v1 := router.Group("/api/v1")
-	registerAPIRoutes(v1, cfg, generalRateLimiter, contactRateLimiter, registrationRateLimiter, confirmResendRateLimiter,
+	registerAPIRoutes(v1, cfg, generalRateLimiter, contactRateLimiter, registrationRateLimiter,
+		confirmResendRateLimiter, confirmResendFloodLimiter,
 		mentorHandler, contactHandler, logsHandler, registrationHandler, reviewHandler, migrationIntentHandler,
 		mentorConfirmationHandler, usernameHandler)
 
