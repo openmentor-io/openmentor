@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getGoApiClient } from '@/lib/go-api-client'
-import { logError } from '@/lib/logger'
+import { sendUpstreamError } from '@/lib/api-proxy'
 import { withObservability } from '@/lib/with-observability'
 
 interface ReviewCheckResponse {
@@ -42,10 +42,11 @@ async function handler(
 
     res.status(200).json(result)
   } catch (error) {
-    if (error instanceof Error) {
-      logError(error, { context: 'check-review-proxy', method: req.method, url: req.url })
-    }
-    res.status(500).json({ error: 'Internal server error' })
+    sendUpstreamError(res, error, {
+      context: 'check-review-proxy',
+      method: req.method,
+      url: req.url,
+    })
   }
 }
 

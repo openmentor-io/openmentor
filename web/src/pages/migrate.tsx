@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
-import { Turnstile } from '@marsidev/react-turnstile'
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import type { GetServerSideProps } from 'next'
 import { Footer, MetaHeader, NavHeader, Section } from '@/components'
 import { pageTitle } from '@/config/seo'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
+import { GENERIC_SUBMIT_ERROR, upstreamErrorMessage } from '@/lib/upstream-error'
 import logger, { getTraceContext } from '@/lib/logger'
 import type { ScheduleMigrationResponse } from '@/types'
 
@@ -36,6 +37,18 @@ export default function Migrate(): JSX.Element {
 
   const [captchaToken, setCaptchaToken] = useState('')
   const [state, setState] = useState<SubmitState>('idle')
+  const [errorMessage, setErrorMessage] = useState(GENERIC_SUBMIT_ERROR)
+  const turnstileRef = useRef<TurnstileInstance>(null)
+
+  // The token is single-use and already spent upstream, so re-run the widget or
+  // the button stays enabled on a stale token that siteverify will reject. state
+  // goes 'error' -> 'loading' -> 'error', so this re-fires per failure.
+  useEffect(() => {
+    if (state === 'error') {
+      turnstileRef.current?.reset()
+      setCaptchaToken('')
+    }
+  }, [state])
 
   const handleSchedule = async (): Promise<void> => {
     setState('loading')
@@ -45,13 +58,17 @@ export default function Migrate(): JSX.Element {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug, captchaToken }),
       })
-      const data = (await res.json()) as ScheduleMigrationResponse
-      if (data.success) {
+      const data = (await res.json().catch(() => null)) as ScheduleMigrationResponse | null
+      if (res.ok && data?.success) {
         setState(data.alreadyScheduled ? 'already' : 'scheduled')
       } else {
+        // The proxy forwards the upstream 4xx body, so name the actual reason —
+        // a spent captcha or a slug that is not a getmentor.dev profile.
+        setErrorMessage(upstreamErrorMessage(res.status, data))
         setState('error')
       }
     } catch {
+      setErrorMessage(GENERIC_SUBMIT_ERROR)
       setState('error')
     }
   }
@@ -115,6 +132,7 @@ export default function Migrate(): JSX.Element {
               </p>
 
               <Turnstile
+                ref={turnstileRef}
                 siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
                 onSuccess={setCaptchaToken}
                 onExpire={(): void => setCaptchaToken('')}
@@ -122,8 +140,11 @@ export default function Migrate(): JSX.Element {
               />
 
               {state === 'error' && (
-                <div className="mt-4 rounded-field border-[1.5px] border-danger/40 bg-danger/5 px-4 py-3 text-sm font-medium text-danger">
-                  Something went wrong — please try again in a minute, or write to us at{' '}
+                <div
+                  role="alert"
+                  className="mt-4 rounded-field border-[1.5px] border-danger/40 bg-danger/5 px-4 py-3 text-sm font-medium text-danger"
+                >
+                  {errorMessage} Still stuck? Write to us at{' '}
                   <a className="link" href="mailto:hello@openmentor.io">
                     hello@openmentor.io
                   </a>
