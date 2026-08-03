@@ -344,18 +344,97 @@ func TestConfig_Validate(t *testing.T) {
 	}
 }
 
+// s3BaseConfig is the minimal configuration that satisfies every OTHER
+// sub-validator for the given environment, so the S3 table below varies only
+// the storage block.
+func s3BaseConfig(appEnv string, s3 config.S3StorageConfig) *config.Config {
+	return &config.Config{
+		Server: config.ServerConfig{
+			AppEnv:         appEnv,
+			Port:           "8081",
+			BaseURL:        "https://example.com",
+			AllowedOrigins: []string{"https://example.com"},
+		},
+		Database: config.DatabaseConfig{WorkOffline: true},
+		Auth: config.AuthConfig{
+			InternalMentorsAPI: "test-token",
+			MentorsAPIToken:    "public-token",
+		},
+		Turnstile:     config.TurnstileConfig{SecretKey: "turnstile-secret"},
+		MentorSession: config.MentorSessionConfig{JWTSecret: "test-jwt-secret-at-least-32-chars-long"},
+		Worker:        config.WorkerConfig{AuthToken: "worker-secret"},
+		S3Storage:     s3,
+	}
+}
+
+func TestConfig_ValidateS3Storage(t *testing.T) {
+	complete := config.S3StorageConfig{
+		AccessKeyID:     "key",
+		SecretAccessKey: "secret",
+		BucketName:      "mentor-images",
+		Endpoint:        "https://s3.eu-central-1.amazonaws.com",
+		Region:          "eu-central-1",
+	}
+	missingKey := complete
+	missingKey.AccessKeyID = ""
+	missingRegion := complete
+	missingRegion.Region = " " // whitespace is not configuration
+
+	tests := []struct {
+		name     string
+		appEnv   string
+		s3       config.S3StorageConfig
+		errorMsg string
+	}{
+		{name: "complete in production", appEnv: "production", s3: complete},
+		{name: "complete in development", appEnv: "development", s3: complete},
+		{
+			name: "empty in production", appEnv: "production",
+			errorMsg: "S3 object storage is required in production",
+		},
+		{name: "empty in development", appEnv: "development"},
+		{
+			name: "partial in production", appEnv: "production", s3: missingKey,
+			errorMsg: "S3 object storage is partially configured: S3_STORAGE_ACCESS_KEY",
+		},
+		{
+			// A half-configured bucket is a typo everywhere, not a choice.
+			name: "partial in development", appEnv: "development", s3: missingRegion,
+			errorMsg: "S3 object storage is partially configured: S3_STORAGE_REGION",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := s3BaseConfig(tt.appEnv, tt.s3).Validate()
+			if tt.errorMsg == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errorMsg)
+		})
+	}
+}
+
 func TestLoad_WithDefaults(t *testing.T) {
 	// Clean environment
 	os.Clearenv()
 
 	// Set only required fields (APP_ENV defaults to production, which also
-	// requires JWT_SECRET >= 32 chars and WORKER_AUTH_TOKEN).
+	// requires JWT_SECRET >= 32 chars, WORKER_AUTH_TOKEN and a complete
+	// S3_STORAGE_* block).
 	os.Setenv("DB_WORK_OFFLINE", "true")
 	os.Setenv("INTERNAL_MENTORS_API", "test-token")
 	os.Setenv("MENTORS_API_LIST_AUTH_TOKEN", "public-token")
 	os.Setenv("TURNSTILE_SECRET_KEY", "turnstile-secret")
 	os.Setenv("JWT_SECRET", "test-jwt-secret-at-least-32-chars-long")
 	os.Setenv("WORKER_AUTH_TOKEN", "worker-secret")
+	os.Setenv("S3_STORAGE_ACCESS_KEY", "key")
+	os.Setenv("S3_STORAGE_SECRET_KEY", "secret")
+	os.Setenv("S3_STORAGE_BUCKET", "mentor-images")
+	os.Setenv("S3_STORAGE_ENDPOINT", "https://s3.eu-central-1.amazonaws.com")
+	os.Setenv("S3_STORAGE_REGION", "eu-central-1")
 
 	cfg, err := config.Load()
 

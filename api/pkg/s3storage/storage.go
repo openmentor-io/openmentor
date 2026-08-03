@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/safego"
 	"go.uber.org/zap"
 )
 
@@ -239,9 +240,11 @@ func (s *StorageClient) UploadImageAllSizes(ctx context.Context, imageData, keyB
 // Objects are keyed by the mentor UUID (see UploadImageAllSizes).
 func (s *StorageClient) UploadImageAllSizesAsync(ctx context.Context, imageData, contentType, mentorID string) {
 	// Detach from the HTTP request context so the upload isn't canceled
-	// when the handler returns the response to the client.
+	// when the handler returns the response to the client. safego.Go, not a
+	// bare goroutine: nothing here is allowed to take the process down, and
+	// the caller's recover() (RecoveryMiddleware) cannot reach this stack.
 	bgCtx := context.WithoutCancel(ctx)
-	go func() {
+	safego.Go("s3_upload_image_all_sizes", func() {
 		fullImageURL, err := s.UploadImageAllSizes(bgCtx, imageData, mentorID, contentType)
 		if err != nil {
 			logger.Error("Failed to upload profile picture asynchronously",
@@ -252,5 +255,5 @@ func (s *StorageClient) UploadImageAllSizesAsync(ctx context.Context, imageData,
 				zap.String("mentor_id", mentorID),
 				zap.String("full_image_url", fullImageURL))
 		}
-	}()
+	})
 }

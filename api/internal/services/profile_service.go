@@ -151,6 +151,15 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 // UploadPictureByMentorId uploads a profile picture using Mentor ID (UUID) for session-based auth.
 // Images are keyed by the mentor UUID (immutable), not the slug (user-changeable).
 func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID string, req *models.UploadProfilePictureRequest) (string, error) {
+	// No object storage, no upload — reject before any DB read or write instead
+	// of dereferencing a nil client (see ErrUploadsUnavailable).
+	if s.storageClient == nil {
+		metrics.ProfilePictureUploads.WithLabelValues("uploads_unavailable").Inc()
+		logger.Error("Profile picture upload rejected: object storage is not configured",
+			zap.String("mentor_id", mentorID))
+		return "", ErrUploadsUnavailable
+	}
+
 	// Verify the mentor still exists BEFORE writing any images. Keying images by
 	// UUID (D29) removed the slug lookup that used to double as this existence
 	// check — without it, a deleted mentor holding a still-valid session cookie

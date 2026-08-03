@@ -29,9 +29,20 @@ const (
 	registrationOutcomeSuccess = "success"
 )
 
+// RegistrationMentorRepository is the mentor repository surface
+// RegistrationService needs. *repository.MentorRepository satisfies it;
+// tests substitute a fake (mirrors ProfileMentorRepository).
+type RegistrationMentorRepository interface {
+	GetTagIDByName(ctx context.Context, tagName string) (string, error)
+	CreateMentor(ctx context.Context, fields map[string]interface{}) (string, int, string, error)
+	UpdateMentorTags(ctx context.Context, mentorID string, tagIDs []string) error
+}
+
+var _ RegistrationMentorRepository = (*repository.MentorRepository)(nil)
+
 // RegistrationService handles mentor registration
 type RegistrationService struct {
-	mentorRepo      *repository.MentorRepository
+	mentorRepo      RegistrationMentorRepository
 	storageClient   *s3storage.StorageClient
 	config          *config.Config
 	httpClient      httpclient.Client
@@ -41,7 +52,7 @@ type RegistrationService struct {
 
 // NewRegistrationService creates a new registration service instance
 func NewRegistrationService(
-	mentorRepo *repository.MentorRepository,
+	mentorRepo RegistrationMentorRepository,
 	storageClient *s3storage.StorageClient,
 	cfg *config.Config,
 	httpClient httpclient.Client,
@@ -77,6 +88,46 @@ func classifyPhotoStyle(imageData string) string {
 	return style
 }
 
+// resolveProfilePhoto vets the submitted profile picture BEFORE the mentor row
+// is written (and before the single-use captcha token is spent). Returns the
+// rejection response together with its error; (nil, nil) means "carry on".
+//
+// The upload itself is fired into a detached goroutine AFTER the INSERT
+// commits, so an unconfigured storage client used to mean the registrant was
+// told they had succeeded and the nil dereference then killed the whole
+// process — recover() is per-goroutine, so RecoveryMiddleware never saw it.
+func (s *RegistrationService) resolveProfilePhoto(
+	ctx context.Context,
+	req *models.RegisterMentorRequest,
+	baseProperties map[string]interface{},
+) (*models.RegisterMentorResponse, error) {
+
+	if req.ProfilePicture.Image == "" || s.storageClient != nil {
+		return nil, nil
+	}
+
+	metrics.MentorRegistrations.WithLabelValues("uploads_unavailable").Inc()
+	s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"),
+		registrationProperties(baseProperties, "uploads_unavailable"))
+	logger.Error("Registration with a photo rejected: object storage is not configured")
+	return &models.RegisterMentorResponse{
+		Success: false,
+		Error:   "Profile picture uploads are temporarily unavailable — please try again later",
+		Reason:  "uploads_unavailable",
+	}, ErrUploadsUnavailable
+}
+
+// registrationProperties copies the shared registration analytics properties
+// and stamps the outcome on the copy.
+func registrationProperties(base map[string]interface{}, outcome string) map[string]interface{} {
+	props := make(map[string]interface{}, len(base)+1)
+	for key, value := range base {
+		props[key] = value
+	}
+	props["outcome"] = outcome
+	return props
+}
+
 // RegisterMentor handles the complete mentor registration flow
 func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.RegisterMentorRequest) (*models.RegisterMentorResponse, error) {
 	baseProperties := map[string]interface{}{
@@ -85,15 +136,17 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		"has_profile_picture": req.ProfilePicture.Image != "",
 	}
 
+	// 0. Resolve the submitted photo before anything else — see
+	// resolveProfilePhoto for why this cannot wait until after the INSERT.
+	if resp, err := s.resolveProfilePhoto(ctx, req, baseProperties); err != nil {
+		return resp, err
+	}
+
 	// 1. Verify captcha (Cloudflare Turnstile)
 	if err := s.captchaVerifier.Verify(req.CaptchaToken); err != nil {
 		metrics.MentorRegistrations.WithLabelValues("captcha_failed").Inc()
-		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"), map[string]interface{}{
-			"tags_count":          len(req.Tags),
-			"has_calendar_url":    strings.TrimSpace(req.CalendarURL) != "",
-			"has_profile_picture": req.ProfilePicture.Image != "",
-			"outcome":             "captcha_failed",
-		})
+		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"),
+			registrationProperties(baseProperties, "captcha_failed"))
 		logger.Warn("Turnstile verification failed", zap.Error(err))
 		return &models.RegisterMentorResponse{
 			Success: false,
@@ -168,12 +221,8 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 			}, fmt.Errorf("username taken: %w", err)
 		}
 		metrics.MentorRegistrations.WithLabelValues("db_error").Inc()
-		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"), map[string]interface{}{
-			"tags_count":          len(req.Tags),
-			"has_calendar_url":    strings.TrimSpace(req.CalendarURL) != "",
-			"has_profile_picture": req.ProfilePicture.Image != "",
-			"outcome":             "db_error",
-		})
+		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"),
+			registrationProperties(baseProperties, "db_error"))
 		logger.Error("Failed to create mentor in database", zap.Error(err))
 		return &models.RegisterMentorResponse{
 			Success: false,
@@ -203,14 +252,10 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 	trigger.CallAsync(ctx, s.config.EventTriggers.MentorCreatedTriggerURL, mentorID, s.config.Worker.AuthToken, s.httpClient)
 
 	metrics.MentorRegistrations.WithLabelValues("success").Inc()
-	successProperties := make(map[string]interface{}, len(baseProperties)+4)
-	for key, value := range baseProperties {
-		successProperties[key] = value
-	}
+	successProperties := registrationProperties(baseProperties, registrationOutcomeSuccess)
 	successProperties["mentor_id"] = mentorID
 	successProperties["legacy_mentor_id"] = legacyID
 	successProperties["status"] = registrationStatusDraft
-	successProperties["outcome"] = registrationOutcomeSuccess
 	s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.MentorDistinctID(mentorID), successProperties)
 
 	return &models.RegisterMentorResponse{

@@ -268,7 +268,11 @@ func main() { //nolint:gocyclo
 	// NOTE: Database migrations are now run separately via the migrate command
 	// Run migrations before starting the app: ./migrate or docker-compose run migrate
 
-	// Initialize S3-compatible object storage client (profile pictures)
+	// Initialize S3-compatible object storage client (profile pictures).
+	// config.validateS3StorageConfig has already rejected a partial block and
+	// required a complete one in production, so the client is nil only when
+	// storage is deliberately unconfigured off production — the photo paths
+	// then reject with services.ErrUploadsUnavailable instead of panicking.
 	var storageClient *s3storage.StorageClient
 	if cfg.S3Storage.AccessKeyID != "" && cfg.S3Storage.SecretAccessKey != "" {
 		storageClient, err = s3storage.NewStorageClient(
@@ -281,6 +285,8 @@ func main() { //nolint:gocyclo
 		if err != nil {
 			logger.Fatal("Failed to initialize S3 storage client", zap.Error(err))
 		}
+	} else {
+		logger.Warn("S3 object storage not configured: profile picture uploads are disabled")
 	}
 
 	// Tags cache is created with a placeholder fetcher, then rebound to the
