@@ -72,6 +72,12 @@ func TestCalendarURLBindingRejectsNonHTTPSSchemes(t *testing.T) {
 		{`https://evil.example/x"><script>alert(1)</script>`, false},
 		{"https://evil.example/a b", false},
 		{"https://user:pass@evil.example/x", false},
+
+		// A browser's URL parser strips surrounding whitespace and keeps
+		// userinfo, so web/src/lib/safe-url.ts has to reject these on its own
+		// to keep the client mirror from being looser than this tag.
+		{"https://calendly.com/johndoe ", false},
+		{" https://calendly.com/johndoe", false},
 	}
 
 	for name, target := range structs {

@@ -9,6 +9,7 @@ import { Tooltip } from 'react-tooltip'
 import Link from 'next/link'
 import { useState, useRef, type ChangeEvent } from 'react'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
+import { isValidCalendarUrl } from '@/lib/safe-url'
 import type { MentorWithSecureFields } from '@/types'
 
 interface TagOption {
@@ -102,18 +103,6 @@ const tagsToOptions = (tags: string[]): TagOption[] =>
 
 // All available tags as options
 const tagOptions = tagsToOptions(filters.tags)
-
-// Mirrors the API's https_url binding tag (api/internal/models/validation.go).
-// Only https is accepted: the URL is rendered into an href in the request
-// emails, so a scheme the API would reject must not look valid here.
-function isValidUrl(value?: string): boolean {
-  if (!value) return true
-  try {
-    return new URL(value).protocol === 'https:'
-  } catch {
-    return false
-  }
-}
 
 export default function ProfileForm({
   mentor,
@@ -619,8 +608,11 @@ export default function ProfileForm({
         <input
           type="text"
           {...register('calendarUrl', {
+            // Trim first: a pasted booking link often carries surrounding
+            // whitespace, which the API's https_url tag rejects.
+            setValueAs: (value: string) => value.trim(),
             validate: {
-              checkUrl: isValidUrl,
+              checkUrl: isValidCalendarUrl,
             },
           })}
           defaultValue={mentor.calendarUrl || ''}

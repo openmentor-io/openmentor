@@ -126,12 +126,17 @@ describe('RegisterMentorForm', () => {
   })
 
   // The API binds calendarUrl with its https_url tag, so anything it would
-  // reject has to fail here rather than come back as a 400.
+  // reject has to fail here rather than come back as a 400. The two whitespace
+  // cases are the ones new URL() alone lets through: they are trimmed, so they
+  // reach the API in a shape the tag accepts.
   it.each([
     ['http://calendly.com/john', false],
     ['javascript:alert(1)', false],
     ['not-a-url', false],
+    ['https://user:pass@calendly.com/john', false],
     ['https://calendly.com/john', true],
+    ['https://calendly.com/john ', true],
+    [' https://calendly.com/john', true],
   ])('accepts %s as a calendar URL: %s', async (value, accepted) => {
     render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 

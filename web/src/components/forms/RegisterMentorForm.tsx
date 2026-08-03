@@ -17,6 +17,7 @@ import {
   useUsernameAvailability,
   USERNAME_MAX_LENGTH,
 } from '@/lib/username'
+import { isValidCalendarUrl } from '@/lib/safe-url'
 
 interface TagOption {
   value: string
@@ -121,18 +122,6 @@ const tagsToOptions = (tags: string[]): TagOption[] =>
 // All available tags as options
 const tagOptions = tagsToOptions(filters.tags)
 const MAX_TAGS = 5
-
-// Mirrors the API's https_url binding tag (api/internal/models/validation.go).
-// Only https is accepted: the URL is rendered into an href in the request
-// emails, so a scheme the API would reject must not look valid here.
-function isValidUrl(value?: string): boolean {
-  if (!value) return true
-  try {
-    return new URL(value).protocol === 'https:'
-  } catch {
-    return false
-  }
-}
 
 interface RailSection {
   id: string
@@ -333,7 +322,7 @@ export default function RegisterMentorForm({
     {
       id: 'reg-scheduling',
       label: 'Scheduling',
-      complete: Boolean(captchaToken) && isValidUrl(values.calendarUrl),
+      complete: Boolean(captchaToken) && isValidCalendarUrl(values.calendarUrl),
     },
   ]
   const currentIndex = sections.findIndex((section) => !section.complete)
@@ -939,8 +928,12 @@ export default function RegisterMentorForm({
               <input
                 type="text"
                 {...register('calendarUrl', {
+                  // Trim first: a pasted booking link often carries
+                  // surrounding whitespace, which the API's https_url tag
+                  // rejects.
+                  setValueAs: (value: string) => value.trim(),
                   validate: {
-                    checkUrl: isValidUrl,
+                    checkUrl: isValidCalendarUrl,
                   },
                   maxLength: 500,
                 })}
