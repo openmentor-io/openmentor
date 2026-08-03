@@ -23,6 +23,7 @@ type recordingRegistrationRepo struct {
 	createCalls   int
 	tagCalls      int
 	createdFields map[string]interface{}
+	createErr     error
 }
 
 func (r *recordingRegistrationRepo) GetTagIDByName(_ context.Context, _ string) (string, error) {
@@ -32,6 +33,9 @@ func (r *recordingRegistrationRepo) GetTagIDByName(_ context.Context, _ string) 
 func (r *recordingRegistrationRepo) CreateMentor(_ context.Context, fields map[string]interface{}) (string, int, string, error) {
 	r.createCalls++
 	r.createdFields = fields
+	if r.createErr != nil {
+		return "", 0, "", r.createErr
+	}
 	return "mentor-uuid", 42, "john-doe-42", nil
 }
 

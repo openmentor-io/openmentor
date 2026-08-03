@@ -218,22 +218,22 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 
 	mentorID, legacyID, mentorSlug, createErr := s.mentorRepo.CreateMentor(ctx, fields)
 	if createErr != nil {
-		if errors.Is(err, repository.ErrSlugTaken) {
+		if errors.Is(createErr, repository.ErrSlugTaken) {
 			metrics.MentorRegistrations.WithLabelValues("username_taken").Inc()
 			return &models.RegisterMentorResponse{
 				Success: false,
 				Error:   "This username is already taken — please pick another one",
 				Reason:  "username_taken",
-			}, fmt.Errorf("username taken: %w", err)
+			}, fmt.Errorf("username taken: %w", createErr)
 		}
 		metrics.MentorRegistrations.WithLabelValues("db_error").Inc()
 		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"),
 			registrationProperties(baseProperties, "db_error"))
-		logger.Error("Failed to create mentor in database", zap.Error(err))
+		logger.Error("Failed to create mentor in database", zap.Error(createErr))
 		return &models.RegisterMentorResponse{
 			Success: false,
 			Error:   "Failed to create mentor profile",
-		}, fmt.Errorf("failed to create mentor: %w", err)
+		}, fmt.Errorf("failed to create mentor: %w", createErr)
 	}
 
 	logger.Info("Mentor created in database",
