@@ -12,9 +12,10 @@ name: Checks
 # (identical commands here and in "CI / Web"), and `go vet` ran three times on
 # an api PR (here, in "CI / API -> Run Tests", and again inside golangci-lint).
 #
-#   web changed -> lint + type check + tests
-#   api changed -> golangci-lint + tests
-#   neither     -> passes trivially
+#   web changed   -> lint + type check + tests
+#   api changed   -> golangci-lint + tests
+#   infra changed -> compose renders + per-service env allowlist + backup tests
+#   none of them  -> passes trivially
 #
 # ci-web.yml / ci-api.yml keep only what this cannot cheaply do: the production
 # build, the race detector + coverage floor, the gosec SARIF upload for the
@@ -22,7 +23,7 @@ name: Checks
 #
 # Also runs on pushes to main. `strict_required_status_checks_policy` is off in
 # the ruleset, so a PR can merge against a stale base — post-merge verification
-# is what catches the resulting skew. On push both halves run regardless of
+# is what catches the resulting skew. On push all three halves run regardless of
 # paths: main should always be verified end to end.
 
 on:
@@ -59,6 +60,9 @@ jobs:
             api:
               - 'api/**'
               - '.github/workflows/ci-api.yml'
+              - '.github/workflows/checks.yml'
+            infra:
+              - 'infra/**'
               - '.github/workflows/checks.yml'
 
       # --- Web quick gates -------------------------------------------------
@@ -123,6 +127,19 @@ jobs:
         working-directory: api
         run: go test -timeout=5m ./...
 
-      - name: No web/api changes
-        if: github.event_name == 'pull_request' && steps.filter.outputs.web != 'true' && steps.filter.outputs.api != 'true'
-        run: echo "No web/ or api/ changes detected — nothing to gate."
+      # --- Infra quick gates -----------------------------------------------
+
+      # SECURITY (P10): this is what stops `- DATABASE_URL=${DATABASE_URL}`
+      # reappearing on the internet-facing frontend in a PR that touches only
+      # infra/. `make check` = compose renders (prod + dev) + the per-service
+      # env allowlist and secret-ownership check + the backup sidecar tests.
+      # Key names only, never values, so it is safe on a production-shaped env.
+      # Runner already has docker compose and jq; nothing else to install.
+      - name: 'Infra: checks'
+        if: steps.filter.outputs.infra == 'true' || github.event_name == 'push'
+        working-directory: infra
+        run: make check
+
+      - name: No web/api/infra changes
+        if: github.event_name == 'pull_request' && steps.filter.outputs.web != 'true' && steps.filter.outputs.api != 'true' && steps.filter.outputs.infra != 'true'
+        run: echo "No web/, api/ or infra/ changes detected — nothing to gate."

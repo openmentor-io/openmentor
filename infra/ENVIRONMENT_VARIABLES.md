@@ -63,8 +63,10 @@ cd infra && ./check-service-env.sh --self-test  # also proves the check still bi
 ```
 
 The script renders compose to JSON and compares **key names only** — it never
-reads or prints a value, so it is safe to run against a production `.env`. It is
-not yet wired into CI; that belongs in the infrastructure gate (separate item).
+reads or prints a value, so it is safe to run against a production `.env`. CI
+runs it on every PR that touches `infra/`, as part of `make check` in the
+required `Checks / required-checks` gate, so a forbidden key added to a service
+fails the PR even when nothing outside `infra/` changed.
 
 ## Environment Files Explained
 

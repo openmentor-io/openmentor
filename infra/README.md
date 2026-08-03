@@ -78,7 +78,10 @@ scales/deploys independently of the API; S3/SES scale on their own.
 infra/
 ├── docker-compose.yml          # Production stack
 ├── docker-compose.dev.yml      # Dev overlay (local image tags, HTTP-only traefik, dev postgres creds, opt-in observability)
-├── postgres-backup/            # Backup sidecar image (pg_dump → S3, see Backups)
+├── Makefile                    # `make check` — the fast infra checks the required CI gate runs
+├── check-service-env.sh        # Per-service env allowlist + secret-ownership check (P10)
+├── env-allowlist.txt           # The allowlist it enforces (machine-checked half of the env contract)
+├── postgres-backup/            # Backup sidecar image (pg_dump → S3, see Backups) + its tests
 ├── .env.example                # Local development env template
 ├── .env.production.example     # Production env template (deploy creds + build args + runtime secrets)
 ├── deploy.sh                   # Deploy [frontend|backend|infra|all] to the VM (health checks + auto-rollback)

@@ -17,9 +17,9 @@
 #   ./check-service-env.sh              # check
 #   ./check-service-env.sh --self-test  # prove the check actually fails
 #
-# Not yet wired into CI: it belongs in the infrastructure gate alongside
-# `docker compose config -q` (.github/workflows/checks.yml, tracked as a
-# separate item). Until then run it locally after touching compose env blocks.
+# Runs in CI via `make check` (the "Infra: checks" step of
+# .github/workflows/checks.yml, the required gate) on any PR touching infra/.
+# Locally: `cd infra && make check`.
 # ============================================================================
 set -euo pipefail
 
