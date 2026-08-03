@@ -122,11 +122,13 @@ const tagsToOptions = (tags: string[]): TagOption[] =>
 const tagOptions = tagsToOptions(filters.tags)
 const MAX_TAGS = 5
 
+// Mirrors the API's https_url binding tag (api/internal/models/validation.go).
+// Only https is accepted: the URL is rendered into an href in the request
+// emails, so a scheme the API would reject must not look valid here.
 function isValidUrl(value?: string): boolean {
   if (!value) return true
   try {
-    const url = new URL(value)
-    return url.protocol === 'http:' || url.protocol === 'https:'
+    return new URL(value).protocol === 'https:'
   } catch {
     return false
   }
@@ -946,7 +948,7 @@ export default function RegisterMentorForm({
                 className={classNames('field', errors.calendarUrl && 'field-error')}
               />
 
-              {errors.calendarUrl && fieldError('This must be a valid URL')}
+              {errors.calendarUrl && fieldError('This must be a valid https:// URL')}
             </div>
 
             <div>

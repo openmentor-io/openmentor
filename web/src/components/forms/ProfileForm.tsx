@@ -103,11 +103,13 @@ const tagsToOptions = (tags: string[]): TagOption[] =>
 // All available tags as options
 const tagOptions = tagsToOptions(filters.tags)
 
+// Mirrors the API's https_url binding tag (api/internal/models/validation.go).
+// Only https is accepted: the URL is rendered into an href in the request
+// emails, so a scheme the API would reject must not look valid here.
 function isValidUrl(value?: string): boolean {
   if (!value) return true
   try {
-    const url = new URL(value)
-    return url.protocol === 'http:' || url.protocol === 'https:'
+    return new URL(value).protocol === 'https:'
   } catch {
     return false
   }
@@ -611,7 +613,7 @@ export default function ProfileForm({
         </label>
 
         {errors.calendarUrl && (
-          <div className="text-sm text-danger mt-3 mb-2">This must be a valid URL</div>
+          <div className="text-sm text-danger mt-3 mb-2">This must be a valid https:// URL</div>
         )}
 
         <input

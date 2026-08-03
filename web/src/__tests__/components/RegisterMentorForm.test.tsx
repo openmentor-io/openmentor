@@ -125,6 +125,34 @@ describe('RegisterMentorForm', () => {
     expect(screen.getByLabelText(/Booking link to your calendar/i)).toBeInTheDocument()
   })
 
+  // The API binds calendarUrl with its https_url tag, so anything it would
+  // reject has to fail here rather than come back as a 400.
+  it.each([
+    ['http://calendly.com/john', false],
+    ['javascript:alert(1)', false],
+    ['not-a-url', false],
+    ['https://calendly.com/john', true],
+  ])('accepts %s as a calendar URL: %s', async (value, accepted) => {
+    render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Booking link to your calendar/i), {
+        target: { value },
+      })
+      fireEvent.click(screen.getByTestId('turnstile'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Create my profile/i }))
+    })
+
+    const error = screen.queryByText(/must be a valid https:\/\/ URL/i)
+    if (accepted) {
+      expect(error).not.toBeInTheDocument()
+    } else {
+      expect(error).toBeInTheDocument()
+    }
+  })
+
   it('renders submit button', () => {
     render(<RegisterMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 
