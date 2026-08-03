@@ -51,7 +51,7 @@ function redactPropertyString(key: string, value: string): string {
  * `properties.token` is where the SDK puts the project key, and it derives the
  * capture body's `api_key` from exactly that field — so the `token` key rule
  * would have rewritten it to `[REDACTED]` and PostHog would have rejected every
- * batch. That is an analytics outage, not extra safety (see D40).
+ * batch. That is an analytics outage, not extra safety (see D52).
  *
  * Exempted by VALUE, not by key name: only the configured public project key
  * passes, so any other `token` property is still treated as a credential. The
