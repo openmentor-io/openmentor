@@ -31,6 +31,17 @@ before `up`:
 grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime
 ```
 
+Because it is a full plaintext copy of `.env`, `.env.runtime` holds every
+secret `.env` does — treat it as a secret file with a lifetime rather than a
+build artifact. Only `docker compose` needs it, and nothing needs it once the
+stack is down, so delete it when you finish (the line above or `./deploy-dev.sh`
+regenerates it, so nothing is lost). Same for a `.env` you copied from
+`.env.example` purely to run `docker compose config -q`:
+
+```bash
+rm -f .env.runtime     # from infra/
+```
+
 ## Environment Files Explained
 
 ### 1. `.env` (Local Development)

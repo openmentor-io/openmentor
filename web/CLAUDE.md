@@ -284,7 +284,8 @@ npm run build          # Verify build works
 
 ### Node Version
 - **Required**: Node 26.x (specified in package.json engines)
-- Docker uses `node:26.5.0-alpine3.23`
+- Docker uses `node:26.5.1-alpine3.23` (all three stages; bump `engines` and the
+  CI `node-version` pins together with it)
 
 ## Misc
 
