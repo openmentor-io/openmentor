@@ -117,11 +117,15 @@ func (s *StorageClient) UploadImageBytes(ctx context.Context, imageBytes []byte,
 		zap.Int("size_bytes", len(imageBytes)),
 	)
 
-	// Construct public URL
-	// Format: {endpoint}/{bucket}/{key}
-	imageURL := fmt.Sprintf("%s/%s/%s", s.endpoint, s.bucketName, key)
+	return s.publicURL(key), nil
+}
 
-	return imageURL, nil
+// publicURL is the address a stored object is served from:
+// {endpoint}/{bucket}/{key}. Split out so the format has exactly one
+// definition — a test that rebuilds it inline proves nothing about the URL
+// callers actually get.
+func (s *StorageClient) publicURL(key string) string {
+	return fmt.Sprintf("%s/%s/%s", s.endpoint, s.bucketName, key)
 }
 
 // ValidateImageType validates the declared image content type.

@@ -251,8 +251,9 @@ func TestDecodeImageData(t *testing.T) {
 	}
 }
 
-// TestUploadImage_URLConstruction tests URL construction logic
-func TestUploadImage_URLConstruction(t *testing.T) {
+// TestPublicURL pins the address callers get back from an upload — the frontend
+// and the CDN origin both depend on the {endpoint}/{bucket}/{key} shape.
+func TestPublicURL(t *testing.T) {
 	client := &StorageClient{
 		endpoint:   "https://s3.example.com",
 		bucketName: "test-bucket",
@@ -282,11 +283,8 @@ func TestUploadImage_URLConstruction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Construct URL using same logic as UploadImage
-			imageURL := client.endpoint + "/" + client.bucketName + "/" + tt.key
-
-			if imageURL != tt.expectedURL {
-				t.Errorf("constructed URL = %v, want %v", imageURL, tt.expectedURL)
+			if imageURL := client.publicURL(tt.key); imageURL != tt.expectedURL {
+				t.Errorf("publicURL(%q) = %v, want %v", tt.key, imageURL, tt.expectedURL)
 			}
 		})
 	}
