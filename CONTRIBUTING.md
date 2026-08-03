@@ -218,8 +218,9 @@ isn't loaded by default:
 cd infra && docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
 ```
 
-(That needs `.env` and `.env.runtime` present — copy both from `.env.example`,
-then delete them afterwards. `./deploy-dev.sh` does this for you.)
+(That needs `.env` present — copy it from `.env.example`, then delete it
+afterwards. `./deploy-dev.sh` does this for you.) If you touched a service's
+`environment:` block, also run `cd infra && ./check-service-env.sh`.
 
 A note on the Go linter: `make lint` refuses to run if the `golangci-lint` on
 your `PATH` isn't the pinned version, because different builds report different

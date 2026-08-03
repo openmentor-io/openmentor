@@ -155,10 +155,10 @@ if [ -n "\$BACKEND_TARGET_TAG" ]; then
     echo "🔄 Rolling backend back to: \$BACKEND_TARGET_TAG"
 fi
 
-# Regenerate .env.runtime (container env WITHOUT the tag lines — tags only
-# affect compose interpolation, so only retagged services get recreated)
-grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime
-chmod 600 .env.runtime
+# SECURITY (P10): .env.runtime is gone - services declare explicit per-service
+# environment allowlists in docker-compose.yml. Remove any copy left by a
+# pre-P10 deploy so a stale full-secret file does not linger on the VM.
+rm -f .env.runtime
 
 # Registry login happens below via a token minted on THIS machine and
 # piped over ssh stdin — the VM has no aws CLI and no AWS credentials.

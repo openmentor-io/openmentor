@@ -58,14 +58,14 @@ echo "Deploying with:"
 echo "  • Frontend image tag: $FRONTEND_IMAGE_TAG"
 echo "  • Backend image tag: $BACKEND_IMAGE_TAG"
 
-# Regenerate .env.runtime: what the containers read via compose `env_file`.
-# It is .env WITHOUT the image-tag lines, so a tag-only deploy changes only
-# the retagged service's compose config (convergence recreates nothing else).
-regen_env_runtime() {
-    grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime
-    chmod 600 .env.runtime
-}
-regen_env_runtime
+# SECURITY (P10): .env.runtime is gone. It was a second full copy of every
+# production secret on disk, handed wholesale to six containers via compose
+# `env_file`. Services now declare explicit `environment:` allowlists in
+# docker-compose.yml (enforced by check-service-env.sh) and .env alone drives
+# compose interpolation. Image tags still never reach container env, so a
+# tag-only deploy still recreates only the retagged service.
+# Delete any copy left behind by a pre-P10 deploy.
+rm -f .env.runtime
 
 # Ensure the Postgres data volume exists (idempotent). It is declared
 # `external` in docker-compose.yml so `docker compose down -v` can never
@@ -185,7 +185,6 @@ if [ $HEALTH_CHECK_FAILED -eq 1 ]; then
     # before it touched .env)
     if [ -f .env.backup ]; then
         cp .env.backup .env
-        regen_env_runtime
         echo "Restored previous .env file"
     else
         echo "❌ No backup .env file found, cannot rollback!"
