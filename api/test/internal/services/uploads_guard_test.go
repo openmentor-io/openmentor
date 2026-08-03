@@ -52,7 +52,7 @@ var _ services.RegistrationMentorRepository = (*recordingRegistrationRepo)(nil)
 // the registrant had been told they succeeded.
 func TestRegistrationWithPhotoRejectedWhenUploadsUnconfigured(t *testing.T) {
 	repo := &recordingRegistrationRepo{}
-	svc := services.NewRegistrationService(repo, nil, &config.Config{}, nil, &capturingTracker{})
+	svc := services.NewRegistrationService(repo, nil, &config.Config{}, captchaOKClient{}, &capturingTracker{})
 
 	req := &models.RegisterMentorRequest{
 		Name:  "John Doe",

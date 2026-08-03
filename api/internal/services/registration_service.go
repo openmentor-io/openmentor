@@ -73,17 +73,14 @@ func NewRegistrationService(
 }
 
 // resolveProfilePhoto vets the submitted profile picture BEFORE the mentor row
-// is written (and before the single-use captcha token is spent): storage must
-// exist, and the image itself must pass validation and classification. Returns
-// the prepared photo (nil when none was submitted), or the rejection response
-// together with its error.
+// is written: storage must exist, and the image must pass validation and
+// classification. Returns the prepared photo (nil when none was submitted), or
+// the rejection response together with its error.
 //
-// Both checks have to happen here rather than after the INSERT. The upload is
-// fired into a detached goroutine once the row has committed, so an
-// unconfigured storage client used to mean the registrant was told they had
-// succeeded and the nil dereference then killed the whole process (recover is
-// per-goroutine — RecoveryMiddleware never saw it), and the image used to be
-// classified — i.e. fully decoded — with no size bound at all.
+// Both checks have to precede the INSERT because the upload itself is fired
+// into a detached goroutine once the row has committed — too late to tell the
+// registrant anything, and a nil storage client there takes the process down
+// (recover is per-goroutine, so RecoveryMiddleware never sees it).
 func (s *RegistrationService) resolveProfilePhoto(
 	ctx context.Context,
 	req *models.RegisterMentorRequest,
@@ -141,13 +138,6 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		"has_profile_picture": req.ProfilePicture.Image != "",
 	}
 
-	// 0. Resolve the submitted photo before anything else — see
-	// resolveProfilePhoto for why this cannot wait until after the INSERT.
-	photo, resp, err := s.resolveProfilePhoto(ctx, req, baseProperties)
-	if err != nil {
-		return resp, err
-	}
-
 	// 1. Verify captcha (Cloudflare Turnstile)
 	if err := s.captchaVerifier.Verify(req.CaptchaToken); err != nil {
 		metrics.MentorRegistrations.WithLabelValues("captcha_failed").Inc()
@@ -160,7 +150,16 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		}, fmt.Errorf("captcha verification failed: %w", err)
 	}
 
-	// 2. Validate the chosen username (optional; the frontend pre-checks
+	// 2. Resolve the submitted photo. It has to happen before the INSERT (see
+	// resolveProfilePhoto) but never before the captcha: decoding the image is
+	// the most expensive thing this endpoint does, and running it first would
+	// make it an unauthenticated image-decode endpoint.
+	photo, photoResp, photoErr := s.resolveProfilePhoto(ctx, req, baseProperties)
+	if photoErr != nil {
+		return photoResp, photoErr
+	}
+
+	// 3. Validate the chosen username (optional; the frontend pre-checks
 	// availability, but the DB unique constraint in CreateMentor is the
 	// authoritative backstop against races).
 	username := slug.NormalizeUsername(req.Username)
@@ -178,7 +177,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 	// Trim the optional free-text contact details
 	contact := strings.TrimSpace(req.PreferredContact)
 
-	// 3. Get tag IDs for selected tags
+	// 4. Get tag IDs for selected tags
 	var tagIDs []string
 	for _, tagName := range req.Tags {
 		tagID, err := s.mentorRepo.GetTagIDByName(ctx, tagName)
@@ -189,7 +188,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		}
 	}
 
-	// 4. Create mentor record in PostgreSQL
+	// 5. Create mentor record in PostgreSQL
 	fields := map[string]interface{}{
 		"name":              strings.TrimSpace(req.Name),
 		"email":             req.Email,
@@ -250,14 +249,14 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		}
 	}
 
-	// 5. Upload the already-validated photo bytes (non-blocking on failure).
+	// 6. Upload the already-validated photo bytes (non-blocking on failure).
 	// Images are keyed by the mentor UUID, not the slug — usernames are
 	// changeable.
 	if photo != nil {
 		s.storageClient.UploadImageAllSizesAsync(ctx, photo.bytes, photo.contentType, mentorID)
 	}
 
-	// 6. Trigger mentor created webhook (non-blocking)
+	// 7. Trigger mentor created webhook (non-blocking)
 	trigger.CallAsync(ctx, s.config.EventTriggers.MentorCreatedTriggerURL, mentorID, s.config.Worker.AuthToken, s.httpClient)
 
 	metrics.MentorRegistrations.WithLabelValues("success").Inc()
