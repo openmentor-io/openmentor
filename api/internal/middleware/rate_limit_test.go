@@ -121,10 +121,9 @@ func TestTokenRateLimit_KeyedPerToken(t *testing.T) {
 	}
 }
 
-// TestTokenRateLimit_MalformedDoesNotConsumeBudget: the limiter used to run
-// before validation, so garbage payloads spent the platform-wide budget and
-// valid resends were rejected. Verified against the running stack with four
-// malformed bodies producing 400, 400, 429, 429.
+// TestTokenRateLimit_MalformedDoesNotConsumeBudget: a payload carrying no usable
+// token must reach the handler's rejection without spending anyone's budget,
+// otherwise a flood of garbage locks out every real resend.
 func TestTokenRateLimit_MalformedDoesNotConsumeBudget(t *testing.T) {
 	r := newTokenLimitedRouter(NewRateLimiter(0.0001, 1))
 

@@ -144,15 +144,14 @@ const maxRateLimitKeyLen = 256
 //
 // SECURITY / CORRECTNESS: these endpoints sit behind the Next.js BFF, so every
 // request reaches this API from the BFF's single source IP. An IP-keyed limiter
-// therefore collapses into ONE global bucket and locks the whole platform out —
-// four requests with four different emails were enough to 429 the fifth mentor.
-// Keying on a field of the payload both fixes that and matches the real abuse
+// therefore collapses into ONE global bucket and locks the whole platform out.
+// Keying on a field of the payload both avoids that and matches the real abuse
 // being guarded against: bombing ONE address or ONE mentor's inbox.
 //
 // The body is buffered (bounded) and restored so the downstream handler still
 // reads it. A missing, blank, non-string or over-long key is left for the
-// handler to reject and never consumes a token — which is also why a flood of
-// malformed payloads can no longer exhaust the budget for valid requests.
+// handler to reject and never consumes a token, so a flood of malformed payloads
+// cannot exhaust the budget for valid requests.
 func FieldRateLimitMiddleware(rl *RateLimiter, field string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		body, err := io.ReadAll(io.LimitReader(c.Request.Body, bodyKeyMaxBody))

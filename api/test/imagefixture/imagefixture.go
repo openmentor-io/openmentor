@@ -18,9 +18,8 @@ import (
 
 // BombPNG returns a valid 1-bit grayscale PNG of the declared size whose
 // scanlines are all zero. It deflates to a few kilobytes while a full decode
-// has to allocate width*height pixels: 10000x10000 measures ~12 KiB on the wire
-// and ~95 MiB decoded, the same ~8,200x amplification the audit measured on a
-// 40000x40000 file (397 MiB against a 512 MiB container).
+// has to allocate width*height pixels — 10000x10000 is ~12 KiB on the wire and
+// ~95 MiB decoded, an ~8,200x amplification.
 func BombPNG(tb testing.TB, width, height int) []byte {
 	tb.Helper()
 	// bit depth 1, grayscale: one bit per pixel on the wire.
