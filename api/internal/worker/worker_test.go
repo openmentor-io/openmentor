@@ -133,15 +133,15 @@ func TestJobsAllowedWhenNoTokenConfigured(t *testing.T) {
 	}
 }
 
-func TestNewCronRegistersFourJobs(t *testing.T) {
+func TestNewCronRegistersEveryJob(t *testing.T) {
 	env := newJobsTestEnv()
 
 	c, err := NewCron(env.handlers)
 	if err != nil {
 		t.Fatalf("NewCron failed (invalid schedule expression?): %v", err)
 	}
-	if got := len(c.Entries()); got != 4 {
-		t.Errorf("registered %d cron entries, want 4", got)
+	if want := len(env.handlers.CronJobs()); len(c.Entries()) != want {
+		t.Errorf("registered %d cron entries, want %d", len(c.Entries()), want)
 	}
 }
 

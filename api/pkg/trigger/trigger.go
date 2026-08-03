@@ -9,6 +9,7 @@ import (
 
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/safego"
 	"go.uber.org/zap"
 )
 
@@ -36,8 +37,10 @@ func CallAsync(ctx context.Context, triggerURL, recordID, authToken string, http
 	}
 	ctx = context.WithoutCancel(ctx)
 
-	// Run in goroutine to avoid blocking
-	go func() {
+	// Run in goroutine to avoid blocking. safego.Go, not a bare goroutine:
+	// a panic here has no caller left to recover it and would kill the whole
+	// process (recover is per-goroutine).
+	safego.Go("trigger_call_async", func() {
 		targetURL := fmt.Sprintf("%s%s", triggerURL, recordID)
 
 		logger.Info("Calling trigger URL",
@@ -77,7 +80,7 @@ func CallAsync(ctx context.Context, triggerURL, recordID, authToken string, http
 				zap.String("record_id", recordID),
 				zap.Int("status_code", resp.StatusCode))
 		}
-	}()
+	})
 }
 
 // CallAsyncWithPayload calls a trigger URL asynchronously with a JSON
@@ -93,8 +96,8 @@ func CallAsyncWithPayload(ctx context.Context, triggerURL string, payload interf
 	}
 	ctx = context.WithoutCancel(ctx)
 
-	// Run in goroutine to avoid blocking
-	go func() {
+	// Run in goroutine to avoid blocking (see CallAsync for why safego).
+	safego.Go("trigger_call_async_with_payload", func() {
 		jsonData, err := json.Marshal(payload)
 		if err != nil {
 			logger.Error("Failed to marshal trigger payload",
@@ -136,5 +139,5 @@ func CallAsyncWithPayload(ctx context.Context, triggerURL string, payload interf
 				zap.String("url", triggerURL),
 				zap.Int("status_code", resp.StatusCode))
 		}
-	}()
+	})
 }

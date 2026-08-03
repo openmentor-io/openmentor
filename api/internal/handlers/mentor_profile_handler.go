@@ -166,7 +166,16 @@ func (h *MentorProfileHandler) UploadPicture(c *gin.Context) {
 		&req,
 	)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "Failed to upload picture", err)
+		switch {
+		case errors.Is(err, services.ErrUploadsUnavailable):
+			respondError(c, http.StatusServiceUnavailable, "Profile picture uploads are temporarily unavailable", err)
+		case errors.Is(err, apperrors.ErrInvalidInput):
+			// The image itself was rejected (unsupported type, too many
+			// pixels, ...) — the mentor can act on that, so say what it was.
+			respondError(c, http.StatusBadRequest, err.Error(), err)
+		default:
+			respondError(c, http.StatusInternalServerError, "Failed to upload picture", err)
+		}
 		return
 	}
 

@@ -10,6 +10,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/internal/middleware"
 	"github.com/openmentor-io/openmentor/api/internal/models"
 	"github.com/openmentor-io/openmentor/api/internal/services"
+	apperrors "github.com/openmentor-io/openmentor/api/pkg/errors"
 )
 
 type AdminMentorsHandler struct {
@@ -209,6 +210,18 @@ func (h *AdminMentorsHandler) respondServiceError(c *gin.Context, err error) {
 
 	if errors.Is(err, services.ErrMentorAlreadyActivated) {
 		respondError(c, http.StatusConflict, "Mentor has already been activated and cannot be returned to draft", err)
+		return
+	}
+
+	if errors.Is(err, services.ErrUploadsUnavailable) {
+		respondError(c, http.StatusServiceUnavailable, "Profile picture uploads are temporarily unavailable", err)
+		return
+	}
+
+	// A rejected image (unsupported type, too many pixels, ...) is the
+	// moderator's input, not a server fault.
+	if errors.Is(err, apperrors.ErrInvalidInput) {
+		respondError(c, http.StatusBadRequest, err.Error(), err)
 		return
 	}
 

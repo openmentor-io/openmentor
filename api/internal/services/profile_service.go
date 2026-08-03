@@ -151,6 +151,32 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 // UploadPictureByMentorId uploads a profile picture using Mentor ID (UUID) for session-based auth.
 // Images are keyed by the mentor UUID (immutable), not the slug (user-changeable).
 func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID string, req *models.UploadProfilePictureRequest) (string, error) {
+	// No object storage, no upload — reject before any DB read or write instead
+	// of dereferencing a nil client (see ErrUploadsUnavailable).
+	if s.storageClient == nil {
+		metrics.ProfilePictureUploads.WithLabelValues("uploads_unavailable").Inc()
+		logger.Error("Profile picture upload rejected: object storage is not configured",
+			zap.String("mentor_id", mentorID))
+		return "", ErrUploadsUnavailable
+	}
+
+	// Validate and classify the image FIRST: this endpoint takes nothing but a
+	// mentor session (no captcha), so a rejected upload must cost neither the
+	// three S3 objects nor an unbounded decode.
+	photo, err := preparePhoto(ctx, req.Image, req.ContentType)
+	if err != nil {
+		metrics.ProfilePictureUploads.WithLabelValues("invalid_image").Inc()
+		s.tracker.Track(ctx, analytics.EventMentorProfilePictureUploaded, analytics.MentorDistinctID(mentorID), map[string]interface{}{
+			"mentor_id":    mentorID,
+			"content_type": req.ContentType,
+			"outcome":      "invalid_image",
+		})
+		logger.Warn("Profile picture rejected",
+			zap.Error(err),
+			zap.String("mentor_id", mentorID))
+		return "", err
+	}
+
 	// Verify the mentor still exists BEFORE writing any images. Keying images by
 	// UUID (D29) removed the slug lookup that used to double as this existence
 	// check — without it, a deleted mentor holding a still-valid session cookie
@@ -160,9 +186,9 @@ func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID s
 		return "", fmt.Errorf("mentor not found: %w", err)
 	}
 
-	// Upload to S3-compatible object storage in 3 sizes: full, large, small (synchronous)
-	// Validation (type and size) is handled automatically by UploadImageAllSizes
-	fullImageURL, err := s.storageClient.UploadImageAllSizes(ctx, req.Image, mentorID, req.ContentType)
+	// Upload to S3-compatible object storage in 3 sizes: full, large, small
+	// (synchronous), reusing the bytes preparePhoto already decoded.
+	fullImageURL, err := s.storageClient.UploadImageAllSizesBytes(ctx, photo.bytes, mentorID, photo.contentType)
 	if err != nil {
 		metrics.ProfilePictureUploads.WithLabelValues("error").Inc()
 		s.tracker.Track(ctx, analytics.EventMentorProfilePictureUploaded, analytics.MentorDistinctID(mentorID), map[string]interface{}{
@@ -186,10 +212,9 @@ func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID s
 	//	 _ = trigger.CallAsync                              // Keep for future use
 	// }()
 
-	// Auto-detect the photo display style ('hero' on light uniform
-	// backgrounds, 'frame' otherwise) and store it on the mentor row.
-	// Classification failures never fail the upload — default to 'frame'.
-	photoStyle := classifyPhotoStyle(req.Image)
+	// Store the display style detected by preparePhoto ('hero' on light uniform
+	// backgrounds, 'frame' otherwise) on the mentor row.
+	photoStyle := photo.style
 	if err := s.mentorRepo.Update(ctx, mentorID, map[string]interface{}{"photo_style": photoStyle}); err != nil {
 		logger.Error("Failed to store photo style after picture upload",
 			zap.Error(err),

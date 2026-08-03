@@ -29,6 +29,9 @@ type JobSummary struct {
 	// deactivate-pending-mentors only.
 	MentorsDeactivated int `json:"mentors_deactivated,omitempty"`
 
+	// finalize-stuck-registrations only.
+	MentorsFinalized int `json:"mentors_finalized,omitempty"`
+
 	// randomize-sort-order only.
 	SortOrdersRandomized int `json:"sort_orders_randomized,omitempty"`
 	HighlightedPinned    int `json:"highlighted_pinned,omitempty"`

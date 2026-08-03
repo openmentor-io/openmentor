@@ -1,6 +1,7 @@
 package models_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -38,12 +39,25 @@ func (m *mockRow) Scan(dest ...interface{}) error {
 				*d = &temp
 			}
 		case *int:
+			if v == nil {
+				// pgx refuses a NULL into a non-pointer destination; mirror
+				// that so a nullable column scanned into *int fails here too.
+				return fmt.Errorf("cannot scan NULL into *int")
+			}
 			if num, ok := v.(int); ok {
 				*d = num
 			}
 		case *int64:
 			if num, ok := v.(int64); ok {
 				*d = num
+			}
+		case **int:
+			// Handle nullable int fields (sort_order)
+			if v == nil {
+				*d = nil
+			} else if num, ok := v.(int); ok {
+				temp := num
+				*d = &temp
 			}
 		case **int64:
 			// Handle nullable int64 fields
@@ -297,5 +311,52 @@ func TestScanMentor_Error(t *testing.T) {
 	_, err := models.ScanMentor(row)
 	if err != pgx.ErrNoRows {
 		t.Errorf("expected pgx.ErrNoRows, got %v", err)
+	}
+}
+
+// TestScanMentor_NullSortOrder covers the row shape every registration
+// creates: mentors.sort_order is nullable and stays NULL until the
+// new-mentor-watcher finalization randomizes it. Scanning that NULL into the
+// plain int it used to target failed the whole row, which took out the login
+// lookup (GetByEmail) and the own-profile read for the affected mentor.
+func TestScanMentor_NullSortOrder(t *testing.T) {
+	createdAt := time.Now()
+
+	row := &mockRow{
+		values: []interface{}{
+			"550e8400-e29b-41d4-a716-446655440000",
+			nil,        // airtable_id
+			11,         // legacy_id
+			"fresh-11", // slug
+			"Fresh Registrant",
+			"Engineer",
+			"Company",
+			"About",
+			"Description",
+			"Skills",
+			"0-2",
+			"free",
+			"draft",   // status: not finalized yet
+			nil,       // tags
+			"",        // calendar_url
+			nil,       // sort_order IS NULL
+			createdAt, // created_at
+			createdAt, // updated_at
+			0,         // mentee_count
+			0,         // legacy_sessions_count
+			"frame",   // photo_style
+			nil,       // moderation_note
+		},
+	}
+
+	mentor, err := models.ScanMentor(row)
+	if err != nil {
+		t.Fatalf("ScanMentor with NULL sort_order failed: %v", err)
+	}
+	if mentor.SortOrder != 0 {
+		t.Errorf("expected SortOrder 0 for a NULL column, got %d", mentor.SortOrder)
+	}
+	if mentor.Status != "draft" {
+		t.Errorf("expected status draft, got %q", mentor.Status)
 	}
 }

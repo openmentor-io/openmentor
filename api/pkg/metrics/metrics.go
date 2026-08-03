@@ -183,7 +183,10 @@ func Init(serviceName string) {
 			Name: "openmentor_photo_classifications_total",
 			Help: "Total number of profile photo style classifications",
 		},
-		[]string{"result"}, // result: hero | frame | error
+		// busy = the decode was shed because every decode slot was taken
+		// (imageclass.ErrDecoderBusy); the photo is still stored, with the
+		// default style.
+		[]string{"result"}, // result: hero | frame | error | busy
 	)
 
 	// Mentor Auth Metrics

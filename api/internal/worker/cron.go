@@ -33,25 +33,29 @@ type CronJob struct {
 	Run      CronJobFunc
 }
 
-// CronJobs returns the four scheduled jobs, ported from the func app's
-// timer-triggered functions. The schedules are the func app's NCRONTAB
-// expressions verbatim (6 fields, seconds first), taken from each
-// function.json timer definition:
+// CronJobs returns the scheduled jobs. The first four are ported from the func
+// app's timer-triggered functions and keep its NCRONTAB expressions verbatim
+// (6 fields, seconds first), taken from each function.json timer definition:
 //
 //	sessions-watcher            "0 30 8 * * *"    daily 08:30
 //	update-status-reminder      "0 0 10 * * Wed"  Wednesdays 10:00
 //	deactivate-pending-mentors  "0 0 10 * * Wed"  Wednesdays 10:00
 //	randomize-sort-order        "0 0 1 * * *"     daily 01:00
+//
+// finalize-stuck-registrations has no func-app counterpart: it runs every 10
+// minutes because it is the retry for a lost registration trigger, and a
+// locked-out new mentor must not wait for a daily pass.
 func (h *Handlers) CronJobs() []CronJob {
 	return []CronJob{
 		{Name: "sessions-watcher", Schedule: "0 30 8 * * *", Run: h.SessionsWatcher},
 		{Name: "update-status-reminder", Schedule: "0 0 10 * * Wed", Run: h.UpdateStatusReminder},
 		{Name: "deactivate-pending-mentors", Schedule: "0 0 10 * * Wed", Run: h.DeactivatePendingMentors},
 		{Name: "randomize-sort-order", Schedule: "0 0 1 * * *", Run: h.RandomizeSortOrder},
+		{Name: "finalize-stuck-registrations", Schedule: "0 */10 * * * *", Run: h.FinalizeStuckRegistrations},
 	}
 }
 
-// NewCron builds the scheduler and registers the four ported jobs.
+// NewCron builds the scheduler and registers every job in CronJobs.
 func NewCron(h *Handlers) (*Cron, error) {
 	c := &Cron{
 		// Azure NCRONTAB expressions include a seconds field, so use a
