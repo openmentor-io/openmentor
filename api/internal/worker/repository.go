@@ -198,6 +198,12 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 	// this job — writing it unconditionally would clobber a concurrent rename
 	// and leave a dangling history row. The CASE preserves whatever slug the row
 	// currently holds when it's already set.
+	//
+	// status = 'draft' in the WHERE makes the write safe to repeat: the replay in
+	// finalize-stuck-registrations selects rows and finalizes them a moment
+	// later, and a mentor who confirms in that gap must not be pushed back to
+	// draft with a fresh token. Both callers only ever finalize a draft row, so
+	// this excludes nothing legitimate.
 	query := `
 		UPDATE mentors SET
 			name = $1,
@@ -210,7 +216,7 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 			email_confirmation_token = $6,
 			email_confirmation_expires_at = $7,
 			updated_at = NOW()
-		WHERE id = $8
+		WHERE id = $8 AND status = 'draft'
 	`
 	_, err := r.pool.Exec(ctx, query,
 		p.Name, p.PreferredContact,
@@ -476,15 +482,29 @@ func (r *Repository) ListMentorsToDeactivate(ctx context.Context) ([]JobMentor, 
 	return mentors, nil
 }
 
-// ListStuckDraftRegistrations returns registrations whose new-mentor-watcher
-// finalization never completed: still 'draft', still carrying the INSERT's NULL
-// sort_order, no confirmation token issued, and past the grace window. The API
-// dispatches that finalization through a bare goroutine (pkg/trigger.CallAsync)
-// with no persistence and no retry, so a lost HTTP call — or a confirmation
-// email that failed to send, since finalizeNewMentor commits nothing until it
-// has gone out — leaves exactly this row shape: a mentor with no link and no way
-// in, whom no other job touches (randomize-sort-order only selects
-// status='active').
+// ListStuckDraftRegistrations returns draft registrations that hold no usable
+// confirmation link, which is a dead end for the mentor: without the token from
+// that link even /mentors/confirm/resend cannot help them, and no other job
+// touches the row (randomize-sort-order only selects status='active').
+//
+// Two shapes qualify, and they need different age rules:
+//
+//   - Finalization never ran: NULL sort_order and no token, the shape the INSERT
+//     leaves. The API dispatches finalization through a bare goroutine
+//     (pkg/trigger.CallAsync) with no persistence and no retry, so a lost HTTP
+//     call lands here. Unambiguous — that mentor was never emailed anything — so
+//     it is replayed at any age.
+//   - A token was issued but its 24h window has passed. Either the email never
+//     went out (the pre-fix finalization order wrote the token first, so live
+//     rows can be in this state) or it went out and was never clicked; nothing
+//     in the schema distinguishes them without a new column, which Phase 0
+//     cannot add. So re-issue, but only within 3 days of signing up: at a 24h
+//     TTL that is at most two extra emails, after which an abandoned
+//     registration is left alone instead of being nagged forever.
+//
+// A mentor a moderator returned to draft matches neither leg (they confirmed
+// once, so their token is NULL, and finalization already set their sort_order) —
+// they must not be asked to confirm their email again.
 //
 // activated_at IS NULL keeps a formerly-live profile out of the replay:
 // finalization can DECLINE a duplicate email, which must never happen to a
@@ -494,10 +514,14 @@ func (r *Repository) ListStuckDraftRegistrations(ctx context.Context) ([]JobMent
 		SELECT m.id, m.name, COALESCE(m.email::text, '')
 		FROM mentors m
 		WHERE m.status = 'draft'
-			AND m.sort_order IS NULL
-			AND m.email_confirmation_token IS NULL
 			AND m.activated_at IS NULL
 			AND m.created_at < NOW() - INTERVAL '10 minutes'
+			AND (
+				(m.sort_order IS NULL AND m.email_confirmation_token IS NULL)
+				OR (m.email_confirmation_token IS NOT NULL
+					AND m.email_confirmation_expires_at < NOW()
+					AND m.created_at > NOW() - INTERVAL '3 days')
+			)
 		ORDER BY m.created_at ASC
 	`
 	mentors, err := r.listJobMentors(ctx, query)

@@ -9,13 +9,12 @@ import (
 )
 
 // FinalizeStuckRegistrations is the safety net under the new-mentor-watcher
-// trigger. The API fires that trigger from a detached goroutine with no
-// persistence, no retry and no shutdown drain, so one lost HTTP call leaves a
-// registration finalized by nobody: status 'draft', sort_order NULL, no
-// confirmation token — the mentor never receives a link and can never get in.
-// This job finds those rows (see ListStuckDraftRegistrations) and replays the
-// SAME idempotent finalization the callback performs, so a dropped trigger
-// converges within one cron interval instead of never.
+// trigger, which the API fires from a detached goroutine with no persistence, no
+// retry and no shutdown drain. It finds draft registrations left holding no
+// usable confirmation link (ListStuckDraftRegistrations documents the two shapes
+// that qualify) and replays the SAME idempotent finalization the callback
+// performs, so a dropped trigger or an undelivered link converges within one
+// cron interval instead of never.
 func (h *Handlers) FinalizeStuckRegistrations(ctx context.Context) (JobSummary, error) {
 	const job = "finalize-stuck-registrations"
 	summary := JobSummary{Job: job}

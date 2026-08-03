@@ -166,12 +166,12 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		confirmExpiresAt = &expiresAt
 	}
 
-	// The email goes out BEFORE the row is written, and the order is the whole
-	// retry story: the finalization UPDATE is what takes a registration out of
-	// finalize-stuck-registrations' replay set, so committing it first and then
-	// failing to send left a mentor holding a token they were never told about,
-	// which no job would ever look at again. Failing here instead leaves the row
-	// untouched, and the next cron pass replays it with a fresh token.
+	// The email goes out BEFORE the row is written, because the finalization
+	// UPDATE is what takes a registration out of the replay set: failing here
+	// leaves the row untouched and the next cron pass retries it with a fresh
+	// token, whereas writing first would leave a mentor holding a token they were
+	// never told about. The cost is a possible duplicate email if the UPDATE then
+	// fails, which the next pass supersedes.
 	//
 	// A fresh registration only gets the email confirmation request; the
 	// "application received" mentor email and the moderator notification

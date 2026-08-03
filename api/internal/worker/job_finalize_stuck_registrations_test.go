@@ -85,6 +85,37 @@ func TestFinalizeStuckRegistrationsRetriesFailedConfirmationEmail(t *testing.T) 
 	}
 }
 
+// TestFinalizeStuckRegistrationsSupersedesADeadToken covers the replay's second
+// leg (ListStuckDraftRegistrations): a draft mentor whose token exists but whose
+// link is dead. The replay has to mint a NEW token rather than re-send the dead
+// one, because that is the only thing that gets the mentor a working link —
+// /mentors/confirm/resend needs the token from a link they never got.
+func TestFinalizeStuckRegistrationsSupersedesADeadToken(t *testing.T) {
+	env := newJobsTestEnv()
+	stuck := testMentor("m1")
+	stuck.EmailConfirmationToken = "mcf_dead"
+	env.repo.mentors["m1"] = stuck
+	env.repo.stuckDraftMentors = []JobMentor{{ID: "m1", Name: stuck.Name, Email: stuck.Email}}
+
+	if _, err := env.handlers.FinalizeStuckRegistrations(context.Background()); err != nil {
+		t.Fatalf("FinalizeStuckRegistrations returned error: %v", err)
+	}
+
+	if len(env.repo.finalized) != 1 {
+		t.Fatalf("finalized %d rows, want 1", len(env.repo.finalized))
+	}
+	token := env.repo.finalized[0].EmailConfirmationToken
+	if token == nil || *token == "" || *token == "mcf_dead" {
+		t.Errorf("EmailConfirmationToken = %v, want a freshly minted token", token)
+	}
+	if env.repo.finalized[0].EmailConfirmationExpiresAt == nil {
+		t.Error("a fresh token needs a fresh expiry, or the new link is dead on arrival")
+	}
+	if got := env.sender.templates(); len(got) != 1 || got[0] != "mentor-confirm-email" {
+		t.Errorf("templates = %v, want [mentor-confirm-email]", got)
+	}
+}
+
 func TestFinalizeStuckRegistrationsIsolatesFailures(t *testing.T) {
 	env := newJobsTestEnv()
 	env.repo.mentors["m2"] = testMentor("m2")
