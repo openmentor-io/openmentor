@@ -72,6 +72,35 @@ describe('ContactMentorForm', () => {
     expect(screen.getByText(/Something went wrong/i)).toBeInTheDocument()
   })
 
+  // Whatever the mentee can act on has to replace the generic text, or the
+  // route-level 4xx forwarding never reaches them.
+  it('shows the upstream reason instead of the generic error when there is one', () => {
+    render(
+      <ContactMentorForm
+        isLoading={false}
+        isError={true}
+        errorMessage="Captcha verification failed."
+        onSubmit={mockOnSubmit}
+      />
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Captcha verification failed.')
+    expect(screen.queryByText(/Something went wrong/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps the error panel out of the tree while there is no error', () => {
+    render(
+      <ContactMentorForm
+        isLoading={false}
+        isError={false}
+        errorMessage="Captcha verification failed."
+        onSubmit={mockOnSubmit}
+      />
+    )
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('shows validation error for empty required fields on submit', async () => {
     render(<ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
 

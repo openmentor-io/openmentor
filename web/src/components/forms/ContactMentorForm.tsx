@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form'
 import classNames from 'classnames'
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import TextareaAutosize from 'react-textarea-autosize'
+import { GENERIC_SUBMIT_ERROR } from '@/lib/upstream-error'
 
 interface ContactFormData {
   email: string
@@ -16,6 +17,8 @@ interface ContactFormData {
 interface ContactMentorFormProps {
   isLoading: boolean
   isError: boolean
+  /** What actually went wrong, when the upstream told us (see upstreamErrorMessage). */
+  errorMessage?: string
   onSubmit: (data: ContactFormData) => void
   /** Used in the fine print next to the submit button (design 03). */
   mentorFirstName?: string
@@ -60,6 +63,7 @@ function FieldLabel({
 export default function ContactMentorForm({
   isLoading,
   isError,
+  errorMessage,
   onSubmit,
   mentorFirstName,
 }: ContactMentorFormProps): JSX.Element {
@@ -92,12 +96,10 @@ export default function ContactMentorForm({
 
   const turnstileRef = useRef<TurnstileInstance>(null)
 
-  // Turnstile tokens are single-use and siteverify has already consumed this one
-  // by the time the request fails, so retrying with it can only fail again — and
-  // the form stays mounted with a live submit button. Reset the widget on every
-  // failed attempt so the retry carries a FRESH token. The page flips
-  // readyStatus back to 'loading' before each submit, so isError toggles and
-  // this effect re-fires per failure.
+  // Turnstile tokens are single-use and siteverify has already spent this one, so
+  // a retry carrying it can only fail again — while the form stays mounted with a
+  // live submit button. isError toggles per attempt (the page goes back through
+  // 'loading'), so every failure re-runs the widget for a fresh token.
   useEffect(() => {
     if (isError) {
       turnstileRef.current?.reset()
@@ -237,8 +239,11 @@ export default function ContactMentorForm({
       </div>
 
       {isError && (
-        <div className="flex animate-dropdown-in items-start gap-2.5 rounded-field border border-danger/40 bg-danger/5 px-4 py-3.5 text-sm font-medium text-danger">
-          Something went wrong. We&apos;re probably already fixing it — please try again later.
+        <div
+          role="alert"
+          className="flex animate-dropdown-in items-start gap-2.5 rounded-field border border-danger/40 bg-danger/5 px-4 py-3.5 text-sm font-medium text-danger"
+        >
+          {errorMessage || GENERIC_SUBMIT_ERROR}
         </div>
       )}
 
