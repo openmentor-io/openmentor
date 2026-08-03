@@ -1,7 +1,6 @@
 import Head from 'next/head'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import type { GetServerSideProps } from 'next'
-import classNames from 'classnames'
 import { Footer, MetaHeader, NavHeader } from '@/components'
 import donates from '@/config/donates'
 import { pageTitle } from '@/config/seo'
@@ -23,22 +22,16 @@ const _getServerSideProps: GetServerSideProps = async (context) => {
 
 export const getServerSideProps = withSSRObservability(_getServerSideProps, 'donate')
 
-const AMOUNTS = ['$3', '$10', '$25', 'Custom'] as const
-type Amount = (typeof AMOUNTS)[number]
-
 export default function Donate(): JSX.Element {
   const title = pageTitle('Support us')
   const kofi = donates[0]
-  const [amount, setAmount] = useState<Amount>('$10')
 
   useEffect(() => {
     analytics.event(analytics.events.DONATE_PAGE_VIEWED)
   }, [])
 
   const handleDonateClick = (): void => {
-    analytics.event(analytics.events.DONATE_CTA_CLICKED, {
-      amount_option: amount,
-    })
+    analytics.event(analytics.events.DONATE_CTA_CLICKED)
   }
 
   return (
@@ -86,29 +79,6 @@ export default function Donate(): JSX.Element {
             <span className="meta-mono text-ink-mute">Via Ko-fi</span>
           </div>
 
-          <div className="flex justify-center gap-2" role="group" aria-label="Donation amount">
-            {AMOUNTS.map((value) => {
-              const selected = value === amount
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => setAmount(value)}
-                  className={classNames(
-                    'flex-1 rounded-btn py-3 text-sm font-bold transition-colors duration-120 sm:flex-none sm:px-[22px] sm:text-[15px]',
-                    selected
-                      ? 'bg-brand-navy text-white shadow-btn'
-                      : 'border-[1.5px] border-brand-cobalt/45 bg-white text-brand-navy hover:bg-brand-cobalt/[0.06]',
-                    value === 'Custom' && 'hidden sm:block'
-                  )}
-                >
-                  {value}
-                </button>
-              )
-            })}
-          </div>
-
           <a
             href={kofi.linkUrl}
             target="_blank"
@@ -116,11 +86,14 @@ export default function Donate(): JSX.Element {
             onClick={handleDonateClick}
             className="button w-full py-4 text-[15px]"
           >
-            {amount === 'Custom' ? 'Donate on Ko-fi ↗' : `Donate ${amount} on Ko-fi ↗`}
+            Donate on Ko-fi ↗
           </a>
 
+          {/* The amount is chosen on Ko-fi: it has no documented URL parameter
+              to preselect one, so an on-page picker here could not do anything
+              beyond relabelling this button. */}
           <span className="text-xs leading-[1.5] text-ink-soft">
-            Opens ko-fi.com in a new tab · one-time or monthly · no account needed
+            Opens ko-fi.com in a new tab · pick any amount · one-time or monthly · no account needed
           </span>
         </div>
 
