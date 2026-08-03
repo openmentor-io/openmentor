@@ -30,11 +30,18 @@ Each service declares an explicit `environment:` allowlist. Two forms appear:
 | `- KEY=value` / `- KEY=${KEY:-default}` | fixed or defaulted value |
 | `- KEY` (bare) | value taken from `.env`; **stays unset** in the container when `.env` has no such line |
 
-The bare form is deliberate: `- KEY=${KEY}` would inject an empty string for a
-missing key, and viper (`AutomaticEnv`, `allowEmptyEnv=false`) treats an empty
-variable as set-to-empty rather than absent — which would silently defeat the
-defaults in `api/config/config.go`. Bare entries reproduce the old `env_file`
-semantics exactly.
+The bare form is deliberate: `- KEY=${KEY}` renders as `KEY: ""` for a key
+`.env` does not define (plus a `The "KEY" variable is not set` warning on every
+compose invocation), while a bare `- KEY` renders as `KEY: null` and is not
+passed to the container at all — exactly the old `env_file` semantics.
+
+What that does **not** break is the Go defaults: viper's `AutomaticEnv` with the
+default `allowEmptyEnv=false` reports an empty variable as *absent*
+(`viper.go`: `return val, ok && (v.allowEmptyEnv || val != "")`, and
+`api/config/config.go` never calls `AllowEmptyEnv`), so `SetDefault` still wins.
+What it breaks is diagnosis: every optional key would arrive as an empty
+variable, and the troubleshooting bundle's "which variables arrived empty" check
+(`infra/docs/troubleshooting.md`) would list dozens of them and lose its signal.
 
 > **Removed (SECURITY P10): `.env.runtime`.** Six services shared
 > `env_file: .env.runtime`, a copy of the whole production env, so every
