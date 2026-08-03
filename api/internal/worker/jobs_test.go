@@ -44,10 +44,12 @@ type fakeRepo struct {
 	staleProgressMentors  []JobMentor
 	staleProgressRequests map[string][]JobReminderRequest // mentorID -> requests
 	mentorsToDeactivate   []JobMentor
+	stuckDraftMentors     []JobMentor
 	activeMentorIDs       []string
 	listStaleMentorsErr   error
 	listStaleRequestsErr  error
 	listDeactivateErr     error
+	listStuckDraftErr     error
 	deactivateErr         error
 	listActiveErr         error
 	setSortOrdersErr      error
@@ -191,6 +193,13 @@ func (f *fakeRepo) ListMentorsToDeactivate(_ context.Context) ([]JobMentor, erro
 		return nil, f.listDeactivateErr
 	}
 	return append([]JobMentor(nil), f.mentorsToDeactivate...), nil
+}
+
+func (f *fakeRepo) ListStuckDraftRegistrations(_ context.Context) ([]JobMentor, error) {
+	if f.listStuckDraftErr != nil {
+		return nil, f.listStuckDraftErr
+	}
+	return append([]JobMentor(nil), f.stuckDraftMentors...), nil
 }
 
 func (f *fakeRepo) DeactivateMentor(_ context.Context, mentorID string) error {

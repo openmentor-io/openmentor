@@ -126,6 +126,7 @@ type JobsRepository interface {
 	ListMentorsWithStaleInProgressRequests(ctx context.Context) ([]JobMentor, error)
 	ListStaleInProgressRequests(ctx context.Context, mentorID string) ([]JobReminderRequest, error)
 	ListMentorsToDeactivate(ctx context.Context) ([]JobMentor, error)
+	ListStuckDraftRegistrations(ctx context.Context) ([]JobMentor, error)
 	DeactivateMentor(ctx context.Context, mentorID string) error
 	ListActiveMentorIDs(ctx context.Context) ([]string, error)
 	SetSortOrders(ctx context.Context, updates []SortOrderUpdate) error
@@ -471,6 +472,36 @@ func (r *Repository) ListMentorsToDeactivate(ctx context.Context) ([]JobMentor, 
 	mentors, err := r.listJobMentors(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list mentors to deactivate: %w", err)
+	}
+	return mentors, nil
+}
+
+// ListStuckDraftRegistrations returns registrations whose new-mentor-watcher
+// finalization never ran: still 'draft', still carrying the INSERT's NULL
+// sort_order, no confirmation token ever issued, and past the grace window.
+// The API dispatches that finalization through a bare goroutine
+// (pkg/trigger.CallAsync) with no persistence and no retry, so a single lost
+// HTTP call leaves exactly this row shape — a mentor with no confirmation
+// email and no way in, whom no other job touches (randomize-sort-order only
+// selects status='active').
+//
+// activated_at IS NULL keeps a formerly-live profile out of the replay:
+// finalization can DECLINE a duplicate email, which must never happen to a
+// mentor who has already been active.
+func (r *Repository) ListStuckDraftRegistrations(ctx context.Context) ([]JobMentor, error) {
+	query := `
+		SELECT m.id, m.name, COALESCE(m.email::text, '')
+		FROM mentors m
+		WHERE m.status = 'draft'
+			AND m.sort_order IS NULL
+			AND m.email_confirmation_token IS NULL
+			AND m.activated_at IS NULL
+			AND m.created_at < NOW() - INTERVAL '10 minutes'
+		ORDER BY m.created_at ASC
+	`
+	mentors, err := r.listJobMentors(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list stuck draft registrations: %w", err)
 	}
 	return mentors, nil
 }

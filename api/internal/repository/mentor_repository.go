@@ -15,6 +15,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// IsNoRows reports whether err means the query matched nothing, as opposed to
+// a row that matched but could not be read. Services that collapse both into
+// "not found" report a broken row as a typo'd input — see MentorAuthService.
+func IsNoRows(err error) bool {
+	return errors.Is(err, pgx.ErrNoRows)
+}
+
 // MentorRepository handles mentor data access with PostgreSQL.
 // Mentor reads always hit the database (the previous in-memory mentor cache
 // was removed — it was always disabled in production and only added staleness).
@@ -112,7 +119,7 @@ func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId
 		SELECT m.id, m.airtable_id, m.legacy_id, m.slug, m.name, m.job_title, m.workplace,
 			m.about, m.details, m.competencies, m.experience, m.price, m.status,
 			COALESCE(array_to_string(array_agg(t.name), ','), '') as tags,
-			m.calendar_url, m.sort_order, m.created_at, m.updated_at,
+			m.calendar_url, COALESCE(m.sort_order, 0), m.created_at, m.updated_at,
 			-- sessions on OpenMentor + sessions carried over from
 			-- getmentor.dev at migration time (D28)
 			COALESCE(
@@ -372,11 +379,17 @@ func (r *MentorRepository) GetAllTags(ctx context.Context) (map[string]string, e
 // mentors can log in too (to finish/fix their profile); declined mentors
 // stay excluded. When several rows share an email (only active emails are
 // unique), the most "advanced" profile wins.
+//
+// sort_order is COALESCEd here and in every other mentor read (as
+// GetForModerationByID always did): registration inserts the row with
+// sort_order NULL and only the new-mentor-watcher finalization fills it in. A
+// NULL used to fail the scan, and this login path reported any scan failure as
+// "unknown email" — a permanent, silent lockout.
 func (r *MentorRepository) GetByEmail(ctx context.Context, email string) (*models.Mentor, error) {
 	query := `
 		SELECT id, airtable_id, legacy_id, slug, name, job_title, workplace, about, details,
 			competencies, experience, price, status, '' as tags, calendar_url,
-			sort_order, created_at, updated_at, 0 as mentee_count,
+			COALESCE(sort_order, 0), created_at, updated_at, 0 as mentee_count,
 			0 as legacy_sessions_count, photo_style, moderation_note
 		FROM mentors
 		WHERE email = $1 AND status IN ('active', 'inactive', 'pending', 'draft')
@@ -510,7 +523,7 @@ func (r *MentorRepository) FetchAllMentorsFromDB(ctx context.Context) ([]*models
 		SELECT m.id, m.airtable_id, m.legacy_id, m.slug, m.name, m.job_title, m.workplace,
 			m.about, m.details, m.competencies, m.experience, m.price, m.status,
 			COALESCE(array_to_string(array_agg(t.name), ','), '') as tags,
-			m.calendar_url, m.sort_order, m.created_at, m.updated_at,
+			m.calendar_url, COALESCE(m.sort_order, 0), m.created_at, m.updated_at,
 			-- sessions on OpenMentor + sessions carried over from
 			-- getmentor.dev at migration time (D28)
 			COALESCE(
@@ -544,7 +557,7 @@ func (r *MentorRepository) FetchSingleMentorFromDB(ctx context.Context, mentorSl
 		SELECT m.id, m.airtable_id, m.legacy_id, m.slug, m.name, m.job_title, m.workplace,
 			m.about, m.details, m.competencies, m.experience, m.price, m.status,
 			COALESCE(array_to_string(array_agg(t.name), ','), '') as tags,
-			m.calendar_url, m.sort_order, m.created_at, m.updated_at,
+			m.calendar_url, COALESCE(m.sort_order, 0), m.created_at, m.updated_at,
 			-- sessions on OpenMentor + sessions carried over from
 			-- getmentor.dev at migration time (D28)
 			COALESCE(

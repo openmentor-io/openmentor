@@ -71,16 +71,31 @@ func NewMentorAuthService(
 func (s *MentorAuthService) RequestLogin(ctx context.Context, email string) (*models.RequestLoginResponse, error) {
 	start := time.Now()
 
-	// Find mentor by email
+	// Find mentor by email. A row that EXISTS but cannot be read is not the
+	// same thing as an unknown address: reporting both as "mentor_not_found"
+	// hid a total lockout (a NULL sort_order failed the scan) behind the
+	// enumeration-safe 200 the handler returns, and the mentor waited forever
+	// for an email that was never generated. The HTTP response is deliberately
+	// unchanged — only the log level and the metric label tell them apart.
 	mentor, err := s.mentorRepo.GetByEmail(ctx, email)
 	if err != nil {
+		outcome := "mentor_not_found"
+		if !repository.IsNoRows(err) {
+			outcome = "lookup_failed"
+		}
 		s.tracker.Track(ctx, analytics.EventMentorAuthLoginRequested, analytics.SystemDistinctID("api"), map[string]interface{}{
-			"outcome": "mentor_not_found",
+			"outcome": outcome,
 		})
-		logger.Warn("Login request for unknown email",
-			zap.String("email", maskEmail(email)),
-			zap.Error(err))
-		metrics.MentorAuthLoginRequests.WithLabelValues("mentor_not_found").Inc()
+		if outcome == "lookup_failed" {
+			logger.Error("Login request failed: mentor lookup error",
+				zap.String("email", maskEmail(email)),
+				zap.Error(err))
+		} else {
+			logger.Warn("Login request for unknown email",
+				zap.String("email", maskEmail(email)),
+				zap.Error(err))
+		}
+		metrics.MentorAuthLoginRequests.WithLabelValues(outcome).Inc()
 		return nil, ErrMentorNotFound
 	}
 
