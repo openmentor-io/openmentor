@@ -1,0 +1,82 @@
+package s3storage_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"fmt"
+	"os"
+	"os/exec"
+	"testing"
+	"time"
+
+	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
+)
+
+// tinyPNG is a valid 1x1 PNG (passes ValidateImageType/Size/Content).
+const tinyPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AEBhwYX9wAAAABJRU5ErkJggg=="
+
+// TestAuditNilStorageClientCrashesProcess re-execs itself as a child that
+// performs exactly what registration_service.go:200 does with a nil
+// *s3storage.StorageClient, and asserts on the child's exit status.
+func TestAuditNilStorageClientCrashesProcess(t *testing.T) {
+	if os.Getenv("AV_NIL_S3_CHILD") == "1" {
+		// ---- child: reproduce registration_service.go:200 verbatim ----
+		var storageClient *s3storage.StorageClient // nil, as in cmd/api/main.go when S3 creds are empty
+		ctx := context.Background()
+		fmt.Fprintln(os.Stderr, "child: calling UploadImageAllSizesAsync on nil *StorageClient")
+		storageClient.UploadImageAllSizesAsync(ctx, tinyPNG, "image/png", "mentor-uuid")
+		// The caller returns immediately (it is fire-and-forget). Simulate the
+		// HTTP handler having already responded, then keep the process alive.
+		time.Sleep(3 * time.Second)
+		fmt.Fprintln(os.Stderr, "child: STILL ALIVE after 3s -> panic was recovered")
+		os.Exit(0)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestAuditNilStorageClientCrashesProcess", "-test.v")
+	cmd.Env = append(os.Environ(), "AV_NIL_S3_CHILD=1")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+
+	t.Logf("child combined output:\n%s", out.String())
+	if err == nil {
+		t.Logf("VERDICT: child exited 0 -> the panic did NOT kill the process (REFUTED)")
+		return
+	}
+	var ee *exec.ExitError
+	if ok := asExitError(err, &ee); ok {
+		t.Logf("VERDICT: child terminated. exit error = %v, exit code = %d", err, ee.ExitCode())
+	} else {
+		t.Logf("VERDICT: child terminated. err = %v", err)
+	}
+	if bytes.Contains(out.Bytes(), []byte("STILL ALIVE")) {
+		t.Logf("but it printed STILL ALIVE first -> crash came from something else")
+	}
+	if bytes.Contains(out.Bytes(), []byte("panic: runtime error: invalid memory address or nil pointer dereference")) {
+		t.Logf("CONFIRMED: unrecovered nil-pointer panic killed the whole process")
+	}
+}
+
+func asExitError(err error, target **exec.ExitError) bool {
+	if ee, ok := err.(*exec.ExitError); ok {
+		*target = ee
+		return true
+	}
+	return false
+}
+
+// TestAuditNilClientValidatorsDoNotPanic shows which methods are safe on a
+// nil receiver (so we know exactly where the panic originates).
+func TestAuditNilClientValidatorsDoNotPanic(t *testing.T) {
+	var s *s3storage.StorageClient
+	t.Logf("nil.ValidateImageType(\"image/png\") = %v", s.ValidateImageType("image/png"))
+	t.Logf("nil.ValidateImageSize(tinyPNG)      = %v", s.ValidateImageSize(tinyPNG))
+	t.Logf("nil.ValidateImageContent(tinyPNG)   = %v", s.ValidateImageContent(tinyPNG))
+	t.Logf("nil.ValidateImageType(\"\")           = %v (empty photo => async upload logs an error, no panic)", s.ValidateImageType(""))
+
+	// Sanity: the fixture really is a decodable PNG.
+	raw, err := base64.StdEncoding.DecodeString(tinyPNG)
+	t.Logf("tinyPNG decodes to %d bytes (err=%v)", len(raw), err)
+}

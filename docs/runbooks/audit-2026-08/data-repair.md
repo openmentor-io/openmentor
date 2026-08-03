@@ -81,17 +81,79 @@ It is also **re-runnable but not side-effect-free**: every run re-randomizes
 `sort_order`, mints a *new* confirmation token (invalidating any link already
 mailed) and sends another confirmation email. Run it once per mentor.
 
-Get the worklist from the diagnostics report's `## D1b` section, or directly:
+That last point is why **the D1b list is a snapshot, not a work queue**.
+Registration commits the mentor row with `sort_order` NULL and *then* fires
+finalization from a goroutine — `trigger.CallAsync`
+(`api/pkg/trigger/trigger.go`), called at
+`api/internal/services/registration_service.go:203` after `CreateMentor`
+returns. A registration that committed seconds before you ran the diagnostics
+is in the report while its own finalization call is still in flight (the HTTP
+client timeout is 30 s, `api/pkg/httpclient/client.go:33`, and the worker may
+be restarting or backlogged on top of that). If that call lands after the
+report is written, triggering from the static list runs finalization a **second**
+time: it replaces the confirmation token the mentor was just emailed with a new
+one, so the link in their inbox is already dead when they click it, and sends a
+duplicate email.
+
+Two guards, both cheap:
+
+**(a) Only act on rows old enough that their own trigger has certainly
+finished.** 15 minutes is comfortably past the 30 s client timeout plus a worker
+restart.
+
+**(b) Classify same-email duplicates before you trigger anything** — see the
+`has_active_duplicate` column below and step 2a.
 
 ```sql
-SELECT id, email, name, created_at
-FROM mentors
-WHERE sort_order IS NULL
-  AND status = 'draft'
-  AND activated_at IS NULL
-  AND COALESCE(airtable_id, '') NOT LIKE 'getmentor:%'
-ORDER BY created_at;
+SELECT
+    m.id,
+    m.email,
+    m.name,
+    m.created_at,
+    EXISTS (
+        SELECT 1 FROM mentors a
+         WHERE a.email = m.email AND a.status = 'active'
+    ) AS has_active_duplicate
+FROM mentors m
+WHERE m.sort_order IS NULL
+  AND m.status = 'draft'
+  AND m.activated_at IS NULL
+  AND COALESCE(m.airtable_id, '') NOT LIKE 'getmentor:%'
+  -- (a): exclude registrations whose own fire-and-forget finalization may
+  -- still be in flight. Do not lower this.
+  AND m.created_at < now() - interval '15 minutes'
+ORDER BY m.created_at;
 ```
+
+`mentors.email` is `citext`, so `a.email = m.email` is case-insensitive — the
+same comparison `CountActiveMentorsByEmail`
+(`api/internal/worker/repository.go:175-180`) makes. A `draft` row never counts
+itself, because that query filters `status = 'active'`.
+
+### 2a. `has_active_duplicate = true` → do not trigger. `declined` is correct.
+
+For those rows the worker will find the active sibling, set
+`status = 'declined'` and send the "duplicate profile" email — and **that is the
+right answer, not a mistake**. Someone already has a live profile on that
+address; the second registration is the duplicate the check exists to catch.
+`declined` is its correct terminal state.
+
+So there is nothing to repair on those rows beyond the `COALESCE` fix in step 1,
+which is what makes them loadable again. Options, in order of preference:
+
+1. **Leave them.** Once P2 ships they no longer break anything. A `draft` row
+   with a NULL `sort_order` is invisible to the catalog and harmless.
+2. **Trigger it anyway** if you want the state written down explicitly. Expect
+   `{"status":"declined"}` and a duplicate-profile email to the mentor — decide
+   whether you want that email sent before you do it.
+
+**Do not "fix" a `declined` duplicate with an UPDATE.** Setting it back to
+`draft` re-opens exactly the duplicate the check closed, and setting it to
+`active` is rejected by the database anyway: `mentors_active_email_uniq`
+(`api/migrations/000001_initial_schema.up.sql`) is a UNIQUE index on `email`
+`WHERE status = 'active'`. If the person genuinely needs the *new* row and not
+the old one, that is a merge decision — deactivate the old profile first,
+deliberately, and record why.
 
 ### 3. Trigger finalization, one mentor at a time
 
@@ -101,7 +163,31 @@ The worker is `openmentor-worker`, internal to the compose network, port 8090
 set — which is mandatory in production (`api/config/config.go:415-420`). The
 token reaches the container through the worker's `environment:` allowlist, so
 read it *inside* the container and it never touches your shell history or the
-host process list:
+host process list.
+
+**Step 3a — re-check the row, immediately before the call. On your workstation.**
+The worklist is minutes or hours old by now: the reconciliation cron may have
+shipped, the mentor's own trigger may have landed late, or a moderator may have
+touched the row. One query, and it is the difference between a safe procedure and
+one that mails a dead confirmation link.
+
+```bash
+# Must print exactly one row. NO ROW -> skip this mentor, do not call the
+# worker: something already finalized it. Calling anyway would re-randomize
+# sort_order, invalidate the confirmation link already sitting in their inbox,
+# and send a second email.
+./db.sh -c "SELECT id, email, status FROM mentors
+             WHERE id = '<MENTOR-UUID>'
+               AND sort_order IS NULL
+               AND status = 'draft'
+               AND activated_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM mentors a
+                                WHERE a.email = mentors.email
+                                  AND a.status = 'active')"
+```
+
+**Step 3b — call the worker. On the VM.** Only for a mentor that just returned a
+row.
 
 ```bash
 ssh <vm>
@@ -116,17 +202,26 @@ docker exec openmentor-worker sh -c '
 
 Expect `HTTP 200` and a body like
 `{"success":true,"mentorId":"…","status":"draft"}`. A `401` means the token is
-wrong; `404` means the mentor id does not exist. Confirm afterwards:
+wrong; `404` means the mentor id does not exist.
+
+Confirm afterwards — **still in the same SSH session, so query Postgres
+directly.** `./db.sh` is a workstation tool: it reads `VM_SSH_HOST`/`VM_SSH_USER`
+from `infra/.env.production`, which does not exist on the VM (deployment writes
+`.env` there — and, since P10, nothing else), so running it inside the SSH session exits
+`❌ .../.env.production not found` instead of verifying anything.
 
 ```bash
-./db.sh -c "SELECT status, sort_order, email_confirmation_expires_at
-              FROM mentors WHERE id = '<MENTOR-UUID>'"
+docker exec openmentor-postgres psql -U openmentor -d openmentor -c \
+    "SELECT status, sort_order, email_confirmation_expires_at
+       FROM mentors WHERE id = '<MENTOR-UUID>'"
 ```
 
-`sort_order` must now be non-NULL and `status` must still be `draft`. **If it
-came back `declined`, you ran it on the wrong row** — the mentor had an active
-row with the same email. Fix it with an explicit, single-row update and check
-the duplicate situation by hand before doing anything else.
+`sort_order` must now be non-NULL and `status` must still be `draft`.
+
+**If it came back `declined`,** the mentor has an active row on the same email
+and the duplicate check fired. That is the intended outcome, not an error, and
+**it is not something to undo** — step 3a should have caught it, so the sibling
+row went active in between. Read step 2a before touching anything.
 
 ### 4. The reconciliation cron
 
@@ -222,36 +317,142 @@ corruption predates the retention window there is no dump to find.
 > nothing alerts on it. "A file is listed in S3" is not "a dump restores", and
 > a truncated or aborted upload lists just fine.
 
-```bash
-# 1. What is actually there?
-aws s3 ls "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/" | sort
+**There is no `aws` credential on the VM, so the S3 calls run inside the backup
+sidecar.** `.env.production.example` states it outright ("The VM needs NO AWS
+credentials"), and the backup keys are handed *only* to
+`openmentor-postgres-backup` (`BACKUP_AWS_ACCESS_KEY_ID` /
+`BACKUP_AWS_SECRET_ACCESS_KEY` / `BACKUP_AWS_REGION` in
+`infra/docker-compose.yml`) — a deliberate split, since those keys can delete
+every backup. That container is the one place with both the keys and `aws-cli`
+(`infra/postgres-backup/Dockerfile` installs it), so run `aws` there. `backup.sh`
+exports `AWS_*` from the `BACKUP_AWS_*` names inside its own process only, so a
+`docker exec` has to do that mapping itself.
 
-# 2. Pick the newest dump that PREDATES the corruption and restore it into a
-#    throwaway container — never against production.
-aws s3 cp "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/openmentor-YYYYMMDD-HHMM.dump" /tmp/candidate.dump
+Everything below runs **on the VM** (`ssh <vm>`). Check `df -h` first: this
+lands three copies of the dump on the VM (sidecar volume, host `/tmp`, restored
+container).
+
+```bash
+# 1. What is actually there? Single quotes matter: the variables expand in the
+#    container, so no key ever reaches your shell history or the host process list.
+docker exec openmentor-postgres-backup sh -c '
+  export AWS_ACCESS_KEY_ID="$BACKUP_AWS_ACCESS_KEY_ID" \
+         AWS_SECRET_ACCESS_KEY="$BACKUP_AWS_SECRET_ACCESS_KEY" \
+         AWS_DEFAULT_REGION="${BACKUP_AWS_REGION:-eu-central-1}"
+  aws s3 ls "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/"
+' | sort
+
+# 2. Pick the newest dump that PREDATES the corruption and pull it into the
+#    sidecar's /backups volume. The name deliberately does NOT match
+#    'openmentor-*.dump', so the retention pruner leaves it alone.
+docker exec openmentor-postgres-backup sh -c '
+  export AWS_ACCESS_KEY_ID="$BACKUP_AWS_ACCESS_KEY_ID" \
+         AWS_SECRET_ACCESS_KEY="$BACKUP_AWS_SECRET_ACCESS_KEY" \
+         AWS_DEFAULT_REGION="${BACKUP_AWS_REGION:-eu-central-1}"
+  aws s3 cp "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/openmentor-YYYYMMDD-HHMM.dump" \
+            /backups/restore-candidate.dump
+'
+# 2b. Copy it out to the host — but NOT with a bare `docker cp`. `docker cp`
+#     behaves like `cp -a` and applies the mode from the tar header it reads out
+#     of the container, so the sidecar's 0644 (its `aws s3 cp` runs under the
+#     ordinary 022 umask) lands on the host copy: a complete production database
+#     dump readable by every local user on the VM. Setting `umask 077` does NOT
+#     fix that — measured: `docker cp` of a 0644 file produced 0644 on the host
+#     under both umask 022 and umask 077, and only the explicit chmod gave 600.
+#     So refuse a path we did not create, create it under 077, and set the mode
+#     ourselves before the dump exists at a readable one.
+if [ -e /tmp/candidate.dump ] || [ -L /tmp/candidate.dump ]; then
+  echo "refusing: /tmp/candidate.dump already exists — its mode and owner are not ours" >&2
+else
+  ( umask 077
+    docker cp openmentor-postgres-backup:/backups/restore-candidate.dump /tmp/candidate.dump )
+  chmod 600 /tmp/candidate.dump
+  ls -l /tmp/candidate.dump   # must print -rw------- before you continue
+fi
+
+# 3. Restore into a throwaway container — never against production. It gets no
+#    --network, so it cannot reach the production database.
 docker run -d --name pg-pricecheck \
     -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD="$(openssl rand -hex 16)" \
     -e POSTGRES_DB=openmentor postgres:16.14-alpine
+until docker exec pg-pricecheck pg_isready -U openmentor -q; do sleep 1; done
 docker cp /tmp/candidate.dump pg-pricecheck:/tmp/c.dump
 docker exec pg-pricecheck pg_restore -U openmentor -d openmentor /tmp/c.dump
 
-# 3. Read the prices out of the restored copy.
+# 4. Read the prices out of the restored copy.
 docker exec pg-pricecheck psql -U openmentor -d openmentor -c \
     "SELECT id, email, price, experience, updated_at FROM mentors ORDER BY email"
 
-# 4. Clean up when done — it holds a full copy of production personal data.
-docker rm -f pg-pricecheck && rm -f /tmp/candidate.dump
+# 5. Clean up when done — all three copies hold production personal data.
+docker rm -f pg-pricecheck
+rm -f /tmp/candidate.dump
+docker exec openmentor-postgres-backup rm -f /backups/restore-candidate.dump
 ```
+
+If you would rather do this on a workstation, that needs **your own** read
+credentials for the backup bucket — do not copy the container's keys out. The
+backup identity is deliberately separate from the app's S3 keys (SECURITY M12),
+and it holds delete rights on every dump.
 
 A `pg_restore` that ends without errors and gives sane row counts is the
 verification. If it does not restore, try the next-older dump; if none restores,
 say so out loud — that is `outstanding-decisions.md` §2, and it makes the
 backup-alerting work urgent rather than scheduled.
 
-Then write back **only** rows where production says `Free`, the dump says
-something else, and the dump's `updated_at` is older than production's. Do it
-with an explicit, id-listed statement you have read line by line. Do not join
-across the two databases and do not write a clever bulk `UPDATE`.
+#### Which rows may be written back — and it is fewer than you think
+
+"Production says `Free`, the dump says `$100`, the dump is older" is **not**
+evidence the bug did it. A mentor who deliberately switched to `Free` after the
+dump was taken matches all three conditions exactly. §D2.2 above says D2a is a
+candidate list, not a list of victims; that applies here too.
+
+There is one hard filter, and it comes straight from the mechanism. The select
+offers `Free, $50, $100, $150, $200, Negotiable`
+(`web/src/config/filters.ts` → `filters.price`) and is rendered
+`<select {...register('price')} defaultValue={mentor.price}>`
+(`ProfileForm.tsx:426`). If the stored price **is** one of those six, the browser
+selects that option and the value round-trips correctly. The clobber can only
+happen when the stored price was **off-list**.
+
+| Dump's price | Can the select bug explain production's `Free`? | Action |
+|---|---|---|
+| Off-list (`$30 / hour`, `75 USD`, `''`, …) | Yes — this is the bug's signature | Candidate for write-back |
+| On-list and not `Free` (`$100`, `Negotiable`) | **No.** The option existed and would have been preselected | **Do not write back** — this was a deliberate change |
+| `Free` | Nothing was lost | Nothing to do |
+
+Even for the first row of that table, an off-list dump value is consistent with
+the bug, not proof of it — the mentor could have set `Free` on purpose from an
+off-list value. So require **one** of these before writing:
+
+- **Mentor confirmation.** Ask: "our records show you charged `<X>` — is that
+  still right?" One email, and it removes all doubt. Do this for anything you
+  are not sure about; it is cheaper than getting it wrong.
+- **Corroborating evidence that the save was not a price change** — for example
+  the mentor emailed support about editing their bio around the `updated_at`
+  timestamp, or a moderation note records the edit.
+
+Write back **nothing** you cannot put in one of those two boxes. A price left
+wrong is a bug the mentor can fix in ten seconds; a price you overwrote against
+their intent is you editing someone's public listing without asking.
+
+#### The statement — two steps, with the commit as a separate decision
+
+Explicit, id-listed, read line by line. Do not join across the two databases and
+do not write a clever bulk `UPDATE`. **No paste-able block below both opens a
+transaction and commits it**, because the whole point of the guards is the count
+you read in between.
+
+Carry the `updated_at` you observed during triage into the `VALUES` list and
+compare it. Without that, the statement races the mentor: if they edit their
+profile after you take the list and the result is still `Free` (they edited their
+bio, or they chose `Free` on purpose), `AND m.price = 'Free'` still matches and
+you overwrite the newer value. Verified on a scratch database — with only the
+price guard the stale write lands (`UPDATE 1`); with the `updated_at` guard it
+does not (`UPDATE 0`).
+
+**Step 1 — open the transaction and run the `UPDATE`. This block deliberately
+ends without `COMMIT`.** Paste it whole; you will be left inside an open
+transaction, which is where the decision gets made.
 
 ```sql
 BEGIN;
@@ -259,20 +460,65 @@ BEGIN;
 UPDATE mentors AS m
    SET price = v.price
   FROM (VALUES
-          ('00000000-0000-0000-0000-000000000000'::uuid, '$30'),
-          ('00000000-0000-0000-0000-000000000000'::uuid, '$40')
-       ) AS v(id, price)
+          -- id, price to restore, updated_at EXACTLY as triage printed it
+          ('00000000-0000-0000-0000-000000000000'::uuid, '$30',
+           '2026-08-01 09:14:22.518731+00'::timestamptz),
+          ('00000000-0000-0000-0000-000000000001'::uuid, '$40',
+           '2026-07-28 16:02:07.994612+00'::timestamptz)
+       ) AS v(id, price, observed_updated_at)
  WHERE m.id = v.id
-   AND m.price = 'Free';   -- guard: no-op if the row already changed again
+   AND m.price = 'Free'                        -- still the value you saw
+   AND m.updated_at = v.observed_updated_at;   -- and nobody has touched it since
+```
 
--- psql prints UPDATE <n>. If n does not equal the number of rows you listed,
--- something is different from what you expected: ROLLBACK and look again.
+**Step 2 — read the count before you type anything else.** psql prints
+`UPDATE <n>`. Compare `n` with the number of rows you listed in the `VALUES` list
+(two, in the example above). Nothing is committed yet — but the rows the `UPDATE`
+matched are locked until you decide, so decide now rather than walking away.
+
+| `UPDATE <n>` | What it means | What to type |
+|---|---|---|
+| `n` = rows you listed | Every guard matched. This is the expected case | `COMMIT;` |
+| `n` < rows you listed | A row moved since triage, an id is mis-typed, or somebody already repaired it. **A `COMMIT` here commits a partial repair** | `ROLLBACK;` then re-read those rows |
+| `n` = 0 | None of the guards matched — your list is stale | `ROLLBACK;` and start from triage |
+
+```sql
+-- Only after the count above is what you expected:
 COMMIT;
 ```
 
-The `AND m.price = 'Free'` guard is what makes this safe to get wrong: a
-mis-typed id, or a row a mentor has edited since you took the list, simply does
-not match. `updated_at` will move — expected, the trigger does that.
+```sql
+-- Anything else — including "n is smaller but the rows it did update look fine":
+ROLLBACK;
+```
+
+`COMMIT` and `ROLLBACK` are in separate blocks on purpose. They used to sit at
+the bottom of the `UPDATE` block with the "ROLLBACK and look again" instruction
+as a SQL comment above them; pasting that block ran the `COMMIT` before the
+operator had read the count, which is exactly the partial repair the guards exist
+to prevent.
+
+Copy `observed_updated_at` from psql's own output verbatim, including all six
+fractional digits — `timestamptz` is microsecond-precision and a truncated value
+simply will not match. Get it in the same query that gives you the price:
+
+```sql
+SELECT id, email, price, updated_at FROM mentors WHERE id IN (…);
+```
+
+The two guards turn a wrong id or a moved row into a non-match rather than an
+overwrite — but they only protect you if you stop at step 2. A short
+`UPDATE <n>` is the procedure working; `ROLLBACK`, re-read those rows, and do not
+remove the guard to make the number bigger. `updated_at` moves on the rows you do
+write; expected, the `trg_mentors_updated_at` trigger does that.
+
+Step 2 holds row locks on whatever the `UPDATE` matched for as long as it takes
+you to read one number — seconds, on at most a handful of rows, and a mentor
+saving an unmatched profile is unaffected. If you would rather pin the whole id
+list before deciding, the equivalent is `SELECT … FOR UPDATE` on it inside the
+same transaction, re-checking `price = 'Free'` on what comes back before you run
+the `UPDATE`. Either way the decision point is the same, and it is yours to make
+explicitly.
 
 ### 4. Recovery source (b) — recompute for imported mentors
 
@@ -358,7 +604,10 @@ spent their goodwill for nothing.
   operational one. Neither repair should start before its fix is deployed.
 - `./db.sh` (in `infra/`) is the shortest path to production psql from a
   workstation; `./db.sh -c "…"` for one statement, `./db.sh < file.sql` for a
-  file. It runs `psql` inside `openmentor-postgres` over SSH.
+  file. It runs `psql` inside `openmentor-postgres` over SSH. **Workstation only**
+  — it needs `infra/.env.production` for `VM_SSH_HOST`/`VM_SSH_USER`, which the
+  VM does not have. Once you are inside an SSH session, use
+  `docker exec openmentor-postgres psql -U openmentor -d openmentor` instead.
 - Any file you produce along the way (diagnostics report, restored dump, mentor
   worklist) contains personal data. Delete it when the repair is done, and keep
   it off shared drives — `../data-deletion.md` explains why that matters here.

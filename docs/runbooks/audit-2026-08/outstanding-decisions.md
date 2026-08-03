@@ -31,12 +31,19 @@ requests, and the percentage.
 | A large count (dev showed **138 of 141 = 98 %**) | A clean cutover would silently break almost every outstanding invitation. Do a proper expand → dual-read → cutover → contract sequence. That complexity is earned at that scale, and not before. |
 
 **Related, and larger than it looks.** The same UUID is emitted to PostHog as a
-`distinct_id` (`request:<uuid>`) from **seven** call sites — not just review
-submission but the contact form, mentor request status updates, and four worker
-jobs (`grep -rn RequestDistinctID api/`). So in practice a `request:<uuid>`
-person record exists for roughly every client request that has ever been
-touched, whether or not it has an outstanding review capability. D4 sizes the
-*redesign*; it does not size the *cleanup* in §3.
+`distinct_id` (`request:<uuid>`) from **26 call sites in 6 producer files** — not
+just review submission but the contact form, mentor request status updates and
+three worker jobs. `grep -rn RequestDistinctID api/` returns 27 hits: 26 calls
+plus the helper itself in `pkg/analytics/tracker.go`, which is why the earlier
+"seven call sites" in this file was wrong — seven is the number of *files*.
+Breakdown: `review_service.go` 6, `contact_service.go` 2,
+`mentor_requests_service.go` 7, `job_new_request_watcher.go` 4,
+`job_request_finished.go` 5, `job_process_review.go` 2. So in practice a
+`request:<uuid>` person record exists for roughly every client request that has
+ever been touched, whether or not it has an outstanding review capability. D4
+sizes the *redesign*; it does not size the *cleanup* in §3. (`P14`'s containment
+deletes the helper outright, so the producer count stops growing — but it does
+not remove the person records already in PostHog.)
 
 ---
 
@@ -50,9 +57,16 @@ So whether backups work is genuinely unknown until someone checks.
 
 **What to check.** Both halves, in order — the second is the one that counts:
 
-1. A dump **exists** and predates the corruption:
+1. A dump **exists** and predates the corruption. On the VM — the `aws` call has
+   to run inside the sidecar, because that container is the only holder of the
+   backup credentials (`data-repair.md` §D2.3 explains why):
    ```bash
-   aws s3 ls "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/" | sort
+   docker exec openmentor-postgres-backup sh -c '
+     export AWS_ACCESS_KEY_ID="$BACKUP_AWS_ACCESS_KEY_ID" \
+            AWS_SECRET_ACCESS_KEY="$BACKUP_AWS_SECRET_ACCESS_KEY" \
+            AWS_DEFAULT_REGION="${BACKUP_AWS_REGION:-eu-central-1}"
+     aws s3 ls "s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/"
+   ' | sort
    docker logs openmentor-postgres-backup --tail 20   # SUCCESS line < 24 h old?
    ```
    Retention is `BACKUP_RETENTION_DAYS`, default 30 — anything older is pruned.
@@ -172,9 +186,57 @@ rehearsed**, and nothing outside the VM would notice if the VM went away.
 **What the answers imply.**
 
 - **Rehearse once, end to end**, on a scratch server built from a snapshot:
-  restore, point DNS at it, confirm the site serves and the database is intact,
-  and write down the actual time it took. That number is your real RTO; the
-  ~30 min in the runbook is an estimate.
+  restore, confirm the site serves and the database is intact, and write down the
+  actual time it took. That number is your real RTO; the ~30 min in the runbook
+  is an estimate.
+
+  **Do not point the public DNS record at the rehearsal server while the
+  original VM is still serving.** DNS propagation and resolver caching are not
+  atomic: for as long as both answers are live you have **two writable copies of
+  production**. New mentorship requests, profile edits and reviews land on
+  whichever database the visitor's resolver happened to return, the two diverge
+  immediately, and everything written to the scratch copy is thrown away when the
+  drill ends. There is no merge back — `client_requests` and `reviews` are
+  append-only from the user's side, so a lost write is a lost request from a real
+  mentee.
+
+  Verify without touching public DNS. The rehearsal server will not hold a
+  certificate for the live hostname (the ACME data stays on production, and
+  solving a public challenge from the scratch box is another way to disturb
+  production), so **pick which of the two things you are verifying** — one
+  command cannot do both:
+
+  ```bash
+  # (1) ROUTING AND SERVING, with TLS verification explicitly OFF.
+  #     -k is required: without it curl aborts at certificate validation, prints
+  #     nothing about HTTP and reports 000 — it cannot tell "Traefik is broken"
+  #     from "the certificate is not for this name". This probe proves the
+  #     restored Traefik + app answer on the real hostname and SNI. It proves
+  #     NOTHING about the certificate.
+  curl -sSk --resolve "openmentor.io:443:<rehearsal-ip>" https://openmentor.io/ \
+       -o /dev/null -w 'http=%{http_code} tls=%{ssl_verify_result}\n'
+
+  # (2) TLS end to end. Needs a hostname the drill server can legitimately hold
+  #     a certificate for — give it its own record, its own ACME cert, and drop
+  #     --resolve entirely. Verification on, nothing skipped.
+  curl -sS https://drill.openmentor.io/ -o /dev/null -w 'http=%{http_code}\n'
+
+  # For a browser walk-through of the real hostname, /etc/hosts wins over DNS
+  # (expect and click through the certificate warning — that is (1), by hand).
+  # Undo the entry the moment you are done.
+  echo "<rehearsal-ip> openmentor.io www.openmentor.io" | sudo tee -a /etc/hosts
+  ```
+
+  Do the drill with its **own** hostname (`drill.openmentor.io`) if you want a
+  clean run — nothing about the restore depends on the name being the live one,
+  and it is the only version of this check that exercises TLS for real.
+
+  **The only safe way to point real DNS at it is a coordinated failover**: stop
+  the production writers first (`docker compose stop backend worker frontend` on
+  the original VM, or shut the VM down), confirm they are stopped, *then* move the
+  record. That is a real cutover with real downtime — plan it as one, or do not do
+  it. If you do, note that this is also the moment to check the DNS TTL: a long
+  TTL is the difference between minutes and hours of split traffic.
 - **Add an external uptime check** (any third-party HTTP monitor hitting
   `https://openmentor.io` and the API health endpoint from outside). This also
   compensates for audit item **P15** — a broken edge currently reports a

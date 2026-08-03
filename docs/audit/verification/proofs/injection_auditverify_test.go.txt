@@ -1,0 +1,308 @@
+package email
+
+import (
+	"encoding/json"
+	"fmt"
+	"html"
+	htmltemplate "html/template"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+
+	"github.com/openmentor-io/openmentor/api/pkg/email/templates"
+)
+
+// renderSES simulates SES's Handlebars-style {{var}} substitution: SES
+// replaces each {{key}} with the raw TemplateData value, with NO escaping.
+func renderSES(tpl string, props map[string]interface{}) string {
+	out := tpl
+	for k, v := range props {
+		out = strings.ReplaceAll(out, "{{"+k+"}}", fmt.Sprint(v))
+	}
+	return out
+}
+
+const evilPayload = `x</div><a href="https://evil.example/pay">Pay now</a><div>`
+
+// TestAuditSESTemplateDataRaw proves whether user input reaches SES
+// TemplateData unescaped.
+func TestAuditSESTemplateDataRaw(t *testing.T) {
+	s := NewSenderWithClient(nil, "production", "")
+
+	cases := []struct {
+		template string
+		prop     string
+		props    map[string]interface{}
+	}{
+		{"new-request-mentor", "mentee_request", map[string]interface{}{
+			"mentee_contact": "tg: @evil",
+			"mentee_email":   "evil@example.com",
+			"mentee_name":    "Evil Mentee",
+			"mentee_request": evilPayload,
+			"mentor_name":    "Alice",
+			"request_url":    "https://openmentor.io/mentor",
+		}},
+		{"new-request", "request_details", map[string]interface{}{
+			"first_name":      "Alice",
+			"mentor_name":     "Bob",
+			"request_details": evilPayload,
+			"request_price":   "free",
+		}},
+		{"new-review", "review_text", map[string]interface{}{
+			"first_name":  "Alice",
+			"mentee_name": "Evil Mentee",
+			"review_text": evilPayload,
+		}},
+	}
+
+	for _, tc := range cases {
+		input, err := s.BuildSendEmailInput(Message{
+			TemplateName: tc.template,
+			Recipient:    "victim@example.com",
+			Props:        tc.props,
+		})
+		if err != nil {
+			t.Fatalf("BuildSendEmailInput(%s): %v", tc.template, err)
+		}
+		td := aws.ToString(input.Content.Template.TemplateData)
+		t.Logf("===== template %q, prop %q =====", tc.template, tc.prop)
+		t.Logf("TemplateData JSON: %s", td)
+
+		// Is the payload present verbatim (after JSON unquoting)?
+		var back map[string]interface{}
+		if err := json.Unmarshal([]byte(td), &back); err != nil {
+			t.Fatalf("TemplateData is not valid JSON: %v", err)
+		}
+		got := fmt.Sprint(back[tc.prop])
+		if got == evilPayload {
+			t.Logf("RAW/UNESCAPED: TemplateData[%q] == payload verbatim (no HTML escaping applied)", tc.prop)
+		} else {
+			t.Logf("ALTERED: TemplateData[%q] = %q", tc.prop, got)
+		}
+		if strings.Contains(td, "&lt;") || strings.Contains(td, "&amp;") {
+			t.Logf("NOTE: TemplateData contains HTML entities -> some escaping happened")
+		} else {
+			t.Logf("CONFIRMED: no HTML entities anywhere in TemplateData")
+		}
+
+		tpl, _ := templates.GetTemplate(tc.template)
+		t.Logf("--- rendered SUBJECT ---\n%s", renderSES(tpl.Subject, tc.props))
+		t.Logf("--- rendered TEXT ---\n%s", renderSES(tpl.Text, tc.props))
+		htmlOut := renderSES(tpl.HTML, tc.props)
+		// Print only the region around the injected payload to keep output readable.
+		if i := strings.Index(htmlOut, "evil.example"); i >= 0 {
+			lo, hi := i-400, i+400
+			if lo < 0 {
+				lo = 0
+			}
+			if hi > len(htmlOut) {
+				hi = len(htmlOut)
+			}
+			t.Logf("--- rendered HTML (window around injected anchor) ---\n...%s...", htmlOut[lo:hi])
+			t.Logf("VERDICT: injected <a href=\"https://evil.example/pay\"> is LIVE MARKUP in the delivered HTML body")
+		} else {
+			t.Logf("payload not found in rendered HTML")
+		}
+	}
+}
+
+// TestAuditEscapeCounterProposal tests the owner's counter-proposal:
+// html.EscapeString the props BEFORE handing them to SES.
+func TestAuditEscapeCounterProposal(t *testing.T) {
+	names := []string{"Tom & Jerry", "O'Brien", "5 < 10", `Ann "Annie" Lee`, "Müller & Söhne"}
+
+	t.Log("=== html.EscapeString on realistic benign names ===")
+	for _, n := range names {
+		t.Logf("%-18q -> %q", n, html.EscapeString(n))
+	}
+
+	tpl, err := templates.GetTemplate("new-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("\nraw subject template: %q", tpl.Subject)
+
+	for _, n := range names {
+		props := map[string]interface{}{
+			"first_name":      html.EscapeString(n),
+			"mentor_name":     html.EscapeString(n),
+			"request_details": html.EscapeString("I want to learn C++ & Go (rates < $50)"),
+			"request_price":   html.EscapeString("free"),
+		}
+		t.Logf("\n########## escaped props for name %q ##########", n)
+		t.Logf("SUBJECT (what the inbox list shows):\n  %s", renderSES(tpl.Subject, props))
+		text := renderSES(tpl.Text, props)
+		// First 6 non-empty lines of the plaintext body.
+		lines := strings.Split(text, "\n")
+		shown := 0
+		var sb strings.Builder
+		for _, l := range lines {
+			sb.WriteString("  " + l + "\n")
+			shown++
+			if shown >= 8 {
+				break
+			}
+		}
+		t.Logf("TEXT body (first 8 lines):\n%s", sb.String())
+	}
+
+	// And the mentor-login subject, which also interpolates a name.
+	for _, name := range []string{"mentor-login", "new-review", "session-declined"} {
+		tp, err := templates.GetTemplate(name)
+		if err != nil {
+			continue
+		}
+		t.Logf("template %-18s subject template = %q", name, tp.Subject)
+	}
+}
+
+// TestAuditTemplateInventory enumerates every template asset: which vars
+// appear in subject vs text vs html, and whether any Handlebars block
+// helpers or triple-brace raw output are used.
+func TestAuditTemplateInventory(t *testing.T) {
+	dir := filepath.Join("templates", "assets")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	varRe := regexp.MustCompile(`\{\{\{?[#/^]?\s*([A-Za-z0-9_.]+)\s*\}?\}\}`)
+	blockRe := regexp.MustCompile(`\{\{\s*[#/^]`)
+	tripleRe := regexp.MustCompile(`\{\{\{`)
+
+	type row struct {
+		name               string
+		hasText            bool
+		textLen            int
+		subjVars, textVars []string
+		htmlVars           []string
+		blocks, triples    []string
+	}
+	var rows []row
+	anyBlocks, anyTriples := 0, 0
+
+	collect := func(s string) []string {
+		seen := map[string]bool{}
+		var out []string
+		for _, m := range varRe.FindAllStringSubmatch(s, -1) {
+			if !seen[m[1]] {
+				seen[m[1]] = true
+				out = append(out, m[1])
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
+
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var tpl templates.EmailTemplate
+		if err := json.Unmarshal(data, &tpl); err != nil {
+			t.Fatal(err)
+		}
+		r := row{
+			name:     strings.TrimSuffix(e.Name(), ".json"),
+			hasText:  strings.TrimSpace(tpl.Text) != "",
+			textLen:  len(tpl.Text),
+			subjVars: collect(tpl.Subject),
+			textVars: collect(tpl.Text),
+			htmlVars: collect(tpl.HTML),
+			blocks:   blockRe.FindAllString(tpl.Subject+tpl.HTML+tpl.Text, -1),
+			triples:  tripleRe.FindAllString(tpl.Subject+tpl.HTML+tpl.Text, -1),
+		}
+		anyBlocks += len(r.blocks)
+		anyTriples += len(r.triples)
+		rows = append(rows, r)
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
+
+	t.Logf("%d template assets", len(rows))
+	t.Logf("%-27s %-5s %-6s %-34s %s", "TEMPLATE", "TEXT?", "TXTLEN", "SUBJECT VARS", "TEXT-PART VARS")
+	for _, r := range rows {
+		t.Logf("%-27s %-5v %-6d %-34s %s", r.name, r.hasText, r.textLen,
+			strings.Join(r.subjVars, ","), strings.Join(r.textVars, ","))
+	}
+	t.Logf("\nHTML-only vars (in html but NOT in text) per template:")
+	for _, r := range rows {
+		inText := map[string]bool{}
+		for _, v := range r.textVars {
+			inText[v] = true
+		}
+		var only []string
+		for _, v := range r.htmlVars {
+			if !inText[v] {
+				only = append(only, v)
+			}
+		}
+		if len(only) > 0 {
+			t.Logf("  %-27s %s", r.name, strings.Join(only, ","))
+		}
+	}
+	t.Logf("\nHandlebars block helpers ({{#if}}/{{#each}}/{{^}}/{{/x}}) found: %d", anyBlocks)
+	t.Logf("Triple-brace raw output ({{{x}}}) found: %d", anyTriples)
+}
+
+// TestAuditPairedProps confirms the html/text paired-prop convention.
+func TestAuditPairedProps(t *testing.T) {
+	checks := []struct {
+		template string
+		htmlProp string
+		textProp string
+	}{
+		{"session-declined", "decline_info", "decline_info_text"},
+		{"status-update-reminder", "requests_list", "requests_list_text"},
+		{"pending-requests-reminder", "requests_list", "requests_list_text"},
+	}
+	for _, c := range checks {
+		tpl, err := templates.GetTemplate(c.template)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("%-27s html contains {{%s}}=%v  text contains {{%s}}=%v  | html contains {{%s}}=%v  text contains {{%s}}=%v",
+			c.template,
+			c.htmlProp, strings.Contains(tpl.HTML, "{{"+c.htmlProp+"}}"),
+			c.textProp, strings.Contains(tpl.Text, "{{"+c.textProp+"}}"),
+			c.textProp, strings.Contains(tpl.HTML, "{{"+c.textProp+"}}"),
+			c.htmlProp, strings.Contains(tpl.Text, "{{"+c.htmlProp+"}}"),
+		)
+	}
+}
+
+// TestAuditHTMLTemplateNeutralizesJavascriptURL proves what Go's
+// html/template does to a javascript: URL in an href context.
+func TestAuditHTMLTemplateNeutralizesJavascriptURL(t *testing.T) {
+	tmpl := htmltemplate.Must(htmltemplate.New("t").Parse(
+		`<a href="{{.u}}">click</a> | text: {{.u}} | attr: <div title="{{.t}}">`))
+
+	for _, u := range []string{
+		"javascript:alert(1)",
+		"https://ok.example/x?a=1&b=2",
+		"JaVaScRiPt:alert(1)",
+		"data:text/html,<script>alert(1)</script>",
+	} {
+		var sb strings.Builder
+		if err := tmpl.Execute(&sb, map[string]string{"u": u, "t": evilPayload}); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("u=%-42q ->\n  %s", u, sb.String())
+	}
+
+	// And plain-text escaping of the injection payload for comparison.
+	textOnly := htmltemplate.Must(htmltemplate.New("x").Parse(`<div>{{.p}}</div>`))
+	var sb strings.Builder
+	if err := textOnly.Execute(&sb, map[string]string{"p": evilPayload}); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("html/template body context, payload -> %s", sb.String())
+}

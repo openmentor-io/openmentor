@@ -18,7 +18,11 @@ disrupts the same people twice, for the same incident.
 Order of operations:
 
 1. Deploy the P14 containment change (so new tokens are not re-leaked).
-2. Rotate `JWT_SECRET` in `infra/.env.runtime`, restart api + worker.
+2. Rotate `JWT_SECRET`: change it in `infra/.env.production`, then
+   `./deploy.sh infra`. **Not** `infra/.env.runtime` — P10 deleted that file, and
+   each service now receives `JWT_SECRET` through its own `environment:`
+   allowlist. See [`secret-rotation.md`](secret-rotation.md) § 6, which also
+   explains why this step is scheduled rather than immediate.
 3. Run the SQL below.
 4. Handle PostHog retention/deletion separately — see "What SQL cannot reach".
 

@@ -3,7 +3,11 @@
 # diagnostics.sh — run the 2026-08 audit diagnostics (D1-D4) and write a report.
 #
 # Read-only: it feeds diagnostics.sql to psql and captures the output. The SQL
-# pins the session read-only, so nothing here can write to the database.
+# pins the session read-only, so nothing here can write to the database. That
+# guarantee only holds if psql runs no statement before it, which is why
+# PSQL_ARGS after `--` are restricted to connection-defining options (see
+# check_psql_passthrough): psql executes a passthrough -c/-f in command-line
+# order, i.e. ahead of the SQL that sets default_transaction_read_only.
 #
 # Two ways to reach production Postgres (it publishes no host port):
 #
@@ -16,6 +20,8 @@
 #       ./diagnostics.sh --local -- "service=openmentor-prod"
 #       PGHOST=localhost PGPORT=5433 PGUSER=openmentor ./diagnostics.sh --local
 #     (infra/db.sh tunnel 5433 opens that tunnel.)
+#     If your shell also exports DATABASE_URL (a dev URL, usually), the script
+#     REFUSES to guess — unset it for this command, or pass the DSN after `--`.
 #
 # Zero-setup alternative that needs no copy of this script on the VM:
 #       infra/db.sh < docs/runbooks/audit-2026-08/diagnostics.sql
@@ -27,7 +33,9 @@
 # which connects over the container's local socket and needs none.
 #
 # The report contains PERSONAL DATA (names, emails, request text). It is
-# written with mode 600. Delete it when you are done.
+# created fresh with mode 600 and the script REFUSES an existing path (see
+# "Report file" below). Delete it when you are done. The console only ever
+# gets the SUMMARY block, never detail rows — not even on error.
 
 set -euo pipefail
 
@@ -61,21 +69,33 @@ Options:
   --db NAME             database name for --docker (default: openmentor,
                         or $OM_PG_DB)
   --out FILE            report path (default: ./openmentor-diagnostics-<UTC>.txt,
-                        or $OM_DIAG_OUT)
+                        or $OM_DIAG_OUT). MUST NOT EXIST: an existing file keeps
+                        its own mode, so reusing one could write personal data
+                        into a world-readable path.
   -n, --dry-run         show what would run and check preconditions; do not
-                        connect to any database
+                        connect to any database. Exits 3 if anything a real run
+                        needs is missing, so it works as an automated preflight.
   -h, --help            this text
-  -- PSQL_ARGS...       passed verbatim to psql in --local mode (e.g. a DSN or
-                        a service name). NEVER echoed back.
+  -- PSQL_ARGS...       CONNECTION arguments for psql in --local mode (e.g. a DSN
+                        or a service name). NEVER echoed back. Only
+                        connection-defining arguments are accepted: a
+                        dbname/DSN/service positional, -h/--host, -p/--port,
+                        -U/--username, -d/--dbname, -w/--no-password,
+                        -W/--password. Execution and output options (-c, -f, -o,
+                        -l, -1, -v, ...) are REFUSED — psql would run them
+                        before diagnostics.sql pins the session read-only.
 
 Connection details for --local come from the standard libpq environment
 (PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD, PGPASSFILE, PGSSLMODE) or
-from PSQL_ARGS. DATABASE_URL is used if set and nothing else is given; note
-that a DSN on a command line is visible in the host process list, so prefer
-PG* variables or a service file when the DSN embeds a password.
+from PSQL_ARGS. DATABASE_URL is used only when NO connection-defining PG*
+variable is set; setting both is rejected rather than silently resolved, because
+a DSN passed to psql wins over PGHOST/PGDATABASE and you would get a report
+describing a different database than the one you named. Note also that a DSN on
+a command line is visible in the host process list, so prefer PG* variables or a
+service file when the DSN embeds a password.
 
 Exit codes: 0 ok (findings are not failures) · 1 psql/query failed
-            2 bad usage · 3 precondition missing
+            2 bad usage · 3 precondition missing (dry run reports this too)
 EOF
 }
 
@@ -109,6 +129,82 @@ if [ ${#PSQL_PASSTHROUGH[@]} -gt 0 ] && [ "$MODE" = "docker" ]; then
     die "PSQL_ARGS are only used with --local"
 fi
 
+# ---------------------------------------------------------------------------
+# PSQL_ARGS must define a CONNECTION and nothing else.
+#
+# psql processes command and file options in the order they appear on its command
+# line, so a passthrough `-c` or `-f` runs BEFORE this script's own `-f -` — that
+# is, before diagnostics.sql has set default_transaction_read_only. A caller
+# could therefore write to the live database through the one script whose entire
+# promise is that it only reads. Verified against a scratch Postgres, all four on
+# a run that reported itself read-only:
+#     --local -- -c 'CREATE TABLE …'     -> table created
+#     --local -- -wc 'CREATE TABLE …'    -> table created (bundled short flags)
+#     --local -- -f other.sql            -> file executed
+#     --local -- --command='CREATE …'    -> table created ('='-joined long form)
+#
+# So this is an ALLOWLIST of connection options, not a denylist of dangerous
+# ones: a denylist has to enumerate every current and future psql option that can
+# execute or write, and psql keeps adding options.
+#
+# Only the OPTION NAME is ever echoed back, never a value — a DSN can embed a
+# password, and values are skipped without being inspected.
+# ---------------------------------------------------------------------------
+reject_psql_arg() {
+    die "PSQL_ARGS may only define a connection, and $1 does not.
+
+  psql runs a passthrough -c/-f BEFORE diagnostics.sql pins the session
+  read-only, so an execution or output option here could write to the database
+  this script promises only to read.
+
+  Accepted: a dbname / DSN / 'service=NAME' positional, -h/--host, -p/--port,
+  -U/--username, -d/--dbname, -w/--no-password, -W/--password. Pass short
+  options separately (-w -h HOST), not bundled (-wh HOST).
+  Anything else belongs in the libpq environment (PGOPTIONS, PGSSLMODE, ...)."
+}
+
+check_psql_passthrough() {
+    local i=0 arg letter
+    while [ "$i" -lt "${#PSQL_PASSTHROUGH[@]}" ]; do
+        arg="${PSQL_PASSTHROUGH[$i]}"
+        case "$arg" in
+            # Value lives in the NEXT argument; skip it unexamined.
+            --host|--port|--username|--dbname) i=$((i + 2)); continue ;;
+            # '='-joined value: nothing after the '=' is an option.
+            --host=*|--port=*|--username=*|--dbname=*) i=$((i + 1)); continue ;;
+            --no-password|--password) i=$((i + 1)); continue ;;
+            --*=*) reject_psql_arg "${arg%%=*}" ;;
+            --*)   reject_psql_arg "$arg" ;;
+            # A bare '-' makes psql read SQL from stdin, which is where this
+            # script feeds diagnostics.sql from.
+            -)     reject_psql_arg "'-'" ;;
+            -*)
+                # Short options. Of the connection options only h/p/U/d take a
+                # value and only w/W do not, so the FIRST letter decides how the
+                # rest of the token is read — the same rule getopt applies. That
+                # is also why a bundle whose first letter takes no value must be
+                # refused rather than parsed: in `-wc 'DROP …'` the option that
+                # matters is the SECOND letter.
+                letter="${arg:1:1}"
+                case "$letter" in
+                    h|p|U|d)
+                        # -hVALUE (attached) or -h VALUE (next argument).
+                        if [ "${#arg}" -gt 2 ]; then i=$((i + 1)); else i=$((i + 2)); fi
+                        continue ;;
+                    w|W)
+                        [ "${#arg}" -eq 2 ] \
+                            || reject_psql_arg "the bundled short options starting -$letter"
+                        i=$((i + 1)); continue ;;
+                    *) reject_psql_arg "-$letter" ;;
+                esac ;;
+            # Positional. psql's positionals are only dbname and username, which
+            # is how a DSN or a 'service=NAME' string is passed. Never echoed.
+            *) i=$((i + 1)); continue ;;
+        esac
+    done
+}
+check_psql_passthrough
+
 if [ -z "$OUT_FILE" ]; then
     OUT_FILE="./openmentor-diagnostics-$(date -u +%Y%m%d-%H%M%S).txt"
 fi
@@ -131,6 +227,28 @@ case "$MODE" in
             cmd+=("${PSQL_PASSTHROUGH[@]}")
             target_label="local psql (connection from the arguments after --, not shown)"
         elif [ -n "${DATABASE_URL:-}" ]; then
+            # A DSN handed to psql as an argument OVERRIDES PGHOST/PGDATABASE
+            # etc. — libpq gives explicit connection parameters precedence over
+            # the environment. So an operator following the documented
+            # `PGHOST=... PGDATABASE=... --local` example from a shell that also
+            # exports DATABASE_URL (typically a dev URL) would silently get a
+            # report about the wrong database and then make production repair
+            # decisions from it. Refuse instead of picking a winner.
+            pg_conflicts=()
+            for var in PGSERVICE PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER; do
+                if [ -n "${!var:-}" ]; then
+                    pg_conflicts+=("$var")
+                fi
+            done
+            if [ ${#pg_conflicts[@]} -gt 0 ]; then
+                die "ambiguous connection: DATABASE_URL and ${pg_conflicts[*]} are both set.
+  A DSN argument wins over the PG* environment, so the report would describe the
+  database in DATABASE_URL, not the one you named. Pick one:
+    unset DATABASE_URL                            # use the PG* variables
+    ./diagnostics.sh --local -- \"\$DATABASE_URL\"   # use the DSN, explicitly
+  (Credential-only variables — PGPASSWORD, PGPASSFILE, PGSSLMODE — are fine
+  alongside either choice; they do not select a database.)"
+            fi
             cmd+=("$DATABASE_URL")
             target_label="local psql (connection from \$DATABASE_URL, not shown)"
         else
@@ -149,12 +267,19 @@ printf '\n'
 
 if [ "$DRY_RUN" -eq 1 ]; then
     printf 'DRY RUN — no database connection is made.\n\n'
+    # A dry run is a preflight, so its exit code has to mean the same thing the
+    # real run's does: 0 = "the real run can start". Printing MISSING/BLOCKED and
+    # then exiting 0 anyway made an automated preflight report success for a run
+    # that could not connect (and the real run then exits 3 on the same check).
+    dry_blocked=0
     case "$MODE" in
         docker)
             if ! command -v docker >/dev/null 2>&1; then
                 printf '  MISSING : docker is not on PATH (run this on the VM, or use --local)\n'
+                dry_blocked=1
             elif ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then
                 printf '  MISSING : container %s is not running\n' "$CONTAINER"
+                dry_blocked=1
             else
                 printf '  ok      : container %s is running\n' "$CONTAINER"
             fi
@@ -166,12 +291,23 @@ if [ "$DRY_RUN" -eq 1 ]; then
                 printf '  ok      : psql found at %s\n' "$(command -v psql)"
             else
                 printf '  MISSING : psql is not on PATH\n'
+                dry_blocked=1
             fi
             printf '  would run: psql <connection args, not shown> -X -v ON_ERROR_STOP=1 -f - < diagnostics.sql\n'
             ;;
     esac
-    printf '  would write the report to: %s\n' "$OUT_FILE"
+    if [ -e "$OUT_FILE" ] || [ -L "$OUT_FILE" ]; then
+        printf '  BLOCKED : report path already exists: %s\n' "$OUT_FILE"
+        printf '            a real run will refuse it (an existing file keeps its own mode)\n'
+        dry_blocked=1
+    else
+        printf '  ok      : would create the report at %s (new file, mode 600)\n' "$OUT_FILE"
+    fi
     printf '\nNothing was read or written. Re-run without --dry-run.\n'
+    if [ "$dry_blocked" -eq 1 ]; then
+        printf 'A real run would NOT get as far as connecting — fix the lines above.\n'
+        exit "$EXIT_PRECONDITION"
+    fi
     exit 0
 fi
 
@@ -189,9 +325,38 @@ case "$MODE" in
         ;;
 esac
 
-# The report holds personal data: create it 0600 and keep it that way.
+# Report file. It holds personal data, so it must be a NEW file we own at 0600.
+#
+# umask only applies when an inode is created; it does nothing to a path that
+# already exists, and `: > file` truncates in place and keeps the existing mode.
+# So reusing a path left over at 0644 (or one someone else prepared, or a
+# symlink into a shared directory) would publish names, emails and request text.
+# Refuse the path instead of trying to fix it up.
 umask 077
-: > "$OUT_FILE"
+if [ -e "$OUT_FILE" ] || [ -L "$OUT_FILE" ]; then
+    die "report path already exists: $OUT_FILE
+  It is not created by this run, so its mode and ownership are not ours to
+  trust, and the report contains personal data. Delete it (after checking what
+  it is) or pass a new --out path." "$EXIT_PRECONDITION"
+fi
+# noclobber closes the gap between the test above and the create: `>` fails if
+# the path appeared in between. The -L test above is still needed — noclobber
+# follows a dangling symlink and would create its target.
+( set -o noclobber; : > "$OUT_FILE" ) \
+    || die "could not create the report file: $OUT_FILE" "$EXIT_PRECONDITION"
+chmod 600 "$OUT_FILE" || die "could not set mode 600 on $OUT_FILE" "$EXIT_PRECONDITION"
+
+# psql's own stderr (connection errors, timeouts, SQL errors) goes here, kept
+# apart from stdout so a failure can be reported WITHOUT replaying report rows.
+ERR_FILE="$OUT_FILE.psql-stderr"
+if [ -e "$ERR_FILE" ] || [ -L "$ERR_FILE" ]; then
+    die "stderr scratch path already exists: $ERR_FILE (delete it or use --out)" "$EXIT_PRECONDITION"
+fi
+( set -o noclobber; : > "$ERR_FILE" ) \
+    || die "could not create $ERR_FILE" "$EXIT_PRECONDITION"
+chmod 600 "$ERR_FILE" || die "could not set mode 600 on $ERR_FILE" "$EXIT_PRECONDITION"
+cleanup() { rm -f "$ERR_FILE"; }
+trap cleanup EXIT
 
 {
     printf '# OpenMentor audit diagnostics (2026-08)\n'
@@ -204,12 +369,31 @@ umask 077
 printf 'Running diagnostics...\n'
 
 status=0
-"${cmd[@]}" < "$SQL_FILE" >> "$OUT_FILE" 2>&1 || status=$?
+"${cmd[@]}" < "$SQL_FILE" >> "$OUT_FILE" 2>> "$ERR_FILE" || status=$?
+
+# Whatever happened, psql's diagnostics belong in the report next to the rows.
+if [ -s "$ERR_FILE" ]; then
+    {
+        printf '\n## psql stderr\n'
+        cat "$ERR_FILE"
+    } >> "$OUT_FILE"
+fi
 
 if [ "$status" -ne 0 ]; then
-    printf '\npsql exited %d. Last 20 lines of the report:\n\n' "$status" >&2
-    tail -n 20 "$OUT_FILE" >&2
-    printf '\nFull output: %s\n' "$OUT_FILE" >&2
+    # Show psql's own error text — that is what identifies the failure — and
+    # NOT the report. The old version tailed the last 20 report lines to
+    # stderr, which puts mentor names, emails and request text into the
+    # terminal and into whatever records that session (tmux/CI/screen logs),
+    # defeating the summary-only console design.
+    printf '\npsql exited %d.\n' "$status" >&2
+    if [ -s "$ERR_FILE" ]; then
+        printf '\npsql reported:\n\n' >&2
+        cat "$ERR_FILE" >&2
+    else
+        printf '\npsql printed no diagnostics.\n' >&2
+    fi
+    printf '\nThe partial report (mode 600, personal data) is at: %s\n' "$OUT_FILE" >&2
+    printf 'Read it there. Nothing from it is echoed to this terminal.\n' >&2
     exit 1
 fi
 

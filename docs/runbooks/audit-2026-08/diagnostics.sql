@@ -7,6 +7,12 @@
 -- ordinary ACCESS SHARE locks are taken (unavoidable for any SELECT); nothing
 -- here blocks a writer.
 --
+-- D1-D4 and the SUMMARY run inside ONE read-only REPEATABLE READ transaction,
+-- so the summary counts always describe the same instant as the detail rows
+-- above them. Consequence for running single checks by hand: the BEGIN is near
+-- the top and the COMMIT is at the bottom, so copy a query out on its own
+-- rather than pasting a fragment that starts mid-transaction.
+--
 -- Every column referenced here was checked against api/migrations/*.up.sql and
 -- the whole file was executed against a scratch database built from those
 -- migrations. Do not "fix" a column name from the Go models — `reviews` has
@@ -33,7 +39,9 @@
 \pset pager off
 \timing off
 
--- Safety rails. Session-local; they vanish when psql exits.
+-- Safety rails. Session-local; they vanish when psql exits. Set BEFORE the
+-- transaction opens, so they are plain session settings and not something a
+-- rollback could undo halfway through.
 SET default_transaction_read_only = on;   -- any write in this session fails
 SET statement_timeout = '120s';
 SET lock_timeout = '5s';
@@ -42,6 +50,31 @@ SET idle_in_transaction_session_timeout = '120s';
 -- Provenance for the report. \conninfo prints database/user/host/port and
 -- never a password.
 \conninfo
+
+-- ---------------------------------------------------------------------------
+-- ONE SNAPSHOT FOR THE WHOLE REPORT.
+--
+-- Without this every statement below would run in its own transaction
+-- (psql is in autocommit), so the SUMMARY counts would be taken from a
+-- different point in time than the detail rows above them — a profile save, a
+-- request finalization or a review submission landing mid-run makes the two
+-- disagree, and the operator cannot tell which half is stale. Verified on a
+-- scratch database: with autocommit, a concurrent INSERT between two counts is
+-- visible to the second one; inside this transaction it is not.
+--
+-- REPEATABLE READ (not SERIALIZABLE) is enough: we only read, so there is no
+-- write skew to serialize and no chance of a serialization failure forcing a
+-- retry. READ ONLY is belt-and-braces on top of the session setting above.
+--
+-- It takes only ACCESS SHARE locks and blocks no writer. It does hold back
+-- the vacuum horizon for as long as it runs, which is why statement_timeout
+-- stays at 120s: the whole report is a handful of seconds on this data size,
+-- and no single query can run away.
+--
+-- If any statement fails, ON_ERROR_STOP aborts psql with the transaction still
+-- open; disconnecting rolls it back. Nothing is written either way.
+-- ---------------------------------------------------------------------------
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 
 
 -- ===========================================================================
@@ -144,25 +177,44 @@ WHERE price = 'Free'
   AND updated_at > created_at
 ORDER BY updated_at DESC;
 
--- Exposure. Note '' (empty string) is deliberately counted: it is not one of
--- the select's options either, so it triggers the same first-option fallback.
+-- Exposure. '' (empty string) is deliberately counted: it is not one of the
+-- select's options either, so it triggers the same first-option fallback.
+--
+-- NULL IS COUNTED TOO, and an earlier `IS NOT NULL` filter here hid those
+-- rows. `price` is plain nullable TEXT (migration 000001, `price TEXT`) with no
+-- CHECK and no default, so NULL is a value the schema permits and NULL is not
+-- one of the six options either. Its consequence is in fact WORSE than an
+-- off-list string, and it is the D1 failure on a second column: models.ScanMentor
+-- scans `price` into a non-pointer `Mentor.Price string` (models/mentor.go:23,138),
+-- so pgx fails the WHOLE row. Verified with pgx v5.9.2 against a scratch
+-- database: scanning a NULL `price` into *string returns
+--   can't scan into dest[N] (col: price): cannot scan NULL into *string
+-- while COALESCE(price,'') on the same row returns ''. So a NULL price breaks
+-- GetByEmail (login), the public profile page and the catalog exactly as a NULL
+-- `sort_order` does — and on the paths that DO COALESCE it (the admin/moderation
+-- reads at mentor_repository.go:607,661 and the worker's GetJobMentorByID) it
+-- surfaces as '', which is off-list, which is one save from 'Free'.
+-- `experience` (Mentor.Experience string) has the identical shape, which is why
+-- D2d has always counted NULL. Both filters now agree.
 \echo ''
 \echo '## D2b — mentors holding a price the profile select cannot represent'
 
 SELECT count(*) AS off_list_prices
 FROM mentors
-WHERE price IS NOT NULL
-  AND price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable');
+WHERE price IS NULL
+   OR price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable');
 
 \echo ''
 \echo '## D2c — the actual off-list values (input for the recompute in data-repair.md)'
 
-SELECT price, count(*) AS mentors
+-- COALESCE so a NULL is a visible '<NULL>' bucket rather than a blank cell an
+-- operator reads as the empty string. Same shape as D2d.
+SELECT COALESCE(price, '<NULL>') AS price, count(*) AS mentors
 FROM mentors
-WHERE price IS NOT NULL
-  AND price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable')
-GROUP BY price
-ORDER BY mentors DESC, price;
+WHERE price IS NULL
+   OR price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable')
+GROUP BY 1
+ORDER BY mentors DESC, 1;
 
 -- ---------------------------------------------------------------------------
 -- D2d — THE SAME BUG ON A SECOND FIELD (not in the original audit plan)
@@ -212,14 +264,42 @@ ORDER BY mentors DESC, 1;
 --              new-request-calendly (to the mentee) and `mentee_request` in
 --              new-request-mentor (to the mentor)
 --            client_requests.name        -> `first_name` / `mentee_name`
+--            client_requests.preferred_contact -> `mentee_contact` in
+--              new-request-mentor (job_new_request_watcher.go:109-123, via the
+--              "not provided" fallback). Mentee-supplied free text: the API
+--              binding is `omitempty,max=100` (models/contact.go), no charset
+--              or format check, and the template drops it into a <div>.
 --            mentors.name                -> `mentor_name` / `first_name`
+--            mentors.price               -> `request_price` in new-request AND
+--              new-request-calendly (job_new_request_watcher.go:99). Mentor-
+--              supplied free text: `required,max=100` (models/profile.go) with
+--              no option-list check server-side, and the template drops it into
+--              a <div>. This is the field D2 is about — the same column that is
+--              too free-form for the profile <select> is also an email sink.
 --            mentors.calendar_url        -> `calendly_url` in
 --              new-request-calendly (job_new_request_watcher.go:102-104)
+--            mentors.moderation_note     -> `reviewer_note` in
+--              new-mentor-returned (job_mentor_moderation.go:166-174, via
+--              JobMentor.ModerationNote). The moderator's own "please fix this"
+--              note, written by the API's return-to-draft action
+--              (mentor_repository.go ReturnMentorToDraft) and mailed to the
+--              mentor unescaped. The remediation plan's P6 sink table lists it
+--              (`reviewer_note`, max 2000); D3 used to skip straight from
+--              calendar URLs to the review fields, so a clean D3 said nothing
+--              about it. Its author is a moderator, not an attacker, so a hit
+--              here is far more likely to be prose about markup than an
+--              injection — but "we never checked" is not an answer to "was this
+--              exercised?".
 --            reviews.mentor_review       -> `review_text` in new-review
 --              (truncated to 500 chars, job_process_review.go)
 --          reviews.platform_review and reviews.improvements are stored and
 --          counted in analytics but reach NO email template — a hit there is
 --          worth knowing about but is not an email-injection vector.
+--
+--          NOT a sink, deliberately: client_requests.level (-> `mentee_level`
+--          in new-request-moderator). It is bound `oneof=Junior Middle Senior
+--          Manager 'Manager of managers' C-level` (models/contact.go), so it
+--          cannot carry markup, and adding it would only produce noise.
 --
 --          A hit is NOT proof of an attack. Mentors legitimately write "<3"
 --          or paste HTML into their bio. What IS close to proof: an <a href>
@@ -230,38 +310,90 @@ ORDER BY mentors DESC, 1;
 --          affected request/review, and the mentor's inbox with their help).
 --
 -- DO       Escape at the template boundary (audit item P6) and validate
---          calendar_url's scheme. If any name/calendar_url row is a real
---          injection, treat it as an incident, not a backlog item.
+--          calendar_url's scheme AND its characters. If any name/calendar_url
+--          row is a real injection, treat it as an incident, not a backlog item.
 --
--- REGEX    The tag-name branch ends in `\y`, PostgreSQL's word-boundary
---          constraint. Do NOT change it to `\b`: in PostgreSQL's regex flavour
+-- CALENDAR_URL  The scheme test alone is not enough, and this is the sharpest
+--          gap in this query. calendar_url lands inside an attribute —
+--          href="{{calendly_url}}" — so a value that keeps the https:// prefix
+--          and then closes the attribute is a complete injection that a
+--          scheme-only predicate calls clean:
+--            https://evil.example/x"><img src=x onerror=alert(1)>
+--          Verified on a scratch database: with only `!~* '^https://'` that row
+--          returns 0 rows; with the character class below it is found.
+--          The class is `[<>"'` + backtick + [:space:]]. Every one of those
+--          either terminates an HTML attribute or opens a tag, and none of them
+--          is legal in a URI (RFC 3986 excludes <, >, ", backtick and space;
+--          `'` is a sub-delim no calendar URL uses), so it does not fire on
+--          real Calendly links — `?month=2026-08&back=1`, `#frag`, percent-
+--          escapes and the other sub-delims all pass. `[:space:]` rather than
+--          `\s` inside the bracket expression: unambiguous in every regex
+--          flavour, which matters in a file operators copy into other tools.
+--
+-- REGEX    EVERY free-text sink uses the same deliberately permissive
+--          predicate, `<\s*[a-z]` — '<' followed by a letter.
+--
+--          `description` used to carry a tag allowlist instead,
+--          `<\s*(a|img|div|table|script|style)\y`, which is a denylist wearing
+--          an allowlist's clothes: `<form>`, `<iframe>`, `<svg>` and `<input>`
+--          are not on the list and every one of them reaches the same
+--          unescaped `{{request_details}}` / `{{mentee_request}}` interpolation
+--          (job_new_request_watcher.go:98,124) in DKIM-signed mail. An
+--          unauthenticated contact request using any of them was reported
+--          CLEAN, so D3 would have concluded the injection was never exercised.
+--          Verified on a scratch database: '<iframe src=x>' does not match the
+--          tag list and does match `<\s*[a-z]`. D3 answers "was this ever
+--          exercised?", where a false negative ends the investigation and a
+--          false positive costs one eyeballed row — so the permissive form is
+--          the right trade in every one of these fields, not just the short
+--          ones.
+--
+--          Expect benign hits and read them, do not tune them away. In long
+--          prose: 'if a < b' matches (`\s*` spans the space). In
+--          preferred_contact: an address written '<me@example.com>'. A price is
+--          not expected to hit at all — '<50' and '<$50' do not match, because
+--          a digit and '$' are not [a-z].
+--
+--          If you ever re-add a tag-name branch, end it with PostgreSQL's `\y`
+--          word-boundary constraint and NOT with `\b`: in this regex flavour
 --          `\b` is the BACKSPACE character (U+0008), so `...(img|...)\b` never
 --          matches and the branch silently returns zero rows. Verified:
 --            SELECT '<img src=x>' ~* '<\s*(a|img)\b';  -- false
 --            SELECT '<img src=x>' ~* '<\s*(a|img)\y';  -- true
---          `\y` also avoids false positives on words that merely start with a
---          tag name ('<image ...>' does not match).
 -- ===========================================================================
 \echo ''
 \echo '## D3 — markup / non-https scheme in fields that reach email templates'
 
   SELECT id, created_at, 'client_requests.description' AS field
     FROM client_requests
-   WHERE description ~* '<\s*(a|img|div|table|script|style)\y'
+   WHERE description ~* '<\s*[a-z]'
 UNION ALL
   SELECT id, created_at, 'client_requests.name'
     FROM client_requests
    WHERE name ~* '<\s*[a-z]'
 UNION ALL
+  SELECT id, created_at, 'client_requests.preferred_contact'
+    FROM client_requests
+   WHERE preferred_contact ~* '<\s*[a-z]'
+UNION ALL
   SELECT id, created_at, 'mentors.name'
     FROM mentors
    WHERE name ~* '<\s*[a-z]'
+UNION ALL
+  SELECT id, created_at, 'mentors.price'
+    FROM mentors
+   WHERE price ~* '<\s*[a-z]'
 UNION ALL
   SELECT id, created_at, 'mentors.calendar_url'
     FROM mentors
    WHERE calendar_url IS NOT NULL
      AND calendar_url <> ''
-     AND calendar_url !~* '^https://'
+     AND (calendar_url !~* '^https://'
+          OR calendar_url ~ '[<>"''`[:space:]]')
+UNION ALL
+  SELECT id, created_at, 'mentors.moderation_note'
+    FROM mentors
+   WHERE moderation_note ~* '<\s*[a-z]'
 UNION ALL
   SELECT id, created_at, 'reviews.mentor_review'
     FROM reviews
@@ -355,9 +487,11 @@ FROM (
     UNION ALL
     SELECT 4,
            'D2b',
+           -- NULL included, matching the D2b/D2c detail queries and D2d: see the
+           -- D2b comment for why a NULL price is the worse case, not the safe one.
            (SELECT count(*) FROM mentors
-             WHERE price IS NOT NULL
-               AND price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable'))::text
+             WHERE price IS NULL
+                OR price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable'))::text
                || ' mentor row(s) hold an off-list price',
            'each is one profile save from losing it; fix the form first'
     UNION ALL
@@ -373,15 +507,22 @@ FROM (
            'D3 ',
            (SELECT count(*) FROM (
                   SELECT 1 FROM client_requests
-                   WHERE description ~* '<\s*(a|img|div|table|script|style)\y'
+                   WHERE description ~* '<\s*[a-z]'
                UNION ALL
                   SELECT 1 FROM client_requests WHERE name ~* '<\s*[a-z]'
                UNION ALL
+                  SELECT 1 FROM client_requests WHERE preferred_contact ~* '<\s*[a-z]'
+               UNION ALL
                   SELECT 1 FROM mentors WHERE name ~* '<\s*[a-z]'
+               UNION ALL
+                  SELECT 1 FROM mentors WHERE price ~* '<\s*[a-z]'
                UNION ALL
                   SELECT 1 FROM mentors
                    WHERE calendar_url IS NOT NULL AND calendar_url <> ''
-                     AND calendar_url !~* '^https://'
+                     AND (calendar_url !~* '^https://'
+                          OR calendar_url ~ '[<>"''`[:space:]]')
+               UNION ALL
+                  SELECT 1 FROM mentors WHERE moderation_note ~* '<\s*[a-z]'
                UNION ALL
                   SELECT 1 FROM reviews WHERE mentor_review ~* '<\s*[a-z]'
                UNION ALL
@@ -399,6 +540,10 @@ FROM (
            'sizes the H4 redesign; see outstanding-decisions.md §1'
 ) s
 ORDER BY ord;
+
+-- Ends the single snapshot opened before D1. Nothing was written, so this
+-- COMMIT is just the release of the snapshot and its ACCESS SHARE locks.
+COMMIT;
 
 \echo ''
 \echo '## END'
