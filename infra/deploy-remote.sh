@@ -39,6 +39,10 @@ set -e
 #   0  deploy converged and all health checks passed
 #   1  deploy failed (auto-rollback to .env.backup attempted when health
 #      checks fail; its outcome is logged)
+#   2  deploy converged and every application health check passed, but the
+#      postgres-backup sidecar reports UNHEALTHY (stale dumps). Nothing was
+#      rolled back — reverting working images cannot make a pg_dump run — yet
+#      the run is not reported green either. See the P8 block below.
 # ============================================================================
 
 UP_FLAGS="$1"
@@ -160,9 +164,74 @@ sleep 20
 echo "📊 Service status:"
 docker compose ps
 
+# The block below is byte-identical to the one in rollback.sh (modulo that
+# file's heredoc escaping) and is extracted from both by
+# deploy-transition-test.sh; keep them in sync.
+# --- P8 backup sidecar health gate (mirrored in deploy-remote.sh + rollback.sh) --
+# NOTE: rollback.sh embeds this block in an UNQUOTED here-document, so every
+# expansion is backslash-escaped there. deploy-transition-test.sh pushes that
+# copy through a heredoc and requires the result to equal this one byte for
+# byte, so keep the block free of backticks and of any other backslash.
+#
+# NOTE: if/elif, not case, and every paren in CODE balanced. bash 3.2 — still
+# /bin/bash on macOS, where rollback.sh is run — finds the end of the $( ) around
+# its here-document by counting parens in the body, so one unbalanced ")" from a
+# case pattern closes the substitution early and rollback.sh stops parsing
+# entirely. Comments are exempt (bash skips them); code is not.
+#
+# WHY not .State.Status alone, which is all this check used to read: docker keeps
+# an UNHEALTHY container in state "running", so that test passed for a sidecar
+# whose nightly dump had silently stopped — the exact silent failure P8 exists to
+# remove. .State.Health carries the compose healthcheck's verdict.
+#
+# Prints its own verdict and returns:
+#   0  healthy, still inside start_period, or no healthcheck state to read
+#   1  not running — "restarting", "exited", or no such container
+#   2  running but UNHEALTHY, i.e. the dumps are stale
+# Callers keep 2 out of the auto-rollback path on purpose (see the call site).
+check_backup_sidecar() {
+    backup_status=$(docker inspect -f '{{.State.Status}}' openmentor-postgres-backup 2>/dev/null || true)
+    if [ "$backup_status" != "running" ]; then
+        echo "❌ Postgres-backup health check FAILED (container status: ${backup_status:-<absent>})"
+        return 1
+    fi
+    # The {{if}} guard is not cosmetic: .State.Health is absent on a container
+    # with no healthcheck, and the bare .State.Health.Status template errors out
+    # there rather than printing an empty string.
+    backup_health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' openmentor-postgres-backup 2>/dev/null || true)
+    if [ "$backup_health" = "healthy" ]; then
+        echo "✅ Postgres-backup health check passed (running, healthy)"
+    elif [ "$backup_health" = "starting" ]; then
+        # A just-recreated sidecar is legitimately "starting" for the whole
+        # start_period; failing here would make every sidecar rebuild look like a
+        # backup outage.
+        echo "✅ Postgres-backup health check passed (running, healthcheck still in start_period)"
+    elif [ "$backup_health" = "unhealthy" ]; then
+        echo "❌ Postgres-backup is UNHEALTHY: the newest successful pg_dump is past"
+        echo "   BACKUP_MAX_AGE_HOURS, or no dump has ever succeeded on this volume."
+        echo "   The documented 24h RPO is not being met. Look for a FAILURE line in"
+        echo "   'docker logs openmentor-postgres-backup' and follow"
+        echo "   docs/runbooks/postgres-backup-restore.md."
+        return 2
+    else
+        # Absent .State.Health: a VM one deploy behind, whose compose file or
+        # sidecar image predates the healthcheck. Absence must not hard-fail, or
+        # this check would break the very transition that ships it.
+        echo "⚠️  Postgres-backup is running but reports no healthcheck state"
+        echo "   (.State.Health absent — this VM's compose file or sidecar image"
+        echo "   predates it). Backup freshness is UNVERIFIED by this deploy;"
+        echo "   './deploy.sh infra' ships the healthcheck. Not failing the gate."
+    fi
+    return 0
+}
+# --- end P8 backup sidecar health gate --------------------------------------
+
 # Verify health checks
 echo "🏥 Checking health endpoints..."
 HEALTH_CHECK_FAILED=0
+# Tracked apart from HEALTH_CHECK_FAILED because it must NOT trigger the
+# auto-rollback below; see the call site.
+BACKUP_UNHEALTHY=0
 
 # Check frontend health
 if ! docker exec openmentor-frontend curl -f http://localhost:3000/api/healthcheck 2>/dev/null; then
@@ -198,12 +267,22 @@ else
     echo "✅ Postgres health check passed"
 fi
 
-# Check backup sidecar (no HTTP endpoint - it must simply be running)
-if [ "$(docker inspect -f '{{.State.Status}}' openmentor-postgres-backup 2>/dev/null)" != "running" ]; then
-    echo "❌ Postgres-backup health check FAILED (container not running)"
+# Check backup sidecar. It has no HTTP endpoint; its compose healthcheck
+# (backup.sh healthcheck) is the signal, and the two failure modes get different
+# treatment.
+BACKUP_RC=0
+check_backup_sidecar || BACKUP_RC=$?
+if [ "$BACKUP_RC" -eq 1 ]; then
+    # Not running at all can be THIS deploy's fault (a broken sidecar rebuild),
+    # so it keeps the pre-existing behaviour: roll back.
     HEALTH_CHECK_FAILED=1
-else
-    echo "✅ Postgres-backup health check passed"
+elif [ "$BACKUP_RC" -eq 2 ]; then
+    # Stale dumps are not a reason to revert working application images — a
+    # rollback cannot make a pg_dump run, and reverting halfway through a live
+    # deploy is worse than the problem. But they must not be reported green
+    # either, which is exactly what the .State.Status-only test did. Recorded
+    # here and turned into exit 2 after convergence.
+    BACKUP_UNHEALTHY=1
 fi
 
 # Rollback if health checks failed
@@ -238,6 +317,17 @@ if [ $HEALTH_CHECK_FAILED -eq 1 ]; then
     fi
 
     exit 1
+fi
+
+# The deploy itself is done. A stale backup sidecar still has to leave this run
+# non-zero — with its own code, so the caller can say which of the two happened
+# instead of printing "deployment failed" over a deploy that worked.
+if [ "$BACKUP_UNHEALTHY" -eq 1 ]; then
+    echo "✅ Deployment complete — services converged and every app health check passed"
+    echo "❌ ...but the postgres-backup sidecar is UNHEALTHY (see above). Exiting 2 so"
+    echo "   this run is not reported green. Nothing was rolled back: the code that is"
+    echo "   running is fine, the backups are not."
+    exit 2
 fi
 
 echo "✅ Deployment complete!"

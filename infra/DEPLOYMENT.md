@@ -105,9 +105,15 @@ The script will:
    - frontend `http://localhost:3000/api/healthcheck`
    - backend `http://localhost:8081/api/healthcheck`
    - worker `http://localhost:8090/healthz`
-   - postgres `pg_isready` + backup sidecar running state
+   - postgres `pg_isready` + the backup sidecar's compose healthcheck
+     (`.State.Health.Status` — docker keeps an *unhealthy* container in state
+     `running`, so `.State.Status` alone made stale dumps invisible here;
+     `starting` and a VM whose compose file predates the healthcheck pass)
 10. **Automatically roll back** (restore the previous `.env`, re-pull,
-    re-up) if any health check fails
+    re-up) if any health check fails — except a backup sidecar that is running
+    but `unhealthy`, which ends the deploy with **exit 2** and no rollback:
+    reverting working images cannot make a `pg_dump` run, and a deploy that
+    aborts halfway is worse than the stale dump
 11. Verify the public endpoint `https://$DOMAIN/api/healthcheck`
 
 Notes:

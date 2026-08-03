@@ -15,7 +15,7 @@ help:
 	@echo "  compose-config - Validate the prod and dev compose renders"
 	@echo "  env-allowlist  - Per-service env allowlist + secret ownership"
 	@echo "  backup-tests   - postgres-backup sidecar behaviour tests"
-	@echo "  deploy-tests   - .env.runtime transition shared by the deploy scripts"
+	@echo "  deploy-tests   - blocks the deploy scripts share (.env.runtime, backup gate)"
 	@echo "  alert-tests    - backup alert + panels vs Alloy labels vs sidecar gauges"
 
 check: compose-config env-allowlist backup-tests deploy-tests alert-tests

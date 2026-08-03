@@ -97,21 +97,26 @@ If you change a rule in the UI, mirror the change into the YAML file.
 
 **Order matters when applying.** The default notification policy is live and
 fans out to `telegram`, `slack` and `Discord` with `repeat_interval: 4h`, so a
-rule that is true the moment it lands pages immediately and keeps paging. In
-particular the four rules with `noDataState: Alerting` (ServiceDown,
-PostgresDown, DatabaseBackupStale, and any future one) fire when their series
-is simply absent. `openmentor_db_backup_first_start_timestamp_seconds`,
+rule that is true the moment it lands pages immediately and keeps paging. The
+rules with `noDataState: Alerting` (ServiceDown, PostgresDown,
+DatabaseBackupStale, and any future one) fire when their series is simply
+absent — and **DatabaseBackupPipelineAbsent fires for the same reason with
+`noDataState: OK`**, because its `absent()` query *is* the alarm: it returns 1
+precisely while the gauge is missing. `openmentor_db_backup_first_start_timestamp_seconds`,
 `openmentor_db_backup_last_success_timestamp_seconds` and
 `openmentor_db_backup_max_age_seconds` do not exist in Prometheus yet — the
-`postgres-backup` sidecar that publishes them ships with the audit P8 change —
-so either apply DatabaseBackupStale **after** that deploy, or apply it with
-`isPaused: true` and unpause once the gauges appear
+`postgres-backup` sidecar that publishes them ships with the audit P8 change;
+re-verified 2026-08-03 that
+`absent(openmentor_db_backup_last_success_timestamp_seconds{deployment="production"})`
+returns `{deployment="production"} 1` against the live tenant. So apply both
+backup rules **after** that deploy, or apply them with `isPaused: true` and
+unpause once the gauges appear
 (`docs/runbooks/postgres-backup-restore.md`).
 
 Desired set: ServiceDown, HighErrorRate, HighLatencyP99, ContainerHighCPU,
 ContainerHighMemory, GoroutineLeak, ContactFormFailures,
 ReviewSubmissionFailures, EmailSendFailures, PostgresDown, DBErrorRate,
-DBLatencyP95, DatabaseBackupStale.
+DBLatencyP95, DatabaseBackupStale, DatabaseBackupPipelineAbsent.
 
 Notes:
 
@@ -125,8 +130,11 @@ Notes:
   error can't kill it, which makes staleness of those gauges the only off-VM
   signal that nightly dumps have stopped — hence `NoData=Alerting` here too.
   Panels: the "Postgres Backups" row on `om-database-infra`. Until this rule is
-  actually applied, the only signal is the container healthcheck, which nothing
-  off the VM watches.
+  actually applied, the only signal is the container healthcheck — which now at
+  least fails the deploy gates (`infra/deploy-remote.sh` and
+  `infra/rollback.sh` read `.State.Health.Status` and exit 2 on `unhealthy`
+  without rolling application images back), but still reaches nobody who is not
+  watching a deploy.
 
   Two properties of the query are load-bearing, and
   `infra/alert-consistency-test.sh` (part of `cd infra && make check`) fails if
@@ -158,6 +166,50 @@ Notes:
   asymmetry in how the two halves ship: the dashboard is **Git-Synced hourly**,
   so a merge to `main` changes live Grafana with no operator action, while the
   rule above still has to be applied by hand.
+- **DatabaseBackupPipelineAbsent** exists because `max by (deployment)` buys
+  per-deployment instances at the cost of per-deployment `NoData`.
+  `noDataState` is a property of the whole query result, not of label values: if
+  production stops remote-writing while staging keeps going, the grouped query
+  still returns staging's row, so DatabaseBackupStale is **Normal, not NoData**,
+  and production's alert instance simply stops existing. Grafana treats that as
+  a missing series and resolves it after `missing_series_evals_to_resolve`
+  evaluations — meaning a production page already firing would auto-**resolve**
+  the moment the pipeline died. That setting cannot close the gap; it only
+  delays the resolve. Verified on this tenant 2026-08-03 with the rule's own
+  shape over `up` and a job name that does not exist: exactly one row comes
+  back, for the surviving job, never an empty result.
+
+  So presence is asserted explicitly:
+  `absent(<gauge>{deployment="production"})` per gauge, unioned with `or`.
+  `absent()` propagates equality matchers, so each term yields
+  `{deployment="production"} 1` and the rule gets a per-deployment instance; a
+  regex matcher would collapse to one unlabelled row that only fires once
+  *every* deployment is gone. One term per gauge, not one per deployment,
+  because DatabaseBackupStale joins its three gauges on `deployment` — a sidecar
+  too old to publish `openmentor_db_backup_max_age_seconds` drops production out
+  of it just as completely. `noDataState: OK` is right here and nowhere else in
+  the file: an empty result means everything expected is publishing.
+
+  **Which deployments are expected is a hand-maintained list** in the rule's own
+  comment (`expected-deployments: production` /
+  `absence-not-expected: staging, local`), because it cannot be derived from
+  metrics — that is the whole problem. `infra/alert-consistency-test.sh` case 6
+  cross-checks it against every `DEPLOYMENT_NAME` value `deploy.sh` and
+  `deploy-dev.sh` can write, so adding a deploy target fails `make check` until
+  it is classified.
+
+  **What this still cannot detect**, deliberately:
+  - A staging backup pipeline dying. `./deploy.sh --staging` creates and
+    destroys that VM, so asserting its presence would page on every intentional
+    teardown. Staging dumps are unprotected by design.
+  - A sidecar that keeps publishing a *frozen* textfile (dead daemon, file still
+    on the volume). The series stay present, so absence says nothing —
+    DatabaseBackupStale is what catches that, which is why both rules are needed.
+  - A dump that succeeds but is corrupt, truncated, or unrestorable. Only the
+    quarterly restore drill covers that
+    (`docs/runbooks/postgres-backup-restore.md`).
+  - Anything at all while Grafana's own alerting engine or this repo's
+    unapplied-rules gap is the failure. Neither rule is on the stack today.
 - **PostgresDown** watches `pg_up`, shipped continuously by the Database
   Observability pipeline (live since 2026-07-18; setup in
   `docs/runbooks/database-observability.md`). `NoData=Alerting`, so the

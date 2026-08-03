@@ -207,9 +207,73 @@ docker compose up -d
 echo "⏳ Waiting for services to start..."
 sleep 20
 
+# The block below is byte-identical to the one in deploy-remote.sh (modulo the
+# heredoc escaping this file needs) and is extracted from both by
+# deploy-transition-test.sh; keep them in sync.
+# --- P8 backup sidecar health gate (mirrored in deploy-remote.sh + rollback.sh) --
+# NOTE: rollback.sh embeds this block in an UNQUOTED here-document, so every
+# expansion is backslash-escaped there. deploy-transition-test.sh pushes that
+# copy through a heredoc and requires the result to equal this one byte for
+# byte, so keep the block free of backticks and of any other backslash.
+#
+# NOTE: if/elif, not case, and every paren in CODE balanced. bash 3.2 — still
+# /bin/bash on macOS, where rollback.sh is run — finds the end of the \$( ) around
+# its here-document by counting parens in the body, so one unbalanced ")" from a
+# case pattern closes the substitution early and rollback.sh stops parsing
+# entirely. Comments are exempt (bash skips them); code is not.
+#
+# WHY not .State.Status alone, which is all this check used to read: docker keeps
+# an UNHEALTHY container in state "running", so that test passed for a sidecar
+# whose nightly dump had silently stopped — the exact silent failure P8 exists to
+# remove. .State.Health carries the compose healthcheck's verdict.
+#
+# Prints its own verdict and returns:
+#   0  healthy, still inside start_period, or no healthcheck state to read
+#   1  not running — "restarting", "exited", or no such container
+#   2  running but UNHEALTHY, i.e. the dumps are stale
+# Callers keep 2 out of the auto-rollback path on purpose (see the call site).
+check_backup_sidecar() {
+    backup_status=\$(docker inspect -f '{{.State.Status}}' openmentor-postgres-backup 2>/dev/null || true)
+    if [ "\$backup_status" != "running" ]; then
+        echo "❌ Postgres-backup health check FAILED (container status: \${backup_status:-<absent>})"
+        return 1
+    fi
+    # The {{if}} guard is not cosmetic: .State.Health is absent on a container
+    # with no healthcheck, and the bare .State.Health.Status template errors out
+    # there rather than printing an empty string.
+    backup_health=\$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' openmentor-postgres-backup 2>/dev/null || true)
+    if [ "\$backup_health" = "healthy" ]; then
+        echo "✅ Postgres-backup health check passed (running, healthy)"
+    elif [ "\$backup_health" = "starting" ]; then
+        # A just-recreated sidecar is legitimately "starting" for the whole
+        # start_period; failing here would make every sidecar rebuild look like a
+        # backup outage.
+        echo "✅ Postgres-backup health check passed (running, healthcheck still in start_period)"
+    elif [ "\$backup_health" = "unhealthy" ]; then
+        echo "❌ Postgres-backup is UNHEALTHY: the newest successful pg_dump is past"
+        echo "   BACKUP_MAX_AGE_HOURS, or no dump has ever succeeded on this volume."
+        echo "   The documented 24h RPO is not being met. Look for a FAILURE line in"
+        echo "   'docker logs openmentor-postgres-backup' and follow"
+        echo "   docs/runbooks/postgres-backup-restore.md."
+        return 2
+    else
+        # Absent .State.Health: a VM one deploy behind, whose compose file or
+        # sidecar image predates the healthcheck. Absence must not hard-fail, or
+        # this check would break the very transition that ships it.
+        echo "⚠️  Postgres-backup is running but reports no healthcheck state"
+        echo "   (.State.Health absent — this VM's compose file or sidecar image"
+        echo "   predates it). Backup freshness is UNVERIFIED by this deploy;"
+        echo "   './deploy.sh infra' ships the healthcheck. Not failing the gate."
+    fi
+    return 0
+}
+# --- end P8 backup sidecar health gate --------------------------------------
+
 # Verify health
 echo "🏥 Verifying health..."
 HEALTH_OK=1
+# Tracked apart from HEALTH_OK: stale dumps are not a failed rollback.
+BACKUP_UNHEALTHY=0
 
 if ! docker exec openmentor-frontend curl -f http://localhost:3000/api/healthcheck 2>/dev/null; then
     echo "❌ Frontend health check failed"
@@ -233,12 +297,25 @@ if ! docker exec openmentor-postgres pg_isready -U "\${POSTGRES_USER_ENV:-openme
     HEALTH_OK=0
 fi
 
-if [ "\$(docker inspect -f '{{.State.Status}}' openmentor-postgres-backup 2>/dev/null)" != "running" ]; then
-    echo "❌ Postgres-backup container is not running"
+BACKUP_RC=0
+check_backup_sidecar || BACKUP_RC=\$?
+if [ "\$BACKUP_RC" -eq 1 ]; then
     HEALTH_OK=0
+elif [ "\$BACKUP_RC" -eq 2 ]; then
+    # Stale dumps predate this rollback and are not fixed by it. Reported, and
+    # they still leave the run non-zero, but they must not be dressed up as a
+    # failed rollback: during an incident that is how an operator is pushed into
+    # drastic action over an aging dump.
+    BACKUP_UNHEALTHY=1
 fi
 
 if [ \$HEALTH_OK -eq 1 ]; then
+    if [ \$BACKUP_UNHEALTHY -eq 1 ]; then
+        echo "✅ Rollback successful — images rolled back, app health checks passed"
+        echo "❌ ...but the postgres-backup sidecar is UNHEALTHY (see above). Exiting 2:"
+        echo "   the rollback itself needs no further action, the stale backups do."
+        exit 2
+    fi
     echo "✅ Rollback successful!"
     exit 0
 else
@@ -273,6 +350,22 @@ if [ $ROLLBACK_EXIT_CODE -eq 0 ]; then
     if [ -n "$DOMAIN" ]; then
         echo "Verify at: https://$DOMAIN"
     fi
+elif [ $ROLLBACK_EXIT_CODE -eq 2 ]; then
+    # Same code deploy-remote.sh uses: the images are back and the app is
+    # healthy, the postgres-backup sidecar is not. Reported separately on
+    # purpose — "manual intervention may be required" over an aging dump would
+    # aim the operator at the wrong thing mid-incident.
+    echo -e "${GREEN}✅ Rollback completed successfully!${NC}"
+    echo ""
+    echo "Rolled back to: frontend=${FRONTEND_TARGET_TAG:-<unchanged>} backend=${BACKEND_TARGET_TAG:-<unchanged>}"
+    if [ -n "$DOMAIN" ]; then
+        echo "Verify at: https://$DOMAIN"
+    fi
+    echo ""
+    echo -e "${RED}❌ Separately: postgres-backup reports UNHEALTHY — the newest successful${NC}"
+    echo -e "${RED}   pg_dump is past BACKUP_MAX_AGE_HOURS. Pre-existing, not caused by this${NC}"
+    echo -e "${RED}   rollback. Follow ../docs/runbooks/postgres-backup-restore.md${NC}"
+    exit 2
 else
     echo -e "${RED}❌ Rollback failed!${NC}"
     echo -e "${YELLOW}💡 Manual intervention may be required${NC}"

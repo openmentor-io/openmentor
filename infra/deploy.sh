@@ -645,6 +645,16 @@ ssh "${SSH_OPTS[@]}" \
     < "$SCRIPT_DIR/deploy-remote.sh" \
     || DEPLOY_EXIT_CODE=$?
 
+# Exit 2 is deploy-remote.sh's "converged and every app health check passed, but
+# the postgres-backup sidecar is UNHEALTHY" (stale dumps). The deploy did NOT
+# fail and must not be reported as failed; the run still ends non-zero, held to
+# the very end so the summary and the public-endpoint check below still run.
+BACKUP_UNHEALTHY_AFTER_DEPLOY=false
+if [ $DEPLOY_EXIT_CODE -eq 2 ]; then
+    BACKUP_UNHEALTHY_AFTER_DEPLOY=true
+    DEPLOY_EXIT_CODE=0
+fi
+
 if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
     echo -e "${RED}❌ Deployment failed!${NC}"
     echo -e "${YELLOW}💡 Check the logs above for details${NC}"
@@ -693,3 +703,15 @@ echo "  1. Monitor application at https://$DOMAIN"
 echo "  2. Check Grafana dashboards for metrics"
 echo "  3. Verify logs in Grafana Loki"
 echo ""
+
+# Non-zero last, so nothing reports this run green while the nightly dump is
+# stale. The deploy above stands; only the backups need attention.
+if [ "$BACKUP_UNHEALTHY_AFTER_DEPLOY" = true ]; then
+    echo -e "${RED}❌ postgres-backup reports UNHEALTHY: the newest successful pg_dump is${NC}"
+    echo -e "${RED}   past BACKUP_MAX_AGE_HOURS (or none has ever succeeded on this volume),${NC}"
+    echo -e "${RED}   so the documented 24h RPO is not being met. The deploy above is fine${NC}"
+    echo -e "${RED}   and nothing was rolled back. See the sidecar output further up and${NC}"
+    echo -e "${RED}   ../docs/runbooks/postgres-backup-restore.md${NC}"
+    echo ""
+    exit 2
+fi

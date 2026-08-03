@@ -248,10 +248,18 @@ cp .env.production.example .env.production   # once; fill in everything
    bind-mounted config files, so after `up` the script restarts/rebuilds
    exactly the affected services (see inventory below),
 7. health-checks frontend (`/api/healthcheck`), backend (`/api/healthcheck`),
-   worker (`/healthz`) and postgres (`pg_isready`) **inside** the containers
-   plus the backup sidecar's running state, and
+   worker (`/healthz`) and postgres (`pg_isready`) **inside** the containers,
+   plus the backup sidecar's compose healthcheck — `.State.Health.Status`, not
+   just `.State.Status`, because docker keeps an *unhealthy* container in state
+   `running` and a sidecar whose nightly dumps had silently stopped used to pass
+   this gate. `starting` (its `start_period`) and a VM whose compose file
+   predates the healthcheck both still pass, and
 8. **automatically rolls back** to the previous `.env` (previous image tags)
-   if any health check fails, then verifies the rollback.
+   if any health check fails, then verifies the rollback. One exception: a
+   backup sidecar that is running but `unhealthy` (stale dumps) ends the deploy
+   with **exit 2** and no rollback — reverting working images cannot make a
+   `pg_dump` run, and a deploy that aborts halfway is worse than the stale dump.
+   `deploy.sh` and the CI workflow report that separately from a failed deploy.
 
 Steps 5–8 run **on the VM** as `deploy-remote.sh` — the single canonical
 remote script, piped over ssh stdin from the local checkout (never executed
@@ -365,9 +373,15 @@ procedures + quarterly drill: `../docs/runbooks/postgres-backup-restore.md`):
    (default 26h, also published as `openmentor_db_backup_max_age_seconds` so
    the alert and its dashboard panels compare against the configured window
    instead of a copy of it).
-   Nothing off the VM watches that healthcheck until an operator applies the
-   `DatabaseBackupStale` alert — it is not on the stack yet, see the operator
-   step in `../docs/runbooks/postgres-backup-restore.md`.
+   `deploy-remote.sh` and `rollback.sh` read that verdict
+   (`.State.Health.Status`) and end non-zero on `unhealthy`, so a deploy or a
+   rollback can no longer report green over stale dumps — but that only reaches
+   whoever is watching a deploy. Nothing pages off the VM until an operator
+   applies `DatabaseBackupStale` **and** `DatabaseBackupPipelineAbsent` (the
+   second catches one deployment's gauges disappearing while another keeps
+   publishing, which the first cannot see). Neither is on the stack yet; see the
+   operator step in `../docs/runbooks/postgres-backup-restore.md` and
+   `../grafana/README.md` § Alert rules.
 
 RPO ≤ 24 h, RTO ≈ 30 min with dumps. Documented next step (not implemented):
 **wal-g** continuous WAL archiving to S3 for ~minutes RPO / PITR. Scale path:
