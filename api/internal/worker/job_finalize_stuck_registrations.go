@@ -39,7 +39,7 @@ func (h *Handlers) FinalizeStuckRegistrations(ctx context.Context) (JobSummary, 
 			logger.Error("[Finalize Stuck Registrations] Finalization failed",
 				zap.String("mentor_id", mentor.ID),
 				zap.String("error_type", res.ErrorType),
-				zap.Error(finalizeErr),
+				logger.RedactedError(finalizeErr),
 			)
 			if res.ErrorType == errTypeEmailSendFailed {
 				// finalizeNewMentor released the claim it made before sending, so

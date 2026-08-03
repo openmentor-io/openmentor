@@ -55,7 +55,7 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 	moderator, err := h.repo.GetJobModeratorByID(ctx, payload.ModeratorID)
 	if err != nil {
 		logger.Error("[Mentor Moderation Action] Failed to fetch moderator",
-			zap.String("moderator_id", payload.ModeratorID), zap.Error(err))
+			zap.String("moderator_id", payload.ModeratorID), logger.RedactedError(err))
 		trackOutcome("error", false)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "Failed to fetch moderator"})
 		return
@@ -70,7 +70,7 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 	mentor, err := h.repo.GetJobMentorByID(ctx, payload.MentorID)
 	if err != nil {
 		logger.Error("[Mentor Moderation Action] Failed to fetch mentor",
-			zap.String("mentor_id", payload.MentorID), zap.Error(err))
+			zap.String("mentor_id", payload.MentorID), logger.RedactedError(err))
 		trackOutcome("error", true)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "Failed to fetch mentor"})
 		return
@@ -102,7 +102,7 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 		)
 		if err := h.repo.SetMentorStatus(ctx, mentor.ID, expectedStatus); err != nil {
 			logger.Error("[Mentor Moderation Action] Failed to update mentor status",
-				zap.String("mentor_id", mentor.ID), zap.Error(err))
+				zap.String("mentor_id", mentor.ID), logger.RedactedError(err))
 			trackOutcome("error", true)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "Failed to update mentor status"})
 			return

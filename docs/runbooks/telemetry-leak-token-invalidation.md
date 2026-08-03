@@ -28,7 +28,7 @@ Order of operations:
 |---|---|---|
 | Mentor magic-link token | `mentors.login_token` + `login_token_expires_at` | Pending login links stop working; mentor requests a new one from `/mentor/login` |
 | Moderator/admin magic-link token | `moderators.login_token` + `login_token_expires_at` | Same, from `/admin/login` |
-| Mentor email-confirmation token | `mentors.email_confirmation_token` + `email_confirmation_expires_at` | See the warning below — do NOT blindly NULL these |
+| Mentor email-confirmation token | `mentors.email_confirmation_token` + `email_confirmation_expires_at` | See the warnings below — do NOT blindly NULL these, and do not rotate expired ones |
 | Session cookies (JWT) | not in the database | Invalidated by the `JWT_SECRET` rotation, not by SQL |
 
 ## Procedure
@@ -51,7 +51,11 @@ SELECT
                                      AND login_token_expires_at > now())       AS moderator_login_tokens_still_valid,
   (SELECT count(*) FROM mentors    WHERE email_confirmation_token IS NOT NULL) AS confirmation_tokens,
   (SELECT count(*) FROM mentors    WHERE email_confirmation_token IS NOT NULL
-                                     AND status = 'draft')                     AS confirmation_tokens_draft;
+                                     AND status = 'draft')                     AS confirmation_tokens_draft,
+  -- Step 3 only touches these: an expired confirmation token is not a live
+  -- capability. NULL expiry counts as expired (the app COALESCEs it to epoch).
+  (SELECT count(*) FROM mentors    WHERE email_confirmation_token IS NOT NULL
+                                     AND email_confirmation_expires_at > now()) AS confirmation_tokens_still_valid;
 
 -- 1. Mentor magic-link tokens. Clearing both columns is exactly what
 --    ClearLoginToken does after a successful login, so this is a state the
@@ -70,21 +74,51 @@ UPDATE moderators
        updated_at = now()
  WHERE login_token IS NOT NULL;
 
--- 3. Email-confirmation tokens — ROTATE, do not clear. See the warning below.
+-- 3. Email-confirmation tokens — ROTATE the LIVE ones, do not clear, and do not
+--    touch the expired ones. See the two warnings below.
 --    Two gen_random_uuid() values (PG13+, CSPRNG-backed) give 64 hex characters;
---    the "mcf_" prefix matches what generateConfirmationToken emits. Expiry is
---    left untouched so a rotated token dies on its original schedule.
-UPDATE mentors
-   SET email_confirmation_token = 'mcf_' || replace(gen_random_uuid()::text, '-', '')
-                                         || replace(gen_random_uuid()::text, '-', ''),
-       updated_at = now()
- WHERE email_confirmation_token IS NOT NULL;
+--    the "mcf_" prefix matches what generateConfirmationToken emits. The expiry
+--    is reset to the application's own 24h window (confirmationTokenTTL): a
+--    rotated token is only delivered by the resend in step 5, so it has to be
+--    valid when that email arrives, not on the old schedule.
+--
+--    The rotated ids are recorded in a scratch table because step 5 has to mail
+--    every one of them and NOTHING in the row identifies them afterwards. The
+--    site stays live during this, and both normal paths — registration and
+--    ResendConfirmation — set the same 24h window, so any mentor arriving after
+--    this statement looks identical to a rotated one. Selecting on a future
+--    expiry would mail confirmation links to unrelated people and destroy the
+--    incident's scope. This table is operator scratch state, not part of the
+--    migration sequence; step 6 drops it.
+CREATE TABLE IF NOT EXISTS ops_confirmation_rotation (
+  mentor_id  uuid PRIMARY KEY,
+  status     text        NOT NULL,
+  rotated_at timestamptz NOT NULL DEFAULT now()
+);
 
--- 4. Verify: no old value survives, and every draft mentor still HAS a token.
-SELECT count(*) AS confirmation_tokens_after,
-       count(*) FILTER (WHERE email_confirmation_token LIKE 'mcf_%') AS rotated_ok
-  FROM mentors
- WHERE email_confirmation_token IS NOT NULL;
+WITH rotated AS (
+  UPDATE mentors
+     SET email_confirmation_token = 'mcf_' || replace(gen_random_uuid()::text, '-', '')
+                                           || replace(gen_random_uuid()::text, '-', ''),
+         email_confirmation_expires_at = now() + interval '24 hours',
+         updated_at = now()
+   WHERE email_confirmation_token IS NOT NULL
+     AND email_confirmation_expires_at > now()
+  RETURNING id, status
+)
+INSERT INTO ops_confirmation_rotation (mentor_id, status)
+SELECT id, status FROM rotated
+RETURNING mentor_id, status;
+
+-- 4. Verify against the recorded set, not against a timestamp predicate: every
+--    row it names carries a token the application will accept, and the count
+--    matches confirmation_tokens_still_valid from step 0.
+SELECT count(*)                                                         AS rotated,
+       count(*) FILTER (WHERE m.email_confirmation_token LIKE 'mcf_%')  AS rotated_shape_ok,
+       count(*) FILTER (WHERE m.email_confirmation_expires_at > now())  AS rotated_live,
+       count(*) FILTER (WHERE r.status = 'draft')                       AS rotated_draft
+  FROM ops_confirmation_rotation r
+  JOIN mentors m ON m.id = r.mentor_id;
 
 COMMIT;
 ```
@@ -102,9 +136,31 @@ link they already have** (`GetByConfirmationToken`). There is no
   longer opens anything — but keeps the row in a state the application
   understands.
 
+### Warning: do not rotate an ALREADY EXPIRED confirmation token
+
+`GetByConfirmationToken` does not filter on the expiry — it returns the row and
+lets the caller choose — which is what makes an expired link recoverable:
+`/mentor/confirm` shows "This link has expired" with a Resend button that posts
+the *same* expired token to `ResendConfirmation`, which issues a fresh token and
+a fresh 24h window (`TestResendConfirmationAcceptsAnExpiredToken` pins this).
+
+Rotating such a row throws that away: the mentor's link stops matching any row,
+so it can no longer reach the resend endpoint, and the value that replaced it is
+one only the resend in step 5 can deliver. There is nothing to gain by rotating
+it either — an expired token opens nothing, because `ConfirmEmail` rejects it on
+the expiry check before touching the row. Hence the
+`email_confirmation_expires_at > now()` filter in step 3.
+
+### Step 5: deliver the rotated tokens
+
 A rotated token is only useful to the mentor once it is emailed to them. After
-COMMIT, re-send the confirmation email for each affected draft mentor by
-invoking the worker job that reads the fresh token off the row:
+COMMIT, re-send the confirmation email for each rotated **draft** mentor by
+invoking the worker job that reads the fresh token off the row. The list is the
+one step 3 recorded — read it back, do not re-derive it:
+
+```sql
+SELECT mentor_id FROM ops_confirmation_rotation WHERE status = 'draft';
+```
 
 ```bash
 # One call per mentor id, from inside the worker container (curl is present in
@@ -116,17 +172,30 @@ docker compose exec -T worker sh -lc \
      "http://localhost:${WORKER_PORT:-8090}/jobs/mentor-confirm-email?mentorId=<MENTOR_ID>"'
 ```
 
-Get the ids with:
+Do NOT reconstruct the list from a timestamp predicate. "Every draft mentor whose
+confirmation token expires in the future" is NOT the set step 3 touched: the site
+stays live, and registration and `ResendConfirmation` both set the same 24h
+window, so that query grows with every mentor who arrives afterwards. Mailing
+them a confirmation link they did not ask for is the visible damage; losing the
+incident's scope is the lasting one. Do not widen it to every draft mentor with a
+token either — the untouched expired rows still hold the link their mentor has,
+and re-sending it would mail out a link that dies on the expiry check.
+
+If the count is small and re-sending is not worth it, the alternative is to leave
+step 3 out entirely and accept that confirmation links issued during the leak
+window remain valid — they only grant `draft -> pending` on a profile the holder
+already created, which is a much smaller capability than a login token. Decide
+explicitly; do not skip it by accident.
+
+### Step 6: drop the scratch table
+
+`ops_confirmation_rotation` holds no tokens, but it is a list of who was caught in
+the incident. Drop it once every resend in step 5 has gone out and the incident is
+closed:
 
 ```sql
-SELECT id FROM mentors WHERE status = 'draft' AND email_confirmation_token IS NOT NULL;
+DROP TABLE ops_confirmation_rotation;
 ```
-
-If the draft count is small and re-sending is not worth it, the alternative is
-to leave step 3 out entirely and accept that confirmation links issued during
-the leak window remain valid — they only grant `draft -> pending` on a profile
-the holder already created, which is a much smaller capability than a login
-token. Decide explicitly; do not skip it by accident.
 
 ## What SQL cannot reach
 

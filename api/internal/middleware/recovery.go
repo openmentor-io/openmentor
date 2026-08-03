@@ -9,6 +9,7 @@ import (
 
 	"github.com/openmentor-io/openmentor/api/pkg/errortracking"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 )
 
 // RecoveryMiddleware catches panics, reports them to PostHog error tracking,
@@ -19,10 +20,15 @@ func RecoveryMiddleware() gin.HandlerFunc {
 			if recovered := recover(); recovered != nil {
 				stack := debug.Stack()
 
+				// This middleware is the OUTERMOST one, so a panic unwinds past
+				// every redaction the observability middleware does after
+				// c.Next(). The raw path is a capability of its own
+				// (/api/v1/reviews/<uuid> authorizes submitting a review), so it
+				// is redacted here too rather than only on the non-panic path.
 				logger.Error("panic recovered",
 					zap.Any("panic", recovered),
 					zap.String("stack", string(stack)),
-					zap.String("path", c.Request.URL.Path),
+					zap.String("path", redact.Path(c.Request.URL.Path)),
 					zap.String("method", c.Request.Method),
 				)
 

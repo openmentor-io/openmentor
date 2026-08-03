@@ -25,15 +25,20 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/redact"
 )
 
-// testLogs collects every line this package's code logs. One observer for the
-// whole binary, installed here — before any test, so before any detached trigger
-// goroutine exists. Swapping logger.Log per test instead races with the
-// goroutines earlier tests left running, since those keep reading the global.
+// testLogs collects every line this package's code logs.
+//
+// It is installed ONCE, before any test starts, rather than swapped in by the
+// test that needs it: CallAsync logs from a detached goroutine that outlives the
+// test which started it, so assigning logger.Log mid-run is a data race against
+// an earlier test's still-in-flight trigger. observer's core is safe for
+// concurrent writes, so one install covers every test.
 var testLogs *observer.ObservedLogs
 
 func TestMain(m *testing.M) {
 	var core zapcore.Core
 	core, testLogs = observer.New(zap.DebugLevel)
+	// Observed instead of no-op: still discards output, but lets a test read back
+	// what was logged. Package-level logging must not panic either way.
 	logger.Log = zap.New(core)
 	os.Exit(m.Run())
 }
@@ -158,6 +163,53 @@ func TestCallAsyncSkipsWhenNoURLConfigured(t *testing.T) {
 		t.Fatalf("unexpected request with empty trigger URL: %+v", req)
 	case <-time.After(100 * time.Millisecond):
 		// No call was made, as expected.
+	}
+}
+
+// TestCallAsyncTransportFailureKeepsCapabilityOutOfLogs drives the failure path
+// for real: net/http returns a *url.Error whose Error() renders the whole target
+// URL, so the logged error text is a sink of its own — the sanitized url and
+// record_ref fields do not protect it.
+func TestCallAsyncTransportFailureKeepsCapabilityOutOfLogs(t *testing.T) {
+	// A live client_requests id: whoever holds it can submit a review as that
+	// mentee, so it must not reach a log line (P14). It has to differ from
+	// recordCapability: testLogs is shared for the whole run (see TestMain), and
+	// TestCallAsyncLogsNoRawRecordID identifies its own entries by their
+	// record_ref hash — a shared sentinel would hand it this test's lines, whose
+	// url field is deliberately a dead port.
+	const capability = "11111111-2222-4333-8444-666666666666"
+
+	testLogs.TakeAll() // drop what the earlier tests logged
+
+	// Port 1 refuses instantly, so this is a genuine transport error and not a
+	// stub: err is the *url.Error net/http really produces.
+	CallAsync(context.Background(),
+		"http://127.0.0.1:1/jobs/new-request-watcher?requestId=", capability, "", httpclient.NewStandardClient())
+
+	deadline := time.Now().Add(5 * time.Second)
+	for testLogs.FilterMessage("Failed to call trigger URL").Len() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the trigger call never failed: the test drove nothing")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	entries := testLogs.All()
+	for _, entry := range entries {
+		rendered := entry.Message + " " + fmt.Sprint(entry.ContextMap())
+		if strings.Contains(rendered, capability) {
+			t.Errorf("log entry leaked the capability: %s", rendered)
+		}
+	}
+
+	// The failure is still diagnosable: the reason survives, only the id goes.
+	failure := testLogs.FilterMessage("Failed to call trigger URL").All()[0]
+	errText, _ := failure.ContextMap()["error"].(string)
+	if !strings.Contains(errText, "connection refused") {
+		t.Errorf("error field = %q, want it to keep the transport reason", errText)
+	}
+	if !strings.Contains(errText, "requestId="+redact.Placeholder) {
+		t.Errorf("error field = %q, want the capability replaced in place", errText)
 	}
 }
 

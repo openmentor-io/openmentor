@@ -143,7 +143,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 
 	mentor, err := h.repo.GetJobMentorByID(ctx, mentorID)
 	if err != nil {
-		logger.Error("[New Mentor] Failed to fetch mentor", zap.String("mentor_id", mentorID), zap.Error(err))
+		logger.Error("[New Mentor] Failed to fetch mentor", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		res.ErrorType, res.Message = errTypeDBError, "failed to fetch mentor"
 		return res, err
 	}
@@ -154,7 +154,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 
 	duplicates, err := h.repo.CountActiveMentorsByEmail(ctx, mentor.Email)
 	if err != nil {
-		logger.Error("[New Mentor] Failed to check duplicates", zap.String("mentor_id", mentorID), zap.Error(err))
+		logger.Error("[New Mentor] Failed to check duplicates", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		res.ErrorType, res.Message = errTypeDBError, "failed to check duplicates"
 		return res, err
 	}
@@ -181,7 +181,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 	if res.Status == mentorStatusDraft {
 		token, tokenErr := generateConfirmationToken()
 		if tokenErr != nil {
-			logger.Error("[New Mentor] Failed to generate confirmation token", zap.String("mentor_id", mentorID), zap.Error(tokenErr))
+			logger.Error("[New Mentor] Failed to generate confirmation token", zap.String("mentor_id", mentorID), logger.RedactedError(tokenErr))
 			res.ErrorType, res.Message = "token_generation_failed", "failed to generate confirmation token"
 			return res, tokenErr
 		}
@@ -210,7 +210,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 	}
 	applied, err := h.repo.FinalizeNewMentor(ctx, params)
 	if err != nil {
-		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), zap.Error(err))
+		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		res.ErrorType, res.Message = errTypeDBError, "failed to update mentor"
 		return res, err
 	}
@@ -252,7 +252,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		// never told at all.
 		if releaseErr := h.repo.ReleaseNewMentorFinalization(ctx, params); releaseErr != nil {
 			logger.Error("[New Mentor] Failed to release finalization after a failed send",
-				zap.String("mentor_id", mentorID), zap.Error(releaseErr))
+				zap.String("mentor_id", mentorID), logger.RedactedError(releaseErr))
 		}
 		res.ErrorType, res.Message = errTypeEmailSendFailed, "failed to send emails"
 		return res, sendErr

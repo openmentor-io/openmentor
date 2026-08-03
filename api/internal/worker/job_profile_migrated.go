@@ -37,7 +37,7 @@ func (h *Handlers) ProfileMigrated(c *gin.Context) {
 
 	mentor, err := h.repo.GetJobMentorByID(ctx, mentorID)
 	if err != nil {
-		logger.Error("[Profile Migrated] Failed to fetch mentor", zap.String("mentor_id", mentorID), zap.Error(err))
+		logger.Error("[Profile Migrated] Failed to fetch mentor", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		trackOutcome(mentorID, "error")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "failed to fetch mentor"})
 		return

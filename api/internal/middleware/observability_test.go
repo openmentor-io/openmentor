@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -164,6 +165,160 @@ func TestObservabilityRedactsCapabilityUnderAnInnocentParamName(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestObservabilityRedactsAttachedErrorText covers the sink that the path and
+// route_params rules do not reach: handlers attach the reason for a 4xx with the
+// row id inside the message (`failed to fetch request id="<uuid>"`), and the
+// middleware logs that message verbatim — so a routine not-found or ownership
+// mismatch logged the capability next to the redacted path.
+func TestObservabilityRedactsAttachedErrorText(t *testing.T) {
+	logs := observeLogs(t)
+
+	r := gin.New()
+	r.Use(ObservabilityMiddleware())
+	r.GET("/api/v1/mentor/requests/:id", func(c *gin.Context) {
+		// Verbatim shape from MentorRequestsHandler.GetRequestByID.
+		_ = c.Error(fmt.Errorf("failed to fetch request id=%q: %w", reviewCapability, errRequestNotFound)) //nolint:errcheck
+		c.JSON(http.StatusNotFound, gin.H{"error": "Request not found"})
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/mentor/requests/"+reviewCapability, http.NoBody))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+
+	entries := logs.All()
+	if len(entries) != 1 {
+		t.Fatalf("recorded %d log entries, want 1", len(entries))
+	}
+	rendered := fmt.Sprint(entries[0].ContextMap())
+	assertNoSecrets(t, "log entry", rendered)
+	if !strings.Contains(rendered, "failed to fetch request") {
+		t.Errorf("log entry lost the reason, redaction is too broad: %s", rendered)
+	}
+	// The reason still points at a row: the hashed ref matches route_params.
+	if !strings.Contains(rendered, redact.ID(reviewCapability)) {
+		t.Errorf("error text carries no hashed reference: %s", rendered)
+	}
+}
+
+var errRequestNotFound = errors.New("request not found")
+
+// TestObservabilityRedactsAttachedErrorOnTheSpan covers the two sinks for the
+// same attached message that redacting only the log field leaves open: otelgin
+// copies c.Errors.String() into the span status and calls RecordError, which
+// repeats the text as an exception event. Both are exported even though the log
+// line beside them is clean, so the value itself has to be redacted.
+func TestObservabilityRedactsAttachedErrorOnTheSpan(t *testing.T) {
+	_ = observeLogs(t)
+	spans := recordSpans(t)
+
+	r := gin.New()
+	r.Use(otelgin.Middleware("openmentor-api-test"))
+	r.Use(ObservabilityMiddleware())
+	r.GET("/api/v1/mentor/requests/:id", func(c *gin.Context) {
+		_ = c.Error(fmt.Errorf("failed to fetch request id=%q: %w", reviewCapability, errRequestNotFound)) //nolint:errcheck
+		c.JSON(http.StatusNotFound, gin.H{"error": "Request not found"})
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/mentor/requests/"+reviewCapability, http.NoBody))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+
+	recorded := spans.GetSpans()
+	if len(recorded) == 0 {
+		t.Fatal("no span recorded: otelgin was not active")
+	}
+	var sawStatus, sawException bool
+	for _, span := range recorded {
+		if span.Status.Description != "" {
+			sawStatus = true
+			assertNoSecrets(t, "span status", span.Status.Description)
+		}
+		for _, event := range span.Events {
+			for _, attr := range event.Attributes {
+				if event.Name == "exception" {
+					sawException = true
+				}
+				assertNoSecrets(t, "span event "+event.Name+" "+string(attr.Key), attr.Value.String())
+			}
+		}
+	}
+	if !sawStatus {
+		t.Error("no span status description: otelgin stopped copying c.Errors, redaction target moved")
+	}
+	if !sawException {
+		t.Error("no exception event: otelgin stopped recording c.Errors, redaction target moved")
+	}
+}
+
+// TestRecoveryKeepsCapabilityOutOfPanicLogsAndSpans pins the panic path. A panic
+// unwinds out of c.Next() before the observability middleware redacts anything,
+// so the outermost RecoveryMiddleware used to log the raw request path, and
+// otelgin's own deferred span.End() exported the raw url.path it tagged at span
+// start. The middleware order here mirrors cmd/api/main.go.
+func TestRecoveryKeepsCapabilityOutOfPanicLogsAndSpans(t *testing.T) {
+	logs := observeLogs(t)
+	spans := recordSpans(t)
+
+	r := gin.New()
+	r.Use(RecoveryMiddleware())
+	r.Use(otelgin.Middleware("openmentor-api-test"))
+	r.Use(ObservabilityMiddleware())
+	r.POST("/api/v1/reviews/:requestId", func(c *gin.Context) {
+		panic("nil map write in review submission")
+	})
+
+	w := httptest.NewRecorder()
+	target := "/api/v1/reviews/" + reviewCapability + "?login_token=" + magicLinkToken
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, target, http.NoBody))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+
+	entries := logs.All()
+	if len(entries) == 0 {
+		t.Fatal("no log entry recorded: the panic was not logged")
+	}
+	var sawPanic bool
+	for _, entry := range entries {
+		rendered := entry.Message + " " + fmt.Sprint(entry.ContextMap())
+		assertNoSecrets(t, "log entry", rendered)
+		if entry.Message == "panic recovered" {
+			sawPanic = true
+			// The route still has to be readable, or the line is not actionable.
+			if !strings.Contains(rendered, "/api/v1/reviews/"+redact.Placeholder) {
+				t.Errorf("panic log lost the route: %s", rendered)
+			}
+		}
+	}
+	if !sawPanic {
+		t.Error("no \"panic recovered\" entry: RecoveryMiddleware did not run")
+	}
+
+	recorded := spans.GetSpans()
+	if len(recorded) == 0 {
+		t.Fatal("no span recorded: otelgin was not active")
+	}
+	var sawPath bool
+	for _, span := range recorded {
+		for _, attr := range span.Attributes {
+			assertNoSecrets(t, string(attr.Key), attr.Value.String())
+			if attr.Key == "url.path" {
+				sawPath = true
+				if attr.Value.AsString() != "/api/v1/reviews/"+redact.Placeholder {
+					t.Errorf("url.path = %q, want the redacted path", attr.Value.AsString())
+				}
+			}
+		}
+	}
+	if !sawPath {
+		t.Error("no url.path attribute on the span: the redaction target moved")
 	}
 }
 

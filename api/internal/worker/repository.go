@@ -337,7 +337,11 @@ func (r *Repository) GetJobRequestByID(ctx context.Context, requestID string) (*
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch client request %s: %w", requestID, err)
+		// The id is deliberately NOT in the message: a client_requests id is the
+		// bearer capability of the review flow, and an error travels to sinks the
+		// call site cannot redact (PostHog error tracking, a wrapping error).
+		// Every caller logs the hashed request_ref, which identifies the row.
+		return nil, fmt.Errorf("failed to fetch client request: %w", err)
 	}
 	return &req, nil
 }
@@ -365,7 +369,8 @@ func (r *Repository) GetJobRequestWithMentorName(ctx context.Context, requestID 
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch client request %s with mentor: %w", requestID, err)
+		// Id omitted for the same reason as GetJobRequestByID.
+		return nil, fmt.Errorf("failed to fetch client request with mentor: %w", err)
 	}
 	return &req, nil
 }
@@ -380,7 +385,8 @@ func (r *Repository) SetRequestContactPending(ctx context.Context, requestID, co
 		contact, requestID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to update client request %s: %w", requestID, err)
+		// Id omitted for the same reason as GetJobRequestByID.
+		return fmt.Errorf("failed to update client request: %w", err)
 	}
 	return nil
 }

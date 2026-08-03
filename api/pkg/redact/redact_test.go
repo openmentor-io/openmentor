@@ -10,6 +10,9 @@ import (
 // like a real request id so nothing can pass by rejecting the format.
 const sentinel = "11111111-2222-4333-8444-555555555555"
 
+// otherSentinel is a second capability, used where a message names two rows.
+const otherSentinel = "99999999-8888-4777-8666-555555555555"
+
 func TestSensitiveKeyMatchesEverySpelling(t *testing.T) {
 	sensitive := []string{
 		"request_id", "requestId", "REQUEST-ID", "client_request_id",
@@ -109,6 +112,46 @@ func TestURLRedactsPathAndQuery(t *testing.T) {
 	for raw, want := range cases {
 		if got := URL(raw); got != want {
 			t.Errorf("URL(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+// TestTextRedactsURLsEmbeddedInProse covers the *url.Error shape: net/http
+// renders the whole target URL inside the error string, so an error text is a
+// sink of its own and not just a copy of the url field.
+func TestTextRedactsURLsEmbeddedInProse(t *testing.T) {
+	cases := map[string]string{
+		// Exactly what (&http.Client{}).Do returns for a refused connection.
+		`Get "http://worker:8090/jobs/new-request-watcher?requestId=` + sentinel +
+			`": dial tcp 127.0.0.1:1: connect: connection refused`: `Get "http://worker:8090/jobs/new-request-watcher?requestId=` +
+			Placeholder + `": dial tcp 127.0.0.1:1: connect: connection refused`,
+		// Path position, and two capability segments in a row — the case a single
+		// regexp pass gets wrong, because the slash between them is both the
+		// terminator of the first match and the start of the second.
+		"upstream failed for /api/v1/admin/mentors/" + sentinel + "/requests/" + sentinel + "/status": "upstream failed for /api/v1/admin/mentors/" +
+			Placeholder + "/requests/" + Placeholder + "/status",
+		// A bare pair in prose, with no `?` in front of it.
+		"rejected login_token=abc.def.ghi": "rejected login_token=" + Placeholder,
+		// Trailing sentence punctuation is not part of the URL.
+		"timeout on /api/v1/reviews/" + sentinel + "/check.": "timeout on /api/v1/reviews/" + Placeholder + "/check.",
+		// A bare id in prose, which is how the repository layer names the row it
+		// failed on and how Postgres reports a constraint violation. Neither shape
+		// has a URL or a parameter name for the other rules to match on.
+		"failed to fetch client request " + sentinel + ": timeout": "failed to fetch client request " + ID(sentinel) + ": timeout",
+		`failed to fetch request id="` + sentinel + `": not found`: `failed to fetch request id="` + ID(sentinel) + `": not found`,
+		"Key (id)=(" + sentinel + ") already exists":               "Key (id)=(" + ID(sentinel) + ") already exists",
+		"mentor " + sentinel + " is new":                           "mentor " + ID(sentinel) + " is new",
+		// Two ids in one message keep separate references.
+		sentinel + " -> " + otherSentinel: ID(sentinel) + " -> " + ID(otherSentinel),
+		// Nothing to do: prose stays byte-identical.
+		"connection reset by peer": "connection reset by peer",
+		"mentor m-42 is new":       "mentor m-42 is new",
+		"":                         "",
+	}
+
+	for raw, want := range cases {
+		if got := Text(raw); got != want {
+			t.Errorf("Text(%q) =\n  %q\nwant\n  %q", raw, got, want)
 		}
 	}
 }

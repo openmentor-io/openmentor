@@ -176,6 +176,120 @@ func URL(raw string) string {
 	return Path(raw)
 }
 
+// Text redacts capability-bearing values inside free-form text: an error
+// message, a response body preview, a span name. URL is not usable here because
+// the string is not a URL — it CONTAINS one, in the middle of a sentence.
+//
+// The case that matters is *url.Error, which is what http.Client.Do returns:
+// its Error() renders `Get "<the whole target URL>": dial tcp ...`, so
+// zap.Error(err) re-leaks the id that the explicit url field dropped (P14).
+//
+// Tokenizing on characters that cannot appear inside a URL and running the
+// existing URL/Path/QueryString rules per token is what keeps this correct where
+// a regex over the whole string is not: consecutive capability segments
+// (/mentors/<uuid>/requests/<uuid>) need the slash between them to be both a
+// terminator and a separator, which Path's split already handles and a
+// non-backtracking regexp does not.
+//
+// The URL rules are not enough on their own, so a shape sweep runs after them:
+// see sweepIDs.
+func Text(raw string) string {
+	// Every rule needs one of these; prose has none of them.
+	if !strings.ContainsAny(raw, "/=-") {
+		return raw
+	}
+
+	var b strings.Builder
+	b.Grow(len(raw))
+	start := 0
+	for i := 0; i <= len(raw); i++ {
+		if i < len(raw) && !isTextBoundary(raw[i]) {
+			continue
+		}
+		if i > start {
+			b.WriteString(redactTextToken(raw[start:i]))
+		}
+		if i < len(raw) {
+			b.WriteByte(raw[i])
+		}
+		start = i + 1
+	}
+	return sweepIDs(b.String())
+}
+
+// sweepIDs replaces every UUID left in the text with a hashed reference. The
+// URL rules above only fire on tokens shaped like a URL or a name=value pair,
+// and the error text that actually reaches a log line often has neither: the
+// repository layer names the row it failed on (`failed to fetch client request
+// <uuid>`), a handler attaches `failed to fetch request id="<uuid>"`, and
+// Postgres reports the offending value itself in a constraint DETAIL
+// (`Key (id)=(<uuid>) already exists`). Hashed rather than dropped, so the line
+// still ties to the request_ref logged next to it.
+//
+// This runs last on purpose: path and query rules have already replaced the ids
+// they own, so what is left here is only what they cannot see.
+func sweepIDs(text string) string {
+	const uuidLen = 36
+	if len(text) < uuidLen {
+		return text
+	}
+
+	var b strings.Builder
+	copied := 0
+	for i := 0; i+uuidLen <= len(text); i++ {
+		// Anchor on both ends: a 36-character window inside a longer hex run is
+		// part of a different value, not a UUID.
+		if i > 0 && isIDChar(text[i-1]) {
+			continue
+		}
+		if i+uuidLen < len(text) && isIDChar(text[i+uuidLen]) {
+			continue
+		}
+		if !IsUUID(text[i : i+uuidLen]) {
+			continue
+		}
+		b.WriteString(text[copied:i])
+		b.WriteString(ID(text[i : i+uuidLen]))
+		i += uuidLen - 1
+		copied = i + 1
+	}
+	if copied == 0 {
+		return text
+	}
+	b.WriteString(text[copied:])
+	return b.String()
+}
+
+func isIDChar(c byte) bool { return isHexDigit(c) || c == '-' }
+
+// isTextBoundary reports whether c ends a URL-shaped token. url.Error wraps the
+// target in double quotes and follows it with `: `, and log messages put URLs in
+// parentheses and lists.
+func isTextBoundary(c byte) bool {
+	switch c {
+	case ' ', '\t', '\n', '\r', '"', '\'', '`', '<', '>', ',', ';', '(', ')', '[', ']', '{', '}':
+		return true
+	}
+	return false
+}
+
+func redactTextToken(token string) string {
+	// Sentence punctuation is not part of the URL: `... /reviews/<uuid>/check.`
+	trimmed := strings.TrimRight(token, ".:;!?")
+	suffix := token[len(trimmed):]
+
+	switch {
+	case strings.Contains(trimmed, "?"):
+		return URL(trimmed) + suffix
+	// A bare pair with no `?` in front of it: `rejected login_token=<jwt>`.
+	case strings.Contains(trimmed, "="):
+		return QueryString(trimmed) + suffix
+	case strings.Contains(trimmed, "/"):
+		return Path(trimmed) + suffix
+	}
+	return token
+}
+
 // ID returns a short, non-reversible reference for a capability value so log
 // lines about the same request can still be correlated without carrying the
 // value that grants access.

@@ -128,7 +128,7 @@ func (l cronSkipLogger) Error(err error, msg string, _ ...interface{}) {
 	logger.Error("Cron scheduler error",
 		zap.String("job", l.job),
 		zap.String("cron_message", msg),
-		zap.Error(err),
+		logger.RedactedError(err),
 	)
 }
 
@@ -218,7 +218,7 @@ func runCronJob(ctx context.Context, name string, job CronJobFunc) (summary JobS
 	switch {
 	case err != nil:
 		outcome = "error"
-		log.Error("Cron job failed", zap.Error(err))
+		log.Error("Cron job failed", logger.RedactedError(err))
 		errortracking.CaptureException(err, map[string]interface{}{"job": name})
 	case summary.Skipped:
 		outcome = "skipped"

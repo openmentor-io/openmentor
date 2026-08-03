@@ -54,7 +54,7 @@ func CallAsync(ctx context.Context, triggerURL, recordID, authToken string, http
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, http.NoBody)
 		if err != nil {
 			logger.Error("Failed to build trigger request",
-				zap.Error(err), loggedURL, recordRef)
+				logger.RedactedError(err), loggedURL, recordRef)
 			return
 		}
 		if authToken != "" {
@@ -64,7 +64,7 @@ func CallAsync(ctx context.Context, triggerURL, recordID, authToken string, http
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			logger.Error("Failed to call trigger URL",
-				zap.Error(err), loggedURL, recordRef)
+				logger.RedactedError(err), loggedURL, recordRef)
 			return
 		}
 		defer resp.Body.Close()
@@ -110,7 +110,7 @@ func CallAsyncWithPayload(ctx context.Context, triggerURL string, payload interf
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, triggerURL, bytes.NewBuffer(jsonData))
 		if err != nil {
 			logger.Error("Failed to build trigger request",
-				zap.Error(err),
+				logger.RedactedError(err),
 				zap.String("url", triggerURL))
 			return
 		}
@@ -122,7 +122,7 @@ func CallAsyncWithPayload(ctx context.Context, triggerURL string, payload interf
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			logger.Error("Failed to call trigger URL",
-				zap.Error(err),
+				logger.RedactedError(err),
 				zap.String("url", triggerURL))
 			return
 		}

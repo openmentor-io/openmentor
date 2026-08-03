@@ -37,7 +37,7 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 
 	request, err := h.repo.GetJobRequestWithMentorName(ctx, requestID)
 	if err != nil {
-		logger.Error("[Request Process Finished] Failed to fetch request", zap.String("request_ref", redact.ID(requestID)), zap.Error(err))
+		logger.Error("[Request Process Finished] Failed to fetch request", zap.String("request_ref", redact.ID(requestID)), logger.RedactedError(err))
 		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.SystemDistinctID("worker"), map[string]interface{}{
 			"outcome":    "error",
 			"error_type": errTypeDBError,
