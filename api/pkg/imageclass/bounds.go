@@ -60,6 +60,15 @@ var decodeSlots = make(chan struct{}, maxConcurrentDecodes)
 // slot has to be held for as long as the decoded image is reachable, not just
 // across the image.Decode call: the pixel buffer is what is being budgeted.
 func acquireDecodeSlot(ctx context.Context) error {
+	// Take a free slot without consulting ctx: select picks at random among
+	// ready cases, so an already-canceled context would otherwise cost half
+	// the uncontended decodes their classification.
+	select {
+	case decodeSlots <- struct{}{}:
+		return nil
+	default:
+	}
+
 	timer := time.NewTimer(decodeQueueWait)
 	defer timer.Stop()
 

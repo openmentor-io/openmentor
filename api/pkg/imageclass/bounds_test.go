@@ -156,9 +156,9 @@ func TestClassifyBytesShedsDecodeWhenSlotsAreTaken(t *testing.T) {
 	}
 }
 
-// TestClassifyBytesCancelledWaitReturnsContextError: a client that disconnects
+// TestClassifyBytesCanceledWaitReturnsContextError: a client that disconnects
 // while queued must not keep a goroutine waiting for a slot.
-func TestClassifyBytesCancelledWaitReturnsContextError(t *testing.T) {
+func TestClassifyBytesCanceledWaitReturnsContextError(t *testing.T) {
 	fillDecodeSlots(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -220,4 +220,22 @@ func fillDecodeSlots(tb testing.TB) {
 			<-decodeSlots
 		}
 	})
+}
+
+// TestClassifyBytesFreeSlotBeatsCanceledContext: a canceled request context
+// must not cost the classification when a slot is sitting free.
+func TestClassifyBytesFreeSlotBeatsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	photo := imagefixture.PhotoPNG(t, 400, 400)
+	for i := range 20 {
+		style, err := ClassifyBytes(ctx, photo)
+		if err != nil {
+			t.Fatalf("attempt %d: ClassifyBytes() error = %v, want nil with every slot free", i, err)
+		}
+		if style != StyleHero {
+			t.Fatalf("attempt %d: style = %q, want %q", i, style, StyleHero)
+		}
+	}
 }
