@@ -27,13 +27,12 @@
 #     local stack must never touch backup buckets)
 #
 # Usage: ./deploy-dev.sh [targets...]   (recommended — builds images, sets
-#        FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG in .env, regenerates
-#        .env.runtime, converges, healthchecks)
+#        FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG in .env, converges, healthchecks)
 # Raw:   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-#        (requires images already built/tagged AND .env/.env.runtime present,
-#        e.g. from a previous ./deploy-dev.sh run; after editing .env, rerun
-#        ./deploy-dev.sh infra or regenerate .env.runtime yourself:
-#        grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' .env > .env.runtime)
+#        (requires images already built/tagged AND .env present, e.g. from a
+#        previous ./deploy-dev.sh run; after editing .env just re-run `up -d`,
+#        which re-reads it — containers get explicit per-service `environment:`
+#        allowlists, no shared env file)
 
 services:
   # Traefik in HTTP-only mode: no Let's Encrypt / Cloudflare DNS-01, single

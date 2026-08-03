@@ -78,7 +78,10 @@ scales/deploys independently of the API; S3/SES scale on their own.
 infra/
 ├── docker-compose.yml          # Production stack
 ├── docker-compose.dev.yml      # Dev overlay (local image tags, HTTP-only traefik, dev postgres creds, opt-in observability)
-├── postgres-backup/            # Backup sidecar image (pg_dump → S3, see Backups)
+├── Makefile                    # `make check` — the fast infra checks the required CI gate runs
+├── check-service-env.sh        # Per-service env allowlist + secret-ownership check (P10)
+├── env-allowlist.txt           # The allowlist it enforces (machine-checked half of the env contract)
+├── postgres-backup/            # Backup sidecar image (pg_dump → S3, see Backups) + its tests
 ├── .env.example                # Local development env template
 ├── .env.production.example     # Production env template (deploy creds + build args + runtime secrets)
 ├── deploy.sh                   # Deploy [frontend|backend|infra|all] to the VM (health checks + auto-rollback)
@@ -324,7 +327,9 @@ Everything ships to **Grafana Cloud** through the `alloy` container
 
 Grafana dashboards live as plain JSON in the repo-root [`grafana/`](../grafana/)
 directory and sync to Grafana Cloud via Git Sync; alert rules are versioned in
-`grafana/alerting/alert-rules.yaml` (see `grafana/README.md`). Product analytics
+`grafana/alerting/alert-rules.yaml` but Git Sync does not cover them — an
+operator applies them by hand, and none are on the stack today
+(see `grafana/README.md`). Product analytics
 dashboards live in `posthog/dashboards/` (`node sync.mjs`).
 
 ## Database access
@@ -359,6 +364,11 @@ procedures + quarterly drill: `../docs/runbooks/postgres-backup-restore.md`):
    falls back to the local `openmentor-postgres-backups` volume and logs a
    loud warning. Manual/drill run:
    `docker exec openmentor-postgres-backup backup.sh once`.
+   Every success refreshes `/backups/.last_success`; the container healthcheck
+   turns `unhealthy` once that marker ages past `BACKUP_MAX_AGE_HOURS` (26h).
+   Nothing off the VM watches that healthcheck until an operator applies the
+   `DatabaseBackupStale` alert — it is not on the stack yet, see the operator
+   step in `../docs/runbooks/postgres-backup-restore.md`.
 
 RPO ≤ 24 h, RTO ≈ 30 min with dumps. Documented next step (not implemented):
 **wal-g** continuous WAL archiving to S3 for ~minutes RPO / PITR. Scale path:

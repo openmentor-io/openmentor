@@ -1,14 +1,21 @@
 # OpenMentor Grafana-managed alert rules — versioned source of record.
 #
-# These rules live in the Grafana Cloud stack (folder "OpenMentor", uid `openmentor`,
-# rule group `openmentor`, org 1). They were created via the Grafana Cloud MCP /
-# provisioning API and are editable in the UI (created with X-Disable-Provenance).
+# !! DESIRED STATE, NOT LIVE STATE — the stack has no Grafana-managed alert
+# !! rules; nothing here pages until an operator applies it (evidence and
+# !! current status: grafana/README.md § Alert rules). Read the ordering warning
+# !! there first: the live notification policy fans out to telegram/slack/Discord
+# !! and the noDataState: Alerting rules fire the moment their series is missing,
+# !! so applying one before its metric exists pages immediately.
 #
-# How to (re-)apply:
+# Target: folder "openmentor" (uid `repository-7b3d712` — the folder Git Sync
+# created; there is no folder with uid `openmentor`), rule group `openmentor`,
+# org 1.
+#
+# How to apply:
 #   * Grafana provisioning API: POST each rule to
 #       https://<stack>.grafana.net/api/v1/provisioning/alert-rules
-#     with an editor/admin service-account token, or
-#     PUT the whole group to /api/v1/provisioning/folder/openmentor/rule-groups/openmentor.
+#     with an editor/admin service-account token, or PUT the whole group to
+#     /api/v1/provisioning/folder/repository-7b3d712/rule-groups/openmentor.
 #     Add header `X-Disable-Provenance: true` to keep rules editable in the UI.
 #   * Or ask Claude/the Grafana MCP (`alerting_manage_rules`, operation `create`/`update`)
 #     to sync from this file.
@@ -25,7 +32,7 @@ apiVersion: 1
 groups:
   - orgId: 1
     name: openmentor
-    folder: OpenMentor
+    folder: openmentor
     interval: 1m
     rules:
       - uid: om-service-down
@@ -336,3 +343,39 @@ groups:
               expression: A
               refId: B
               conditions: [{ evaluator: { type: gt, params: [0.5] } }]
+
+      - uid: om-db-backup-stale
+        title: DatabaseBackupStale
+        condition: B
+        for: 10m
+        # NoData=Alerting, unlike most rules in this file: the postgres-backup
+        # sidecar publishes this gauge continuously via Alloy's textfile
+        # collector, so a missing series means the sidecar, the metrics volume
+        # or Alloy is gone — which is precisely the silent-failure mode this
+        # rule exists to catch.
+        noDataState: Alerting
+        execErrState: Error
+        labels: { severity: critical, team: openmentor }
+        annotations:
+          summary: "No successful Postgres backup in over 26 hours"
+          description: "No successful nightly pg_dump for {{ printf \"%.1f\" (divf $values.A.Value 3600) }} hours (threshold 26h, dumps run daily at BACKUP_TIME). The documented RPO of 24h is no longer met. If the sidecar has never produced one, the age counts from its first start instead. Check `docker logs openmentor-postgres-backup` for a FAILURE line and follow docs/runbooks/postgres-backup-restore.md."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              # `a or b` unions two differently-named gauges (no label set can
+              # match), so max() is the NEWEST of: the last success, and the
+              # sidecar's first start on this volume. A fresh volume therefore
+              # gets one 26h grace window without .last_success ever claiming a
+              # dump that never ran — it stays 0, which the `> 0` filter drops.
+              expr: 'time() - max(openmentor_db_backup_last_success_timestamp_seconds > 0 or openmentor_db_backup_first_start_timestamp_seconds)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [93600] } }]

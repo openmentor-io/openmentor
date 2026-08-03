@@ -96,11 +96,12 @@ ORDER BY created_at;
 ### 3. Trigger finalization, one mentor at a time
 
 The worker is `openmentor-worker`, internal to the compose network, port 8090
-(`infra/docker-compose.yml:298,304`). Job routes live under `/jobs` and require
-the `X-Worker-Token` header whenever `WORKER_AUTH_TOKEN` is set — which is
-mandatory in production (`api/config/config.go:415-420`). The token reaches the
-container through `env_file: .env.runtime`, so read it *inside* the container
-and it never touches your shell history or the host process list:
+(the `worker` service in `infra/docker-compose.yml`). Job routes live under
+`/jobs` and require the `X-Worker-Token` header whenever `WORKER_AUTH_TOKEN` is
+set — which is mandatory in production (`api/config/config.go:415-420`). The
+token reaches the container through the worker's `environment:` allowlist, so
+read it *inside* the container and it never touches your shell history or the
+host process list:
 
 ```bash
 ssh <vm>

@@ -20,9 +20,11 @@ grafana/
 └── README.md
 ```
 
-All dashboards live in the Grafana folder **OpenMentor** (uid `openmentor`),
-are tagged `openmentor`, and carry no volatile fields (`id`, `version`) so the
-files diff cleanly.
+All dashboards live in the Grafana folder **openmentor** (uid
+`repository-7b3d712`, created by Git Sync — there is no folder with uid
+`openmentor`), are tagged `openmentor`, and carry no volatile fields (`id`,
+`version`) so the files diff cleanly. Verified live 2026-08-03: all five are
+present in that folder.
 
 ## Dashboards: Git Sync is the source of truth
 
@@ -52,27 +54,68 @@ are no longer needed.
 
 ## Alert rules
 
-Alert rules are Grafana-managed rules in folder `openmentor`, rule group
-`openmentor` (evaluated every 1m). The versioned source of record is
-[`alerting/alert-rules.yaml`](alerting/alert-rules.yaml) (Grafana alerting
-provisioning format, `apiVersion: 1`). Git Sync does **not** cover alert
-rules — apply them via:
+> ### ⚠️ NOT APPLIED: the stack currently has ZERO alert rules
+>
+> Verified 2026-08-03 against the live stack — all three read paths agree and
+> none of them is a permissions artefact (the same token lists the five
+> dashboards and reads the notification policy tree):
+>
+> ```
+> GET /api/v1/provisioning/alert-rules      -> []
+> GET /api/ruler/grafana/api/v1/rules       -> {}
+> GET /api/prometheus/grafana/api/v1/rules  -> {"groups":[]}
+> ```
+>
+> So every rule below is **desired state, not live state**: nothing pages
+> today, for anything. Applying them is an operator action (see below) — this
+> file cannot do it, and Git Sync does not cover alert rules.
+
+Alert rules are Grafana-managed rules in the `openmentor` folder — uid
+`repository-7b3d712`, the folder Git Sync created; there is **no** folder with
+uid `openmentor` — rule group `openmentor`, evaluated every 1m. The versioned
+source of record is [`alerting/alert-rules.yaml`](alerting/alert-rules.yaml)
+(Grafana alerting provisioning format, `apiVersion: 1`). Apply it via:
 
 - the Grafana provisioning API
-  (`POST /api/v1/provisioning/alert-rules`, header `X-Disable-Provenance: true`
-  so they stay editable in the UI), or
-- the Grafana Cloud MCP (`alerting_manage_rules`) — this is how the current
-  set was created.
+  (`POST /api/v1/provisioning/alert-rules` per rule, or
+  `PUT /api/v1/provisioning/folder/repository-7b3d712/rule-groups/openmentor`
+  for the group; header `X-Disable-Provenance: true` so they stay editable in
+  the UI), or
+- the Grafana Cloud MCP (`alerting_manage_rules`, operation `create`).
 
 If you change a rule in the UI, mirror the change into the YAML file.
 
-Current set: ServiceDown, HighErrorRate, HighLatencyP99, ContainerHighCPU,
+**Order matters when applying.** The default notification policy is live and
+fans out to `telegram`, `slack` and `Discord` with `repeat_interval: 4h`, so a
+rule that is true the moment it lands pages immediately and keeps paging. In
+particular the four rules with `noDataState: Alerting` (ServiceDown,
+PostgresDown, DatabaseBackupStale, and any future one) fire when their series
+is simply absent. `openmentor_db_backup_first_start_timestamp_seconds` and
+`openmentor_db_backup_last_success_timestamp_seconds` do not exist in
+Prometheus yet — the `postgres-backup` sidecar that publishes them ships with
+the audit P8 change — so either apply DatabaseBackupStale **after** that
+deploy, or apply it with `isPaused: true` and unpause once the gauges appear
+(`docs/runbooks/postgres-backup-restore.md`).
+
+Desired set: ServiceDown, HighErrorRate, HighLatencyP99, ContainerHighCPU,
 ContainerHighMemory, GoroutineLeak, ContactFormFailures,
 ReviewSubmissionFailures, EmailSendFailures, PostgresDown, DBErrorRate,
-DBLatencyP95.
+DBLatencyP95, DatabaseBackupStale.
 
 Notes:
 
+- **DatabaseBackupStale** watches
+  `openmentor_db_backup_last_success_timestamp_seconds`, falling back to
+  `openmentor_db_backup_first_start_timestamp_seconds` until a dump has ever
+  succeeded (the sidecar's one grace window on a fresh volume). Both are
+  written by the `postgres-backup` sidecar into a shared volume and scraped by
+  Alloy's textfile collector (`prometheus.exporter.unix "backup_metrics"`). The
+  sidecar's daemon loop deliberately swallows per-run failures so a transient
+  error can't kill it, which makes staleness of those gauges the only off-VM
+  signal that nightly dumps have stopped — hence `NoData=Alerting` here too.
+  Panels: the "Postgres Backups" row on `om-database-infra`. Until this rule is
+  actually applied, the only signal is the container healthcheck, which nothing
+  off the VM watches.
 - **PostgresDown** watches `pg_up`, shipped continuously by the Database
   Observability pipeline (live since 2026-07-18; setup in
   `docs/runbooks/database-observability.md`). `NoData=Alerting`, so the
