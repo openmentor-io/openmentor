@@ -2,21 +2,40 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Migrate from '@/pages/migrate'
 
-// Mock Turnstile component
-jest.mock('@marsidev/react-turnstile', () => ({
-  __esModule: true,
-  Turnstile: function MockTurnstile({ onSuccess }: { onSuccess?: (token: string) => void }) {
-    return (
-      <button
-        type="button"
-        data-testid="turnstile"
-        onClick={() => onSuccess?.('mock-turnstile-token')}
-      >
-        Complete Turnstile
-      </button>
-    )
-  },
-}))
+// Mock Turnstile component (forwardRef so the widget's reset() is callable)
+const mockTurnstileReset = jest.fn()
+let freshTokenSeq = 0
+jest.mock('@marsidev/react-turnstile', () => {
+  const react = jest.requireActual('react')
+  return {
+    __esModule: true,
+    Turnstile: react.forwardRef(function MockTurnstile(
+      { onSuccess }: { onSuccess?: (token: string) => void },
+      ref: React.Ref<{ reset: () => void }>
+    ) {
+      react.useImperativeHandle(ref, () => ({
+        reset: () => {
+          mockTurnstileReset()
+          // The real widget re-solves the challenge asynchronously. Issuing the
+          // token synchronously here would have it wiped by the
+          // setCaptchaToken('') that follows reset() in the page's effect.
+          freshTokenSeq += 1
+          const token = `fresh-turnstile-token-${freshTokenSeq}`
+          setTimeout(() => onSuccess?.(token), 0)
+        },
+      }))
+      return (
+        <button
+          type="button"
+          data-testid="turnstile"
+          onClick={() => onSuccess?.('mock-turnstile-token')}
+        >
+          Complete Turnstile
+        </button>
+      )
+    }),
+  }
+})
 
 // Keep the page test focused: layout chrome is covered elsewhere
 jest.mock('@/components', () => ({
@@ -96,7 +115,9 @@ describe('Migrate page', () => {
     })
   })
 
-  it('shows an error and keeps the form usable when the request fails', async () => {
+  // The spent token is what makes a retry hopeless: siteverify has already
+  // consumed it, so the widget has to be re-run before the button comes back.
+  it('resets the captcha and retries with a fresh token after a failure', async () => {
     mockRouter.query = { slug: 'ivan-petrov-42' }
     ;(global.fetch as jest.Mock).mockResolvedValue({
       json: async () => ({ success: false, error: 'Captcha verification failed' }),
@@ -109,6 +130,20 @@ describe('Migrate page', () => {
     await waitFor(() => {
       expect(screen.getByText(/Something went wrong/i)).toBeInTheDocument()
     })
-    expect(screen.getByRole('button', { name: /Schedule migration/i })).toBeEnabled()
+    expect(mockTurnstileReset).toHaveBeenCalledTimes(1)
+
+    // Re-enabled only once the replacement token has arrived.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Schedule migration/i })).toBeEnabled()
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: /Schedule migration/i }))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(2)
+    })
+    const retryBody = JSON.parse((global.fetch as jest.Mock).mock.calls[1][1].body)
+    expect(retryBody.captchaToken).not.toBe('mock-turnstile-token')
+    expect(retryBody.captchaToken).toMatch(/^fresh-turnstile-token-\d+$/)
   })
 })

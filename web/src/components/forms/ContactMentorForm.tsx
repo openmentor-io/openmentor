@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import classNames from 'classnames'
-import { Turnstile } from '@marsidev/react-turnstile'
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import TextareaAutosize from 'react-textarea-autosize'
 
 interface ContactFormData {
@@ -89,6 +89,21 @@ export default function ContactMentorForm({
 
   const fieldClass = (hasError: boolean): string =>
     classNames('field', hasError && 'field-error', hasError && isShaking && 'animate-shake')
+
+  const turnstileRef = useRef<TurnstileInstance>(null)
+
+  // Turnstile tokens are single-use and siteverify has already consumed this one
+  // by the time the request fails, so retrying with it can only fail again — and
+  // the form stays mounted with a live submit button. Reset the widget on every
+  // failed attempt so the retry carries a FRESH token. The page flips
+  // readyStatus back to 'loading' before each submit, so isError toggles and
+  // this effect re-fires per failure.
+  useEffect(() => {
+    if (isError) {
+      turnstileRef.current?.reset()
+      setValue('captchaToken', '')
+    }
+  }, [isError, setValue])
 
   const handleCaptchaOnSuccess = (token: string): void => {
     setValue('captchaToken', token)
@@ -209,6 +224,7 @@ export default function ContactMentorForm({
 
       <div className="flex flex-col gap-1.5">
         <Turnstile
+          ref={turnstileRef}
           siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
           onSuccess={handleCaptchaOnSuccess}
           onExpire={handleCaptchaOnExpire}

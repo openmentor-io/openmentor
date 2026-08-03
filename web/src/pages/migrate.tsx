@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
-import { Turnstile } from '@marsidev/react-turnstile'
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import type { GetServerSideProps } from 'next'
 import { Footer, MetaHeader, NavHeader, Section } from '@/components'
 import { pageTitle } from '@/config/seo'
@@ -36,6 +36,18 @@ export default function Migrate(): JSX.Element {
 
   const [captchaToken, setCaptchaToken] = useState('')
   const [state, setState] = useState<SubmitState>('idle')
+  const turnstileRef = useRef<TurnstileInstance>(null)
+
+  // The token is single-use and already spent upstream when the call fails, so
+  // clear it and re-run the widget — otherwise the button stays enabled on a
+  // stale token and every retry fails siteverify. state goes 'error' ->
+  // 'loading' -> 'error', so this re-fires on each failure.
+  useEffect(() => {
+    if (state === 'error') {
+      turnstileRef.current?.reset()
+      setCaptchaToken('')
+    }
+  }, [state])
 
   const handleSchedule = async (): Promise<void> => {
     setState('loading')
@@ -115,6 +127,7 @@ export default function Migrate(): JSX.Element {
               </p>
 
               <Turnstile
+                ref={turnstileRef}
                 siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ''}
                 onSuccess={setCaptchaToken}
                 onExpire={(): void => setCaptchaToken('')}

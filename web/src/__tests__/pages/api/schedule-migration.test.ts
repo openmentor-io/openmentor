@@ -12,11 +12,16 @@ jest.mock('@/lib/logger', () => ({
 
 const mockScheduleMigration = jest.fn()
 
-jest.mock('@/lib/go-api-client', () => ({
-  getGoApiClient: () => ({
-    scheduleMigration: mockScheduleMigration,
-  }),
-}))
+jest.mock('@/lib/go-api-client', () => {
+  // Keep the real HttpError so sendUpstreamError's instanceof check works.
+  const actual = jest.requireActual('@/lib/go-api-client')
+  return {
+    HttpError: actual.HttpError,
+    getGoApiClient: () => ({
+      scheduleMigration: mockScheduleMigration,
+    }),
+  }
+})
 
 // Import handler after mocks are set up
 import handler from '@/pages/api/schedule-migration'
@@ -69,6 +74,40 @@ describe('api/schedule-migration', () => {
 
   it('returns 500 when the Go API call fails', async () => {
     mockScheduleMigration.mockRejectedValue(new Error('go api down'))
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: 'POST',
+      body: { slug: 'ivan-petrov-42', captchaToken: 'valid-token' },
+    })
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(500)
+    expect(res._getJSONData()).toEqual({ error: 'Internal server error' })
+  })
+
+  it('forwards an upstream 4xx to the client', async () => {
+    const { HttpError } = jest.requireActual('@/lib/go-api-client')
+    mockScheduleMigration.mockRejectedValue(
+      new HttpError(400, 'Bad Request', JSON.stringify({ error: 'Unknown getmentor.dev slug' }))
+    )
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: 'POST',
+      body: { slug: 'nobody', captchaToken: 'valid-token' },
+    })
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(400)
+    expect(res._getJSONData()).toEqual({ error: 'Unknown getmentor.dev slug' })
+  })
+
+  it('hides an upstream 5xx behind a generic 500', async () => {
+    const { HttpError } = jest.requireActual('@/lib/go-api-client')
+    mockScheduleMigration.mockRejectedValue(
+      new HttpError(500, 'Internal Server Error', 'pq: relation "migration_intents" does not exist')
+    )
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: 'POST',
