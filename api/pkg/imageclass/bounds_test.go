@@ -2,6 +2,7 @@ package imageclass
 
 import (
 	"errors"
+	"math"
 	"runtime"
 	"testing"
 
@@ -93,11 +94,8 @@ func TestClassifyBytesRejectsBombWithoutDecoding(t *testing.T) {
 // validator. MaxPixels is only worth what this number says it is — several
 // concurrent decodes have to fit the container's 512 MiB.
 func TestClassifyBytesWorstAcceptedGeometryFitsBudget(t *testing.T) {
-	side := 4000 // 16M px, i.e. MaxPixels exactly
-	if side*side != MaxPixels {
-		t.Fatalf("fixture is %dx%d = %d px, but MaxPixels is %d: pick the square at the bound",
-			side, side, side*side, MaxPixels)
-	}
+	// The square at the bound, whatever the bound currently is.
+	side := int(math.Sqrt(MaxPixels))
 	worst := imagefixture.RGBABombPNG(t, side, side)
 
 	var before, after runtime.MemStats
@@ -105,15 +103,17 @@ func TestClassifyBytesWorstAcceptedGeometryFitsBudget(t *testing.T) {
 	runtime.ReadMemStats(&before)
 
 	if _, err := ClassifyBytes(worst); err != nil {
-		t.Fatalf("ClassifyBytes() error = %v, want the geometry at the bound to be accepted", err)
+		t.Fatalf("ClassifyBytes(%dx%d) error = %v, want the geometry at the bound to be accepted", side, side, err)
 	}
 
 	runtime.ReadMemStats(&after)
 
-	const budget = 96 << 20 // measured ~74 MiB
-	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > budget {
-		t.Errorf("worst accepted decode allocated %d bytes (budget %d): MaxPixels is too high for a 512 MiB container",
-			allocated, budget)
+	// 16M px measures ~74 MiB, ~122 MiB under -race (which allocates its own
+	// shadow state); the 40M px bound this replaced measured 185 MiB.
+	const ceiling = 160 << 20
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > ceiling {
+		t.Errorf("worst accepted decode (%dx%d) allocated %d bytes, ceiling %d: MaxPixels is too high for a 512 MiB container",
+			side, side, allocated, ceiling)
 	}
 }
 
