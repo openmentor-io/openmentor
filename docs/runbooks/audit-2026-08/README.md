@@ -12,6 +12,12 @@ Everything here is read-only or explicitly guarded. Nothing here changes code.
 
 ## Run it in this order
 
+0. **[`pre-deploy-checks.md`](pre-deploy-checks.md)** — run these **before** the
+   remediation deploy. The remediation tightens validation that existing rows
+   predate, so each check counts how many real people meet the new rule on their
+   next save. They are counts, not gates: none of them blocks the deploy, all of
+   them decide whether you warn someone first.
+
 1. **`diagnostics.sh`** — run the checks and write a report.
    ```bash
    ./diagnostics.sh --dry-run     # confirm preconditions, connect to nothing
@@ -84,9 +90,9 @@ Stated so nobody mistakes a gap for an answer:
 - **The RUB→USD rate used at import time** is not stored in the database, only in
   the migration run log. Without that log a recomputed price is uncertain — see
   `data-repair.md` §D2.4.
-- **The `finalize-stuck-registrations` cron does not exist yet** on `main`.
-  `data-repair.md` §D1.4 gives the trigger URL for once it ships, and the
-  per-mentor call to use until then.
+- **The `finalize-stuck-registrations` cron ships with the remediation**, so it
+  reconciles nothing until that worker image is deployed. `data-repair.md` §D1.4
+  gives its trigger URL and the per-mentor call to use before the deploy.
 
 ## Related runbooks
 

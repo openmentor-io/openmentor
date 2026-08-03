@@ -134,13 +134,14 @@ Audit item **P2** step 4 adds a `finalize-stuck-registrations` cron job that
 sweeps `status='draft'` rows whose finalization never ran, so a lost trigger,
 worker downtime or a deploy restart converges on its own.
 
-**That job does not exist yet on `main`** — `Handlers.CronJobs()`
-(`api/internal/worker/cron.go:45-52`) currently returns exactly four entries:
-`sessions-watcher`, `update-status-reminder`, `deactivate-pending-mentors`,
-`randomize-sort-order`. Until it ships, use the per-mentor call in step 3.
+It is registered in `Handlers.CronJobs()` (`api/internal/worker/cron.go`) on the
+remediation branch, at `0 */10 * * * *` — every 10 minutes, because it is the
+retry for a lost registration trigger and a locked-out new mentor must not wait
+for a daily pass. **It only runs once the worker image carrying it is deployed**;
+until then, use the per-mentor call in step 3.
 
-`RegisterCronRoutes` (`cron.go:86-102`) exposes **every** entry of that table as
-`POST /jobs/cron/<name>`, so once the job lands, forcing a run is:
+`RegisterCronRoutes` exposes **every** entry of that table as
+`POST /jobs/cron/<name>`, so forcing a run is:
 
 ```bash
 docker exec openmentor-worker sh -c '
