@@ -284,6 +284,63 @@ describe('posthog before_send', () => {
     expect(event?.$set_once?.$initial_referring_domain).toBe('openmentor.io')
   })
 
+  it('scrubs the capability from autocaptured urls, where it sits in the PATH', () => {
+    // /mentor/requests/<uuid> carries the capability with no `key=` in sight, so
+    // both the property-name blocklist and the query-pair rule miss it.
+    const event = redactSensitiveEvent({
+      uuid: 'evt-3',
+      event: '$autocapture',
+      properties: {
+        $current_url: `https://openmentor.io/mentor/requests/${REVIEW_CAPABILITY}?tab=notes`,
+        $pathname: `/mentor/requests/${REVIEW_CAPABILITY}`,
+        $referrer: `https://openmentor.io/mentor/requests/${REVIEW_CAPABILITY}`,
+        $elements_chain: `a:href="/mentor/requests/${REVIEW_CAPABILITY}"nth-child="1"`,
+        $host: 'openmentor.io',
+      },
+      $set_once: {
+        $initial_current_url: `https://openmentor.io/mentor/requests/${REVIEW_CAPABILITY}`,
+        $initial_referrer: `https://openmentor.io/mentor/requests/${REVIEW_CAPABILITY}`,
+      },
+    })
+
+    expectClean(JSON.stringify(event))
+    // The route still identifies the page, so funnels and heatmaps survive.
+    expect(event?.properties.$pathname).toBe('/mentor/requests/:id')
+    expect(event?.properties.$current_url).toBe('https://openmentor.io/mentor/requests/:id?tab=notes')
+    expect(event?.properties.$host).toBe('openmentor.io')
+  })
+
+  it('scrubs the replay first_url out of a snapshot batch', () => {
+    // PostHog derives a recording's first_url from the rrweb Meta event's href
+    // and the $pageview custom event's payload.href, both nested inside
+    // $snapshot_data where the property sweep cannot see them.
+    const event = redactSensitiveEvent({
+      uuid: 'evt-4',
+      event: '$snapshot',
+      properties: {
+        $session_id: 'sess-1',
+        $snapshot_data: [
+          {
+            type: 4,
+            data: { href: `https://openmentor.io/mentor/requests/${REVIEW_CAPABILITY}`, width: 1, height: 2 },
+          },
+          {
+            type: 5,
+            data: { tag: '$pageview', payload: { href: `/mentor/requests/${REVIEW_CAPABILITY}` } },
+          },
+          { type: 3, data: { source: 2, id: 7 } },
+        ],
+      },
+    })
+
+    expectClean(JSON.stringify(event))
+    const batch = event?.properties.$snapshot_data as Array<{ data: Record<string, unknown> }>
+    expect(batch[0].data.href).toBe('https://openmentor.io/mentor/requests/:id')
+    expect((batch[1].data.payload as { href: string }).href).toBe('/mentor/requests/:id')
+    // Non-URL rrweb events are left exactly as recorded.
+    expect(batch[2].data).toEqual({ source: 2, id: 7 })
+  })
+
   it('passes an event with no person properties through', () => {
     const event = redactSensitiveEvent({ uuid: 'evt-2', event: '$pageview', properties: {} })
     expect(event).toEqual({ uuid: 'evt-2', event: '$pageview', properties: {} })

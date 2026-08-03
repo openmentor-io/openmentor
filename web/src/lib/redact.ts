@@ -54,8 +54,13 @@ const URL_VALUED_KEYS = new Set([
   'confirmurl',
 ])
 
-/** UUID occupying a whole path segment, at any depth. */
-const UUID_SEGMENT = /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/gi
+/**
+ * UUID occupying a whole path segment, at any depth. The trailing boundary is a
+ * negative lookahead rather than `(?=\/|$)` so it also fires mid-string, where
+ * the segment ends at `?`, `#` or a quote — `$current_url` and
+ * `$elements_chain` both carry the path with something after it.
+ */
+const UUID_SEGMENT = /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-z_-])/gi
 
 /**
  * `key=value` pairs whose key looks sensitive, in any casing and with the
@@ -89,6 +94,15 @@ export function redactQueryValues(value: string): string {
 }
 
 /**
+ * Replaces UUIDs that occupy a whole path segment with `:id`. The segment
+ * anchors are what make this safe to run over arbitrary strings: a bare UUID
+ * value (a `mentor_id` property) has no leading slash and is left alone.
+ */
+export function redactPathIds(value: string): string {
+  return value.replace(UUID_SEGMENT, '/:id')
+}
+
+/**
  * Turns a URL into something loggable: id-bearing path segments become `:id`,
  * sensitive query values are replaced. The origin (if any) is kept.
  */
@@ -99,7 +113,7 @@ export function redactUrl(url: string | undefined): string {
   const path = queryStart === -1 ? url : url.slice(0, queryStart)
   const query = queryStart === -1 ? '' : url.slice(queryStart)
 
-  return path.replace(UUID_SEGMENT, '/:id') + redactQueryValues(query)
+  return redactPathIds(path) + redactQueryValues(query)
 }
 
 /**

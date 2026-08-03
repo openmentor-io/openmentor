@@ -133,7 +133,12 @@ token. Decide explicitly; do not skip it by accident.
 - **PostHog**: person records keyed `request:<uuid>` and the `request_id`
   property on `review_submitted`, `review_eligibility_checked` and
   `mentee_contact_submitted` events. Delete or expire those from the PostHog
-  side; no database statement affects them.
+  side; no database statement affects them. The capability is also in
+  **autocapture URLs** — `/mentor/requests/<uuid>` reaches `$current_url`,
+  `$pathname`, `$referrer`, `$initial_current_url`, `$elements_chain` and, via
+  the rrweb Meta event, a session recording's `first_url`. Property-name
+  blocklists never covered those; the `before_send` hook now strips UUID path
+  segments. See "PostHog cleanup" below.
 - **Loki / Tempo**: whatever was written before the containment change ages out
   with the configured retention. If retention is long, consider deleting the
   affected streams.
@@ -143,3 +148,27 @@ token. Decide explicitly; do not skip it by accident.
   authorization (audit item H4), a disclosed request id remains usable by
   whoever holds it. Nothing in this runbook changes that; it is the reason H4
   exists.
+
+## PostHog cleanup
+
+The `before_send` hook only protects events the browser has not sent yet. Three
+separate jobs on the PostHog side, in this order:
+
+1. **Add a path-cleaning rule** (Project settings -> Path cleaning rules, or the
+   `path-cleaning-rules-update` API). This is the server-side belt and braces:
+   it rewrites `$current_url` / `$pathname` **at query time**, so it covers
+   events already in flight from browsers running the old bundle, and any client
+   we forget. Suggested rule — alias `/mentor/requests/:id`, regex
+   `\/mentor\/requests\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`.
+   It does NOT rewrite stored data and does not apply to `$referrer`,
+   `$elements_chain` or a recording's `first_url`, so it is a mitigation, not a
+   deletion.
+2. **Delete the `request:<uuid>` persons** (Persons, filter on the prefix). This
+   also removes their events.
+3. **Scrub the historical event properties.** This is NOT self-serve: PostHog
+   exposes no UI or API for rewriting a property on already-ingested events, so
+   it needs a **support ticket** asking them to run the scrub. Have the property
+   list (`request_id`, `$current_url`, `$pathname`, `$referrer`,
+   `$initial_current_url`, `$elements_chain`, replay `first_url`) and the date
+   range ready. The self-serve alternatives are deleting the events outright or
+   letting retention expire them — decide which, and record the choice.
