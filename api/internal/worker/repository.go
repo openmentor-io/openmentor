@@ -308,8 +308,15 @@ func (r *Repository) SetMentorStatus(ctx context.Context, mentorID, status strin
 	return nil
 }
 
+// JobRequest is all plain strings and pgx fails the WHOLE row scan on a NULL in
+// a non-pointer destination, so every nullable column here is COALESCEd — an
+// un-COALESCEd one would leave the job unable to read that request at all.
+// mentor_id is nullable because the FK is ON DELETE SET NULL; the empty string
+// makes the mentor lookup miss, which the handlers already report as "mentor
+// not found".
 const jobRequestColumns = `
-	cr.id, cr.mentor_id, cr.name, COALESCE(cr.email::text, ''),
+	cr.id, COALESCE(cr.mentor_id::text, ''), COALESCE(cr.name, ''),
+	COALESCE(cr.email::text, ''),
 	COALESCE(cr.preferred_contact, ''), COALESCE(cr.description, ''),
 	COALESCE(cr.level, ''), cr.status,
 	COALESCE(cr.decline_reason::text, ''), COALESCE(cr.decline_comment, '')`
@@ -463,7 +470,7 @@ func (r *Repository) ListMentorsWithStalePendingRequests(ctx context.Context) ([
 // mentor_name, decline fields - are not selected).
 func (r *Repository) ListStalePendingRequests(ctx context.Context, mentorID string) ([]JobReminderRequest, error) {
 	query := `
-		SELECT cr.id, cr.name, COALESCE(cr.description, ''), cr.status,
+		SELECT cr.id, COALESCE(cr.name, ''), COALESCE(cr.description, ''), cr.status,
 			EXTRACT(DAY FROM NOW() - cr.created_at)::int AS created_days_ago
 		FROM client_requests cr
 		WHERE cr.mentor_id = $1
@@ -509,7 +516,7 @@ func (r *Repository) ListMentorsWithStaleInProgressRequests(ctx context.Context)
 // flows into the same DaysAgo field the reminder wording uses.
 func (r *Repository) ListStaleInProgressRequests(ctx context.Context, mentorID string) ([]JobReminderRequest, error) {
 	query := `
-		SELECT cr.id, cr.name, COALESCE(cr.description, ''), cr.status,
+		SELECT cr.id, COALESCE(cr.name, ''), COALESCE(cr.description, ''), cr.status,
 			EXTRACT(DAY FROM NOW() - cr.status_changed_at)::int AS created_days_ago
 		FROM client_requests cr
 		WHERE cr.mentor_id = $1
@@ -663,7 +670,8 @@ func (r *Repository) SetSortOrders(ctx context.Context, updates []SortOrderUpdat
 // name, mentor id, request id). Mirrors process-mentee-review/index.ts.
 func (r *Repository) GetJobReviewByID(ctx context.Context, reviewID string) (*JobReview, error) {
 	query := `
-		SELECT r.id, cr.id AS request_id, cr.mentor_id, cr.name AS mentee_name,
+		SELECT r.id, cr.id AS request_id, COALESCE(cr.mentor_id::text, '') AS mentor_id,
+			COALESCE(cr.name, '') AS mentee_name,
 			COALESCE(r.mentor_review, '')
 		FROM reviews r
 		JOIN client_requests cr ON cr.id = r.client_request_id

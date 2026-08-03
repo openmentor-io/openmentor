@@ -52,7 +52,7 @@ func seedFullMentor(t *testing.T, pool *pgxpool.Pool, columns []dbtest.Column, s
 		_, _ = pool.Exec(context.Background(), `DELETE FROM mentors WHERE id = $1`, id)
 	})
 
-	written := dbtest.FillNullable(t, pool, "mentors", columns, id, suffix)
+	written := dbtest.FillNullable(t, pool, "mentors", columns, id, suffix, nil)
 
 	// login_token has to hold a hash rather than the filler text, or
 	// GetByLoginToken could never match the row.

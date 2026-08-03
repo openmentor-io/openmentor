@@ -82,7 +82,15 @@ func NullableColumns(t *testing.T, pool *pgxpool.Pool, table string) []Column {
 // FillNullable populates every nullable column of the row, so that the only NULL
 // left is the one a case blanks out on purpose. It returns the values written,
 // keyed by column, so callers can look the row up by e.g. its email.
-func FillNullable(t *testing.T, pool *pgxpool.Pool, table string, columns []Column, id any, suffix string) map[string]string {
+//
+// overrides supplies a value for a column the generic per-type filler cannot
+// satisfy — a CHECK constraint that only accepts an enum, for instance. It is
+// keyed by column name and may be nil.
+func FillNullable(
+	t *testing.T, pool *pgxpool.Pool, table string, columns []Column, id any,
+	suffix string, overrides map[string]string,
+) map[string]string {
+
 	t.Helper()
 
 	written := make(map[string]string, len(columns))
@@ -95,6 +103,9 @@ func FillNullable(t *testing.T, pool *pgxpool.Pool, table string, columns []Colu
 				"add an entry so this column is really tested", table, c.Name, c.UDT)
 		}
 		value := fill.value(c.Name, suffix)
+		if override, ok := overrides[c.Name]; ok {
+			value = override
+		}
 		written[c.Name] = value
 		args = append(args, value)
 		sets = append(sets, fmt.Sprintf("%s = $%d::text::%s",
