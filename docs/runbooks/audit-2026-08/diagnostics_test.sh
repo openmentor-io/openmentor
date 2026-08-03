@@ -28,9 +28,10 @@
 #         PGDATABASE=openmentor OM_DIAG_TEST_DB=1 ./diagnostics_test.sh
 #     docker rm -f pg-diagtest
 #
-# It CREATEs and DROPs a database named om_diag_test and writes only there.
-# NEVER point it at production: it is the only file in this directory that
-# writes anything.
+# It CREATEs a database named om_diag_test_<pid>_<random> and writes only there,
+# and it DROPs only a database this run created — a name that already exists is
+# left alone and the tier skips. NEVER point it at production: it is the only
+# file in this directory that writes anything.
 #
 # Exit 0 = every assertion passed. Exit 1 = at least one failed.
 
@@ -44,7 +45,14 @@ DECISIONS_MD="$SCRIPT_DIR/outstanding-decisions.md"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PLAN_MD="$REPO_ROOT/docs/audit/2026-08-remediation-plan.md"
 MIGRATIONS_DIR="$REPO_ROOT/api/migrations"
-TEST_DB="om_diag_test"
+# Unique per run, and never dropped unless THIS run created it (see
+# db_tier_ready / finish). A fixed `om_diag_test` plus a `DROP DATABASE IF
+# EXISTS` before the CREATE meant that pointing PG* at a shared server destroyed
+# whatever already owned that name — the scratch-database warning above is a
+# warning, not a guard.
+TEST_DB="om_diag_test_$$_${RANDOM}"
+# The old fixed name. Nothing here may touch it; the database tier asserts that.
+LEGACY_TEST_DB="om_diag_test"
 
 # Stands in for a mentor name / email / request body. If this string reaches the
 # console in any test, real personal data would too.
@@ -54,6 +62,7 @@ STUB_DSN='postgresql://someone@dev.invalid:5432/dev'
 PASS=0
 FAIL=0
 DB_CREATED=0
+BYSTANDER_CREATED=0
 
 pass()    { PASS=$((PASS + 1)); printf '  ok    %s\n' "$1"; }
 fail()    { FAIL=$((FAIL + 1)); printf '  FAIL  %s\n' "$1"; [ $# -lt 2 ] || printf '        %s\n' "$2"; }
@@ -86,8 +95,13 @@ file_mode() {
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/om-diag-test.XXXXXX")"
 finish() {
     rm -rf "$WORK"
+    # Only ever drop databases this run created — DB_CREATED for the scratch
+    # database, BYSTANDER_CREATED for the legacy-name canary below.
     if [ "$DB_CREATED" = 1 ]; then
         psql -X -q -c "DROP DATABASE IF EXISTS $TEST_DB" >/dev/null 2>&1 || true
+    fi
+    if [ "$BYSTANDER_CREATED" = 1 ]; then
+        psql -X -q -c "DROP DATABASE IF EXISTS $LEGACY_TEST_DB" >/dev/null 2>&1 || true
     fi
 }
 trap finish EXIT
@@ -209,13 +223,30 @@ run_diag both ok "$WORK/argv-pass" --local --out "$WORK/passthrough.txt" -- 'ser
 assert_eq       'an explicit DSN after -- resolves the ambiguity' "$RUN_STATUS" 0
 assert_contains 'uses the passthrough args'                       "$(cat "$WORK/argv-pass")" 'service=openmentor-prod'
 
-section 'diagnostics.sh — dry run touches nothing'
+section 'diagnostics.sh — dry run touches nothing, and its exit code is a preflight'
 
 run_diag pg ok "$WORK/argv" --local --dry-run --out "$WORK/dryrun.txt"
-assert_eq      'dry run exits 0'            "$RUN_STATUS" 0
-assert_no_file 'dry run creates no report'  "$WORK/dryrun.txt"
+assert_eq      'dry run exits 0 when every precondition is met' "$RUN_STATUS" 0
+assert_no_file 'dry run creates no report'                      "$WORK/dryrun.txt"
+
+# A dry run that prints MISSING/BLOCKED and still exits 0 makes an automated
+# preflight report success for a run that cannot start — and the real run exits 3
+# on these same two checks. The container name below does not exist, so this is
+# deterministic whether or not docker is installed (missing binary and missing
+# container are both MISSING).
+run_diag none ok "$WORK/argv" --dry-run --docker \
+    --container "om-diag-absent-$$" --out "$WORK/dry-docker.txt"
+assert_eq       'dry run exits 3 on a missing precondition' "$RUN_STATUS" 3
+assert_contains 'dry run says what is missing'              "$(cat "$RUN_OUT")" 'MISSING'
+assert_contains 'dry run says a real run could not connect' "$(cat "$RUN_OUT")" 'would NOT get as far'
+assert_no_file  'a blocked dry run still writes nothing'    "$WORK/dry-docker.txt"
+
+# Same contract for the report path: a real run refuses an existing path with
+# exit 3, so the preflight has to as well.
 run_diag pg ok "$WORK/argv" --local --dry-run --out "$EXISTING"
-assert_contains 'dry run flags an unusable report path' "$(cat "$RUN_OUT")" 'BLOCKED'
+assert_contains 'dry run flags an unusable report path'  "$(cat "$RUN_OUT")" 'BLOCKED'
+assert_eq       'dry run exits 3 on a blocked report path' "$RUN_STATUS" 3
+assert_eq       'a blocked dry run leaves that file alone' "$(cat "$EXISTING")" 'pre-existing content'
 
 section 'diagnostics.sql — structure'
 
@@ -237,8 +268,13 @@ assert_eq 'D3 sink in detail + summary: mentor_review' \
     "$(count_of "mentor_review ~* '<\\s*[a-z]'")" 2
 assert_eq 'D3 sink in detail + summary: platform_review' \
     "$(count_of "platform_review ~* '<\\s*[a-z]'")" 2
-assert_eq 'D3 sink in detail + summary: calendar_url' \
+assert_eq 'D3 sink in detail + summary: calendar_url scheme' \
     "$(count_of "calendar_url !~* '^https://'")" 2
+# The scheme test alone passes `https://evil.example/x"><img src=x>`, which is a
+# complete breakout of href="{{calendly_url}}". Both copies must also match the
+# characters that end an HTML attribute.
+assert_eq 'D3 sink in detail + summary: calendar_url markup' \
+    "$(count_of "calendar_url ~ '[<>\"''\`[:space:]]'")" 2
 assert_contains 'D3 labels the preferred_contact rows' "$sql_body" "'client_requests.preferred_contact'"
 assert_contains 'D3 labels the price rows'             "$sql_body" "'mentors.price'"
 
@@ -255,6 +291,20 @@ assert_eq 'exactly one COMMIT' "$(count_of 'COMMIT;')" 1
 # assert a count of one rather than absence.
 # ---------------------------------------------------------------------------
 count_in() { grep -cF -- "$2" "$1"; }
+
+# Counts fenced ```sql blocks that BOTH open a transaction and commit it. Must be
+# zero: an operator pastes a block whole, so a trailing COMMIT executes before
+# they have read the row count the guards produce — committing a partial repair
+# that the very next sentence tells them to ROLLBACK. The commit has to be its
+# own block.
+self_committing_sql_blocks() {
+    awk '
+        /^```sql$/           { inb = 1; begun = 0; committed = 0; next }
+        inb && /^```$/       { if (begun && committed) n++; inb = 0; next }
+        inb && /^BEGIN;/     { begun = 1 }
+        inb && /^COMMIT;/    { committed = 1 }
+        END { print n + 0 }' "$1"
+}
 
 # Counts `aws` command lines that are NOT inside a `docker exec … sh -c '…'`
 # block. Must be zero in every runbook: the VM holds no AWS credentials, so an
@@ -305,7 +355,8 @@ for pred in \
     "price ~* '<\\s*[a-z]'" \
     "mentor_review ~* '<\\s*[a-z]'" \
     "platform_review ~* '<\\s*[a-z]'" \
-    "calendar_url !~* '^https://'"
+    "calendar_url !~* '^https://'" \
+    "calendar_url ~ '[<>\"''\`[:space:]]'"
 do
     if grep -qF -- "$pred" "$DIAG_SQL" && grep -qF -- "$pred" "$PLAN_MD"; then
         pass "plan D3 matches diagnostics.sql: $pred"
@@ -336,6 +387,32 @@ assert_contains 'P6 says to rebuild the fragments as html/template templates' \
     "$plan" 'as `html/template` templates and return the result as `template.HTML`'
 assert_contains 'P6 warns that wrapping alone re-creates the injection' \
     "$plan" 'Do not simply wrap'
+
+# P8: Docker keeps an UNHEALTHY container in `running` state, and both deploy
+# gates test only `.State.Status`, so the proposed healthcheck had no consumer —
+# verified: `grep -rn 'State.Health' infra/` returns nothing.
+assert_contains 'P8 requires the deploy gate to consume the healthcheck' \
+    "$plan" '{{.State.Health.Status}}'
+assert_contains 'P8 names the deploy check that ignores health' \
+    "$plan" 'infra/deploy-remote.sh:173'
+assert_contains 'P8 names the rollback check that ignores health' \
+    "$plan" 'infra/rollback.sh:209'
+assert_contains 'P8 acceptance exercises unhealthy-but-running' \
+    "$plan" 'unhealthy but still `running`'
+
+# P14: RequestDistinctID had 26 call sites in 6 producer files. Containing only
+# the review and contact flows would have left the capability flowing to PostHog
+# from every mentor status change and every worker job.
+assert_contains 'P14 says to delete the helper outright' \
+    "$plan" 'delete `RequestDistinctID` entirely'
+assert_contains 'P14 states the real call-site count' "$plan" '26 call sites'
+assert_contains 'P14 acceptance is greppable' "$plan" 'grep -rn RequestDistinctID api/` returns **nothing**'
+assert_eq       '"review and contact events" survives only as a quoted correction' \
+    "$(count_in "$PLAN_MD" 'stop passing `RequestDistinctID` for review and contact events')" 1
+
+# The plan carries operator SQL too; same rule as data-repair.md.
+assert_eq 'no paste-able sql block in the plan commits for the operator' \
+    "$(self_committing_sql_blocks "$PLAN_MD")" 0
 }
 check_plan
 
@@ -370,6 +447,16 @@ assert_eq 'no ./db.sh command after the operator has ssh-ed into the VM' \
     "$(awk -v n="${ssh_line:-0}" 'NR > n && /^\.\/db\.sh/' "$REPAIR_MD" | wc -l | tr -d ' ')" 0
 assert_contains 'the post-trigger check queries Postgres on the VM' \
     "$repair" 'docker exec openmentor-postgres psql'
+
+# The D2 write-back is a live production repair. Its guards only help if the
+# operator sees `UPDATE <n>` before deciding, so no block may commit for them.
+assert_eq       'no paste-able sql block both opens a transaction and commits it' \
+    "$(self_committing_sql_blocks "$REPAIR_MD")" 0
+assert_contains 'the UPDATE block says it stops short of the commit' \
+    "$repair" 'ends without `COMMIT`'
+assert_contains 'the count is the documented decision point' \
+    "$repair" 'read the count before you type anything else'
+assert_contains 'ROLLBACK is offered as its own step' "$repair" 'ROLLBACK;'
 }
 check_repair_md
 
@@ -398,8 +485,38 @@ assert_contains 'the insecure probe says what it does not prove' \
 assert_contains 'it explains the 000 an unverified probe reports' "$decisions" 'reports 000'
 assert_contains 'a TLS-verifying alternative uses the drill hostname' \
     "$decisions" 'curl -sS https://drill.openmentor.io/'
+
+# The §1 note sized the PostHog cleanup from a file count. `grep -rn
+# RequestDistinctID api/` was 27 hits: 26 calls in 6 producer files, plus the
+# helper — so "seven call sites" was seven FILES, and understated the scope.
+assert_contains 'the D4 note states the real RequestDistinctID scope' \
+    "$decisions" '26 call sites in 6 producer files'
+assert_absent   'and no longer counts files as call sites' \
+    "$decisions" 'from **seven** call sites'
 }
 check_decisions_md
+
+section 'diagnostics_test.sh — the scratch database is one it created itself'
+
+# This harness used to CREATE a fixed `om_diag_test` after an unconditional
+# `DROP DATABASE IF EXISTS` on it. Pointed at a shared server, that deleted
+# whatever already held the name.
+assert_eq 'the scratch database name is unique to this run' \
+    "$([ "$TEST_DB" != "$LEGACY_TEST_DB" ] && printf 'yes')" 'yes'
+
+# Plant a database under the OLD fixed name, with a marker table, BEFORE setup
+# runs — then assert below that setup left it intact. If the name is already
+# taken it belongs to somebody else, so we do not touch it and the check is
+# simply not made.
+plant_legacy_bystander() {
+    [ "${OM_DIAG_TEST_DB:-0}" = 1 ] || return 0
+    command -v psql >/dev/null 2>&1 || return 0
+    psql -X -q -c 'SELECT 1' >/dev/null 2>&1 || return 0
+    psql -X -q -c "CREATE DATABASE $LEGACY_TEST_DB" >/dev/null 2>&1 || return 0
+    BYSTANDER_CREATED=1
+    psql -X -q -d "$LEGACY_TEST_DB" -c 'CREATE TABLE not_yours (x int)' >/dev/null 2>&1 || true
+}
+plant_legacy_bystander
 
 section 'diagnostics.sql — behaviour against a scratch database'
 
@@ -420,8 +537,10 @@ db_tier_ready() {
         skip 'database tier (cannot connect with the current PG* settings)'
         return 1
     fi
-    if ! psql -X -q -c "DROP DATABASE IF EXISTS $TEST_DB" >/dev/null 2>&1 \
-       || ! psql -X -q -c "CREATE DATABASE $TEST_DB" >/dev/null 2>&1; then
+    # CREATE only — no pre-emptive DROP. The name is unique per run, so if the
+    # CREATE fails the database is somebody else's and we skip rather than
+    # deleting it. DB_CREATED is what licenses the DROP in `finish`.
+    if ! psql -X -q -c "CREATE DATABASE $TEST_DB" >/dev/null 2>&1; then
         skip "database tier (cannot CREATE DATABASE $TEST_DB with these credentials)"
         return 1
     fi
@@ -432,6 +551,16 @@ db_tier_ready() {
 test_psql() { psql -X -q -v ON_ERROR_STOP=1 -d "$TEST_DB" "$@"; }
 
 if db_tier_ready; then
+    if [ "$BYSTANDER_CREATED" = 1 ]; then
+        # Its marker table is still there => setup neither dropped nor recreated
+        # a database it did not make. An empty result means the database was
+        # replaced under us.
+        assert_eq "setup leaves a pre-existing $LEGACY_TEST_DB untouched" \
+            "$(psql -X -q -At -d "$LEGACY_TEST_DB" -c 'SELECT count(*) FROM not_yours' 2>/dev/null)" 0
+    else
+        skip "pre-existing $LEGACY_TEST_DB canary (that name is already in use)"
+    fi
+
     migrate_ok=1
     for f in "$MIGRATIONS_DIR"/*.up.sql; do
         test_psql -f "$f" >/dev/null 2>>"$WORK/migrate.err" || migrate_ok=0
@@ -450,7 +579,15 @@ VALUES
   ('44444444-4444-4444-4444-444444444444','price-injected','Price Injected','active','priceinj@example.invalid',
    11, now(), NULL, '<a href="https://evil.example/pay">$50</a>', '10+', NULL),
   ('55555555-5555-5555-5555-555555555555','clean','Clean Mentor','active','clean@example.invalid',
-   12, now(), NULL, '$100', '10+', 'https://cal.example/clean');
+   12, now(), NULL, '$100', '10+', 'https://cal.example/clean'),
+  -- calendar_url reaches href="{{calendly_url}}" in new-request-calendly. This
+  -- value keeps the https:// scheme and still closes the attribute, so a
+  -- scheme-only D3 predicate reports it as clean.
+  ('66666666-6666-6666-6666-666666666666','calendar-injected','Calendar Injected','active','calinj@example.invalid',
+   13, now(), NULL, '$150', '10+', 'https://evil.example/x"><img src=x onerror=alert(1)>'),
+  -- a real Calendly link with query, fragment and sub-delims must NOT match
+  ('77777777-7777-7777-7777-777777777777','calendar-ok','Calendar Ok','active','calok@example.invalid',
+   14, now(), NULL, '$200', '10+', 'https://calendly.com/m/30min?month=2026-08&back=1#pick');
 
 INSERT INTO client_requests (id, mentor_id, email, name, preferred_contact, description, level, status)
 VALUES
@@ -490,9 +627,16 @@ FIXTURES
     assert_contains 'D3 finds the preferred_contact injection'  "$d3" 'client_requests.preferred_contact'
     assert_contains 'D3 finds the price injection'              "$d3" 'mentors.price'
     assert_contains 'D3 still finds the description injection'  "$d3" 'client_requests.description'
+    # The https:// payload row. Its id, not just the field label, so this cannot
+    # pass on a non-https row instead.
+    assert_contains 'D3 finds markup inside an https calendar_url' \
+        "$d3" '66666666-6666-6666-6666-666666666666'
+    assert_contains 'and labels it as calendar_url'  "$d3" 'mentors.calendar_url'
+    assert_absent   'D3 leaves a real Calendly link with query + fragment alone' \
+        "$d3" '77777777-7777-7777-7777-777777777777'
     assert_eq       'D3 detail row count' \
-        "$(printf '%s\n' "$d3" | grep -cE '\| (client_requests|mentors|reviews)\.')" 3
-    assert_contains 'the D3 summary count agrees with the detail rows' "$body" '3 markup / non-https hits'
+        "$(printf '%s\n' "$d3" | grep -cE '\| (client_requests|mentors|reviews)\.')" 4
+    assert_contains 'the D3 summary count agrees with the detail rows' "$body" '4 markup / non-https hits'
 
     # One snapshot: commit a matching row from a second connection after the
     # detail queries have run but before the summary. Without the transaction the

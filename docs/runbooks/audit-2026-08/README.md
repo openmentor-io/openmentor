@@ -20,6 +20,9 @@ Everything here is read-only or explicitly guarded. Nothing here changes code.
    ./diagnostics.sh --dry-run     # confirm preconditions, connect to nothing
    ./diagnostics.sh               # on the VM; psql inside openmentor-postgres
    ```
+   `--dry-run` exits 3 when something the real run needs is missing (no docker,
+   container not running, no psql, report path already taken), so it is safe to
+   gate on in a script.
    Or, from a workstation with no copy of the script on the VM:
    `infra/db.sh < docs/runbooks/audit-2026-08/diagnostics.sql`.
 
@@ -46,7 +49,9 @@ runbooks, so a plan edit runs it too. Run it before changing any of them:
 
 ```bash
 ./diagnostics_test.sh          # shell tier: no database needed
-# full run, against a THROWAWAY database (it creates and drops om_diag_test):
+# full run, against a THROWAWAY database. It creates om_diag_test_<pid>_<random>
+# and drops only what it created, so it cannot delete a database that was already
+# there — but the tier still writes, so do not point it at anything you care about:
 docker run -d --name pg-diagtest -e POSTGRES_USER=openmentor \
     -e POSTGRES_PASSWORD=scratch -e POSTGRES_DB=openmentor \
     -p 55444:5432 postgres:16.14-alpine
@@ -62,7 +67,7 @@ docker rm -f pg-diagtest
 | D1 / D1b | Mentors with `sort_order IS NULL` — they silently cannot log in, **and their public profile page cannot be rendered**. D1b separates lost registrations from imported profiles, because the repair for one damages the other. | `data-repair.md` §D1 |
 | D2a–D2c | Prices overwritten with `Free` by an uncontrolled `<select>`, plus the exposure count. | `data-repair.md` §D2 |
 | D2d | The same bug on the `experience` field. Found while writing these files; the plan originally called `experience` unaffected and has been corrected (plan §4.1). | `data-repair.md` §D2.1 |
-| D3 | Whether the unescaped-email-template injection has been exercised in stored data. Covers all seven fields that reach an SES template: request description / name / **preferred contact**, mentor name / **price** / calendar URL, and mentor review. | investigation, not repair |
+| D3 | Whether the unescaped-email-template injection has been exercised in stored data. Covers all seven fields that reach an SES template: request description / name / **preferred contact**, mentor name / **price** / calendar URL, and mentor review. The calendar URL is checked for its scheme **and** for characters that break out of `href="…"` — an `https://` URL can still carry markup. | investigation, not repair |
 | D4 | Live review capabilities (completed requests with no review). | sizes the H4 redesign |
 
 ## Before you start

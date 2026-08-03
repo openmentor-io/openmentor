@@ -31,12 +31,19 @@ requests, and the percentage.
 | A large count (dev showed **138 of 141 = 98 %**) | A clean cutover would silently break almost every outstanding invitation. Do a proper expand → dual-read → cutover → contract sequence. That complexity is earned at that scale, and not before. |
 
 **Related, and larger than it looks.** The same UUID is emitted to PostHog as a
-`distinct_id` (`request:<uuid>`) from **seven** call sites — not just review
-submission but the contact form, mentor request status updates, and four worker
-jobs (`grep -rn RequestDistinctID api/`). So in practice a `request:<uuid>`
-person record exists for roughly every client request that has ever been
-touched, whether or not it has an outstanding review capability. D4 sizes the
-*redesign*; it does not size the *cleanup* in §3.
+`distinct_id` (`request:<uuid>`) from **26 call sites in 6 producer files** — not
+just review submission but the contact form, mentor request status updates and
+three worker jobs. `grep -rn RequestDistinctID api/` returns 27 hits: 26 calls
+plus the helper itself in `pkg/analytics/tracker.go`, which is why the earlier
+"seven call sites" in this file was wrong — seven is the number of *files*.
+Breakdown: `review_service.go` 6, `contact_service.go` 2,
+`mentor_requests_service.go` 7, `job_new_request_watcher.go` 4,
+`job_request_finished.go` 5, `job_process_review.go` 2. So in practice a
+`request:<uuid>` person record exists for roughly every client request that has
+ever been touched, whether or not it has an outstanding review capability. D4
+sizes the *redesign*; it does not size the *cleanup* in §3. (`P14`'s containment
+deletes the helper outright, so the producer count stops growing — but it does
+not remove the person records already in PostHog.)
 
 ---
 

@@ -417,10 +417,12 @@ Write back **nothing** you cannot put in one of those two boxes. A price left
 wrong is a bug the mentor can fix in ten seconds; a price you overwrote against
 their intent is you editing someone's public listing without asking.
 
-#### The statement
+#### The statement — two steps, with the commit as a separate decision
 
 Explicit, id-listed, read line by line. Do not join across the two databases and
-do not write a clever bulk `UPDATE`.
+do not write a clever bulk `UPDATE`. **No paste-able block below both opens a
+transaction and commits it**, because the whole point of the guards is the count
+you read in between.
 
 Carry the `updated_at` you observed during triage into the `VALUES` list and
 compare it. Without that, the statement races the mentor: if they edit their
@@ -429,6 +431,10 @@ bio, or they chose `Free` on purpose), `AND m.price = 'Free'` still matches and
 you overwrite the newer value. Verified on a scratch database — with only the
 price guard the stale write lands (`UPDATE 1`); with the `updated_at` guard it
 does not (`UPDATE 0`).
+
+**Step 1 — open the transaction and run the `UPDATE`. This block deliberately
+ends without `COMMIT`.** Paste it whole; you will be left inside an open
+transaction, which is where the decision gets made.
 
 ```sql
 BEGIN;
@@ -445,11 +451,34 @@ UPDATE mentors AS m
  WHERE m.id = v.id
    AND m.price = 'Free'                        -- still the value you saw
    AND m.updated_at = v.observed_updated_at;   -- and nobody has touched it since
+```
 
--- psql prints UPDATE <n>. If n does not equal the number of rows you listed,
--- something is different from what you expected: ROLLBACK and look again.
+**Step 2 — read the count before you type anything else.** psql prints
+`UPDATE <n>`. Compare `n` with the number of rows you listed in the `VALUES` list
+(two, in the example above). Nothing is committed yet — but the rows the `UPDATE`
+matched are locked until you decide, so decide now rather than walking away.
+
+| `UPDATE <n>` | What it means | What to type |
+|---|---|---|
+| `n` = rows you listed | Every guard matched. This is the expected case | `COMMIT;` |
+| `n` < rows you listed | A row moved since triage, an id is mis-typed, or somebody already repaired it. **A `COMMIT` here commits a partial repair** | `ROLLBACK;` then re-read those rows |
+| `n` = 0 | None of the guards matched — your list is stale | `ROLLBACK;` and start from triage |
+
+```sql
+-- Only after the count above is what you expected:
 COMMIT;
 ```
+
+```sql
+-- Anything else — including "n is smaller but the rows it did update look fine":
+ROLLBACK;
+```
+
+`COMMIT` and `ROLLBACK` are in separate blocks on purpose. They used to sit at
+the bottom of the `UPDATE` block with the "ROLLBACK and look again" instruction
+as a SQL comment above them; pasting that block ran the `COMMIT` before the
+operator had read the count, which is exactly the partial repair the guards exist
+to prevent.
 
 Copy `observed_updated_at` from psql's own output verbatim, including all six
 fractional digits — `timestamptz` is microsecond-precision and a truncated value
@@ -459,17 +488,19 @@ simply will not match. Get it in the same query that gives you the price:
 SELECT id, email, price, updated_at FROM mentors WHERE id IN (…);
 ```
 
-The two guards together make this safe to get wrong: a mis-typed id, a row that
-moved since triage, or a row somebody already repaired all fail to match instead
-of overwriting something. A short `UPDATE <n>` is the procedure working — go
-re-read those rows, do not remove the guard. `updated_at` moves on the rows you
-do write; expected, the `trg_mentors_updated_at` trigger does that.
+The two guards turn a wrong id or a moved row into a non-match rather than an
+overwrite — but they only protect you if you stop at step 2. A short
+`UPDATE <n>` is the procedure working; `ROLLBACK`, re-read those rows, and do not
+remove the guard to make the number bigger. `updated_at` moves on the rows you do
+write; expected, the `trg_mentors_updated_at` trigger does that.
 
-If you would rather hold the rows still than re-read a moving target, the
-equivalent is `SELECT … FOR UPDATE` on the id list inside the same transaction,
-re-checking `price = 'Free'` on what comes back before you run the `UPDATE`. The
-`updated_at` comparison above achieves the same thing without holding row locks
-while a human reads output, which is why it is the version written out here.
+Step 2 holds row locks on whatever the `UPDATE` matched for as long as it takes
+you to read one number — seconds, on at most a handful of rows, and a mentor
+saving an unmatched profile is unaffected. If you would rather pin the whole id
+list before deciding, the equivalent is `SELECT … FOR UPDATE` on it inside the
+same transaction, re-checking `price = 'Free'` on what comes back before you run
+the `UPDATE`. Either way the decision point is the same, and it is yours to make
+explicitly.
 
 ### 4. Recovery source (b) — recompute for imported mentors
 

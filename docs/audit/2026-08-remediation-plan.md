@@ -146,23 +146,25 @@ Two further calibrations, so you size the work correctly:
 - **`P7`'s Turnstile failure self-heals after ~5 minutes** (the widget auto-refreshes on token expiry).
   Every retry a user would realistically make still fails, but "requires a page reload" is inexact.
 
-### 4.1 Corrections to this plan itself (round-2 review)
+### 4.1 Corrections to this plan itself (review rounds 2–3)
 
-The table above corrects the **source audits**. This section corrects **this document**. A second
-review pass over the round-1 fixes found five wrong or unsafe statements here. Where following the
+The table above corrects the **source audits**. This section corrects **this document**. Successive
+review passes over the round-1 fixes found seven wrong or unsafe statements here. Where following the
 text would have caused harm, the text was changed in place; what it originally said is recorded below
 so the audit trail survives.
 
 | # | Where | What this plan originally said | Reality |
 |---|---|---|---|
 | 1 | `D1` repair | "run finalization for each row via the worker's manual trigger endpoint (`POST /jobs/...`, idempotent)" | **Unsafe, and the handler is not idempotent.** `NewMentorWatcher` rewrites `status` unconditionally, mints a *new* confirmation token (killing the link already in the mentor's inbox), re-randomizes `sort_order` and sends another email. `D1` also contains imported (`inactive`), `active` and just-committed rows: replaying an `active` row makes it count *itself* as a duplicate and sets `declined`. Now points at the `D1b` classification, the 15-minute age cutoff, the duplicate check and the immediate re-check in `data-repair.md` §D1. |
-| 2 | `D3` query | A query covering `client_requests.description`/`name`, `mentors.name`/`calendar_url` and the review bodies, with a `\b` word boundary | **Incomplete, and one branch never matched.** It missed `client_requests.preferred_contact` (`{{mentee_contact}}`) and `mentors.price` (`{{request_price}}`) — both reach signed mail unescaped — so a clean `D3` proved nothing about them. In PostgreSQL's regex flavour `\b` is BACKSPACE, so the tag-name branch silently returned zero rows. Now synced with `diagnostics.sql` D3, which is the maintained copy. |
+| 2 | `D3` query | A query covering `client_requests.description`/`name`, `mentors.name`/`calendar_url` and the review bodies, with a `\b` word boundary and `calendar_url !~* '^https://'` as the only calendar test | **Incomplete, and two branches missed real payloads.** It missed `client_requests.preferred_contact` (`{{mentee_contact}}`) and `mentors.price` (`{{request_price}}`) — both reach signed mail unescaped — so a clean `D3` proved nothing about them. In PostgreSQL's regex flavour `\b` is BACKSPACE, so the tag-name branch silently returned zero rows. And the scheme-only `calendar_url` test called `https://evil.example/x"><img src=x onerror=alert(1)>` clean, although that value breaks straight out of `href="{{calendly_url}}"`; both copies now also match the characters that can terminate an HTML attribute or open a tag — `<`, `>`, `"`, `'`, backtick, whitespace — none of which is legal in a URI. Now synced with `diagnostics.sql` D3, which is the maintained copy. |
 | 3 | `P2` | "three `ScanMentor` queries select `sort_order` raw" | **Four.** `FetchAllMentorsFromDB` (`mentor_repository.go:513`, the public catalog) was missed. Fixing three leaves one NULL able to break the whole catalog listing. The implementation fixes all four. |
 | 4 | `P4` acceptance | "`experience` (same uncontrolled shape, closed option set) is unaffected" | **Wrong.** `experience` (`ProfileForm.tsx:404-409`) has the identical uncontrolled-`<select>` corruption path and silently rewrites any off-list value to `2-5`. `diagnostics.sql` D2d counts it; the fix must cover both fields. |
 | 5 | `P6` step 4 | "wrap the two intentional server-generated fragments in `template.HTML` … remove their now-redundant manual escaping" | **Doing that literally recreates the injection.** `html/template` does not inspect a `template.HTML` value, so a concatenated fragment carrying `DeclineComment`/`reviewer_note` would ship raw markup with the escaping removed. The fragments must be *rebuilt as `html/template` templates* so inner values are escaped structurally. The implementation does this (`declineInfoTpl` + `renderFragment`); only this plan's instruction was wrong. |
+| 6 | `P8` fix steps 1–2 | "`touch /backups/.last_success`" plus "a compose `healthcheck` that fails when that file is older than ~26h", with an acceptance criterion of the container turning "unhealthy" | **Necessary but inert as written: the new healthcheck has no consumer.** Docker keeps an **unhealthy** container in `running` state, and the only deploy-time liveness signal is `docker inspect -f '{{.State.Status}}' == running` (`infra/deploy-remote.sh:173`, `infra/rollback.sh:209` — lines this plan's own **Where** block cites without saying to change them). `grep -rn 'State.Health' infra/` returns nothing. So a stale-backup container still reads as healthy to both scripts and the deploy still reports success. Step 2 now requires the gate to consume `.State.Health.Status` for this service. Verified against `infra/` on `main`; the infra-side change lands separately. |
+| 7 | `P14` fix step 1 | "stop passing `RequestDistinctID` for review and contact events" | **Understates the scope by an order of magnitude.** `RequestDistinctID` had **26 call sites across 6 producer files**, not two flows: `review_service.go` (6), `contact_service.go` (2), `mentor_requests_service.go` (7), and the worker jobs `job_new_request_watcher.go` (4), `job_request_finished.go` (5), `job_process_review.go` (2) — so a mentor changing a request's status, or any worker touching the request, kept minting `request:<uuid>` person records. Fixing only the two named flows would have left the capability flowing to PostHog. The helper itself (`analytics/tracker.go:322`) is the 27th occurrence; the implementation **deletes it outright**, which is why `RequestDistinctID` now has zero occurrences in `api/`. |
 
-Items 3, 4 and 5 are this plan being wrong about code that is already correct. Items 1 and 2 are
-operator instructions that were dangerous or useless as written.
+Items 3, 4, 5 and 7 are this plan being wrong about code that is already correct. Items 1, 2 and 6 are
+operator instructions that were dangerous, useless or inert as written.
 
 ---
 
@@ -280,9 +282,12 @@ mentors, since `infra/migration/migrate-mentors.js:393-410` (`mapPrice`) is dete
 ### D3 — has the email injection been exercised?
 
 Synced with `docs/runbooks/audit-2026-08/diagnostics.sql` D3, which is the maintained copy — run that
-if you can. Two things this plan originally got wrong (see §4.1): it omitted
-`client_requests.preferred_contact` and `mentors.price`, which are unescaped email sinks too, and it
-used `\b`, which in PostgreSQL means BACKSPACE — so the tag-name branch matched nothing at all.
+if you can. Three things this plan originally got wrong (see §4.1): it omitted
+`client_requests.preferred_contact` and `mentors.price`, which are unescaped email sinks too; it
+used `\b`, which in PostgreSQL means BACKSPACE — so the tag-name branch matched nothing at all; and
+it tested `calendar_url`'s **scheme only**, which misses
+`https://evil.example/x"><img src=x onerror=alert(1)>` — a value that keeps the `https://` prefix and
+then breaks out of `href="{{calendly_url}}"`.
 
 ```sql
   SELECT id, created_at, 'client_requests.description' AS field
@@ -309,7 +314,8 @@ UNION ALL
     FROM mentors
    WHERE calendar_url IS NOT NULL
      AND calendar_url <> ''
-     AND calendar_url !~* '^https://'
+     AND (calendar_url !~* '^https://'
+          OR calendar_url ~ '[<>"''`[:space:]]')
 UNION ALL
   SELECT id, created_at, 'reviews.mentor_review'
     FROM reviews
@@ -694,19 +700,24 @@ RUN_BACKUP_EXIT=1
 grep -c 'last_success\|touch ' backup.sh                 -> 0   (no freshness marker)
 compose healthcheck for postgres-backup                  -> 0
 grep -ri backup grafana/                                 -> 0   (no alerting)
+grep -rn 'State.Health' infra/                           -> 0   (nothing would read a
+                                                                 healthcheck if one existed;
+                                                                 Docker keeps an unhealthy
+                                                                 container `running`)
 ```
 
 **Why it matters** `pg_dump` or the S3 upload can fail every night indefinitely with **zero signal**: the exit code is discarded, the container stays `running` so the deploy-time probe passes, there is no healthcheck, no success marker, no alert, and the `FAILURE` line goes to stdout which Alloy never collects. The runbook claims `RPO ≤ 24h` (`docs/runbooks/postgres-backup-restore.md:11,102`), and there is now real user data behind it. `D2`'s price recovery may depend on a historical dump — so whether these backups have *ever* succeeded is an open question, not a hypothetical. Sustained upload failure also accumulates one full-size dump per night on the same disk as the live database.
 
 **Fix**
 1. On success, `touch /backups/.last_success`.
-2. Add a compose `healthcheck` that fails when that file is older than ~26h.
+2. Add a compose `healthcheck` that fails when that file is older than ~26h — **and make the deploy gate consume it.** A healthcheck nobody reads changes nothing: Docker leaves an unhealthy container in `running` state, so `infra/deploy-remote.sh:173` and `infra/rollback.sh:209` (both `{{.State.Status}} != "running"`) still pass while every backup for a week has failed. `grep -rn 'State.Health' infra/` returns nothing today. Both call sites must test `{{.State.Health.Status}}` for this service — or, if you would rather not gate a deploy on backup freshness, decide that explicitly and say so where the check is, because otherwise the next reader assumes the healthcheck is enforced. Note that the **Where** block above already cited those two lines; round-1 named them and then left them alone (§4.1 item 6).
 3. Call `prune_local` on both branches.
 4. Make the failure visible: either add a `loki.source.docker` scrape for this container, or write a textfile metric Alloy already collects, and add one Grafana alert on backup staleness.
 5. Keep `|| true` in the loop (you do want the daemon to survive a transient failure) — the fix is the marker and the healthcheck, not crashing the sidecar.
 
 **Acceptance**
 - A forced `pg_dump` failure leaves `.last_success` stale, turns the container unhealthy within the healthcheck window, and fires an alert.
+- With that container unhealthy but still `running`, `deploy-remote.sh` and `rollback.sh` **report the failure** — this is the step that proves the healthcheck has a consumer, and it fails against today's `.State.Status`-only test.
 - A successful run refreshes the marker and the container reports healthy.
 - Repeated S3 failures do not grow local disk without bound.
 
@@ -851,7 +862,7 @@ normalizeRoute UUID control: /api/mentor/requests/:id     (500 UUIDs -> 1 label)
 
 **Where**
 - `api/internal/services/review_service.go:124-182` — `SubmitReview` gates only on Turnstile + the UUID + DB eligibility. `CheckReview` (`:60-121`) has no auth at all and returns the mentor's name. Routes at `api/cmd/api/main.go:66-68`, commented "public - uses captcha for protection".
-- `api/pkg/analytics/tracker.go:322` — `RequestDistinctID` → `request:<uuid>`, used as the PostHog **`distinct_id`** in `review_service.go` and `contact_service.go:113,136-138`.
+- `api/pkg/analytics/tracker.go:322` — `RequestDistinctID` → `request:<uuid>`, used as the PostHog **`distinct_id`** from **26 call sites in 6 files**, not just the review and contact flows: `review_service.go` (6), `contact_service.go:113,136-138` (2), `mentor_requests_service.go` (7), `job_new_request_watcher.go` (4), `job_request_finished.go` (5), `job_process_review.go` (2). `grep -rn RequestDistinctID api/` → 27 hits, the 27th being the helper itself.
 - `api/internal/middleware/observability.go:51-87` — logs the actual path on every request, plus raw route params on 4xx/5xx. It already has a `sensitiveQueryParams` mechanism at `:15-18` — extend it to path segments.
 - `web/src/lib/tracing-server.ts:59-74` — no `ignoreIncomingRequestHook`, no attribute sanitiser. `@opentelemetry/instrumentation-http` records `url.query` unconditionally, so `GET /mentor/auth/callback?token=<jwt>` produces a span attribute containing the token.
 - `web/src/lib/tracing-server.ts:60-68` — the dead `headersToSpanAttributes` block (see §4: it captures nothing today, but the option name is identical under undici, so a future copy-paste creates a real leak).
@@ -862,7 +873,7 @@ normalizeRoute UUID control: /api/mentor/requests/:id     (500 UUIDs -> 1 label)
 **Why it matters** Anyone with trace, log or PostHog read access can submit a fraudulent review, and via `P6` inject phishing HTML into a mentor's inbox (Chain B). Because the system is live, **these values are already in Grafana Cloud and PostHog** and retained for whatever the retention window is.
 
 **Fix — containment now (this is the P0 part)**
-1. Add `request_id`/`requestId` to `analytics.ts` `blockedPropertyKeys`; stop passing `RequestDistinctID` for review and contact events (use an anonymous or mentor-scoped ID).
+1. Add `request_id`/`requestId` to `analytics.ts` `blockedPropertyKeys`; **delete `RequestDistinctID` entirely** and replace all **26 call sites across the 6 producer files** listed above with an anonymous or mentor-scoped ID. Deleting the helper rather than fixing two flows is what makes this checkable — `grep -rn RequestDistinctID api/` must return nothing, and it cannot regress by someone adding a seventh producer. Round-1 of this plan said "review and contact events", which would have left the same UUID flowing from every mentor status change and every worker job (§4.1 item 7); the implementation deletes the helper.
 2. Redact `request_id` from Go request/error logging and from `review_service.go`'s zap fields; extend the existing `sensitiveQueryParams` mechanism to cover capability-bearing path segments.
 3. Add an OpenTelemetry span-processor filter that scrubs `url.query`/`url.path`/`url.full` for known-sensitive keys and the review route, plus `ignoreIncomingRequestHook` for the auth callback paths. The same filter covers the magic-link `token` leak.
 4. Delete the dead `headersToSpanAttributes` block.
@@ -873,7 +884,7 @@ normalizeRoute UUID control: /api/mentor/requests/:id     (500 UUIDs -> 1 label)
 
 **The authorization redesign is separate** — see `H4`. Containment does not depend on it.
 
-**Acceptance** Sentinel-value tests: feed a known secret through the auth-callback and review paths and assert it appears in **no** span attribute, log message, analytics property, or `distinct_id` — including nested, percent-encoded, camelCase and snake_case forms. Live tokens invalidated.
+**Acceptance** Sentinel-value tests: feed a known secret through the auth-callback and review paths and assert it appears in **no** span attribute, log message, analytics property, or `distinct_id` — including nested, percent-encoded, camelCase and snake_case forms. `grep -rn RequestDistinctID api/` returns **nothing** (the helper is gone, so no producer can reach for it). Live tokens invalidated.
 
 ---
 
@@ -1409,3 +1420,4 @@ in the repo); the magic-link leak *via logs and PostHog* (both already mitigated
 | 2026-08-03 | Every P-item reproduced by executing code. `P3` reachability upgraded (un-captcha'd path found); `P1`/`P2` false-success responses documented; `P6`'s escape-at-the-boundary alternative empirically refuted; `P7` severity wording softened; a schema error in this plan's own SQL found and fixed. |
 | 2026-08-03 | Rewritten as a standalone, self-contained plan with a reproduction harness in `verification/`. |
 | 2026-08-03 | Round-2 review of the Phase 0 fixes found five defects in **this document** — recorded in §4.1, and the text changed where following it would have caused harm. Instructions changed: `D1`'s repair (blanket finalization replay → the `D1b`-classified procedure in `data-repair.md`; the handler is not idempotent), `D1`'s acceptance ("`D1` returns zero rows" → `D1b` returns zero `stuck_registration` rows), the embedded `D3` query (added `preferred_contact` and `price`; `\b`→`\y`), `P6` step 4 (naive `template.HTML` wrapping → rebuild the fragments as `html/template` templates). Claims corrected: `P2` touches four `ScanMentor` queries, not three; `P4`'s `experience` field has the identical defect and is in scope. |
+| 2026-08-03 | Round-3 review found two more defects in **this document** — §4.1 items 6 and 7. `P8`'s proposed backup healthcheck had **no consumer**: Docker keeps an unhealthy container `running`, `infra/deploy-remote.sh:173` and `infra/rollback.sh:209` test only `.State.Status`, and `grep -rn 'State.Health' infra/` is empty, so the step as written changed nothing a deploy reports; step 2 and the acceptance criteria now require the gate to read `.State.Health.Status`. `P14`'s containment scope understated the leak by an order of magnitude (26 `RequestDistinctID` call sites across 6 producer files, not two flows); the instruction is now to delete the helper outright, which is what the implementation does. `D3`'s `calendar_url` test was scheme-only and missed an HTTPS value carrying attribute-breaking markup; both the plan copy and `diagnostics.sql` now also match `<`, `>`, `"`, `'`, backtick and whitespace. |

@@ -279,8 +279,25 @@ ORDER BY mentors DESC, 1;
 --          affected request/review, and the mentor's inbox with their help).
 --
 -- DO       Escape at the template boundary (audit item P6) and validate
---          calendar_url's scheme. If any name/calendar_url row is a real
---          injection, treat it as an incident, not a backlog item.
+--          calendar_url's scheme AND its characters. If any name/calendar_url
+--          row is a real injection, treat it as an incident, not a backlog item.
+--
+-- CALENDAR_URL  The scheme test alone is not enough, and this is the sharpest
+--          gap in this query. calendar_url lands inside an attribute —
+--          href="{{calendly_url}}" — so a value that keeps the https:// prefix
+--          and then closes the attribute is a complete injection that a
+--          scheme-only predicate calls clean:
+--            https://evil.example/x"><img src=x onerror=alert(1)>
+--          Verified on a scratch database: with only `!~* '^https://'` that row
+--          returns 0 rows; with the character class below it is found.
+--          The class is `[<>"'` + backtick + [:space:]]. Every one of those
+--          either terminates an HTML attribute or opens a tag, and none of them
+--          is legal in a URI (RFC 3986 excludes <, >, ", backtick and space;
+--          `'` is a sub-delim no calendar URL uses), so it does not fire on
+--          real Calendly links — `?month=2026-08&back=1`, `#frag`, percent-
+--          escapes and the other sub-delims all pass. `[:space:]` rather than
+--          `\s` inside the bracket expression: unambiguous in every regex
+--          flavour, which matters in a file operators copy into other tools.
 --
 -- REGEX    The tag-name branch ends in `\y`, PostgreSQL's word-boundary
 --          constraint. Do NOT change it to `\b`: in PostgreSQL's regex flavour
@@ -327,7 +344,8 @@ UNION ALL
     FROM mentors
    WHERE calendar_url IS NOT NULL
      AND calendar_url <> ''
-     AND calendar_url !~* '^https://'
+     AND (calendar_url !~* '^https://'
+          OR calendar_url ~ '[<>"''`[:space:]]')
 UNION ALL
   SELECT id, created_at, 'reviews.mentor_review'
     FROM reviews
@@ -451,7 +469,8 @@ FROM (
                UNION ALL
                   SELECT 1 FROM mentors
                    WHERE calendar_url IS NOT NULL AND calendar_url <> ''
-                     AND calendar_url !~* '^https://'
+                     AND (calendar_url !~* '^https://'
+                          OR calendar_url ~ '[<>"''`[:space:]]')
                UNION ALL
                   SELECT 1 FROM reviews WHERE mentor_review ~* '<\s*[a-z]'
                UNION ALL

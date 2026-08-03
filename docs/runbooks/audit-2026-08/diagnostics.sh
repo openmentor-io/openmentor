@@ -69,7 +69,8 @@ Options:
                         its own mode, so reusing one could write personal data
                         into a world-readable path.
   -n, --dry-run         show what would run and check preconditions; do not
-                        connect to any database
+                        connect to any database. Exits 3 if anything a real run
+                        needs is missing, so it works as an automated preflight.
   -h, --help            this text
   -- PSQL_ARGS...       passed verbatim to psql in --local mode (e.g. a DSN or
                         a service name). NEVER echoed back.
@@ -84,7 +85,7 @@ a command line is visible in the host process list, so prefer PG* variables or a
 service file when the DSN embeds a password.
 
 Exit codes: 0 ok (findings are not failures) · 1 psql/query failed
-            2 bad usage · 3 precondition missing
+            2 bad usage · 3 precondition missing (dry run reports this too)
 EOF
 }
 
@@ -180,12 +181,19 @@ printf '\n'
 
 if [ "$DRY_RUN" -eq 1 ]; then
     printf 'DRY RUN — no database connection is made.\n\n'
+    # A dry run is a preflight, so its exit code has to mean the same thing the
+    # real run's does: 0 = "the real run can start". Printing MISSING/BLOCKED and
+    # then exiting 0 anyway made an automated preflight report success for a run
+    # that could not connect (and the real run then exits 3 on the same check).
+    dry_blocked=0
     case "$MODE" in
         docker)
             if ! command -v docker >/dev/null 2>&1; then
                 printf '  MISSING : docker is not on PATH (run this on the VM, or use --local)\n'
+                dry_blocked=1
             elif ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -qx true; then
                 printf '  MISSING : container %s is not running\n' "$CONTAINER"
+                dry_blocked=1
             else
                 printf '  ok      : container %s is running\n' "$CONTAINER"
             fi
@@ -197,6 +205,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
                 printf '  ok      : psql found at %s\n' "$(command -v psql)"
             else
                 printf '  MISSING : psql is not on PATH\n'
+                dry_blocked=1
             fi
             printf '  would run: psql <connection args, not shown> -X -v ON_ERROR_STOP=1 -f - < diagnostics.sql\n'
             ;;
@@ -204,10 +213,15 @@ if [ "$DRY_RUN" -eq 1 ]; then
     if [ -e "$OUT_FILE" ] || [ -L "$OUT_FILE" ]; then
         printf '  BLOCKED : report path already exists: %s\n' "$OUT_FILE"
         printf '            a real run will refuse it (an existing file keeps its own mode)\n'
+        dry_blocked=1
     else
         printf '  ok      : would create the report at %s (new file, mode 600)\n' "$OUT_FILE"
     fi
     printf '\nNothing was read or written. Re-run without --dry-run.\n'
+    if [ "$dry_blocked" -eq 1 ]; then
+        printf 'A real run would NOT get as far as connecting — fix the lines above.\n'
+        exit "$EXIT_PRECONDITION"
+    fi
     exit 0
 fi
 
