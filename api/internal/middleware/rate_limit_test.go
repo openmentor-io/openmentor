@@ -88,8 +88,8 @@ func TestEmailRateLimit_BlankAndMalformedPassThrough(t *testing.T) {
 	}
 }
 
-// newTokenLimitedRouter mirrors newEmailLimitedRouter for the confirmation
-// resend endpoint, which is keyed on the token rather than an email.
+// newTokenLimitedRouter mirrors newEmailLimitedRouter for a non-email field, so
+// the field-keying itself is covered independently of the "email" wrapper.
 func newTokenLimitedRouter(rl *RateLimiter) *gin.Engine {
 	r := gin.New()
 	r.POST("/login", FieldRateLimitMiddleware(rl, "token"), func(c *gin.Context) {
@@ -99,9 +99,9 @@ func newTokenLimitedRouter(rl *RateLimiter) *gin.Engine {
 	return r
 }
 
-// TestTokenRateLimit_KeyedPerToken is the P11 lockout: the resend limiter was
-// IP-keyed at 2 per 5 minutes, and behind the BFF every request shares one IP,
-// so two resends by one mentor 429'd the entire platform.
+// TestTokenRateLimit_KeyedPerToken: each distinct field value gets its own
+// bucket. Behind the BFF every request shares one source IP, so an IP-keyed
+// limiter at these limits 429s the whole platform for one user's retries.
 func TestTokenRateLimit_KeyedPerToken(t *testing.T) {
 	r := newTokenLimitedRouter(NewRateLimiter(0.0001, 2))
 

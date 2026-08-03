@@ -24,6 +24,9 @@ var (
 	// ErrConfirmationTokenExpired: the token exists but its 24h window has
 	// passed — the client can offer a resend.
 	ErrConfirmationTokenExpired = errors.New("confirmation token expired")
+	// ErrConfirmationResendLimited: this mentor has used up their resend
+	// budget (see resendLimiter).
+	ErrConfirmationResendLimited = errors.New("confirmation resend rate limit exceeded")
 )
 
 // confirmationTokenTTL is the validity window of an email confirmation
@@ -40,13 +43,31 @@ type MentorConfirmationRepository interface {
 
 var _ MentorConfirmationRepository = (*repository.MentorRepository)(nil)
 
+// ResendLimiter is the rate-limit surface the resend flow needs.
+// *middleware.RateLimiter satisfies it.
+//
+// The limit CANNOT live in middleware here: a resend rotates the token, so the
+// only stable identity of the sender is the mentor id, and that is known only
+// after the token has been looked up. Keying middleware on the submitted token
+// handed every resend a brand-new bucket.
+type ResendLimiter interface {
+	Allow(key string) bool
+}
+
+// unlimitedResends is the fallback when no limiter is wired (tests, tooling);
+// main.go always passes the real one.
+type unlimitedResends struct{}
+
+func (unlimitedResends) Allow(string) bool { return true }
+
 // MentorConfirmationService handles the public email-confirmation
 // endpoints of the draft-status registration workflow.
 type MentorConfirmationService struct {
-	mentorRepo MentorConfirmationRepository
-	config     *config.Config
-	httpClient httpclient.Client
-	tracker    analytics.Tracker
+	mentorRepo    MentorConfirmationRepository
+	config        *config.Config
+	httpClient    httpclient.Client
+	tracker       analytics.Tracker
+	resendLimiter ResendLimiter
 }
 
 // NewMentorConfirmationService wires the confirmation service.
@@ -55,17 +76,22 @@ func NewMentorConfirmationService(
 	cfg *config.Config,
 	httpClient httpclient.Client,
 	tracker analytics.Tracker,
+	resendLimiter ResendLimiter,
 ) *MentorConfirmationService {
 
 	if tracker == nil {
 		tracker = analytics.NoopTracker{}
 	}
+	if resendLimiter == nil {
+		resendLimiter = unlimitedResends{}
+	}
 
 	return &MentorConfirmationService{
-		mentorRepo: mentorRepo,
-		config:     cfg,
-		httpClient: httpClient,
-		tracker:    tracker,
+		mentorRepo:    mentorRepo,
+		config:        cfg,
+		httpClient:    httpClient,
+		tracker:       tracker,
+		resendLimiter: resendLimiter,
 	}
 }
 
@@ -134,6 +160,16 @@ func (s *MentorConfirmationService) ResendConfirmation(ctx context.Context, toke
 		return true, nil
 	}
 
+	// Keyed on the mentor id, and consumed only now that we know a resend will
+	// actually be attempted: a malformed payload or a dead token costs nobody
+	// budget, and no amount of token rotation buys a fresh bucket.
+	if !s.resendLimiter.Allow(resendLimitKey(mentor.MentorID)) {
+		s.track(ctx, mentor.MentorID, mentor.Status, "resend_rate_limited")
+		logger.Warn("Mentor confirmation resend rate limited",
+			zap.String("mentor_id", mentor.MentorID))
+		return false, ErrConfirmationResendLimited
+	}
+
 	freshToken, err := generateConfirmationToken()
 	if err != nil {
 		s.track(ctx, mentor.MentorID, mentor.Status, "resend_token_generation_failed")
@@ -158,6 +194,10 @@ func (s *MentorConfirmationService) ResendConfirmation(ctx context.Context, toke
 		zap.String("mentor_id", mentor.MentorID))
 	return false, nil
 }
+
+// resendLimitKey namespaces the bucket so a mentor id can never collide with
+// another limiter's key space (the RateLimiter's key map is shared per instance).
+func resendLimitKey(mentorID string) string { return "mentor_resend:" + mentorID }
 
 func (s *MentorConfirmationService) track(ctx context.Context, mentorID, status, outcome string) {
 	properties := map[string]interface{}{"outcome": outcome}
