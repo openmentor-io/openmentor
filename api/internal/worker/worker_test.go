@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,7 +22,18 @@ func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
 	logger.Log = zap.NewNop()
 	metrics.Init("openmentor-worker-test")
-	os.Exit(m.Run())
+
+	code := m.Run()
+	// Only meaningful for a full run: -run selects a subset of the jobs.
+	if code == 0 && flag.Lookup("test.run").Value.String() == "" {
+		if missing := renderedTemplates.unrendered(); len(missing) > 0 {
+			fmt.Fprintf(os.Stderr,
+				"FAIL: no job test rendered %v, so nothing checks that a real caller supplies their placeholders\n",
+				missing)
+			code = 1
+		}
+	}
+	os.Exit(code)
 }
 
 func testConfig() *config.Config {

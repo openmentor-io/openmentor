@@ -7,7 +7,7 @@ package worker
 import (
 	"context"
 	"fmt"
-	"html"
+	"html/template"
 	"strings"
 )
 
@@ -50,16 +50,27 @@ func (h *Handlers) skipNonProduction() bool {
 	return h.appEnv != "production" && h.devEmailOverride == ""
 }
 
-// requestsListHTML wraps rendered <li> items in the exact <ul> markup the
-// func's reminder message classes emitted.
-func requestsListHTML(items []string) string {
-	return `<ul style="padding-left: 20px; margin: 0;">` + strings.Join(items, "") + `</ul>`
-}
+// requestsListOpen / requestsListClose are the exact <ul> markup the func's
+// reminder message classes wrapped their <li> items in.
+const (
+	requestsListOpen  = `<ul style="padding-left: 20px; margin: 0;">`
+	requestsListClose = `</ul>`
+)
 
-// escapeHTML mirrors the escape-html package used by the func's message
-// classes (escapes & < > " '; entity spelling differs but is equivalent).
-func escapeHTML(s string) string {
-	return html.EscapeString(s)
+// renderFragment builds one of the server-generated markup fragments the
+// email templates interpolate as-is (requests_list, decline_info). The
+// fragment is assembled by html/template rather than by concatenating
+// pre-escaped strings, so the mentee-supplied text inside it is escaped
+// structurally — which is what makes returning template.HTML, and therefore
+// skipping escaping in the outer template, correct.
+func renderFragment(tpl *template.Template, data any) template.HTML {
+	var b strings.Builder
+	if err := tpl.Execute(&b, data); err != nil {
+		// Unreachable: the fragment templates are compile-time constants and
+		// strings.Builder never fails to write.
+		panic(fmt.Sprintf("email fragment %s: %v", tpl.Name(), err))
+	}
+	return template.HTML(b.String())
 }
 
 // daysWording mirrors the func's staleness wording:

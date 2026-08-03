@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"html/template"
 	"strings"
 
 	"go.uber.org/zap"
@@ -98,12 +99,12 @@ func (h *Handlers) trackUpdateStatusReminderError(ctx context.Context) {
 // statusUpdateReminderMessage ports StatusUpdateReminderMessage: props
 // mentor_name, requests_list (HTML) and requests_list_text.
 func statusUpdateReminderMessage(mentor JobMentor, requests []JobReminderRequest) email.Message {
-	htmlItems := make([]string, 0, len(requests))
+	lines := make([]string, 0, len(requests))
 	textItems := make([]string, 0, len(requests))
 
 	for _, req := range requests {
 		line := describeStaleRequest(req)
-		htmlItems = append(htmlItems, `<li style="margin-bottom: 8px;">`+escapeHTML(line)+`</li>`)
+		lines = append(lines, line)
 		textItems = append(textItems, "- "+line)
 	}
 
@@ -112,11 +113,18 @@ func statusUpdateReminderMessage(mentor JobMentor, requests []JobReminderRequest
 		Recipient:    mentor.Email,
 		Props: map[string]interface{}{
 			"mentor_name":        mentor.Name,
-			"requests_list":      requestsListHTML(htmlItems),
+			"requests_list":      renderFragment(staleRequestsListTpl, lines),
 			"requests_list_text": strings.Join(textItems, "\n"),
 		},
 	}
 }
+
+// staleRequestsListTpl reproduces the <ul>/<li> markup the func's
+// StatusUpdateReminderMessage emitted.
+var staleRequestsListTpl = template.Must(template.New("staleRequestsList").Parse(
+	requestsListOpen +
+		`{{range .}}<li style="margin-bottom: 8px;">{{.}}</li>{{end}}` +
+		requestsListClose))
 
 // describeStaleRequest mirrors describeRequest() in the func's message
 // class: `{name} — "{status label}" for {1 day|N days}` where the days

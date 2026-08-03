@@ -1,7 +1,7 @@
 package worker
 
 import (
-	"html"
+	"html/template"
 	"net/http"
 	"strings"
 
@@ -131,28 +131,37 @@ func mapDeclineReason(reason string) string {
 	}
 }
 
-// buildDeclineInfoHTML mirrors SessionDeclinedMessage.buildDeclineInfoHtml.
-func buildDeclineInfoHTML(reason, comment string) string {
-	hasReason := strings.TrimSpace(reason) != ""
-	hasComment := strings.TrimSpace(comment) != ""
+// declineInfo carries the two optional rows of the decline_info fragment.
+// An absent row is the empty string, which is what {{with}} skips on.
+type declineInfo struct {
+	Reason  string
+	Comment string
+}
 
-	if !hasReason && !hasComment {
+// declineInfoTpl reproduces the markup of
+// SessionDeclinedMessage.buildDeclineInfoHtml.
+var declineInfoTpl = template.Must(template.New("declineInfo").Parse(
+	`<br><br>` +
+		`{{with .Reason}}<div style="font-family: inherit; text-align: inherit"><strong>Reason:</strong> {{.}}<br></div>{{end}}` +
+		`{{with .Comment}}<div style="font-family: inherit; text-align: inherit"><strong>Comment:</strong> {{.}}</div>{{end}}`))
+
+// buildDeclineInfoHTML mirrors SessionDeclinedMessage.buildDeclineInfoHtml.
+// The result is template.HTML because the session-declined template
+// interpolates decline_info as markup; the mentor's free-text comment inside
+// it is escaped by declineInfoTpl.
+func buildDeclineInfoHTML(reason, comment string) template.HTML {
+	info := declineInfo{}
+	if strings.TrimSpace(reason) != "" {
+		info.Reason = mapDeclineReason(reason)
+	}
+	if strings.TrimSpace(comment) != "" {
+		info.Comment = comment
+	}
+
+	if info.Reason == "" && info.Comment == "" {
 		return defaultDeclineReasonText
 	}
-
-	var b strings.Builder
-	b.WriteString("<br><br>")
-	if hasReason {
-		b.WriteString(`<div style="font-family: inherit; text-align: inherit"><strong>Reason:</strong> `)
-		b.WriteString(html.EscapeString(mapDeclineReason(reason)))
-		b.WriteString(`<br></div>`)
-	}
-	if hasComment {
-		b.WriteString(`<div style="font-family: inherit; text-align: inherit"><strong>Comment:</strong> `)
-		b.WriteString(html.EscapeString(comment))
-		b.WriteString(`</div>`)
-	}
-	return b.String()
+	return renderFragment(declineInfoTpl, info)
 }
 
 // buildDeclineInfoText mirrors SessionDeclinedMessage.buildDeclineInfoText.

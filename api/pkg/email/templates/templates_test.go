@@ -1,7 +1,6 @@
 package templates
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -35,12 +34,12 @@ var expectedTemplates = map[string][]string{
 	"profile-migrated": {"first_name", "mentor_profile_url"},
 }
 
-var placeholderRe = regexp.MustCompile(`\{\{([a-z_]+)\}\}`)
-
+// extractPlaceholders uses the loader's own regex, so the inventory the tests
+// check is exactly the set the loader rewrites into Go template actions.
 func extractPlaceholders(tpl EmailTemplate) map[string]bool {
 	found := make(map[string]bool)
 	for _, section := range []string{tpl.Subject, tpl.HTML, tpl.Text} {
-		for _, match := range placeholderRe.FindAllStringSubmatch(section, -1) {
+		for _, match := range PlaceholderRe.FindAllStringSubmatch(section, -1) {
 			found[match[1]] = true
 		}
 	}
