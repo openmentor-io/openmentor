@@ -21,22 +21,13 @@ const nextConfig = {
   transpilePackages: ['@marsidev/react-turnstile'],
 
   images: {
-    // Entries with an unset/empty hostname are dropped: Next.js rejects
-    // empty remotePattern hostnames at build time.
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: process.env.NEXT_PUBLIC_S3_STORAGE_ENDPOINT,
-        port: '',
-        pathname: `/${process.env.NEXT_PUBLIC_S3_STORAGE_BUCKET || 'mentor-images'}/**`,
-      },
-      {
-        protocol: 'https',
-        hostname: process.env.NEXT_PUBLIC_CDN_ENDPOINT,
-        port: '',
-        pathname: `/**`,
-      },
-    ].filter((pattern) => pattern.hostname),
+    // /_next/image is off for good (DECISIONS D40): photos are fetched straight
+    // from the CDN by lib/image-loader.ts, so the optimizer would only add a
+    // second copy of every byte. Config-level rather than 18 per-usage
+    // `unoptimized` props so a new <Image> that forgets the prop cannot re-arm
+    // it — which is also why no remotePatterns allowlist is needed: with the
+    // optimizer off, nothing is ever proxied.
+    unoptimized: true,
   },
 
   experimental: {
