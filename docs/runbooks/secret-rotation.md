@@ -13,6 +13,39 @@ Every step is executed by a human; nothing here is automated.
 > containers, and `JWT_SECRET` last because it is the only one that logs
 > everybody out.
 
+## Standing decision: the one-off P10 rotation was declined (2026-08-03)
+
+**This runbook stays valid. What follows applies only to the one-off rotation
+listed as a trigger above** — a future exposure, a departing operator or a
+scheduled rotation still runs it verbatim.
+
+The owner considered that one-off rotation and **deliberately declined it**
+(2026-08-03, see `docs/migration/DECISIONS.md` D56). P10 is therefore closed by
+the **containment** change — the per-service `environment:` allowlists, enforced
+by `infra/check-service-env.sh` — and not by replacing any credential.
+
+The reasoning, so it can be re-examined rather than re-litigated: what P10
+documents is **co-location**, not disclosure. Every container received every
+secret, so a compromise of any one of them would have exposed all of them; no
+compromise, and no disclosure of any value, was demonstrated. The audit's
+build-ARG concern is weaker than it was written: `web/Dockerfile:62` sets
+`ENV POSTHOG_PERSONAL_API_KEY` inside the **builder** stage, and the `runner`
+stage begins at line 92, so the pushed image does not carry it.
+
+**What reverses this decision.** Evidence that the pre-P12 "Information to
+Gather" procedure in `infra/docs/troubleshooting.md` was ever actually run. That
+version piped `docker exec openmentor-backend env | grep -v SECRET` into
+`debug-info.txt` — a denylist that filtered five key names and passed everything
+else, including the full `DATABASE_URL` with its password, `POSTGRES_PASSWORD`,
+`CLOUDFLARE_DNS_API_TOKEN`, `GCLOUD_RW_API_KEY` and `WORKER_AUTH_TOKEN` — and the
+section ended with "Send debug-info.txt to support". A single execution of that
+bundle turns co-location into a real disclosure to whatever inbox or issue
+tracker received the file, and the correct response is then a **full** rotation
+in the order below. So: any `debug-info.txt` in a mailbox, an issue, a chat
+attachment or a support thread, or any operator recollection of having produced
+one, means run this runbook. (The procedure itself was rewritten under P12 and is
+now allowlist + presence-only, so newly produced bundles are safe.)
+
 ## Preconditions
 
 | # | Check | Why |
