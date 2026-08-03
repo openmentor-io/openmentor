@@ -204,7 +204,7 @@ func (s *ReviewService) SubmitReview(ctx context.Context, requestID string, req 
 		trackSubmissionOutcome(mentorDistinctID, "db_error")
 		logger.Error("Failed to create review",
 			zap.String("request_ref", requestRef),
-			zap.Error(err))
+			logger.RedactedError(err))
 		return &models.SubmitReviewResponse{
 			Success: false,
 			Error:   "Failed to save review",

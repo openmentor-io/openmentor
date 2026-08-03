@@ -18,7 +18,6 @@ export function redactSensitiveEvent(event: CaptureResult | null): CaptureResult
   // becomes a PERSON property, which outlives the event that carried it.
   redactProperties(event.$set)
   redactProperties(event.$set_once)
-  if (event.event === '$snapshot') redactSnapshotUrls(event.properties)
   return event
 }
 
@@ -26,27 +25,52 @@ function redactProperties(properties: Record<string, unknown> | undefined): void
   if (!properties) return
   for (const key of Object.keys(properties)) {
     const value = properties[key]
-    if (typeof value !== 'string') continue
-    // Path ids are scrubbed from EVERY string, not just from an allowlist of
-    // URL-valued keys: the capability travels in $current_url, $pathname,
-    // $referrer, $initial_current_url and $elements_chain, and an allowlist
-    // goes stale the next time posthog-js adds a URL property.
-    properties[key] = isSensitiveKey(key) ? REDACTED : redactFreeText(value)
+    if (typeof value === 'string') {
+      properties[key] = redactPropertyString(key, value)
+    } else if (value && typeof value === 'object') {
+      // Nested values need the same rules: autocapture puts the clicked anchor's
+      // `attr__href` in the `$elements` ARRAY, and session replay puts serialized
+      // DOM hrefs in `$snapshot_data`. Neither is a top-level string, so the
+      // branch above cannot see either one.
+      redactNested(value)
+    }
   }
 }
 
+function redactPropertyString(key: string, value: string): string {
+  if (isProjectApiKey(key, value)) return value
+  // Path ids are scrubbed from EVERY string, not just from an allowlist of
+  // URL-valued keys: the capability travels in $current_url, $pathname,
+  // $referrer, $initial_current_url and $elements_chain, and an allowlist
+  // goes stale the next time posthog-js adds a URL property.
+  return isSensitiveKey(key) ? REDACTED : redactFreeText(value)
+}
+
 /**
- * Scrubs every URL-bearing string inside a session-replay snapshot batch, which
- * `redactProperties` cannot reach: they are nested in the `$snapshot_data` array,
- * and the recorder reads `window.location.href` itself rather than the
- * already-scrubbed `$current_url`.
+ * True for the property posthog-js uses to authenticate the request itself.
+ * `properties.token` is where the SDK puts the project key, and it derives the
+ * capture body's `api_key` from exactly that field — so the `token` key rule
+ * would have rewritten it to `[REDACTED]` and PostHog would have rejected every
+ * batch. That is an analytics outage, not extra safety (see D40).
  *
- * The whole payload is walked rather than the two known offsets (the Meta href
- * that becomes a recording's `first_url`, and the `$pageview` custom event's
- * payload). rrweb full snapshots (type 2) carry a SERIALIZED DOM whose anchors
- * keep `href="/mentor/requests/<uuid>"`, and incremental mutations (type 3) carry
- * the same hrefs under `adds[].node` and `attributes[].attributes` — so
- * inspecting only types 4 and 5 exported the capability with every replay.
+ * Exempted by VALUE, not by key name: only the configured public project key
+ * passes, so any other `token` property is still treated as a credential. The
+ * key is public by construction — it ships in the client bundle.
+ */
+function isProjectApiKey(key: string, value: string): boolean {
+  return key === 'token' && !!value && value === process.env.NEXT_PUBLIC_POSTHOG_KEY
+}
+
+/**
+ * Applies the property rules to every string nested inside an event property.
+ *
+ * The whole payload is walked rather than known offsets. rrweb full snapshots
+ * (type 2) carry a SERIALIZED DOM whose anchors keep
+ * `href="/mentor/requests/<uuid>"`, incremental mutations (type 3) carry the same
+ * hrefs under `adds[].node` and `attributes[].attributes`, and `$autocapture`
+ * carries them as `attr__href` on every entry of `$elements` — so inspecting
+ * only the Meta and Custom snapshot events exported the capability with every
+ * replay AND with every click on a request link.
  *
  * Cost: the walk is iterative, so a deep DOM cannot overflow the stack inside
  * `before_send`, and every string is gated on two `indexOf`s before any regex
@@ -54,27 +78,30 @@ function redactProperties(properties: Record<string, unknown> | undefined): void
  * costs a single character scan — far less than the JSON serialization posthog-js
  * already does on the same payload.
  */
-function redactSnapshotUrls(properties: Record<string, unknown> | undefined): void {
-  const batch = properties?.$snapshot_data
-  if (!batch || typeof batch !== 'object') return
-
-  const pending: object[] = [batch]
+function redactNested(root: object): void {
+  // The walk reaches arbitrary caller-supplied properties now, not only the
+  // JSON-shaped snapshot batch, so a cycle has to end the traversal instead of
+  // spinning inside before_send and freezing the tab.
+  const seen = new WeakSet<object>([root])
+  const pending: object[] = [root]
   while (pending.length > 0) {
     const node = pending.pop() as Record<string, unknown>
     // Array index access goes through the same string-keyed path, so one branch
-    // covers both the batch array and the node objects inside it.
+    // covers both the arrays and the objects inside them.
     for (const key of Object.keys(node)) {
       const value = node[key]
       if (typeof value === 'string') {
-        node[key] = redactSnapshotString(value)
-      } else if (value && typeof value === 'object') {
+        node[key] = redactNestedString(key, value)
+      } else if (value && typeof value === 'object' && !seen.has(value)) {
+        seen.add(value)
         pending.push(value)
       }
     }
   }
 }
 
-function redactSnapshotString(value: string): string {
+function redactNestedString(key: string, value: string): string {
+  if (isSensitiveKey(key)) return REDACTED
   // A data: URI is a base64 blob, not a URL: the `key=value` rule can bite on its
   // `=` padding and corrupt the asset in playback, and it cannot carry a
   // capability path.

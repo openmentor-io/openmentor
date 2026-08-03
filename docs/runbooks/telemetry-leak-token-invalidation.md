@@ -81,23 +81,44 @@ UPDATE moderators
 --    is reset to the application's own 24h window (confirmationTokenTTL): a
 --    rotated token is only delivered by the resend in step 5, so it has to be
 --    valid when that email arrives, not on the old schedule.
-UPDATE mentors
-   SET email_confirmation_token = 'mcf_' || replace(gen_random_uuid()::text, '-', '')
-                                         || replace(gen_random_uuid()::text, '-', ''),
-       email_confirmation_expires_at = now() + interval '24 hours',
-       updated_at = now()
- WHERE email_confirmation_token IS NOT NULL
-   AND email_confirmation_expires_at > now()
-RETURNING id, status;
+--
+--    The rotated ids are recorded in a scratch table because step 5 has to mail
+--    every one of them and NOTHING in the row identifies them afterwards. The
+--    site stays live during this, and both normal paths — registration and
+--    ResendConfirmation — set the same 24h window, so any mentor arriving after
+--    this statement looks identical to a rotated one. Selecting on a future
+--    expiry would mail confirmation links to unrelated people and destroy the
+--    incident's scope. This table is operator scratch state, not part of the
+--    migration sequence; step 6 drops it.
+CREATE TABLE IF NOT EXISTS ops_confirmation_rotation (
+  mentor_id  uuid PRIMARY KEY,
+  status     text        NOT NULL,
+  rotated_at timestamptz NOT NULL DEFAULT now()
+);
 
--- 4. Verify: every rotated row carries a token the application will accept, and
---    the rotated count matches confirmation_tokens_still_valid from step 0.
-SELECT count(*)                                                       AS rotated,
-       count(*) FILTER (WHERE email_confirmation_token LIKE 'mcf_%')  AS rotated_shape_ok,
-       count(*) FILTER (WHERE status = 'draft')                       AS rotated_draft
-  FROM mentors
- WHERE email_confirmation_token IS NOT NULL
-   AND email_confirmation_expires_at > now();
+WITH rotated AS (
+  UPDATE mentors
+     SET email_confirmation_token = 'mcf_' || replace(gen_random_uuid()::text, '-', '')
+                                           || replace(gen_random_uuid()::text, '-', ''),
+         email_confirmation_expires_at = now() + interval '24 hours',
+         updated_at = now()
+   WHERE email_confirmation_token IS NOT NULL
+     AND email_confirmation_expires_at > now()
+  RETURNING id, status
+)
+INSERT INTO ops_confirmation_rotation (mentor_id, status)
+SELECT id, status FROM rotated
+RETURNING mentor_id, status;
+
+-- 4. Verify against the recorded set, not against a timestamp predicate: every
+--    row it names carries a token the application will accept, and the count
+--    matches confirmation_tokens_still_valid from step 0.
+SELECT count(*)                                                         AS rotated,
+       count(*) FILTER (WHERE m.email_confirmation_token LIKE 'mcf_%')  AS rotated_shape_ok,
+       count(*) FILTER (WHERE m.email_confirmation_expires_at > now())  AS rotated_live,
+       count(*) FILTER (WHERE r.status = 'draft')                       AS rotated_draft
+  FROM ops_confirmation_rotation r
+  JOIN mentors m ON m.id = r.mentor_id;
 
 COMMIT;
 ```
@@ -133,9 +154,13 @@ the expiry check before touching the row. Hence the
 ### Step 5: deliver the rotated tokens
 
 A rotated token is only useful to the mentor once it is emailed to them. After
-COMMIT, re-send the confirmation email for each rotated **draft** mentor (the
-`RETURNING` output of step 3) by invoking the worker job that reads the fresh
-token off the row:
+COMMIT, re-send the confirmation email for each rotated **draft** mentor by
+invoking the worker job that reads the fresh token off the row. The list is the
+one step 3 recorded — read it back, do not re-derive it:
+
+```sql
+SELECT mentor_id FROM ops_confirmation_rotation WHERE status = 'draft';
+```
 
 ```bash
 # One call per mentor id, from inside the worker container (curl is present in
@@ -147,25 +172,30 @@ docker compose exec -T worker sh -lc \
      "http://localhost:${WORKER_PORT:-8090}/jobs/mentor-confirm-email?mentorId=<MENTOR_ID>"'
 ```
 
-If the `RETURNING` output is gone, the rotated rows are the ones whose expiry the
-rotation just moved into the future (step 3 is the only thing that did that):
-
-```sql
-SELECT id FROM mentors
- WHERE status = 'draft'
-   AND email_confirmation_token IS NOT NULL
-   AND email_confirmation_expires_at > now();
-```
-
-Do NOT widen this to every draft mentor with a token: the untouched expired rows
-still hold the link their mentor has, and re-sending it would mail out a link
-that dies on the expiry check.
+Do NOT reconstruct the list from a timestamp predicate. "Every draft mentor whose
+confirmation token expires in the future" is NOT the set step 3 touched: the site
+stays live, and registration and `ResendConfirmation` both set the same 24h
+window, so that query grows with every mentor who arrives afterwards. Mailing
+them a confirmation link they did not ask for is the visible damage; losing the
+incident's scope is the lasting one. Do not widen it to every draft mentor with a
+token either — the untouched expired rows still hold the link their mentor has,
+and re-sending it would mail out a link that dies on the expiry check.
 
 If the count is small and re-sending is not worth it, the alternative is to leave
 step 3 out entirely and accept that confirmation links issued during the leak
 window remain valid — they only grant `draft -> pending` on a profile the holder
 already created, which is a much smaller capability than a login token. Decide
 explicitly; do not skip it by accident.
+
+### Step 6: drop the scratch table
+
+`ops_confirmation_rotation` holds no tokens, but it is a list of who was caught in
+the incident. Drop it once every resend in step 5 has gone out and the incident is
+closed:
+
+```sql
+DROP TABLE ops_confirmation_rotation;
+```
 
 ## What SQL cannot reach
 

@@ -402,6 +402,88 @@ describe('posthog before_send', () => {
     expect(event?.properties.$host).toBe('openmentor.io')
   })
 
+  it('scrubs the anchor href autocapture nests in $elements', () => {
+    // Verbatim shape posthog-js 1.409.5 hands before_send on a click, captured by
+    // driving real autocapture over an anchor in jsdom. $elements is an ARRAY, so
+    // the top-level string sweep skipped it entirely while $elements_chain — the
+    // same data as a string — was redacted.
+    const event = redactSensitiveEvent({
+      uuid: 'evt-8',
+      event: '$autocapture',
+      properties: {
+        $event_type: 'click',
+        $elements: [
+          {
+            tag_name: 'a',
+            $el_text: 'Open request',
+            classes: ['card'],
+            attr__href: `/mentor/requests/${REVIEW_CAPABILITY}`,
+            attr__class: 'card',
+            nth_child: 1,
+          },
+          { tag_name: 'div', nth_child: 1 },
+        ],
+        $elements_chain: `a.card:attr__href="/mentor/requests/${REVIEW_CAPABILITY}"text="Open request"`,
+      },
+    } as never)
+
+    expectClean(JSON.stringify(event))
+    const elements = event?.properties.$elements as Array<Record<string, unknown>>
+    // The element still identifies what was clicked, so autocapture stays useful.
+    expect(elements[0].attr__href).toBe('/mentor/requests/:id')
+    expect(elements[0].tag_name).toBe('a')
+    expect(elements[0].$el_text).toBe('Open request')
+    expect(elements[0].attr__class).toBe('card')
+    expect(elements[1].tag_name).toBe('div')
+  })
+
+  it('terminates on a cyclic property instead of freezing the tab', () => {
+    // The nested walk reaches arbitrary caller-supplied properties, not only the
+    // JSON-shaped snapshot batch, so a cycle has to end the traversal.
+    const node: Record<string, unknown> = {
+      href: `/mentor/requests/${REVIEW_CAPABILITY}`,
+    }
+    node.self = node
+
+    const event = redactSensitiveEvent({
+      uuid: 'evt-11',
+      event: 'custom_event',
+      properties: { nested: node },
+    } as never)
+
+    expectClean(JSON.stringify(event?.properties.nested, (_key, value) =>
+      value === node ? '[cycle]' : value
+    ))
+    expect((event?.properties.nested as Record<string, unknown>).href).toBe('/mentor/requests/:id')
+  })
+
+  it('keeps the project api key, which posthog-js authenticates the batch with', () => {
+    // posthog-js derives the capture body's `api_key` from properties.token, so
+    // the `token` key rule rewriting it would have made PostHog reject every
+    // batch — the whole analytics pipeline, not one property.
+    process.env.NEXT_PUBLIC_POSTHOG_KEY = 'phc_projectkey_sentinel'
+    const event = redactSensitiveEvent({
+      uuid: 'evt-9',
+      event: '$pageview',
+      properties: {
+        token: 'phc_projectkey_sentinel',
+        $current_url: `https://openmentor.io/mentor/requests/${REVIEW_CAPABILITY}`,
+      },
+    } as never)
+
+    expect(event?.properties.token).toBe('phc_projectkey_sentinel')
+    expectClean(JSON.stringify(event))
+
+    // The exemption is by VALUE: any other token under the same key is still a
+    // credential, including a magic-link token the SDK never put there.
+    const other = redactSensitiveEvent({
+      uuid: 'evt-10',
+      event: '$pageview',
+      properties: { token: LOGIN_TOKEN },
+    } as never)
+    expect(other?.properties.token).toBe(REDACTED_VALUE)
+  })
+
   it('scrubs the replay first_url out of a snapshot batch', () => {
     // PostHog derives a recording's first_url from the rrweb Meta event's href
     // and the $pageview custom event's payload.href, both nested inside
