@@ -131,15 +131,40 @@ func TestNewMentorWatcherEmailFailureLeavesRowReplayable(t *testing.T) {
 
 	w := env.do(http.MethodPost, "/jobs/new-mentor-watcher?mentorId=m1", nil)
 
-	// A failed send must leave the row untouched. Committing the finalization
-	// takes the mentor out of finalize-stuck-registrations' replay set, so a row
-	// written here would hold a confirmation token nobody ever received.
+	// The row is claimed BEFORE the email — no mentor may receive a token that
+	// was not stored — so a failed send has to hand the claim back: holding it
+	// takes the mentor out of finalize-stuck-registrations' replay set until the
+	// token expires 24h later.
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	assert.Equal(t, []string{"mentor-confirm-email"}, env.sender.templates())
-	assert.Empty(t, env.repo.finalized)
+	require.Len(t, env.repo.finalized, 1)
+	require.Len(t, env.repo.released, 1, "the claim must be released so the cron replays the row")
+	assert.Equal(t, env.repo.finalized[0], env.repo.released[0],
+		"the release must name the exact claim it undoes, or it could revert somebody else's write")
 
 	event := env.tracker.last()
 	require.NotNil(t, event)
 	assert.Equal(t, "error", event.props["outcome"])
 	assert.Equal(t, "email_send_failed", event.props["error_type"])
+}
+
+// TestNewMentorWatcherSkipsEmailWhenRegistrationLeftDraft: the finalization
+// UPDATE is guarded by WHERE status = 'draft', so a mentor who confirms — or a
+// moderator who acts — between the read and the write leaves it matching no row.
+// The confirmation token in hand was then never stored, and emailing it would
+// send a link that is dead on arrival.
+func TestNewMentorWatcherSkipsEmailWhenRegistrationLeftDraft(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentors["m1"] = testMentor("m1")
+	env.repo.finalizeNotApplied = true
+
+	w := env.do(http.MethodPost, "/jobs/new-mentor-watcher?mentorId=m1", nil)
+
+	assert.Equal(t, http.StatusOK, w.Code, "an idempotent no-op, not a failure worth retrying")
+	assert.Empty(t, env.sender.attempts, "no email may go out for a token that was not stored")
+	assert.Empty(t, env.repo.released, "nothing was claimed, so nothing may be released")
+
+	event := env.tracker.last()
+	require.NotNil(t, event)
+	assert.Equal(t, "superseded", event.props["outcome"])
 }

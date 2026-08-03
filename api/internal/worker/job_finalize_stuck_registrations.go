@@ -42,10 +42,17 @@ func (h *Handlers) FinalizeStuckRegistrations(ctx context.Context) (JobSummary, 
 				zap.Error(finalizeErr),
 			)
 			if res.ErrorType == errTypeEmailSendFailed {
-				// Nothing was committed (finalizeNewMentor sends first), so the
-				// row stays in the replay set for the next pass.
+				// finalizeNewMentor released the claim it made before sending, so
+				// the row is back in the replay set for the next pass.
 				summary.EmailFailures++
 			}
+			continue
+		}
+		if res.Superseded {
+			// The mentor confirmed, or a moderator acted, between the listing and
+			// the write: no email is owed and the row has left the replay set.
+			logger.Info("[Finalize Stuck Registrations] Registration already left draft",
+				zap.String("mentor_id", mentor.ID))
 			continue
 		}
 		summary.MentorsFinalized++

@@ -112,7 +112,8 @@ type SortOrderUpdate struct {
 type JobsRepository interface {
 	GetJobMentorByID(ctx context.Context, mentorID string) (*JobMentor, error)
 	CountActiveMentorsByEmail(ctx context.Context, email string) (int, error)
-	FinalizeNewMentor(ctx context.Context, params FinalizeNewMentorParams) error
+	FinalizeNewMentor(ctx context.Context, params FinalizeNewMentorParams) (applied bool, err error)
+	ReleaseNewMentorFinalization(ctx context.Context, params FinalizeNewMentorParams) error
 	SetMentorStatus(ctx context.Context, mentorID, status string) error
 	GetJobRequestByID(ctx context.Context, requestID string) (*JobRequest, error)
 	GetJobRequestWithMentorName(ctx context.Context, requestID string) (*JobRequest, error)
@@ -188,7 +189,11 @@ func (r *Repository) CountActiveMentorsByEmail(ctx context.Context, email string
 // FinalizeNewMentor performs the single UPDATE from new-mentor-watcher:
 // trimmed fields, login token, slug, status, randomized sort order and the
 // email confirmation token (draft-status workflow).
-func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorParams) error {
+//
+// applied reports whether the row was still 'draft' and therefore actually
+// written. It is a CLAIM, not a blind write: the caller must not email a
+// confirmation token this returned false for, because that token was not stored.
+func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorParams) (applied bool, err error) {
 	// SECURITY: new registrations get NO usable login token (L2). A token is
 	// only ever minted on demand by RequestLogin; leaving a standing long-lived
 	// credential here would widen the blast radius of a DB leak.
@@ -218,13 +223,45 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 			updated_at = NOW()
 		WHERE id = $8 AND status = 'draft'
 	`
-	_, err := r.pool.Exec(ctx, query,
+	tag, err := r.pool.Exec(ctx, query,
 		p.Name, p.PreferredContact,
 		p.Slug, p.Status, p.SortOrder,
 		p.EmailConfirmationToken, p.EmailConfirmationExpiresAt, p.MentorID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to finalize new mentor %s: %w", p.MentorID, err)
+		return false, fmt.Errorf("failed to finalize new mentor %s: %w", p.MentorID, err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// ReleaseNewMentorFinalization undoes the claim FinalizeNewMentor made, putting
+// the row back into the shape the INSERT left (draft, no sort_order, no
+// confirmation token) so finalize-stuck-registrations picks it up again on its
+// next pass. new-mentor-watcher calls it when the email it claimed the row for
+// could not be sent.
+//
+// Compare-and-swap on our own write: it matches only a row that still carries
+// the exact status, sort_order and token this job wrote, so a moderator action or
+// a confirmation that landed in between is never reverted.
+func (r *Repository) ReleaseNewMentorFinalization(ctx context.Context, p FinalizeNewMentorParams) error {
+	token := ""
+	if p.EmailConfirmationToken != nil {
+		token = *p.EmailConfirmationToken
+	}
+	_, err := r.pool.Exec(ctx, `
+		UPDATE mentors SET
+			status = 'draft',
+			sort_order = NULL,
+			email_confirmation_token = NULL,
+			email_confirmation_expires_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1
+			AND status = $2
+			AND sort_order = $3
+			AND COALESCE(email_confirmation_token, '') = $4
+	`, p.MentorID, p.Status, p.SortOrder, token)
+	if err != nil {
+		return fmt.Errorf("failed to release finalization of mentor %s: %w", p.MentorID, err)
 	}
 	return nil
 }
@@ -489,18 +526,18 @@ func (r *Repository) ListMentorsToDeactivate(ctx context.Context) ([]JobMentor, 
 //
 // Two shapes qualify, and they need different age rules:
 //
-//   - Finalization never ran: NULL sort_order and no token, the shape the INSERT
-//     leaves. The API dispatches finalization through a bare goroutine
-//     (pkg/trigger.CallAsync) with no persistence and no retry, so a lost HTTP
-//     call lands here. Unambiguous — that mentor was never emailed anything — so
-//     it is replayed at any age.
+//   - Finalization never ran, or ran and released its claim: NULL sort_order and
+//     no token, the shape the INSERT leaves. The API dispatches finalization
+//     through a bare goroutine (pkg/trigger.CallAsync) with no persistence and no
+//     retry, so a lost HTTP call lands here. Unambiguous — that mentor was never
+//     emailed anything — so it is replayed at any age.
 //   - A token was issued but its 24h window has passed. Either the email never
-//     went out (the pre-fix finalization order wrote the token first, so live
-//     rows can be in this state) or it went out and was never clicked; nothing
-//     in the schema distinguishes them without a new column, which Phase 0
-//     cannot add. So re-issue, but only within 3 days of signing up: at a 24h
-//     TTL that is at most two extra emails, after which an abandoned
-//     registration is left alone instead of being nagged forever.
+//     went out (finalization writes the token before it sends, so a send failure
+//     whose release also failed leaves the row like this) or it went out and was
+//     never clicked; nothing in the schema distinguishes them without a new
+//     column, which Phase 0 cannot add. So re-issue, but only within 3 days of
+//     signing up: at a 24h TTL that is at most two extra emails, after which an
+//     abandoned registration is left alone instead of being nagged forever.
 //
 // A mentor a moderator returned to draft matches neither leg (they confirmed
 // once, so their token is NULL, and finalization already set their sort_order) —

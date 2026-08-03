@@ -28,13 +28,19 @@ type fakeRepo struct {
 	mentorErr     error
 	duplicatesErr error
 	finalizeErr   error
-	setStatusErr  error
-	requestErr    error
-	setRequestErr error
-	moderatorErr  error
-	reviewErr     error
+	releaseErr    error
+	// finalizeNotApplied makes FinalizeNewMentor report that no row matched,
+	// which is what the real UPDATE's WHERE status = 'draft' does when the
+	// registration leaves draft between the read and the write.
+	finalizeNotApplied bool
+	setStatusErr       error
+	requestErr         error
+	setRequestErr      error
+	moderatorErr       error
+	reviewErr          error
 
 	finalized      []FinalizeNewMentorParams
+	released       []FinalizeNewMentorParams
 	statusUpdates  map[string]string // mentorID -> status
 	requestUpdates map[string]string // requestID -> contact
 
@@ -90,11 +96,22 @@ func (f *fakeRepo) CountActiveMentorsByEmail(_ context.Context, _ string) (int, 
 	return f.duplicates, nil
 }
 
-func (f *fakeRepo) FinalizeNewMentor(_ context.Context, params FinalizeNewMentorParams) error {
+func (f *fakeRepo) FinalizeNewMentor(_ context.Context, params FinalizeNewMentorParams) (bool, error) {
 	if f.finalizeErr != nil {
-		return f.finalizeErr
+		return false, f.finalizeErr
+	}
+	if f.finalizeNotApplied {
+		return false, nil
 	}
 	f.finalized = append(f.finalized, params)
+	return true, nil
+}
+
+func (f *fakeRepo) ReleaseNewMentorFinalization(_ context.Context, params FinalizeNewMentorParams) error {
+	if f.releaseErr != nil {
+		return f.releaseErr
+	}
+	f.released = append(f.released, params)
 	return nil
 }
 

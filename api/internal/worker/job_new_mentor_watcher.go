@@ -82,6 +82,16 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		return
 	}
 
+	if res.Superseded {
+		// Idempotent no-op, so answer 200: a retry would find the same state.
+		h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
+			"mentor_id": mentorID,
+			"outcome":   "superseded",
+		})
+		c.JSON(http.StatusOK, gin.H{"success": true, "mentorId": mentorID, "superseded": true})
+		return
+	}
+
 	h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 		"mentor_id":        mentorID,
 		"status":           res.Status,
@@ -101,6 +111,10 @@ var errFinalizeMentorNotFound = errors.New("mentor not found")
 type finalizeResult struct {
 	Status     string // draft | declined
 	Duplicates int
+	// Superseded reports that the row was no longer 'draft' when the guarded
+	// finalization UPDATE ran, so nothing was written and nothing was emailed.
+	// Not an error: another actor already moved the registration forward.
+	Superseded bool
 	// ErrorType is the analytics error_type and Message the client-facing
 	// reason; both are set only when finalizeNewMentor returns an error.
 	ErrorType string
@@ -113,6 +127,15 @@ type finalizeResult struct {
 // email. Re-running it is safe — the UPDATE is absolute, not incremental, and a
 // fresh confirmation token simply supersedes the previous one — which is what
 // lets finalize-stuck-registrations replay a trigger that never arrived.
+//
+// Ordering: the UPDATE claims the row FIRST and the email goes out only once the
+// claim landed, so no mentor is ever sent a token that was not stored. A send
+// failure then releases the claim, which is what keeps the row in the cron's
+// replay set. The residual failure mode is narrow and self-correcting: if the
+// send actually reached SES but reported failure, or the process dies between the
+// send and the release, the mentor may receive a link that a later pass replaces
+// (or, if the release itself fails, waits for the token's 24h expiry before the
+// replay's second leg picks the row up).
 func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (finalizeResult, error) {
 	const job = "new-mentor-watcher"
 	res := finalizeResult{Status: mentorStatusDraft}
@@ -166,13 +189,36 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		confirmExpiresAt = &expiresAt
 	}
 
-	// The email goes out BEFORE the row is written, because the finalization
-	// UPDATE is what takes a registration out of the replay set: failing here
-	// leaves the row untouched and the next cron pass retries it with a fresh
-	// token, whereas writing first would leave a mentor holding a token they were
-	// never told about. The cost is a possible duplicate email if the UPDATE then
-	// fails, which the next pass supersedes.
-	//
+	// The row is CLAIMED before anything is emailed, because the confirmation
+	// link only works if the token behind it was stored: FinalizeNewMentor writes
+	// under WHERE status = 'draft', so a mentor who confirms (or a moderator who
+	// acts) between the read above and this write leaves it matching no row, and
+	// emailing then would hand out a dead link and report success.
+	params := FinalizeNewMentorParams{
+		MentorID:                   mentor.ID,
+		Name:                       mentor.Name,
+		PreferredContact:           mentor.PreferredContact,
+		Slug:                       mentor.Slug,
+		Status:                     res.Status,
+		SortOrder:                  rand.IntN(1000), //nolint:gosec // G404: cosmetic catalog shuffle, not a security decision
+		EmailConfirmationToken:     confirmToken,
+		EmailConfirmationExpiresAt: confirmExpiresAt,
+	}
+	applied, err := h.repo.FinalizeNewMentor(ctx, params)
+	if err != nil {
+		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), zap.Error(err))
+		res.ErrorType, res.Message = errTypeDBError, "failed to update mentor"
+		return res, err
+	}
+	if !applied {
+		// The registration moved on under us. Nothing was written, so there is
+		// nothing to tell the mentor about and nothing to retry.
+		logger.Info("[New Mentor] Registration already left draft, skipping finalization",
+			zap.String("mentor_id", mentorID))
+		res.Superseded = true
+		return res, nil
+	}
+
 	// A fresh registration only gets the email confirmation request; the
 	// "application received" mentor email and the moderator notification
 	// move to the mentor-confirmed job (after the mentor clicks the link).
@@ -194,23 +240,16 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		})
 	}
 	if sendErr != nil {
+		// Claiming the row took it out of finalize-stuck-registrations' replay
+		// set, so hand it back: without this the mentor waits for the token's 24h
+		// expiry before the cron looks at them again, and a declined duplicate is
+		// never told at all.
+		if releaseErr := h.repo.ReleaseNewMentorFinalization(ctx, params); releaseErr != nil {
+			logger.Error("[New Mentor] Failed to release finalization after a failed send",
+				zap.String("mentor_id", mentorID), zap.Error(releaseErr))
+		}
 		res.ErrorType, res.Message = errTypeEmailSendFailed, "failed to send emails"
 		return res, sendErr
-	}
-
-	if err := h.repo.FinalizeNewMentor(ctx, FinalizeNewMentorParams{
-		MentorID:                   mentor.ID,
-		Name:                       mentor.Name,
-		PreferredContact:           mentor.PreferredContact,
-		Slug:                       mentor.Slug,
-		Status:                     res.Status,
-		SortOrder:                  rand.IntN(1000), //nolint:gosec // G404: cosmetic catalog shuffle, not a security decision
-		EmailConfirmationToken:     confirmToken,
-		EmailConfirmationExpiresAt: confirmExpiresAt,
-	}); err != nil {
-		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), zap.Error(err))
-		res.ErrorType, res.Message = errTypeDBError, "failed to update mentor"
-		return res, err
 	}
 
 	return res, nil
