@@ -1,6 +1,7 @@
 package safego
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -9,14 +10,28 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
-// TestRunRecoversWithUninitialisedLogger is the case that used to be fatal:
-// without recovery the panic escapes and the test binary (in production, the
-// API process) dies. The global logger is left nil on purpose — the recovery
-// path must not need it.
+func TestMain(m *testing.M) {
+	// Use a no-op logger so the recovery path logs somewhere harmless.
+	logger.Log = zap.NewNop()
+	os.Exit(m.Run())
+}
+
+func TestRunReturnsWithoutPanic(t *testing.T) {
+	calls := 0
+	Run("test-task", func() { calls++ })
+	if calls != 1 {
+		t.Fatalf("fn calls = %d, want 1", calls)
+	}
+}
+
+// TestRunRecoversWithUninitialisedLogger is the case that used to be fatal
+// twice over: the panic escapes, and the recovery path itself nil-derefs the
+// global logger (RecoveryMiddleware has that second hole). Nothing else may run
+// concurrently here — the global is mutated — which the channel handoff in
+// TestGoRecoversInDetachedGoroutine guarantees.
 func TestRunRecoversWithUninitialisedLogger(t *testing.T) {
-	restore := logger.Log
 	logger.Log = nil
-	defer func() { logger.Log = restore }()
+	defer func() { logger.Log = zap.NewNop() }()
 
 	ran := false
 	Run("test-task", func() {
@@ -29,30 +44,21 @@ func TestRunRecoversWithUninitialisedLogger(t *testing.T) {
 	}
 }
 
+// TestGoRecoversInDetachedGoroutine: a panic in a bare `go func()` takes the
+// whole process down, test binary included, because recover() is per-goroutine
+// and the caller has already returned. Reaching the close() — which sits AFTER
+// the recovering call, so it also orders the recovery before this test ends —
+// is the assertion.
 func TestGoRecoversInDetachedGoroutine(t *testing.T) {
-	restore := logger.Log
-	logger.Log = zap.NewNop()
-	defer func() { logger.Log = restore }()
-
 	done := make(chan struct{})
-	Go("test-task", func() {
-		defer close(done)
-		panic("boom")
+	Go("outer-task", func() {
+		Run("inner-task", func() { panic("boom") })
+		close(done)
 	})
 
-	// Reaching this line at all is the assertion: an unrecovered panic in a
-	// detached goroutine takes the whole process down, test binary included.
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("detached task never ran")
-	}
-}
-
-func TestRunReturnsWithoutPanic(t *testing.T) {
-	calls := 0
-	Run("test-task", func() { calls++ })
-	if calls != 1 {
-		t.Fatalf("fn calls = %d, want 1", calls)
+		t.Fatal("the panicking task never returned: it was not recovered")
 	}
 }
