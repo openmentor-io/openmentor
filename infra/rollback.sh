@@ -47,6 +47,7 @@ if [ ! -f "$SCRIPT_DIR/.env.production" ]; then
     exit 1
 fi
 
+# shellcheck source=/dev/null # operator-supplied, never committed
 source "$SCRIPT_DIR/.env.production"
 
 # Validate required variables
@@ -90,7 +91,7 @@ echo ""
 
 # Interactive fallback when no tag was given at all
 if [ -z "$FRONTEND_TARGET_TAG" ] && [ -z "$BACKEND_TARGET_TAG" ]; then
-    read -p "$(echo -e ${BLUE}Enter image tag to rollback BOTH services to \(commit SHA\):${NC} )" TARGET_TAG
+    read -rp "$(echo -e "${BLUE}Enter image tag to rollback BOTH services to (commit SHA):${NC}")" TARGET_TAG
     echo ""
     if [ -z "$TARGET_TAG" ]; then
         echo -e "${RED}❌ Error: No target tag specified${NC}"
@@ -108,7 +109,7 @@ echo ""
 
 # Confirmation
 if [ "$SKIP_CONFIRM" = false ]; then
-    read -p "$(echo -e ${RED}⚠️  Are you sure you want to rollback? \(yes/no\):${NC} )" -r
+    read -rp "$(echo -e "${RED}⚠️ Are you sure you want to rollback? (yes/no):${NC}")"
     echo
     if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
         echo -e "${YELLOW}Rollback cancelled${NC}"
