@@ -124,9 +124,10 @@ type finalizeResult struct {
 // finalizeNewMentor is the idempotent core of the new-mentor-watcher job:
 // duplicate-email check, slug fallback, the single finalization UPDATE
 // (name/contact, status, sort_order, confirmation token) and the resulting
-// email. Re-running it is safe — the UPDATE is absolute, not incremental, and a
-// fresh confirmation token simply supersedes the previous one — which is what
-// lets finalize-stuck-registrations replay a trigger that never arrived.
+// email. Re-running it is safe — the UPDATE is absolute, not incremental, and it
+// re-issues a confirmation token only once the previous one can no longer be used
+// — which is what lets finalize-stuck-registrations replay a trigger that never
+// arrived without stepping on a link a mentor may still be holding.
 //
 // Ordering: the UPDATE claims the row FIRST and the email goes out only once the
 // claim landed, so no mentor is ever sent a token that was not stored. A send
@@ -190,19 +191,22 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 	}
 
 	// The row is CLAIMED before anything is emailed, because the confirmation
-	// link only works if the token behind it was stored: FinalizeNewMentor writes
-	// under WHERE status = 'draft', so a mentor who confirms (or a moderator who
-	// acts) between the read above and this write leaves it matching no row, and
-	// emailing then would hand out a dead link and report success.
+	// link only works if the token behind it was stored: a mentor who confirms (or
+	// a moderator who acts) between the read above and this write leaves the claim
+	// matching no row, and emailing then would hand out a dead link and report
+	// success. ExpectedEmailConfirmationToken carries the token this job READ, so
+	// the claim is a compare-and-swap and only ONE of two racing callers (two cron
+	// passes, a cron pass against a redelivered trigger) can win it.
 	params := FinalizeNewMentorParams{
-		MentorID:                   mentor.ID,
-		Name:                       mentor.Name,
-		PreferredContact:           mentor.PreferredContact,
-		Slug:                       mentor.Slug,
-		Status:                     res.Status,
-		SortOrder:                  rand.IntN(1000), //nolint:gosec // G404: cosmetic catalog shuffle, not a security decision
-		EmailConfirmationToken:     confirmToken,
-		EmailConfirmationExpiresAt: confirmExpiresAt,
+		MentorID:                       mentor.ID,
+		Name:                           mentor.Name,
+		PreferredContact:               mentor.PreferredContact,
+		Slug:                           mentor.Slug,
+		Status:                         res.Status,
+		SortOrder:                      rand.IntN(1000), //nolint:gosec // G404: cosmetic catalog shuffle, not a security decision
+		EmailConfirmationToken:         confirmToken,
+		EmailConfirmationExpiresAt:     confirmExpiresAt,
+		ExpectedEmailConfirmationToken: mentor.EmailConfirmationToken,
 	}
 	applied, err := h.repo.FinalizeNewMentor(ctx, params)
 	if err != nil {
@@ -211,9 +215,11 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		return res, err
 	}
 	if !applied {
-		// The registration moved on under us. Nothing was written, so there is
-		// nothing to tell the mentor about and nothing to retry.
-		logger.Info("[New Mentor] Registration already left draft, skipping finalization",
+		// The registration left draft, or another caller finalized it first.
+		// Nothing was written, so there is nothing to tell the mentor about and
+		// nothing to retry — and in the lost-race case the winner is emailing the
+		// token that IS in the row.
+		logger.Info("[New Mentor] Registration already finalized or no longer draft, skipping",
 			zap.String("mentor_id", mentorID))
 		res.Superseded = true
 		return res, nil

@@ -85,6 +85,10 @@ type FinalizeNewMentorParams struct {
 	// Email confirmation token (nil for declined duplicates).
 	EmailConfirmationToken     *string
 	EmailConfirmationExpiresAt *time.Time
+	// ExpectedEmailConfirmationToken is the token the row carried when it was
+	// read ("" for none). FinalizeNewMentor claims only a row still holding
+	// exactly this value, which is what makes concurrent claims exclusive.
+	ExpectedEmailConfirmationToken string
 }
 
 // JobReminderRequest is the trimmed client_requests row the cron reminder
@@ -190,8 +194,8 @@ func (r *Repository) CountActiveMentorsByEmail(ctx context.Context, email string
 // trimmed fields, login token, slug, status, randomized sort order and the
 // email confirmation token (draft-status workflow).
 //
-// applied reports whether the row was still 'draft' and therefore actually
-// written. It is a CLAIM, not a blind write: the caller must not email a
+// applied reports whether this caller won the row and therefore actually wrote
+// it. It is an EXCLUSIVE CLAIM, not a blind write: the caller must not email a
 // confirmation token this returned false for, because that token was not stored.
 func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorParams) (applied bool, err error) {
 	// SECURITY: new registrations get NO usable login token (L2). A token is
@@ -204,11 +208,26 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 	// and leave a dangling history row. The CASE preserves whatever slug the row
 	// currently holds when it's already set.
 	//
-	// status = 'draft' in the WHERE makes the write safe to repeat: the replay in
-	// finalize-stuck-registrations selects rows and finalizes them a moment
-	// later, and a mentor who confirms in that gap must not be pushed back to
-	// draft with a fresh token. Both callers only ever finalize a draft row, so
-	// this excludes nothing legitimate.
+	// status = 'draft' in the WHERE keeps a mentor who confirms (or a moderator
+	// who acts) between the read and this write from being pushed back to draft
+	// with a fresh token. Both callers only ever finalize a draft row, so this
+	// excludes nothing legitimate.
+	//
+	// The status check ALONE does not make the claim exclusive, because for a
+	// non-duplicate registration the target status ($4) is 'draft' too: the row
+	// still matches after the first claim commits, so an overlapping cron pass or
+	// a redelivered POST /jobs/new-mentor-watcher would claim it again, overwrite
+	// the token the first caller already emailed, and email a second link. Two
+	// more conditions close that:
+	//
+	//   - compare-and-swap on the token READ before this call ($9): concurrent
+	//     claimers all see the same value, so only the first write can match it
+	//     (Postgres re-evaluates the WHERE against the winner's committed row).
+	//   - never touch a token whose window is still open: a caller that reads the
+	//     row AFTER a successful claim would legitimately pass the CAS, and
+	//     rewriting the token then invalidates a link that is already in the
+	//     mentor's inbox. Fresh registrations carry no token, and the replay only
+	//     lists rows whose token has expired, so no legitimate claim is blocked.
 	query := `
 		UPDATE mentors SET
 			name = $1,
@@ -221,12 +240,16 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 			email_confirmation_token = $6,
 			email_confirmation_expires_at = $7,
 			updated_at = NOW()
-		WHERE id = $8 AND status = 'draft'
+		WHERE id = $8
+			AND status = 'draft'
+			AND COALESCE(email_confirmation_token, '') = $9
+			AND (email_confirmation_expires_at IS NULL OR email_confirmation_expires_at <= NOW())
 	`
 	tag, err := r.pool.Exec(ctx, query,
 		p.Name, p.PreferredContact,
 		p.Slug, p.Status, p.SortOrder,
 		p.EmailConfirmationToken, p.EmailConfirmationExpiresAt, p.MentorID,
+		p.ExpectedEmailConfirmationToken,
 	)
 	if err != nil {
 		return false, fmt.Errorf("failed to finalize new mentor %s: %w", p.MentorID, err)
@@ -242,7 +265,10 @@ func (r *Repository) FinalizeNewMentor(ctx context.Context, p FinalizeNewMentorP
 //
 // Compare-and-swap on our own write: it matches only a row that still carries
 // the exact status, sort_order and token this job wrote, so a moderator action or
-// a confirmation that landed in between is never reverted.
+// a confirmation that landed in between is never reverted. Together with the
+// exclusive claim in FinalizeNewMentor that also makes it caller-private — while
+// this row carries our claim nobody else can have finalized it, so this can only
+// ever undo our own write, never someone else's.
 func (r *Repository) ReleaseNewMentorFinalization(ctx context.Context, p FinalizeNewMentorParams) error {
 	token := ""
 	if p.EmailConfirmationToken != nil {
