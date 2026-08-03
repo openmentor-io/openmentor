@@ -7,8 +7,24 @@
 import winston from 'winston'
 import DailyRotateFile from 'winston-daily-rotate-file'
 import { trace } from '@opentelemetry/api'
+import { maskIp, redactUrl, redactValue } from './redact'
 
 const { combine, timestamp, json, errors, printf } = winston.format
+
+/**
+ * SECURITY (P14): scrubs every record on its way through the logger rather than
+ * at each of the ~30 call sites that log `url: req.url`. Log files are tailed
+ * into Loki, so a review request_id or a magic-link token written here is a
+ * credential sitting in a searchable store.
+ */
+const redactSensitiveFields = winston.format((info) => {
+  const { level, message, ...meta } = info
+  const redacted = redactValue(meta) as Record<string, unknown>
+  return Object.assign(info, redacted, {
+    level,
+    message: typeof message === 'string' ? (redactValue(message) as string) : message,
+  })
+})
 
 // Logger configuration
 const LOGGER_CONFIG = {
@@ -120,6 +136,7 @@ const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: combine(
     errors({ stack: true }), // Log stack traces for errors
+    redactSensitiveFields(), // must run before any transport serializes the record
     timestamp({ format: 'YYYY-MM-DDTHH:mm:ss.SSSZ' }),
     json() // JSON format for structured logging
   ),
@@ -168,15 +185,24 @@ interface HttpResponse {
   statusCode: number
 }
 
-// Helper for logging HTTP requests
-export const logHttpRequest = (req: HttpRequest, res: HttpResponse, duration: number): void => {
+/**
+ * Helper for logging HTTP requests. `route` is the normalized route template the
+ * caller already computed for metrics; it is logged INSTEAD of req.url, which
+ * carries the review request_id and the magic-link token in its query string.
+ */
+export const logHttpRequest = (
+  req: HttpRequest,
+  res: HttpResponse,
+  duration: number,
+  route?: string
+): void => {
   logger.info('HTTP request', {
     method: req.method,
-    url: req.url,
+    route: route || redactUrl(req.url),
     status: res.statusCode,
     duration_ms: duration,
     user_agent: req.headers['user-agent'],
-    ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+    ip: maskIp(req.headers['x-forwarded-for'] || req.socket?.remoteAddress),
     ...getTraceContext(),
   })
 }

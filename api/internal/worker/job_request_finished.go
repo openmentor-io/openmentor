@@ -11,6 +11,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 	"github.com/openmentor-io/openmentor/api/pkg/email"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 )
 
 // defaultDeclineReasonText mirrors DEFAULT_DECLINE_REASON_TEXT in the func's
@@ -36,9 +37,8 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 
 	request, err := h.repo.GetJobRequestWithMentorName(ctx, requestID)
 	if err != nil {
-		logger.Error("[Request Process Finished] Failed to fetch request", zap.String("request_id", requestID), zap.Error(err))
-		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.RequestDistinctID(requestID), map[string]interface{}{
-			"request_id": requestID,
+		logger.Error("[Request Process Finished] Failed to fetch request", zap.String("request_ref", redact.ID(requestID)), zap.Error(err))
+		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.SystemDistinctID("worker"), map[string]interface{}{
 			"outcome":    "error",
 			"error_type": "db_error",
 		})
@@ -46,10 +46,9 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 		return
 	}
 	if request == nil {
-		logger.Warn("[Request Process Finished] Request not found", zap.String("request_id", requestID))
-		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.RequestDistinctID(requestID), map[string]interface{}{
-			"request_id": requestID,
-			"outcome":    "request_not_found",
+		logger.Warn("[Request Process Finished] Request not found", zap.String("request_ref", redact.ID(requestID)))
+		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.SystemDistinctID("worker"), map[string]interface{}{
+			"outcome": "request_not_found",
 		})
 		c.JSON(http.StatusNotFound, gin.H{"error": "Request not found"})
 		return
@@ -79,19 +78,18 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 			},
 		}
 	default:
-		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.RequestDistinctID(request.ID), map[string]interface{}{
-			"request_id": request.ID,
-			"mentor_id":  request.MentorID,
-			"status":     request.Status,
-			"outcome":    "status_not_actionable",
+		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.MentorDistinctID(request.MentorID), map[string]interface{}{
+			"mentor_id": request.MentorID,
+			"status":    request.Status,
+			"outcome":   "status_not_actionable",
 		})
 		c.JSON(http.StatusOK, gin.H{"success": true, "requestId": requestID})
 		return
 	}
 
 	if sendErr := h.sendEmail(ctx, job, *message); sendErr != nil {
-		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.RequestDistinctID(requestID), map[string]interface{}{
-			"request_id": requestID,
+		h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.MentorDistinctID(request.MentorID), map[string]interface{}{
+			"mentor_id":  request.MentorID,
 			"outcome":    "error",
 			"error_type": "email_send_failed",
 		})
@@ -100,14 +98,13 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 	}
 
 	logger.Info("[Request Process Finished] Notification sent",
-		zap.String("request_id", request.ID),
+		zap.String("request_ref", redact.ID(request.ID)),
 		zap.String("status", request.Status),
 	)
-	h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.RequestDistinctID(request.ID), map[string]interface{}{
-		"request_id": request.ID,
-		"mentor_id":  request.MentorID,
-		"status":     request.Status,
-		"outcome":    "success",
+	h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.MentorDistinctID(request.MentorID), map[string]interface{}{
+		"mentor_id": request.MentorID,
+		"status":    request.Status,
+		"outcome":   "success",
 	})
 	c.JSON(http.StatusOK, gin.H{"success": true, "requestId": requestID})
 }

@@ -39,7 +39,7 @@ func TestRequestProcessFinishedDone(t *testing.T) {
 	event := env.tracker.last()
 	require.NotNil(t, event)
 	assert.Equal(t, analytics.EventRequestProcessFinishedNotified, event.event)
-	assert.Equal(t, "request:r1", event.distinctID)
+	assert.Equal(t, "mentor:m1", event.distinctID, "events must be keyed by mentor, never by the request capability (P14)")
 	assert.Equal(t, "success", event.props["outcome"])
 	assert.Equal(t, "done", event.props["status"])
 }

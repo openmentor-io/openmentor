@@ -287,3 +287,48 @@ func TestNewTracker_UnsupportedProviderReturnsNoop(t *testing.T) {
 
 	assert.IsType(t, NoopTracker{}, tracker)
 }
+
+// TestPostHogTracker_Track_DropsCapabilityBearingProperties follows one live
+// review capability and one login token through the tracker in every spelling
+// the codebase and the wire use. Neither may appear anywhere in the payload —
+// not as a property, and not as the distinct_id that would make it a PostHog
+// person (P14).
+func TestPostHogTracker_Track_DropsCapabilityBearingProperties(t *testing.T) {
+	t.Parallel()
+
+	const capability = "11111111-2222-4333-8444-555555555555"
+	const loginToken = "eyJhbGciOiJIUzI1NiJ9.c2VudGluZWw.s1gn4tur3"
+
+	transport := &captureTransport{}
+	tracker := NewTracker(&Config{
+		Provider:      "posthog",
+		PostHogAPIKey: "ph-test-key",
+		SourceSystem:  "api",
+		HTTPClient:    &http.Client{Transport: transport},
+	})
+
+	tracker.Track(context.Background(), EventReviewSubmitted, AnonymousDistinctID(), map[string]interface{}{
+		"request_id":           capability,
+		"requestId":            capability,
+		"REQUEST-ID":           capability,
+		"client_request_id":    capability,
+		"login_token":          loginToken,
+		"confirm_token":        loginToken,
+		"captchaToken":         loginToken,
+		"confirm_url":          "https://openmentor.io/mentor/confirm?token=" + loginToken,
+		"mentor_id":            "mentor-123",
+		"captcha_token_length": len(loginToken),
+		"outcome":              "success",
+	})
+
+	body := waitForRequests(t, transport, 1)[0].Body
+
+	assert.NotContains(t, body, capability)
+	assert.NotContains(t, body, loginToken)
+	// Anonymous events fall back to the source system, never to a person.
+	assert.Contains(t, body, `"distinct_id":"system:api"`)
+	// Dimensions that are not capabilities must survive.
+	assert.Contains(t, body, `"mentor_id":"mentor-123"`)
+	assert.Contains(t, body, `"captcha_token_length":42`)
+	assert.Contains(t, body, `"outcome":"success"`)
+}

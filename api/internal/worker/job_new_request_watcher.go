@@ -10,6 +10,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 	"github.com/openmentor-io/openmentor/api/pkg/email"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 )
 
 // NewRequestWatcher ports openmentor-func/new-request-watcher/index.ts:
@@ -34,8 +35,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 	}
 
 	trackError := func(errorType string) {
-		h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.RequestDistinctID(requestID), map[string]interface{}{
-			"request_id": requestID,
+		h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.SystemDistinctID("worker"), map[string]interface{}{
 			"outcome":    "error",
 			"error_type": errorType,
 		})
@@ -43,16 +43,15 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 
 	request, err := h.repo.GetJobRequestByID(ctx, requestID)
 	if err != nil {
-		logger.Error("[New Client Request] Failed to fetch request", zap.String("request_id", requestID), zap.Error(err))
+		logger.Error("[New Client Request] Failed to fetch request", zap.String("request_ref", redact.ID(requestID)), zap.Error(err))
 		trackError("db_error")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch request"})
 		return
 	}
 	if request == nil {
-		logger.Warn("[New Client Request] Request not found", zap.String("request_id", requestID))
-		h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.RequestDistinctID(requestID), map[string]interface{}{
-			"request_id": requestID,
-			"outcome":    "request_not_found",
+		logger.Warn("[New Client Request] Request not found", zap.String("request_ref", redact.ID(requestID)))
+		h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.SystemDistinctID("worker"), map[string]interface{}{
+			"outcome": "request_not_found",
 		})
 		c.JSON(http.StatusNotFound, gin.H{"error": "request not found"})
 		return
@@ -61,7 +60,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 	request.PreferredContact = strings.TrimSpace(request.PreferredContact)
 
 	if err := h.repo.SetRequestContactPending(ctx, request.ID, request.PreferredContact); err != nil {
-		logger.Error("[New Client Request] Failed to update request", zap.String("request_id", requestID), zap.Error(err))
+		logger.Error("[New Client Request] Failed to update request", zap.String("request_ref", redact.ID(requestID)), zap.Error(err))
 		trackError("db_error")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to update request"})
 		return
@@ -70,18 +69,17 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 	mentor, err := h.repo.GetJobMentorByID(ctx, request.MentorID)
 	if err != nil {
 		logger.Error("[New Client Request] Failed to fetch mentor",
-			zap.String("request_id", requestID), zap.String("mentor_id", request.MentorID), zap.Error(err))
+			zap.String("request_ref", redact.ID(requestID)), zap.String("mentor_id", request.MentorID), zap.Error(err))
 		trackError("db_error")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch mentor"})
 		return
 	}
 	if mentor == nil {
 		logger.Warn("[New Client Request] Mentor not found",
-			zap.String("request_id", requestID), zap.String("mentor_id", request.MentorID))
-		h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.RequestDistinctID(request.ID), map[string]interface{}{
-			"request_id": request.ID,
-			"mentor_id":  request.MentorID,
-			"outcome":    "mentor_not_found",
+			zap.String("request_ref", redact.ID(requestID)), zap.String("mentor_id", request.MentorID))
+		h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.MentorDistinctID(request.MentorID), map[string]interface{}{
+			"mentor_id": request.MentorID,
+			"outcome":   "mentor_not_found",
 		})
 		c.JSON(http.StatusNotFound, gin.H{"error": "mentor not found"})
 		return
@@ -143,8 +141,7 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 		return
 	}
 
-	h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.RequestDistinctID(request.ID), map[string]interface{}{
-		"request_id":              request.ID,
+	h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.MentorDistinctID(mentor.ID), map[string]interface{}{
 		"mentor_id":               mentor.ID,
 		"mentor_calendar_enabled": mentor.CalendarURL != "",
 		"outcome":                 "success",

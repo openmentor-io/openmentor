@@ -4,6 +4,7 @@ import { NodeSDK } from '@opentelemetry/sdk-node'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
 import { resourceFromAttributes } from '@opentelemetry/resources'
+import { RedactingSpanExporter, shouldIgnoreIncomingRequest } from './tracing-redact'
 // OpenTelemetry semantic convention attribute keys
 const ATTR_SERVICE_NAME = 'service.name'
 const ATTR_SERVICE_VERSION = 'service.version'
@@ -32,11 +33,14 @@ function registerServerTracing(): void {
     ? `${alloyEndpoint}/v1/traces`
     : `http://${alloyEndpoint}/v1/traces`
 
-  // Create OTLP exporter instance
-  const traceExporter = new OTLPTraceExporter({
-    url: exporterUrl,
-    headers: {},
-  })
+  // Create OTLP exporter instance, wrapped so no span leaves the process with a
+  // login token or a review request_id in a url.* attribute (P14).
+  const traceExporter = new RedactingSpanExporter(
+    new OTLPTraceExporter({
+      url: exporterUrl,
+      headers: {},
+    })
+  )
 
   // Get or generate service instance ID
   const instanceId = process.env.SERVICE_INSTANCE_ID || uuidv4()
@@ -60,11 +64,11 @@ function registerServerTracing(): void {
         '@opentelemetry/instrumentation-http': {
           requireParentforOutgoingSpans: false,
           requireParentforIncomingSpans: false,
-          headersToSpanAttributes: {
-            client: {
-              requestHeaders: ['x-internal-mentors-api-auth-token'],
-            },
-          },
+          // The auth-callback pages exist only to spend a one-time login token,
+          // so their spans are built entirely from a credential-bearing URL and
+          // are dropped rather than scrubbed (P14).
+          ignoreIncomingRequestHook: (request: { url?: string }): boolean =>
+            shouldIgnoreIncomingRequest(request.url),
         },
         '@opentelemetry/instrumentation-express': {},
         '@opentelemetry/instrumentation-fs': { enabled: false },

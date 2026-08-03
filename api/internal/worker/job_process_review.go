@@ -71,11 +71,10 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 	if mentor == nil {
 		logger.Warn("[Mentor Review] Mentor not found",
 			zap.String("review_id", reviewID), zap.String("mentor_id", review.MentorID))
-		h.track(ctx, analytics.EventReviewSubmitted, analytics.RequestDistinctID(review.RequestID), map[string]interface{}{
-			"review_id":  review.ID,
-			"request_id": review.RequestID,
-			"mentor_id":  review.MentorID,
-			"outcome":    "mentor_not_found",
+		h.track(ctx, analytics.EventReviewSubmitted, analytics.MentorDistinctID(review.MentorID), map[string]interface{}{
+			"review_id": review.ID,
+			"mentor_id": review.MentorID,
+			"outcome":   "mentor_not_found",
 		})
 		c.JSON(http.StatusNotFound, gin.H{"error": "mentor not found"})
 		return
@@ -102,11 +101,10 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 
 	logger.Info("[Mentor Review] Sent notification",
 		zap.String("review_id", reviewID), zap.String("mentor_id", mentor.ID))
-	h.track(ctx, analytics.EventReviewSubmitted, analytics.RequestDistinctID(review.RequestID), map[string]interface{}{
-		"review_id":  review.ID,
-		"request_id": review.RequestID,
-		"mentor_id":  mentor.ID,
-		"outcome":    "success",
+	h.track(ctx, analytics.EventReviewSubmitted, analytics.MentorDistinctID(mentor.ID), map[string]interface{}{
+		"review_id": review.ID,
+		"mentor_id": mentor.ID,
+		"outcome":   "success",
 	})
 	c.JSON(http.StatusOK, gin.H{"success": true, "reviewId": review.ID})
 }
