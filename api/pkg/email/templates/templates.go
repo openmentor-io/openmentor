@@ -6,16 +6,15 @@
 // exposed through a GetTemplate(name) registry that mirrors
 // openmentor-func/lib/postbox/templates.ts.
 //
-// Rendering used to be delegated to SES via TemplateData, but SES does not
-// escape substituted values ("SES doesn't escape HTML content when rendering
-// the HTML template for a message" —
+// Rendering must not move back to SES: SES does not escape substituted values
+// ("SES doesn't escape HTML content when rendering the HTML template for a
+// message" —
 // https://docs.aws.amazon.com/ses/latest/dg/send-personalized-email-advanced.html),
-// which made any user-controlled prop an HTML injection vector. Escaping the
-// props instead is not an option because SES applies one TemplateData blob
-// to all three parts, so subject headers and plaintext bodies would carry
-// literal entities. Render() parses the HTML part with html/template and the
-// subject and text parts with text/template, which is correct in all three
-// contexts at once.
+// so every user-controlled prop would be an HTML injection vector. Escaping
+// the props at the boundary cannot replace this either, because one
+// TemplateData blob feeds all three parts and the subject line and plaintext
+// body would then carry literal entities. Hence Render(): html/template for
+// the HTML part, text/template for the subject and text parts.
 package templates
 
 import (

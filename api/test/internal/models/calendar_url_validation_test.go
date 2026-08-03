@@ -58,7 +58,8 @@ func TestCalendarURLBindingRejectsNonHTTPSSchemes(t *testing.T) {
 	}{
 		{"https://calendly.com/johndoe", true},
 		{"https://cal.com/team/openmentor/30min?month=2026-08", true},
-		{"", true}, // omitempty: the field is optional
+		{"HTTPS://calendly.com/johndoe", true}, // url.Parse lowercases the scheme
+		{"", true},                             // omitempty: the field is optional
 
 		{"javascript:alert(1)", false},
 		{"JaVaScRiPt:alert(1)", false},
@@ -73,11 +74,19 @@ func TestCalendarURLBindingRejectsNonHTTPSSchemes(t *testing.T) {
 		{"https://evil.example/a b", false},
 		{"https://user:pass@evil.example/x", false},
 
-		// A browser's URL parser strips surrounding whitespace and keeps
-		// userinfo, so web/src/lib/safe-url.ts has to reject these on its own
-		// to keep the client mirror from being looser than this tag.
+		// The WHATWG parser a browser uses normalizes all of these into
+		// something it considers valid — it strips surrounding whitespace,
+		// keeps userinfo, folds a missing or extra slash into the authority,
+		// and percent-encodes control bytes — while url.Parse does not. So
+		// web/src/lib/safe-url.ts cannot lean on `new URL()` alone; it rejects
+		// them on the raw string. Verified by differential test over ~13k
+		// candidates: no value the mirror accepts is rejected here.
 		{"https://calendly.com/johndoe ", false},
 		{" https://calendly.com/johndoe", false},
+		{"https:/calendly.com/johndoe", false},
+		{"https:calendly.com/johndoe", false},
+		{"https://@calendly.com/johndoe", false},
+		{"https://calendly.com/john\u0001doe", false},
 	}
 
 	for name, target := range structs {

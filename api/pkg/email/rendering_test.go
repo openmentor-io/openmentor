@@ -8,10 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
-// evilPayload closes the element it lands in and opens a phishing link. It is
-// the payload the audit used to demonstrate that SES-side rendering delivered
-// it as live markup ("SES doesn't escape HTML content when rendering the HTML
-// template for a message").
+// evilPayload closes the element it lands in and opens a phishing link.
 const evilPayload = `x</div><a href="https://evil.example/pay">Pay now</a><div>`
 
 // renderParts renders a template through the real sender and returns the

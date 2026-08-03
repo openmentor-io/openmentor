@@ -17,10 +17,18 @@ describe('isValidCalendarUrl', () => {
     ['mailto:jane@example.com', false],
     ['not-a-url', false],
     ['https://', false],
-    // new URL() tolerates these, the API tag does not.
+    ['HTTPS://calendly.com/jane', true], // url.Parse lowercases the scheme
+    // new URL() reports a valid https URL with a host for every one of these;
+    // url.Parse does not, so the mirror decides them on the raw string.
     ['https://calendly.com/jane ', false],
     [' https://calendly.com/jane', false],
     ['https://user:pass@calendly.com/x', false],
+    ['https://@calendly.com/x', false],
+    ['https:///no-host', false],
+    ['https:///calendly.com/jane', false],
+    ['https:/calendly.com/jane', false],
+    ['https:calendly.com/jane', false],
+    ['https://calendly.com/x\u0001y', false],
     ['https://calendly.com/x">', false],
   ])('isValidCalendarUrl(%p) === %p', (value, expected) => {
     expect(isValidCalendarUrl(value)).toBe(expected)
