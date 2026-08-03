@@ -26,13 +26,21 @@ func BombPNG(tb testing.TB, width, height int) []byte {
 	return bombPNG(tb, width, height, 1, 0, 1+(width+7)/8)
 }
 
-// RGBABombPNG is BombPNG declared as 8-bit RGBA — the most expensive shape an
-// upload can ask for, since every pixel costs 4 bytes once decoded (4x the
-// grayscale bomb at the same geometry). This is what the pixel bound has to be
-// sized against.
+// RGBABombPNG is BombPNG declared as 8-bit RGBA: every pixel costs 4 bytes once
+// decoded, 4x the grayscale bomb at the same geometry. This is the ordinary
+// worst case the pixel bound is sized against.
 func RGBABombPNG(tb testing.TB, width, height int) []byte {
 	tb.Helper()
 	return bombPNG(tb, width, height, 8, 6, 1+width*4)
+}
+
+// RGBA64BombPNG is BombPNG declared as 16-bit RGBA — the most expensive shape an
+// upload can ask for. image/png decodes it into an image.NRGBA64, so a pixel
+// costs 8 bytes, double RGBABombPNG at the same geometry, and nothing about the
+// file looks unusual to a magic-byte or geometry check.
+func RGBA64BombPNG(tb testing.TB, width, height int) []byte {
+	tb.Helper()
+	return bombPNG(tb, width, height, 16, 6, 1+width*8)
 }
 
 func bombPNG(tb testing.TB, width, height, bitDepth, colourType, rowBytes int) []byte {

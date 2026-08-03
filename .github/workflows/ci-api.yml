@@ -39,6 +39,29 @@ jobs:
     name: Run Tests
     runs-on: ubuntu-latest
 
+    # Two facts live in SQL and in pgx, where no fake can model them: the
+    # worker's registration-finalization claim (an UPDATE whose WHERE Postgres
+    # re-evaluates against the winning writer's row) and pgx's refusal to decode
+    # a NULL into a non-pointer destination, which is what makes an
+    # un-COALESCEd nullable column unreadable. The tests for both skip when
+    # OPENMENTOR_TEST_DATABASE_URL is unset, which is why they run in this deep
+    # job rather than the fast required-checks gate. Throwaway credentials, not
+    # secrets.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openmentor
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: openmentor_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U openmentor -d openmentor_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -56,6 +79,8 @@ jobs:
         run: go mod verify
 
       - name: Run tests with race detector and coverage
+        env:
+          OPENMENTOR_TEST_DATABASE_URL: postgres://openmentor:ci@127.0.0.1:5432/openmentor_test?sslmode=disable
         run: |
           # -coverpkg measures coverage across all packages, not just test packages
           go test -race -timeout=5m -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...

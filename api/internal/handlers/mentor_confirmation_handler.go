@@ -68,6 +68,14 @@ func (h *MentorConfirmationHandler) handle(
 				Error:   "This confirmation link has expired",
 				Code:    models.ConfirmationCodeExpired,
 			})
+		case errors.Is(err, services.ErrConfirmationResendLimited):
+			// The resend limit is enforced in the service, where the mentor id
+			// is known, so it arrives as an error instead of a middleware abort.
+			c.JSON(http.StatusTooManyRequests, models.ConfirmMentorEmailResponse{
+				Success: false,
+				Error:   "Too many confirmation emails requested — please check your inbox and try again later",
+				Code:    models.ConfirmationCodeRateLimited,
+			})
 		default:
 			respondError(c, http.StatusInternalServerError, "Failed to process confirmation", err)
 		}

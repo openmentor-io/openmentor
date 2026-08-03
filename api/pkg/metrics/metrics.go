@@ -285,7 +285,9 @@ func Init(serviceName string) {
 			Name: "openmentor_worker_cron_runs_total",
 			Help: "Total number of worker cron job runs",
 		},
-		[]string{"job", "outcome"}, // outcome: success | error | panic | skipped
+		// outcome: success | error | panic | skipped (non-production gate) |
+		// skipped_overlap (tick dropped, previous run still in flight)
+		[]string{"job", "outcome"},
 	)
 
 	WorkerCronRunDuration = factory.NewHistogramVec(

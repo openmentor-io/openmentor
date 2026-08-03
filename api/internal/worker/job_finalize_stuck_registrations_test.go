@@ -48,7 +48,8 @@ func TestFinalizeStuckRegistrationsConvergesDroppedTrigger(t *testing.T) {
 
 // TestFinalizeStuckRegistrationsRetriesFailedConfirmationEmail: a send that
 // fails (SES throttle, transient network) must not consume the replay — the
-// mentor leaves the replay set only once they have actually been emailed.
+// mentor leaves the replay set only once they have actually been emailed. Since
+// the row is claimed before the send, that means the claim has to be released.
 func TestFinalizeStuckRegistrationsRetriesFailedConfirmationEmail(t *testing.T) {
 	env := newJobsTestEnv()
 	env.repo.mentors["m1"] = testMentor("m1")
@@ -62,13 +63,14 @@ func TestFinalizeStuckRegistrationsRetriesFailedConfirmationEmail(t *testing.T) 
 	if summary.MentorsFinalized != 0 || summary.EmailFailures != 1 {
 		t.Errorf("summary = %+v, want 0 finalized / 1 email failure", summary)
 	}
-	if len(env.repo.finalized) != 0 {
-		t.Fatalf("finalized %d rows, want 0: sort_order and the token must stay NULL so the row is picked up again",
-			len(env.repo.finalized))
+	if len(env.repo.released) != 1 {
+		t.Fatalf("released %d claims, want 1: sort_order and the token must go back to NULL, or the row waits for the token's 24h expiry",
+			len(env.repo.released))
 	}
 
 	// Next pass, SES healthy: the same row converges.
 	delete(env.sender.failTemplates, "mentor-confirm-email")
+	env.repo.finalized = nil
 
 	summary, err = env.handlers.FinalizeStuckRegistrations(context.Background())
 	if err != nil {

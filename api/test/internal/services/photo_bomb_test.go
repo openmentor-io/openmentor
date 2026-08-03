@@ -131,6 +131,30 @@ func TestProfilePictureUploadRejectsDecompressionBomb(t *testing.T) {
 	}
 }
 
+// TestProfilePictureUploadRejectsSixteenBitBomb: 4000x4000 is inside the pixel
+// bound and affordable as an 8-bit PNG (64 MiB), but as 16-bit RGBA the same
+// geometry decodes into 128 MiB. The upload path — not just the classifier — has
+// to refuse it, since this is where the uploader's 400 comes from.
+func TestProfilePictureUploadRejectsSixteenBitBomb(t *testing.T) {
+	repo := &statusMockRepo{mentor: &models.Mentor{MentorID: "mentor-1", Status: "active"}}
+	svc := services.NewProfileService(repo, &s3storage.StorageClient{}, &config.Config{}, nil, &capturingTracker{})
+
+	url, err := svc.UploadPictureByMentorId(context.Background(), "mentor-1", &models.UploadProfilePictureRequest{
+		Image:       base64.StdEncoding.EncodeToString(imagefixture.RGBA64BombPNG(t, 4000, 4000)),
+		ContentType: "image/png",
+	})
+
+	if !errors.Is(err, apperrors.ErrInvalidInput) {
+		t.Fatalf("UploadPictureByMentorId() error = %v, want an invalid-input error", err)
+	}
+	if url != "" {
+		t.Errorf("UploadPictureByMentorId() url = %q, want empty", url)
+	}
+	if repo.touchUpdatedAtCalls != 0 {
+		t.Errorf("no DB write may happen, got %d TouchUpdatedAt calls", repo.touchUpdatedAtCalls)
+	}
+}
+
 // TestAdminPictureUploadRejectsDecompressionBomb covers the third photo path:
 // the admin endpoint delegates to ProfileService, so it must inherit the bound.
 func TestAdminPictureUploadRejectsDecompressionBomb(t *testing.T) {
