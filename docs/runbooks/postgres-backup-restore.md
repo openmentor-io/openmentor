@@ -28,7 +28,7 @@ not kill the sidecar — so three things carry the signal instead:
 |---|---|---|
 | Freshness marker | `/backups/.last_success` (and `.last_failure`) in the `openmentor-postgres-backups` volume, epoch seconds | Rewritten by every run. Absent = no dump has **ever** succeeded; nothing but a real dump creates it |
 | Container healthcheck | `backup.sh healthcheck`, every 5 min | `unhealthy` once the last success is older than `BACKUP_MAX_AGE_HOURS` (26h). Deliberately does **not** roll back a deploy: `deploy-remote.sh` asserts only that the container is *running* |
-| Grafana alert | `DatabaseBackupStale` (`grafana/alerting/alert-rules.yaml`), severity critical | Pages when the age gauge passes 26h **or** disappears (`NoData=Alerting`). Panels: the "Postgres Backups" row on the `om-database-infra` dashboard |
+| Grafana alert | `DatabaseBackupStale` (`grafana/alerting/alert-rules.yaml`), severity critical | **Not applied to the stack yet** — see the operator step below. Once applied: pages when the age gauge passes 26h **or** disappears (`NoData=Alerting`). Panels: the "Postgres Backups" row on the `om-database-infra` dashboard |
 
 The gauges reach Grafana Cloud as a Prometheus textfile: the sidecar writes
 `openmentor_db_backup_last_{success,failure}_timestamp_seconds` and
@@ -52,6 +52,35 @@ and `.last_success` is **not** seeded: while it is absent the healthcheck says
 `no backup yet, Ns into the grace window` and the dashboard stat reads `never`.
 Don't wait out the window on a first rollout — run `backup.sh once` and confirm
 the `SUCCESS` line.
+
+### Operator step: apply `DatabaseBackupStale` (once, after the sidecar deploys)
+
+Only the healthcheck and the marker live on the VM, and **nothing off the VM
+watches them** — `deploy-remote.sh` checks `.State.Status`, not health. Until
+the alert is applied, a nightly dump can fail forever with no page. As of
+2026-08-03 the Grafana Cloud stack has **no** Grafana-managed alert rules at all
+(verified; see `grafana/README.md`), so this is a one-time operator action that
+cannot be done from the repo.
+
+Do it **after** the sidecar publishing the gauges is deployed, otherwise
+`noDataState: Alerting` pages immediately (the live notification policy fans out
+to telegram/slack/Discord and repeats every 4h):
+
+```bash
+# 1. the gauges must exist first
+docker exec openmentor-postgres-backup backup.sh once     # expect SUCCESS
+#    then in Grafana Explore (grafanacloud-prom), expect one series:
+#    openmentor_db_backup_last_success_timestamp_seconds
+
+# 2. apply the rule from the versioned file (folder uid repository-7b3d712,
+#    group openmentor) — provisioning API with an editor token, or the
+#    Grafana MCP `alerting_manage_rules` create. Details + the exact endpoints:
+#    grafana/README.md § Alert rules
+```
+
+Then confirm: the rule appears under Alerting → Alert rules in folder
+`openmentor` and evaluates to Normal, and `GET /api/v1/provisioning/alert-rules`
+no longer returns `[]`.
 
 ## (a) Restore the latest dump into a fresh container/volume
 

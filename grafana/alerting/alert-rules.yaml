@@ -1,14 +1,22 @@
 # OpenMentor Grafana-managed alert rules — versioned source of record.
 #
-# These rules live in the Grafana Cloud stack (folder "OpenMentor", uid `openmentor`,
-# rule group `openmentor`, org 1). They were created via the Grafana Cloud MCP /
-# provisioning API and are editable in the UI (created with X-Disable-Provenance).
+# !! DESIRED STATE, NOT LIVE STATE. Verified 2026-08-03: the Grafana Cloud stack
+# !! has NO Grafana-managed alert rules at all (/api/v1/provisioning/alert-rules,
+# !! /api/ruler/grafana/api/v1/rules and /api/prometheus/grafana/api/v1/rules all
+# !! come back empty). Nothing in this file pages until an operator applies it —
+# !! see the ordering warning in grafana/README.md first, because the live
+# !! notification policy fans out to telegram/slack/Discord and the rules with
+# !! noDataState: Alerting fire the moment their series is missing.
 #
-# How to (re-)apply:
+# Target: folder "openmentor" (uid `repository-7b3d712` — the folder Git Sync
+# created; there is no folder with uid `openmentor`), rule group `openmentor`,
+# org 1.
+#
+# How to apply:
 #   * Grafana provisioning API: POST each rule to
 #       https://<stack>.grafana.net/api/v1/provisioning/alert-rules
-#     with an editor/admin service-account token, or
-#     PUT the whole group to /api/v1/provisioning/folder/openmentor/rule-groups/openmentor.
+#     with an editor/admin service-account token, or PUT the whole group to
+#     /api/v1/provisioning/folder/repository-7b3d712/rule-groups/openmentor.
 #     Add header `X-Disable-Provenance: true` to keep rules editable in the UI.
 #   * Or ask Claude/the Grafana MCP (`alerting_manage_rules`, operation `create`/`update`)
 #     to sync from this file.
@@ -25,7 +33,7 @@ apiVersion: 1
 groups:
   - orgId: 1
     name: openmentor
-    folder: OpenMentor
+    folder: openmentor
     interval: 1m
     rules:
       - uid: om-service-down
