@@ -121,6 +121,52 @@ func TestObservabilityKeepsReviewCapabilityOutOfLogsAndSpans(t *testing.T) {
 	}
 }
 
+// TestObservabilityRedactsCapabilityUnderAnInnocentParamName covers the mentor
+// request routes: their :id is the SAME client_requests.id that
+// /api/v1/reviews/:requestId accepts as authorization, so matching on the
+// parameter's name would let the capability through here.
+func TestObservabilityRedactsCapabilityUnderAnInnocentParamName(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusForbidden} {
+		t.Run(fmt.Sprintf("status_%d", status), func(t *testing.T) {
+			logs := observeLogs(t)
+			spans := recordSpans(t)
+
+			r := gin.New()
+			r.Use(otelgin.Middleware("openmentor-api-test"))
+			r.Use(ObservabilityMiddleware())
+			r.POST("/api/v1/mentor/requests/:id/status", func(c *gin.Context) { c.Status(status) })
+
+			w := httptest.NewRecorder()
+			target := "/api/v1/mentor/requests/" + reviewCapability + "/status"
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, target, http.NoBody))
+
+			entries := logs.All()
+			if len(entries) != 1 {
+				t.Fatalf("recorded %d log entries, want 1", len(entries))
+			}
+			rendered := fmt.Sprint(entries[0].ContextMap())
+			assertNoSecrets(t, "log entry", rendered)
+			if !strings.Contains(rendered, "/api/v1/mentor/requests/") {
+				t.Errorf("log entry lost the route, redaction is too broad: %s", rendered)
+			}
+			// Correlation survives the redaction on the lines that need it.
+			if status >= 400 && !strings.Contains(rendered, redact.ID(reviewCapability)) {
+				t.Errorf("route_params carries no hashed reference: %s", rendered)
+			}
+
+			recorded := spans.GetSpans()
+			if len(recorded) == 0 {
+				t.Fatal("no span recorded: otelgin was not active")
+			}
+			for _, span := range recorded {
+				for _, attr := range span.Attributes {
+					assertNoSecrets(t, string(attr.Key), attr.Value.String())
+				}
+			}
+		})
+	}
+}
+
 func TestObservabilityKeepsNonSensitiveParamsReadable(t *testing.T) {
 	logs := observeLogs(t)
 
@@ -128,6 +174,8 @@ func TestObservabilityKeepsNonSensitiveParamsReadable(t *testing.T) {
 	r.Use(ObservabilityMiddleware())
 	r.GET("/api/v1/mentor/requests/:id", func(c *gin.Context) { c.Status(http.StatusNotFound) })
 
+	// "m-42" is deliberately not UUID-shaped: the shape is what marks a value as
+	// a capability, so a legacy id has to stay readable.
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/mentor/requests/m-42?group=new", http.NoBody))
 

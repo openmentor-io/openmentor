@@ -6,6 +6,7 @@
 
 import { PassThrough } from 'stream'
 import winston from 'winston'
+import { redactSensitiveEvent } from '@/lib/posthog'
 import { isSensitiveKey, maskIp, redactQueryValues, redactUrl, redactValue } from '@/lib/redact'
 import {
   RedactingSpanExporter,
@@ -92,6 +93,35 @@ describe('redact', () => {
     expect(redactQueryValues(currentUrl)).toBe(
       'https://openmentor.io/reviews/new?request_id=[REDACTED]'
     )
+  })
+
+  it('redacts a parameter literally named key', () => {
+    expect(isSensitiveKey('key')).toBe(true)
+    expect(isSensitiveKey('keywords')).toBe(false)
+    expect(redactQueryValues('?key=s3cr3t&page=2')).toBe('?key=[REDACTED]&page=2')
+    expect(redactQueryValues('?monkey=curious')).toBe('?monkey=curious')
+  })
+
+  it('catches a token embedded in free text, not just in a query string', () => {
+    // What an upstream failure looks like by the time it reaches winston's message.
+    expect(redactQueryValues(`Error: rejected login_token=${LOGIN_TOKEN}`)).toBe(
+      'Error: rejected login_token=[REDACTED]'
+    )
+    expect(redactValue(`verify failed: token=${LOGIN_TOKEN}`)).toBe(
+      'verify failed: token=[REDACTED]'
+    )
+  })
+
+  it('keeps numbers and booleans under capability-shaped keys', () => {
+    // The same exemption the analytics blocklists make: a capability is always a
+    // string, and sessions_count is a first-class domain field.
+    expect(redactValue({ has_token: false, sessions_count: 12, authorized: true })).toEqual({
+      has_token: false,
+      sessions_count: 12,
+      authorized: true,
+    })
+    // A string under the same key is still a credential.
+    expect(redactValue({ session_token: LOGIN_TOKEN })).toEqual({ session_token: '[REDACTED]' })
   })
 
   it('truncates the client IP instead of logging it whole', () => {
@@ -231,5 +261,32 @@ describe('tracing', () => {
     expect(exported).toHaveLength(2)
     expectClean(JSON.stringify(exported))
     expect(spans[0].name).not.toContain(REVIEW_CAPABILITY)
+  })
+})
+
+describe('posthog before_send', () => {
+  it('scrubs person properties, not just event properties', () => {
+    // posthog-js merges the initial props into $set_once on $identify, and $set /
+    // $set_once are top-level siblings of properties — a capability landing there
+    // becomes a PERSON property that outlives the event.
+    const event = redactSensitiveEvent({
+      uuid: 'evt-1',
+      event: '$identify',
+      properties: { $current_url: `https://openmentor.io/reviews/new?request_id=${REVIEW_CAPABILITY}` },
+      $set: { login_token: LOGIN_TOKEN },
+      $set_once: {
+        $initial_current_url: `https://openmentor.io/mentor/auth/callback?token=${LOGIN_TOKEN}`,
+        $initial_referring_domain: 'openmentor.io',
+      },
+    })
+
+    expectClean(JSON.stringify(event))
+    expect(event?.$set_once?.$initial_referring_domain).toBe('openmentor.io')
+  })
+
+  it('passes an event with no person properties through', () => {
+    const event = redactSensitiveEvent({ uuid: 'evt-2', event: '$pageview', properties: {} })
+    expect(event).toEqual({ uuid: 'evt-2', event: '$pageview', properties: {} })
+    expect(redactSensitiveEvent(null)).toBeNull()
   })
 })

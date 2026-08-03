@@ -33,12 +33,22 @@ var sensitiveKeyParts = []string{
 	"otp",
 }
 
+// sensitiveWholeKeys match the WHOLE normalized key. "key" cannot be a
+// substring rule without also matching keyword and monkey, but a bare ?key=
+// parameter is a credential.
+var sensitiveWholeKeys = map[string]struct{}{
+	"key": {},
+}
+
 // SensitiveKey reports whether a query parameter, path parameter or log field
 // name may carry a credential or a capability.
 func SensitiveKey(key string) bool {
 	normalized := NormalizeKey(key)
 	if normalized == "" {
 		return false
+	}
+	if _, found := sensitiveWholeKeys[normalized]; found {
+		return true
 	}
 	for _, part := range sensitiveKeyParts {
 		if strings.Contains(normalized, part) {
@@ -99,6 +109,71 @@ func QueryString(raw string) string {
 		}
 	}
 	return strings.Join(pairs, "&")
+}
+
+// IsUUID reports whether a value is shaped like one of our primary keys, which
+// is the only rule that catches a capability arriving under an innocent name:
+// the :id in /api/v1/mentor/requests/:id is the SAME client_requests.id that
+// /api/v1/reviews/:requestId accepts as authorization, so the parameter's name
+// says nothing about whether its value grants access.
+func IsUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if c != '-' {
+				return false
+			}
+			continue
+		}
+		if !isHexDigit(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func isHexDigit(c byte) bool {
+	switch {
+	case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
+		return true
+	}
+	return false
+}
+
+// Path redacts capability-bearing segments of a URL path. It works on the raw
+// path rather than on the matched route params, so it also covers unmatched
+// routes (a 404 has no params to inspect).
+func Path(path string) string {
+	// Every id we redact is a UUID, and a UUID always has dashes — this keeps the
+	// common path off the allocating branch.
+	if !strings.Contains(path, "-") {
+		return path
+	}
+
+	segments := strings.Split(path, "/")
+	redacted := false
+	for i, segment := range segments {
+		if IsUUID(segment) {
+			segments[i] = Placeholder
+			redacted = true
+		}
+	}
+	if !redacted {
+		return path
+	}
+	return strings.Join(segments, "/")
+}
+
+// URL redacts a URL or a request target: sensitive query values are dropped and
+// capability-bearing path segments are stripped.
+func URL(raw string) string {
+	if idx := strings.Index(raw, "?"); idx >= 0 {
+		return Path(raw[:idx]) + "?" + QueryString(raw[idx+1:])
+	}
+	return Path(raw)
 }
 
 // ID returns a short, non-reversible reference for a capability value so log

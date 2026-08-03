@@ -11,14 +11,24 @@ let initialized = false
 // before that. The rules are shared with the server-side sinks so there is one
 // list to keep current, and they now also cover login_token, confirm_token and
 // the camelCase spellings the old two-name regex missed.
-function redactSensitiveEvent(event: CaptureResult | null): CaptureResult | null {
-  if (!event || !event.properties) return event
-  for (const key of Object.keys(event.properties)) {
-    const value = event.properties[key]
-    if (typeof value !== 'string') continue
-    event.properties[key] = isSensitiveKey(key) ? REDACTED : redactQueryValues(value)
-  }
+export function redactSensitiveEvent(event: CaptureResult | null): CaptureResult | null {
+  if (!event) return event
+  redactProperties(event.properties)
+  // $set / $set_once are TOP-LEVEL siblings of properties, and posthog-js puts
+  // $initial_current_url in $set_once on $identify. A capability landing there
+  // becomes a PERSON property, which outlives the event that carried it.
+  redactProperties(event.$set)
+  redactProperties(event.$set_once)
   return event
+}
+
+function redactProperties(properties: Record<string, unknown> | undefined): void {
+  if (!properties) return
+  for (const key of Object.keys(properties)) {
+    const value = properties[key]
+    if (typeof value !== 'string') continue
+    properties[key] = isSensitiveKey(key) ? REDACTED : redactQueryValues(value)
+  }
 }
 
 export function initializePostHog(): typeof posthog | null {

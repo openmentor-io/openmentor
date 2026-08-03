@@ -60,11 +60,16 @@ func ObservabilityMiddleware() gin.HandlerFunc {
 			if len(c.Params) > 0 {
 				params := make(map[string]string, len(c.Params))
 				for _, p := range c.Params {
-					if redact.SensitiveKey(p.Key) {
+					switch {
+					case redact.IsUUID(p.Value):
+						// Hashed, not dropped: a 4xx on one of the request routes
+						// is the line an operator has to tie back to one record.
+						params[p.Key] = redact.ID(p.Value)
+					case redact.SensitiveKey(p.Key):
 						params[p.Key] = redact.Placeholder
-						continue
+					default:
+						params[p.Key] = p.Value
 					}
-					params[p.Key] = p.Value
 				}
 				fields = append(fields, zap.Any("route_params", params))
 			}
@@ -84,10 +89,13 @@ func ObservabilityMiddleware() gin.HandlerFunc {
 	}
 }
 
-// redactedPath replaces the values of capability-bearing path parameters (the
-// review request id in /api/v1/reviews/:requestId) in the raw request path.
+// redactedPath strips capability-bearing values out of the raw request path.
+// The parameter NAME is not enough to find them — the :id in
+// /api/v1/mentor/requests/:id is the same client_requests.id that
+// /api/v1/reviews/:requestId authorizes on — so redact.Path matches on the
+// value's shape, and the name rule then covers secrets that are not UUIDs.
 func redactedPath(c *gin.Context) string {
-	path := c.Request.URL.Path
+	path := redact.Path(c.Request.URL.Path)
 	for _, p := range c.Params {
 		if p.Value != "" && redact.SensitiveKey(p.Key) {
 			path = strings.ReplaceAll(path, p.Value, redact.Placeholder)

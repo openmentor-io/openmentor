@@ -19,6 +19,8 @@ func TestSensitiveKeyMatchesEverySpelling(t *testing.T) {
 		// Substring matching over-redacts rather than under-redacts: a derived
 		// value like this is not a secret, but a log line is not worth the risk.
 		"captcha_token_length",
+		// Whole-key match: "key" as a substring would also hit keyword and monkey.
+		"key", "KEY",
 	}
 	for _, key := range sensitive {
 		if !SensitiveKey(key) {
@@ -26,7 +28,10 @@ func TestSensitiveKeyMatchesEverySpelling(t *testing.T) {
 		}
 	}
 
-	safe := []string{"id", "slug", "status", "group", "u", "page", "mentor_id", "review_id", ""}
+	safe := []string{
+		"id", "slug", "status", "group", "u", "page", "mentor_id", "review_id", "",
+		"keywords", "monkey",
+	}
 	for _, key := range safe {
 		if SensitiveKey(key) {
 			t.Errorf("SensitiveKey(%q) = true, want false", key)
@@ -66,6 +71,60 @@ func TestQueryStringRedactsSensitiveValues(t *testing.T) {
 	for raw, want := range cases {
 		if got := QueryString(raw); got != want {
 			t.Errorf("QueryString(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+// TestPathRedactsCapabilitySegments pins the value-shape rule: the parameter
+// name says nothing, because /api/v1/mentor/requests/<id> carries the same
+// client_requests.id that /api/v1/reviews/<id> authorizes on.
+func TestPathRedactsCapabilitySegments(t *testing.T) {
+	cases := map[string]string{
+		"/api/v1/mentor/requests/" + sentinel:             "/api/v1/mentor/requests/" + Placeholder,
+		"/api/v1/mentor/requests/" + sentinel + "/status": "/api/v1/mentor/requests/" + Placeholder + "/status",
+		"/api/v1/reviews/" + sentinel + "/check":          "/api/v1/reviews/" + Placeholder + "/check",
+		"/api/v1/admin/mentors/" + sentinel + "/requests/" + sentinel: "/api/v1/admin/mentors/" + Placeholder +
+			"/requests/" + Placeholder,
+		// Not UUID-shaped, so still readable: slugs and legacy ids are not capabilities.
+		"/api/v1/mentors/jane-doe":     "/api/v1/mentors/jane-doe",
+		"/api/v1/mentor/requests/m-42": "/api/v1/mentor/requests/m-42",
+		"/healthz":                     "/healthz",
+	}
+
+	for path, want := range cases {
+		if got := Path(path); got != want {
+			t.Errorf("Path(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestURLRedactsPathAndQuery(t *testing.T) {
+	cases := map[string]string{
+		"http://worker:8090/jobs/new-request-watcher?requestId=" + sentinel: "http://worker:8090/jobs/new-request-watcher?requestId=" +
+			Placeholder,
+		"/api/v1/reviews/" + sentinel + "/check?status=done": "/api/v1/reviews/" + Placeholder + "/check?status=done",
+		"/api/v1/mentors?page=2":                             "/api/v1/mentors?page=2",
+	}
+
+	for raw, want := range cases {
+		if got := URL(raw); got != want {
+			t.Errorf("URL(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestIsUUIDRejectsNearMisses(t *testing.T) {
+	if !IsUUID(sentinel) {
+		t.Errorf("IsUUID(%q) = false, want true", sentinel)
+	}
+	for _, value := range []string{
+		"", "m-42", "jane-doe",
+		sentinel + "0",
+		strings.Replace(sentinel, "-", "x", 1),
+		strings.Replace(sentinel, "1", "g", 1),
+	} {
+		if IsUUID(value) {
+			t.Errorf("IsUUID(%q) = true, want false", value)
 		}
 	}
 }

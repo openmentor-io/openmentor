@@ -29,6 +29,13 @@ const SENSITIVE_KEY_PARTS = [
   'otp',
 ] as const
 
+/**
+ * Keys that are sensitive as a WHOLE key only: `key` cannot be a substring rule
+ * without also matching keyword, monkey and keyboard, but a bare `?key=` is a
+ * credential.
+ */
+const SENSITIVE_WHOLE_KEYS = ['key'] as const
+
 /** Log/span fields whose value is a URL and needs the query-string treatment. */
 const URL_VALUED_KEYS = new Set([
   'url',
@@ -53,14 +60,15 @@ const UUID_SEGMENT = /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 /**
  * `key=value` pairs whose key looks sensitive, in any casing and with the
  * separator written literally or percent-encoded. The leading delimiter is `?`,
- * `&` or the start of the string — a bare `url.query` span attribute has no `?`.
- * This runs over free text as well, which is what catches a token embedded in an
- * error message or a stack trace rather than sitting in its own field.
+ * `&`, whitespace or the start of the string: `?`/`&` for a URL, start-of-string
+ * because a bare `url.query` span attribute has no `?`, and whitespace so a
+ * token embedded in free text (`Error: rejected login_token=<jwt>`) is caught
+ * too — this runs over every winston `message`.
  */
 const SENSITIVE_QUERY_PAIR = new RegExp(
-  `(^|[?&])([^=&\\s]*(?:${SENSITIVE_KEY_PARTS.map((part) =>
+  `(^|[?&\\s])((?:[^=&\\s]*(?:${SENSITIVE_KEY_PARTS.map((part) =>
     part === 'requestid' ? 'request(?:_|-|%5f)?id' : part
-  ).join('|')})[^=&\\s]*=)([^&\\s"'\\\\]*)`,
+  ).join('|')})[^=&\\s]*|${SENSITIVE_WHOLE_KEYS.join('|')})=)([^&\\s"'\\\\]*)`,
   'gi'
 )
 
@@ -71,6 +79,7 @@ export function normalizeKey(key: string): string {
 export function isSensitiveKey(key: string): boolean {
   const normalized = normalizeKey(key)
   if (!normalized) return false
+  if (SENSITIVE_WHOLE_KEYS.some((whole) => normalized === whole)) return true
   return SENSITIVE_KEY_PARTS.some((part) => normalized.includes(part))
 }
 
@@ -124,8 +133,15 @@ export function maskIp(ip: string | string[] | undefined): string {
  * for embedded `?token=` pairs.
  */
 export function redactValue(value: unknown, key = ''): unknown {
+  // A capability or credential is always a string, so a shape-matched key
+  // carrying a number or a boolean is a derived fact worth keeping
+  // (has_request_id, sessions_count) — the same exemption the analytics
+  // blocklists make.
+  if (typeof value === 'number' || typeof value === 'boolean') return value
+
+  if (key && isSensitiveKey(key)) return REDACTED
+
   if (typeof value === 'string') {
-    if (key && isSensitiveKey(key)) return REDACTED
     if (key && URL_VALUED_KEYS.has(normalizeKey(key))) return redactUrl(value)
     return redactQueryValues(value)
   }
@@ -141,9 +157,7 @@ export function redactValue(value: unknown, key = ''): unknown {
   if (value && typeof value === 'object') {
     const redacted: Record<string, unknown> = {}
     for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
-      redacted[childKey] = isSensitiveKey(childKey)
-        ? REDACTED
-        : redactValue(childValue, childKey)
+      redacted[childKey] = redactValue(childValue, childKey)
     }
     return redacted
   }
