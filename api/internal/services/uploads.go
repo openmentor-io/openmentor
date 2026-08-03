@@ -1,6 +1,8 @@
 package services
 
 import (
+	"context"
+
 	apperrors "github.com/openmentor-io/openmentor/api/pkg/errors"
 	"github.com/openmentor-io/openmentor/api/pkg/imageclass"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
@@ -52,7 +54,7 @@ func (p *preparedPhoto) styleOrDefault() string {
 // microseconds instead of reaching image.Decode, where it costs hundreds of
 // megabytes. Running all of it here keeps a rejected image from costing a DB
 // write or an S3 object too.
-func preparePhoto(imageData, contentType string) (*preparedPhoto, error) {
+func preparePhoto(ctx context.Context, imageData, contentType string) (*preparedPhoto, error) {
 	raw, err := s3storage.DecodeImageData(imageData)
 	if err != nil {
 		return nil, &PhotoRejectedError{Reason: "The image could not be read — please re-upload the file"}
@@ -61,9 +63,10 @@ func preparePhoto(imageData, contentType string) (*preparedPhoto, error) {
 		return nil, &PhotoRejectedError{Reason: err.Error()}
 	}
 
-	// Classification is cosmetic and the geometry is already bounded, so a
-	// decode failure here only costs the display style.
-	style, err := imageclass.ClassifyBytes(raw)
+	// Classification is cosmetic, so neither a corrupt image nor a decode shed
+	// under load (imageclass.ErrDecoderBusy) may fail the upload — it costs the
+	// display style and nothing else.
+	style, err := imageclass.ClassifyBytes(ctx, raw)
 	if err != nil {
 		logger.Warn("Failed to classify profile picture style, defaulting to frame", zap.Error(err))
 		style = imageclass.StyleFrame

@@ -163,7 +163,7 @@ func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID s
 	// Validate and classify the image FIRST: this endpoint takes nothing but a
 	// mentor session (no captcha), so a rejected upload must cost neither the
 	// three S3 objects nor an unbounded decode.
-	photo, err := preparePhoto(req.Image, req.ContentType)
+	photo, err := preparePhoto(ctx, req.Image, req.ContentType)
 	if err != nil {
 		metrics.ProfilePictureUploads.WithLabelValues("invalid_image").Inc()
 		s.tracker.Track(ctx, analytics.EventMentorProfilePictureUploaded, analytics.MentorDistinctID(mentorID), map[string]interface{}{

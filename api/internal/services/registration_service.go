@@ -103,7 +103,7 @@ func (s *RegistrationService) resolveProfilePhoto(
 		}, ErrUploadsUnavailable
 	}
 
-	photo, err := preparePhoto(req.ProfilePicture.Image, req.ProfilePicture.ContentType)
+	photo, err := preparePhoto(ctx, req.ProfilePicture.Image, req.ProfilePicture.ContentType)
 	if err != nil {
 		metrics.MentorRegistrations.WithLabelValues("invalid_photo").Inc()
 		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"),

@@ -2,32 +2,78 @@ package imageclass
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"image"
+	"time"
 )
 
+// The decode budget. image.Decode allocates one contiguous pixel buffer, so
+// GOMEMLIMIT cannot soften it and the peak has to be bounded by construction:
+// MaxPixels bounds ONE decode, maxConcurrentDecodes bounds how many run at
+// once. Their product is the share of the API container (512 MiB, see
+// infra/docker-compose.yml) that uploads may occupy, so raising either constant
+// means re-deciding that share — TestDecodeBudgetFitsContainer enforces it.
 const (
-	// MaxPixels bounds the DECODED pixel count of an uploaded image, because the
-	// compressed size bounds nothing: a crafted PNG amplifies thousands of
-	// times, and the decode is one contiguous live []uint8, so GOMEMLIMIT cannot
-	// soften it either.
-	//
-	// The bound is a memory budget, not a guess at what a camera produces: at
-	// 16M px an RGBA decode measures ~74 MiB, so several concurrent uploads
-	// still fit the API container's 512 MiB. It clears a 12 MP phone photo
-	// (12.2M px); bigger originals have to be cropped or resized, which is what
-	// a profile picture wants anyway.
+	// MaxPixels bounds the DECODED pixel count, because the compressed size
+	// bounds nothing: a crafted PNG amplifies thousands of times. At
+	// BytesPerPixel that is a 64 MiB buffer. It cannot go much lower — nothing
+	// downscales client-side, so it has to clear an ordinary 12 MP phone photo
+	// (12.2M px).
 	MaxPixels = 16_000_000
+
+	// BytesPerPixel is what one decoded pixel costs in the worst case: the
+	// image.NRGBA an RGBA PNG decodes into.
+	BytesPerPixel = 4
 
 	// MaxAspectRatio rejects extreme strips. A 16000x1000 image fits the pixel
 	// budget yet is no more a profile picture than a bomb is, and it still
 	// forces a huge single-dimension allocation.
 	MaxAspectRatio = 20
+
+	// maxConcurrentDecodes caps simultaneous decodes, because MaxPixels alone
+	// is not a bound: the upload endpoints share one rate limiter with a burst
+	// of 20, and 20 decodes at the pixel bound is 1.3 GiB against a 512 MiB
+	// container. Two holds the peak to 128 MiB and is still well above real
+	// demand — profile pictures are uploaded a few times a day.
+	maxConcurrentDecodes = 2
+
+	// decodeQueueWait is how long an upload waits for a slot before giving up
+	// on classification: long enough to absorb two real uploads overlapping,
+	// short enough that waiters cannot pile up holding their payloads.
+	decodeQueueWait = 250 * time.Millisecond
 )
 
 // ErrImageTooLarge reports geometry a full decode cannot afford.
 var ErrImageTooLarge = errors.New("image is too large to process")
+
+// ErrDecoderBusy reports that every decode slot stayed taken for
+// decodeQueueWait. Classification is cosmetic, so callers treat this as "store
+// the photo with the default style", not as a rejected upload.
+var ErrDecoderBusy = errors.New("image decoder is busy")
+
+// decodeSlots is the decode concurrency semaphore (see maxConcurrentDecodes).
+var decodeSlots = make(chan struct{}, maxConcurrentDecodes)
+
+// acquireDecodeSlot reserves one of the maxConcurrentDecodes decode slots. The
+// slot has to be held for as long as the decoded image is reachable, not just
+// across the image.Decode call: the pixel buffer is what is being budgeted.
+func acquireDecodeSlot(ctx context.Context) error {
+	timer := time.NewTimer(decodeQueueWait)
+	defer timer.Stop()
+
+	select {
+	case decodeSlots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return ErrDecoderBusy
+	}
+}
+
+func releaseDecodeSlot() { <-decodeSlots }
 
 // CheckBounds parses ONLY the image header (image.DecodeConfig: microseconds,
 // no pixel buffer) and rejects geometry whose full decode would blow the
