@@ -59,14 +59,37 @@ type compiled struct {
 	text    *texttemplate.Template
 }
 
-// PlaceholderRe matches the assets' {{name}} markers. It is exported so the
-// tests that inventory the assets use the same definition the loader does.
-var PlaceholderRe = regexp.MustCompile(`\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}`)
+// placeholderRe matches the assets' {{name}} markers.
+var placeholderRe = regexp.MustCompile(`\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}`)
+
+// Placeholders returns the sorted, deduplicated prop names a template
+// declares across its three parts. Exported for the tests in other packages
+// that check a job supplies every prop its template needs: they must inventory
+// the assets with the same pattern the loader rewrites, not a private copy of
+// it that can drift narrower.
+func Placeholders(tpl EmailTemplate) []string {
+	seen := make(map[string]bool)
+	names := make([]string, 0, 8)
+	for _, section := range []string{tpl.Subject, tpl.HTML, tpl.Text} {
+		for _, match := range placeholderRe.FindAllStringSubmatch(section, -1) {
+			if !seen[match[1]] {
+				seen[match[1]] = true
+				names = append(names, match[1])
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
 
 // registry maps template names to their content, mirroring EMAIL_TEMPLATES
 // in openmentor-func/lib/postbox/templates.ts. compiledRegistry holds the
-// same templates parsed; both are built eagerly so a broken asset fails the
-// process at startup rather than the first send.
+// same templates parsed; both are built eagerly so an asset that is missing,
+// unparseable or has a syntax error fails the process at startup rather than
+// the first send. Contextual escaping is *not* covered: html/template runs
+// its escape analysis on first Execute, so an asset with, say, an unbalanced
+// attribute quote parses clean here and fails when it is first rendered —
+// which is what TestEveryTemplateRendersAgainstFixture exists to catch.
 var registry, compiledRegistry = mustLoadTemplates()
 
 func mustLoadTemplates() (map[string]EmailTemplate, map[string]compiled) {
@@ -110,7 +133,7 @@ func mustLoadTemplates() (map[string]EmailTemplate, map[string]compiled) {
 // Indexing with {{.name}} rather than {{index . "name"}} is deliberate: only
 // the field form honors missingkey=error.
 func toGoTemplate(s string) string {
-	return PlaceholderRe.ReplaceAllString(s, "{{.${1}}}")
+	return placeholderRe.ReplaceAllString(s, "{{.${1}}}")
 }
 
 // compile parses the three parts of a template. missingkey=error makes a

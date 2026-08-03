@@ -34,18 +34,6 @@ var expectedTemplates = map[string][]string{
 	"profile-migrated": {"first_name", "mentor_profile_url"},
 }
 
-// extractPlaceholders uses the loader's own regex, so the inventory the tests
-// check is exactly the set the loader rewrites into Go template actions.
-func extractPlaceholders(tpl EmailTemplate) map[string]bool {
-	found := make(map[string]bool)
-	for _, section := range []string{tpl.Subject, tpl.HTML, tpl.Text} {
-		for _, match := range PlaceholderRe.FindAllStringSubmatch(section, -1) {
-			found[match[1]] = true
-		}
-	}
-	return found
-}
-
 func TestRegistryCompleteness(t *testing.T) {
 	for name := range expectedTemplates {
 		tpl, err := GetTemplate(name)
@@ -84,13 +72,13 @@ func TestTemplatePlaceholders(t *testing.T) {
 			continue
 		}
 
-		found := extractPlaceholders(tpl)
+		found := Placeholders(tpl)
 		for _, placeholder := range wantPlaceholders {
-			if !found[placeholder] {
+			if !contains(found, placeholder) {
 				t.Errorf("template %q is missing placeholder {{%s}}", name, placeholder)
 			}
 		}
-		for placeholder := range found {
+		for _, placeholder := range found {
 			if !contains(wantPlaceholders, placeholder) {
 				t.Errorf("template %q has unexpected placeholder {{%s}}", name, placeholder)
 			}

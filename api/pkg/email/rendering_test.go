@@ -73,10 +73,12 @@ func TestUserPropsCannotEmitMarkup(t *testing.T) {
 				t.Error("the injected anchor is live markup in the HTML body")
 			}
 			// Nothing the payload contributed may survive as a tag: every
-			// angle bracket it carried has to come back as an entity.
-			for _, fragment := range []string{"</div>", "<a ", "<div>"} {
-				if strings.Contains(htmlBody, tc.prop+fragment) {
-					t.Errorf("HTML body contains raw %q from the payload", fragment)
+			// angle bracket it carried has to come back as an entity. The
+			// fragments carry the payload's own text so a legitimate <div>
+			// in the template's markup cannot satisfy the check.
+			for _, fragment := range []string{`x</div>`, `Pay now</a>`, `</a><div>`} {
+				if strings.Contains(htmlBody, fragment) {
+					t.Errorf("HTML body contains raw %q from the {{%s}} payload", fragment, tc.prop)
 				}
 			}
 			if !strings.Contains(htmlBody, "&lt;/div&gt;&lt;a href=") {
