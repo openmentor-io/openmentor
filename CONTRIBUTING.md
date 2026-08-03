@@ -211,16 +211,17 @@ against the health endpoint; `CI / API` adds a coverage floor, builds all three
 binaries, and runs its own Docker smoke test. A green `make ci` is a strong
 signal, not a guarantee.
 
-For `infra/` changes, validate both Compose files together — the dev override
-isn't loaded by default:
+For `infra/` changes, run the same target the gate runs — it renders both
+Compose files (the dev override isn't loaded by default), enforces the
+per-service env allowlist, and exercises the backup sidecar:
 
 ```bash
-cd infra && docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
+cd infra && make check
 ```
 
-(That needs `.env` present — copy it from `.env.example`, then delete it
-afterwards. `./deploy-dev.sh` does this for you.) If you touched a service's
-`environment:` block, also run `cd infra && ./check-service-env.sh`.
+It interpolates from your `.env` when you have one and from `.env.example`
+otherwise, and compares env KEY names only — never values — so it is safe to run
+against a production-shaped `.env`.
 
 A note on the Go linter: `make lint` refuses to run if the `golangci-lint` on
 your `PATH` isn't the pinned version, because different builds report different

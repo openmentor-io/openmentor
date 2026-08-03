@@ -323,7 +323,9 @@ Everything ships to **Grafana Cloud** through the `alloy` container
 
 Grafana dashboards live as plain JSON in the repo-root [`grafana/`](../grafana/)
 directory and sync to Grafana Cloud via Git Sync; alert rules are versioned in
-`grafana/alerting/alert-rules.yaml` (see `grafana/README.md`). Product analytics
+`grafana/alerting/alert-rules.yaml` but Git Sync does not cover them — an
+operator applies them by hand, and none are on the stack today
+(see `grafana/README.md`). Product analytics
 dashboards live in `posthog/dashboards/` (`node sync.mjs`).
 
 ## Database access
@@ -359,8 +361,10 @@ procedures + quarterly drill: `../docs/runbooks/postgres-backup-restore.md`):
    loud warning. Manual/drill run:
    `docker exec openmentor-postgres-backup backup.sh once`.
    Every success refreshes `/backups/.last_success`; the container healthcheck
-   turns `unhealthy` and the `DatabaseBackupStale` Grafana alert pages once
-   that marker ages past `BACKUP_MAX_AGE_HOURS` (26h).
+   turns `unhealthy` once that marker ages past `BACKUP_MAX_AGE_HOURS` (26h).
+   Nothing off the VM watches that healthcheck until an operator applies the
+   `DatabaseBackupStale` alert — it is not on the stack yet, see the operator
+   step in `../docs/runbooks/postgres-backup-restore.md`.
 
 RPO ≤ 24 h, RTO ≈ 30 min with dumps. Documented next step (not implemented):
 **wal-g** continuous WAL archiving to S3 for ~minutes RPO / PITR. Scale path:
