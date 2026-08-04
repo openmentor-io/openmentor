@@ -66,18 +66,24 @@ are no longer needed.
 
 ## Alert rules
 
-> ### ✅ APPLIED 2026-08-04: all 14 rules are live
+> ### ✅ APPLIED 2026-08-04: all 14 rules are live (re-applied same day — read on)
 >
 > Applied after the 2026-08-04 deploy outage (migrate config-validation
 > failure, site 404) paged nobody — the rules had been desired-state only
 > since 2026-08-03. Applied atomically via
-> `PUT /api/v1/provisioning/folder/fd2fpl/rule-groups/openmentor` with
+> `PUT /api/v1/provisioning/folder/openmentor-alerts/rule-groups/openmentor` with
 > `X-Disable-Provenance: true`; contact points, the fan-out policy tree, the
 > backup gauges, `up` and `pg_up` were all verified live first. Nothing syncs
 > this file automatically — if you edit it, re-apply the group.
 
-Alert rules are Grafana-managed rules in the **OpenMentor** folder (uid
-`fd2fpl`) — NOT the Git Sync dashboards folder `repository-7b3d712`: Grafana
+Alert rules are Grafana-managed rules in the **OpenMentor Alerts** folder (uid
+`openmentor-alerts`). The first apply on 2026-08-04 targeted the manual
+"OpenMentor" folder (uid `fd2fpl`); by ~15:45 UTC that folder — and all 14
+rules with it — had been deleted from the stack, most plausibly by a human
+tidying what looked like a duplicate of the Git Sync dashboards folder.
+Deleting a Grafana folder silently deletes its alert rules; the new folder
+name is deliberately un-duplicate-looking. The rules are NOT in the Git Sync
+dashboards folder `repository-7b3d712`: Grafana
 refuses to store alert rules in Git Sync-managed folders ("cannot store rules
 in folder managed by Git Sync"), which is also why the Grafana UI's "Import
 alert rules" button cannot ingest `alerting/alert-rules.yaml` (that importer
@@ -88,7 +94,7 @@ source of record is [`alerting/alert-rules.yaml`](alerting/alert-rules.yaml)
 
 - the Grafana provisioning API
   (`POST /api/v1/provisioning/alert-rules` per rule, or
-  `PUT /api/v1/provisioning/folder/fd2fpl/rule-groups/openmentor`
+  `PUT /api/v1/provisioning/folder/openmentor-alerts/rule-groups/openmentor`
   for the group; header `X-Disable-Provenance: true` so they stay editable in
   the UI), or
 - the Grafana Cloud MCP (`alerting_manage_rules`, operation `create`).

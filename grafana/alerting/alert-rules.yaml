@@ -2,7 +2,17 @@
 #
 # APPLIED 2026-08-04 (all 14 rules, atomically, via the group PUT below) after
 # the 2026-08-04 deploy outage paged nobody. If you edit this file, re-apply —
-# nothing syncs it automatically. The pre-apply ordering rule still holds for
+# nothing syncs it automatically.
+#
+# RE-APPLIED later the same day to a NEW folder: the first apply went to the
+# manually-created "OpenMentor" folder (uid fd2fpl), and by ~15:45 UTC that
+# folder and all 14 rules had been DELETED from the stack — most plausibly a
+# human tidying what looked like a duplicate of the Git Sync "openmentor"
+# dashboards folder (Git Sync runs in folder mode and does not manage other
+# folders). The rules now live in "OpenMentor Alerts" (uid openmentor-alerts),
+# named so it cannot be mistaken for the dashboards folder. Deleting a Grafana
+# folder silently deletes every alert rule in it — check
+# /api/v1/provisioning/alert-rules before assuming anything is still applied. The pre-apply ordering rule still holds for
 # NEW noDataState:Alerting rules: verify the series exists (an instant query)
 # before applying, or the rule pages the moment it is created — the live
 # notification policy fans out to telegram/slack/Discord.
@@ -16,7 +26,7 @@
 # threshold was checked against live data first (ContainerHighMemory's highest
 # instance is ~37% against an 85% threshold).
 #
-# Target: folder "OpenMentor" (uid `fd2fpl`), rule group `openmentor`, org 1.
+# Target: folder "OpenMentor Alerts" (uid `openmentor-alerts`), rule group `openmentor`, org 1.
 # NOT the Git Sync folder `repository-7b3d712` this file used to name:
 # Grafana refuses alert rules in Git Sync-managed folders
 # ("invalid alert rule: cannot store rules in folder managed by Git Sync"),
@@ -24,7 +34,7 @@
 #
 # How to apply:
 #   * Grafana provisioning API — PUT the whole group (atomic, matches this file):
-#       PUT https://<stack>.grafana.net/api/v1/provisioning/folder/fd2fpl/rule-groups/openmentor
+#       PUT https://<stack>.grafana.net/api/v1/provisioning/folder/openmentor-alerts/rule-groups/openmentor
 #     with an editor/admin service-account token and header
 #     `X-Disable-Provenance: true` (keeps rules editable in the UI). Body: this
 #     file's group converted to JSON ({title, folderUid, interval: 60, rules}).
@@ -46,7 +56,7 @@ apiVersion: 1
 groups:
   - orgId: 1
     name: openmentor
-    folder: OpenMentor # uid fd2fpl — NOT the Git Sync dashboards folder (see header)
+    folder: OpenMentor Alerts # uid openmentor-alerts — NOT the Git Sync dashboards folder (see header)
     interval: 1m
     rules:
       - uid: om-service-down
