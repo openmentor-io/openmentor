@@ -336,16 +336,15 @@ func (s *MentorAuthService) GetTokenManager() *jwt.TokenManager {
 	return s.tokenManager
 }
 
-// isLoginEligibleStatus reports whether a mentor with this status may use
-// the magic-link login. Draft and pending mentors need portal access to
-// complete/fix their profile; declined mentors stay blocked.
+// isLoginEligibleStatus reports whether a mentor with this status may use the
+// magic-link login. Draft and pending mentors need portal access to complete or
+// fix their profile; declined mentors stay blocked.
+//
+// One definition, in models, because the session middleware re-applies the same
+// rule per mutation (D58) — two copies would drift into a mentor who can log in
+// but cannot save, or the reverse.
 func isLoginEligibleStatus(status string) bool {
-	switch status {
-	case "draft", "pending", "active", "inactive":
-		return true
-	default:
-		return false
-	}
+	return models.MayHoldMentorSession(status)
 }
 
 // generateLoginToken creates a secure random login token
