@@ -162,6 +162,19 @@ jobs:
         with:
           args: '-no-fail -fmt sarif -out results.sarif ./api/...'
 
+      # gosec 2.22.x attaches an autofix suggestion as
+      # `fixes: [{description: ..., artifactChanges: null}]` on some rules (G304
+      # here), and GitHub's SARIF schema validation rejects the whole file for it
+      # ("artifactChanges is not of a type(s) array"). That is an upstream bug,
+      # not a finding, and `fixes` carries no security information — dropping it
+      # is lossless for code scanning. This is the class of failure
+      # `continue-on-error` used to hide.
+      - name: Normalize the gosec SARIF
+        working-directory: .
+        run: |
+          jq '(.runs[]?.results[]?) |= del(.fixes)' results.sarif > results.clean.sarif
+          mv results.clean.sarif results.sarif
+
       # No continue-on-error: an upload that cannot happen is the H6 bug itself.
       # Skipped only for fork PRs, whose GITHUB_TOKEN is read-only no matter
       # what this job requests — the gate below still runs there.
