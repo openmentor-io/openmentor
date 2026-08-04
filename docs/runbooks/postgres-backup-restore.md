@@ -19,6 +19,69 @@ docker exec openmentor-postgres-backup backup.sh once
 docker logs openmentor-postgres-backup --tail 5   # expect a SUCCESS summary line
 ```
 
+### How a broken backup gets noticed
+
+The daemon loop swallows per-run failures on purpose — a transient error must
+not kill the sidecar — so three things carry the signal instead:
+
+| Layer | Where | Behaviour |
+|---|---|---|
+| Freshness marker | `/backups/.last_success` (and `.last_failure`) in the `openmentor-postgres-backups` volume, epoch seconds | Rewritten by every run. Absent = no dump has **ever** succeeded; nothing but a real dump creates it |
+| Container healthcheck | `backup.sh healthcheck`, every 5 min | `unhealthy` once the last success is older than `BACKUP_MAX_AGE_HOURS` (26h). Deliberately does **not** roll back a deploy: `deploy-remote.sh` asserts only that the container is *running* |
+| Grafana alert | `DatabaseBackupStale` (`grafana/alerting/alert-rules.yaml`), severity critical | **Not applied to the stack yet** — see the operator step below. Once applied: pages, per deployment, when the backup age passes the window the sidecar publishes (`openmentor_db_backup_max_age_seconds`, i.e. `BACKUP_MAX_AGE_HOURS`) **or** when the gauges disappear (`NoData=Alerting`). Panels: the "Postgres Backups" row on the `om-database-infra` dashboard — same expression and same per-deployment grouping, so the row and the page agree; unlike the rule, the dashboard is Git-Synced and needs no operator step |
+
+The gauges reach Grafana Cloud as a Prometheus textfile: the sidecar writes
+`openmentor_db_backup_last_{success,failure}_timestamp_seconds` and
+`openmentor_db_backup_first_start_timestamp_seconds` into the
+`openmentor-backup-metrics` volume, which Alloy mounts read-only and scrapes
+(`prometheus.exporter.unix "backup_metrics"`). Publishing them is best-effort:
+if the metrics volume is full or read-only the dump still succeeds and still
+logs `SUCCESS`, and the gauges going stale is what raises the alarm.
+
+```bash
+# Is the sidecar happy right now?
+docker inspect -f '{{.State.Health.Status}}' openmentor-postgres-backup
+docker exec openmentor-postgres-backup backup.sh healthcheck
+```
+
+On a brand-new `/backups` volume the daemon stamps `.first_start` once — the
+healthcheck and the alert stay quiet for 26 h from that stamp instead of paging
+before the first scheduled dump can run. `.first_start` is never rewritten, so a
+redeploy cannot reset the window on a pipeline that has been failing for weeks,
+and `.last_success` is **not** seeded: while it is absent the healthcheck says
+`no backup yet, Ns into the grace window` and the dashboard stat reads `never`.
+Don't wait out the window on a first rollout — run `backup.sh once` and confirm
+the `SUCCESS` line.
+
+### Operator step: apply `DatabaseBackupStale` (once, after the sidecar deploys)
+
+Only the healthcheck and the marker live on the VM, and **nothing off the VM
+watches them** — `deploy-remote.sh` checks `.State.Status`, not health. Until
+the alert is applied, a nightly dump can fail forever with no page. As of
+2026-08-03 the Grafana Cloud stack has **no** Grafana-managed alert rules at all
+(verified; see `grafana/README.md`), so this is a one-time operator action that
+cannot be done from the repo.
+
+Do it **after** the sidecar publishing the gauges is deployed, otherwise
+`noDataState: Alerting` pages immediately (the live notification policy fans out
+to telegram/slack/Discord and repeats every 4h):
+
+```bash
+# 1. the gauges must exist first
+docker exec openmentor-postgres-backup backup.sh once     # expect SUCCESS
+#    then in Grafana Explore (grafanacloud-prom), expect one series:
+#    openmentor_db_backup_last_success_timestamp_seconds
+
+# 2. apply the rule from the versioned file (folder uid repository-7b3d712,
+#    group openmentor) — provisioning API with an editor token, or the
+#    Grafana MCP `alerting_manage_rules` create. Details + the exact endpoints:
+#    grafana/README.md § Alert rules
+```
+
+Then confirm: the rule appears under Alerting → Alert rules in folder
+`openmentor` and evaluates to Normal, and `GET /api/v1/provisioning/alert-rules`
+no longer returns `[]`.
+
 ## (a) Restore the latest dump into a fresh container/volume
 
 Use this for logical corruption or to rebuild the DB from S3 on a new VM. On the VM, in `/opt/openmentor/infra`:
@@ -95,7 +158,7 @@ docker exec pg-drill psql -U openmentor -c \
 docker rm -f pg-drill && rm /tmp/drill.dump
 ```
 
-Record date, dump filename, row counts and time-to-restore in the ops tracker. Also check the sidecar is alive: `docker logs openmentor-postgres-backup --tail 3` must show a SUCCESS line less than 24 h old (alerting on its absence is a good follow-up).
+Record date, dump filename, row counts and time-to-restore in the ops tracker. Also check the sidecar is alive: `docker inspect -f '{{.State.Health.Status}}' openmentor-postgres-backup` must report `healthy`, and `docker logs openmentor-postgres-backup --tail 3` must show a SUCCESS line less than 24 h old.
 
 ## (d) RPO / RTO
 
@@ -116,8 +179,9 @@ Record date, dump filename, row counts and time-to-restore in the ops tracker. A
 | Volume exists but the DB is empty after `up` | Fresh volume: the container initialized a brand-new cluster | Restore the latest dump per (a) |
 | `password authentication failed for user "openmentor"` from backend/worker/migrate | `POSTGRES_PASSWORD` was rotated in `.env` — the container only applies it on **first initialization**; the running cluster keeps the old password, or `DATABASE_URL` wasn't updated to match | Either update the cluster to the new value: `docker exec -it openmentor-postgres psql -U openmentor -c "ALTER USER openmentor WITH PASSWORD '<new>';"` — or fix `DATABASE_URL`/`POSTGRES_PASSWORD` so they agree, then `docker compose up -d` |
 | Sidecar logs `FAILURE ... error=pg_dump_failed` | postgres down/unhealthy, or creds mismatch after rotation (sidecar uses `POSTGRES_*` from the same `.env`) | Check `docker compose ps` / postgres logs; re-run `backup.sh once` after fixing |
-| Sidecar logs `FAILURE ... error=s3_upload_failed` (dump kept locally) | Bad/absent AWS creds (`BACKUP_AWS_*`, falling back to `S3_STORAGE_*`), wrong region, or bucket policy | Fix creds/bucket; the dump is still in the `openmentor-postgres-backups` volume — upload manually with `aws s3 cp` |
-| Sidecar logs the loud `BACKUP_S3_BUCKET is not set` warning in production | Off-site backups not configured | Set `BACKUP_S3_BUCKET` (+ creds) in `.env.production` and redeploy |
+| Sidecar logs `FAILURE ... error=s3_upload_failed` (dump kept locally) | Bad/wrong `BACKUP_AWS_*` creds (there is **no** fallback to `S3_STORAGE_*` — SECURITY M12), wrong region, or bucket policy | Fix creds/bucket; the dump is still in the `openmentor-postgres-backups` volume — upload manually with `aws s3 cp` |
+| Sidecar container is `restarting` and logs `FATAL: BACKUP_S3_BUCKET is set but BACKUP_AWS_ACCESS_KEY_ID / ... are not` | `BACKUP_S3_BUCKET` set with empty dedicated creds. Under `restart: always` this loops forever, and `deploy-remote.sh` reads a `restarting` container as unhealthy → **auto-rollback of a healthy deploy** | Fill `BACKUP_AWS_ACCESS_KEY_ID`/`BACKUP_AWS_SECRET_ACCESS_KEY` in `.env.production`, or clear `BACKUP_S3_BUCKET` to accept local-only backups; then redeploy |
+| Sidecar logs the loud `BACKUP_S3_BUCKET is not set` warning in production | Off-site backups not configured | Set `BACKUP_S3_BUCKET` **and** the dedicated `BACKUP_AWS_*` creds in `.env.production`, then redeploy |
 | `pg_restore: error: unsupported version` | Dump made by a newer pg_dump than the restoring server | Restore into the same or newer major (`postgres:16.14-alpine` or later) |
 
 ## Notes

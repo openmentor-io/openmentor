@@ -82,21 +82,53 @@ services:
     container_name: openmentor-frontend
     restart: always
     mem_limit: 768m
+    # SECURITY (P10): explicit allowlist, never the shared env file. This
+    # container is the only internet-facing process in the stack and it shares
+    # a network with postgres, so a frontend RCE must not also hand over the
+    # database DSN, JWT_SECRET, WORKER_AUTH_TOKEN, SES/S3/backup keys, the
+    # Cloudflare DNS token or the Grafana Cloud key. Bare `- KEY` entries take
+    # the value from .env and stay UNSET when .env has no such line (a
+    # `KEY=${KEY}` entry would inject an empty string instead).
+    # Contract + rationale per key: ENVIRONMENT_VARIABLES.md; enforced by
+    # ./check-service-env.sh against env-allowlist.txt.
     environment:
       - NODE_ENV=production
       - APP_ENV=${APP_ENV:-production}
+      - PORT=3000
+      - SERVICE_INSTANCE_ID=${HOSTNAME}
+      - LOG_LEVEL
+      - LOG_DIR
+      - DOMAIN # src/config/constants.ts derives BASE_URL from it
+      # Server-side secrets the BFF genuinely needs
+      - GO_API_INTERNAL_TOKEN # sent to the Go API as the internal caller token
+      - METRICS_AUTH_TOKEN # guards /api/metrics, which alloy scrapes
+      # Server-side OpenTelemetry
+      - O11Y_EXPORTER_ENDPOINT
+      - O11Y_FE_SERVICE_NAME
+      - O11Y_FE_SERVICE_VERSION
+      - O11Y_SERVICE_NAMESPACE
+      # NEXT_PUBLIC_* are resolved at BUILD time only: web/ builds with
+      # `output: 'standalone'`, whose generated server.js inlines the whole
+      # next.config.js result (remotePatterns, the Faro rewrite) as a literal,
+      # so `node server.js` never re-evaluates the config file. Kept here
+      # anyway so the runtime env matches the build args an operator sets in
+      # .env - all of them are public by definition, they already ship in the
+      # browser bundle.
+      - NEXT_PUBLIC_GO_API_URL=http://backend:8081
       - NEXT_PUBLIC_APP_ENV=${NEXT_PUBLIC_APP_ENV:-production}
       - NEXT_PUBLIC_ANALYTICS_PROVIDER=${NEXT_PUBLIC_ANALYTICS_PROVIDER:-posthog}
       - NEXT_PUBLIC_ANALYTICS_EVENT_VERSION=${NEXT_PUBLIC_ANALYTICS_EVENT_VERSION:-v1}
-      - NEXT_PUBLIC_GO_API_URL=http://backend:8081
-      - PORT=3000
-      - SERVICE_INSTANCE_ID=${HOSTNAME}
-    env_file:
-      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
-      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
-      # container env means a tag-only deploy recreates ONLY the retagged
-      # service (.env itself still drives compose interpolation).
-      - .env.runtime
+      - NEXT_PUBLIC_S3_STORAGE_ENDPOINT
+      - NEXT_PUBLIC_S3_STORAGE_BUCKET
+      - NEXT_PUBLIC_CDN_ENDPOINT
+      - NEXT_PUBLIC_TURNSTILE_SITE_KEY
+      - NEXT_PUBLIC_O11Y_SERVICE_NAMESPACE
+      - NEXT_PUBLIC_O11Y_FE_SERVICE_VERSION
+      - NEXT_PUBLIC_POSTHOG_KEY
+      - NEXT_PUBLIC_POSTHOG_HOST
+      - NEXT_PUBLIC_FARO_COLLECTOR_URL
+      - NEXT_PUBLIC_FARO_APP_NAME
+      - NEXT_PUBLIC_FARO_SAMPLE_RATE
     networks:
       - openmentor-network
     depends_on:
@@ -215,19 +247,35 @@ services:
       - BACKUP_AWS_ACCESS_KEY_ID=${BACKUP_AWS_ACCESS_KEY_ID:-}
       - BACKUP_AWS_SECRET_ACCESS_KEY=${BACKUP_AWS_SECRET_ACCESS_KEY:-}
       - BACKUP_AWS_REGION=${BACKUP_AWS_REGION:-}
-    env_file:
-      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
-      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
-      # container env means a tag-only deploy recreates ONLY the retagged
-      # service (.env itself still drives compose interpolation).
-      - .env.runtime
+      - BACKUP_MAX_AGE_HOURS=${BACKUP_MAX_AGE_HOURS:-26}
     volumes:
       - postgres-backups:/backups
+      # Prometheus textfile metrics (backup freshness); alloy mounts this
+      # read-only and scrapes it. Separate from the dumps volume on purpose -
+      # alloy has no business reading full database dumps.
+      - backup-metrics:/var/lib/backup-metrics
     networks:
       - openmentor-network
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      # The daemon loop swallows per-run failures on purpose (a transient
+      # error must not kill the sidecar), so staleness of the success marker
+      # is the signal: unhealthy once the last successful dump is older than
+      # BACKUP_MAX_AGE_HOURS. deploy-remote.sh/rollback.sh read
+      # .State.Health.Status, NOT just .State.Status: docker keeps an unhealthy
+      # container in state "running", which made this healthcheck invisible to
+      # both deploy gates. Unhealthy now ends those runs non-zero (exit 2)
+      # WITHOUT rolling back application images - an aging dump is a paging
+      # matter (grafana/alerting/alert-rules.yaml), not a reason to revert
+      # working code. "starting" (start_period below) and a VM whose compose
+      # file predates this healthcheck both still pass.
+      test: ["CMD", "/usr/local/bin/backup.sh", "healthcheck"]
+      interval: 5m
+      timeout: 10s
+      retries: 2
+      start_period: 30s
 
   # Database Migration Service (runs once before backend starts)
   migrate:
@@ -235,17 +283,41 @@ services:
     container_name: openmentor-migrate
     mem_limit: 256m
     command: ["/app/migrate"]
+    # SECURITY (P10): explicit allowlist. cmd/migrate only needs DATABASE_URL,
+    # but it calls the shared config.Load(), whose Validate() rejects a missing
+    # INTERNAL_MENTORS_API / MENTORS_API_LIST_AUTH_TOKEN / TURNSTILE_SECRET_KEY
+    # / JWT_SECRET / WORKER_AUTH_TOKEN / POSTHOG_API_KEY / S3_STORAGE_* (the
+    # last added by P1's fail-fast storage validation, which took prod down on
+    # 2026-08-04: this list predated it, migrate exited 1, and
+    # `depends_on: service_completed_successfully` blocked the whole stack).
+    # They are passed to satisfy validation and nothing else; trimming them
+    # needs a per-binary validation profile in api/config (follow-up, not an
+    # infra change). No SES or observability credentials reach this container.
     environment:
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_DIR=/app/logs
       - DATABASE_URL=${DATABASE_URL}
-    env_file:
-      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
-      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
-      # container env means a tag-only deploy recreates ONLY the retagged
-      # service (.env itself still drives compose interpolation).
-      - .env.runtime
+      - DB_WORK_OFFLINE
+      # validation-only below
+      - S3_STORAGE_ACCESS_KEY
+      - S3_STORAGE_SECRET_KEY
+      - S3_STORAGE_BUCKET
+      - S3_STORAGE_ENDPOINT
+      - S3_STORAGE_REGION
+      - BASE_URL
+      - ALLOWED_CORS_ORIGINS
+      - INTERNAL_MENTORS_API
+      - MENTORS_API_LIST_AUTH_TOKEN
+      - TURNSTILE_SECRET_KEY
+      - JWT_SECRET
+      - WORKER_AUTH_TOKEN
+      - ANALYTICS_PROVIDER
+      - ANALYTICS_EVENT_VERSION
+      - POSTHOG_ENABLED
+      - POSTHOG_API_KEY
+      - POSTHOG_HOST
+      - POSTHOG_CAPTURE_ENDPOINT
     networks:
       - openmentor-network
     depends_on:
@@ -261,20 +333,73 @@ services:
     container_name: openmentor-backend
     restart: always
     mem_limit: 512m
+    # SECURITY (P10): explicit allowlist covering api/config/config.go's viper
+    # bindings for cmd/api. Deliberately absent: SES_* and the email settings
+    # (worker-only — cfg.Email has no reader in cmd/api), POSTGRES_PASSWORD,
+    # BACKUP_*, GCLOUD_*, POSTGRES_OBS_DSN, CLOUDFLARE_DNS_API_TOKEN,
+    # METRICS_AUTH_TOKEN, GO_API_INTERNAL_TOKEN and every deploy/build-only var.
     environment:
       - GIN_MODE=release
       - PORT=8081
+      # Go's GC targets ~2x live heap and does not read the cgroup limit, so a
+      # 200 MiB live heap makes it reach for ~400 MiB and the kernel OOM-kills
+      # the container while nothing is actually leaking. GOMEMLIMIT is the soft
+      # limit that makes the GC back off first; keep it ~20% under mem_limit so
+      # non-heap memory (stacks, mmap'd runtime) still fits.
+      - GOMEMLIMIT=400MiB
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_DIR=/app/logs
       - SERVICE_INSTANCE_ID=${HOSTNAME}
       - DATABASE_URL=${DATABASE_URL}
-    env_file:
-      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
-      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
-      # container env means a tag-only deploy recreates ONLY the retagged
-      # service (.env itself still drives compose interpolation).
-      - .env.runtime
+      - DB_WORK_OFFLINE
+      - BASE_URL
+      - ALLOWED_CORS_ORIGINS
+      - TRUSTED_PROXIES
+      # Profile images
+      - S3_STORAGE_ACCESS_KEY
+      - S3_STORAGE_SECRET_KEY
+      - S3_STORAGE_BUCKET
+      - S3_STORAGE_ENDPOINT
+      - S3_STORAGE_REGION
+      # Auth
+      - INTERNAL_MENTORS_API
+      - MENTORS_API_LIST_AUTH_TOKEN
+      - TURNSTILE_SECRET_KEY
+      - JWT_SECRET
+      - JWT_ISSUER
+      - SESSION_TTL_HOURS
+      - LOGIN_TOKEN_TTL_MINUTES
+      - COOKIE_DOMAIN
+      - COOKIE_SECURE
+      # Worker triggers (X-Worker-Token + the /jobs/* URLs the API calls)
+      - WORKER_AUTH_TOKEN
+      - MENTOR_CREATED_TRIGGER_URL
+      - MENTOR_UPDATED_TRIGGER_URL
+      - MENTOR_REQUEST_CREATED_TRIGGER_URL
+      - MENTOR_LOGIN_EMAIL_TRIGGER_URL
+      - MODERATOR_LOGIN_EMAIL_TRIGGER_URL
+      - MENTOR_MODERATION_TRIGGER_URL
+      - REQUEST_PROCESS_FINISHED_TRIGGER_URL
+      - REVIEW_CREATED_TRIGGER_URL
+      # Server-side product analytics
+      - ANALYTICS_PROVIDER
+      - ANALYTICS_EVENT_VERSION
+      - POSTHOG_ENABLED
+      - POSTHOG_API_KEY
+      - POSTHOG_HOST
+      - POSTHOG_CAPTURE_ENDPOINT
+      - POSTHOG_DISABLE_GEOIP
+      # Observability
+      - O11Y_EXPORTER_ENDPOINT
+      - O11Y_BE_SERVICE_NAME
+      - O11Y_BE_SERVICE_VERSION
+      - O11Y_SERVICE_NAMESPACE
+      - O11Y_PROFILING_ENABLED
+      - O11Y_PROFILING_ENDPOINT
+      - O11Y_PROFILING_APP_NAME
+      - O11Y_PROFILING_SAMPLE_TYPES
+      - O11Y_PROFILING_UPLOAD_INTERVAL_SECONDS
     networks:
       - openmentor-network
     depends_on:
@@ -299,20 +424,72 @@ services:
     restart: always
     mem_limit: 256m
     command: ["/app/worker"]
+    # SECURITY (P10): explicit allowlist. The worker is the only container that
+    # sends email, so it is the only one holding SES_*. Deliberately absent:
+    # the trigger URLs (it *serves* those routes), POSTGRES_PASSWORD, BACKUP_*,
+    # GCLOUD_*, CLOUDFLARE_DNS_API_TOKEN, METRICS_AUTH_TOKEN,
+    # GO_API_INTERNAL_TOKEN. S3_STORAGE_* is present only because the shared
+    # config.Load() Validate() requires it in production since P1 — cmd/worker
+    # never touches S3 (same validation-only story as the migrate service; the
+    # per-binary validation profile is the follow-up that removes both).
     environment:
       - GIN_MODE=release
       - WORKER_PORT=8090
+      # Same reason as backend, sized to THIS container: the value has to sit
+      # under mem_limit or the GC never backs off before the kernel kills the
+      # process. 256m here, so 200MiB — not the backend's 400MiB.
+      - GOMEMLIMIT=200MiB
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_DIR=/app/logs
       - SERVICE_INSTANCE_ID=${HOSTNAME}
       - DATABASE_URL=${DATABASE_URL}
-    env_file:
-      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
-      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
-      # container env means a tag-only deploy recreates ONLY the retagged
-      # service (.env itself still drives compose interpolation).
-      - .env.runtime
+      - DB_WORK_OFFLINE
+      - BASE_URL # rendered into email links
+      - ALLOWED_CORS_ORIGINS
+      # validation-only (see the allowlist comment above)
+      - S3_STORAGE_ACCESS_KEY
+      - S3_STORAGE_SECRET_KEY
+      - S3_STORAGE_BUCKET
+      - S3_STORAGE_ENDPOINT
+      - S3_STORAGE_REGION
+      # Worker itself
+      - WORKER_AUTH_TOKEN
+      - WORKER_CRON_ENABLED
+      - WORKER_DB_MAX_CONNS
+      - HIGHLIGHTED_MENTORS
+      # Transactional email (AWS SES v2)
+      - SES_REGION
+      - SES_ACCESS_KEY_ID
+      - SES_SECRET_ACCESS_KEY
+      - SES_ENDPOINT
+      - MODERATORS_EMAIL
+      - DISCORD_MENTORS_PRIVATE_INVITE_LINK
+      - DEV_EMAIL_OVERRIDE
+      # Server-side product analytics
+      - ANALYTICS_PROVIDER
+      - ANALYTICS_EVENT_VERSION
+      - POSTHOG_ENABLED
+      - POSTHOG_API_KEY
+      - POSTHOG_HOST
+      - POSTHOG_CAPTURE_ENDPOINT
+      - POSTHOG_DISABLE_GEOIP
+      # Observability (cfg.Observability.ServiceVersion reads O11Y_BE_SERVICE_VERSION
+      # for both binaries; the worker's identity is O11Y_WORKER_SERVICE_NAME)
+      - O11Y_EXPORTER_ENDPOINT
+      - O11Y_WORKER_SERVICE_NAME
+      - O11Y_BE_SERVICE_VERSION
+      - O11Y_SERVICE_NAMESPACE
+      - O11Y_PROFILING_ENABLED
+      - O11Y_PROFILING_ENDPOINT
+      - O11Y_PROFILING_SAMPLE_TYPES
+      - O11Y_PROFILING_UPLOAD_INTERVAL_SECONDS
+      # Validation-only (config.Validate() is shared with cmd/api; the worker
+      # reads none of these — see the migrate service comment)
+      - INTERNAL_MENTORS_API
+      - MENTORS_API_LIST_AUTH_TOKEN
+      - TURNSTILE_SECRET_KEY
+      - JWT_SECRET
     networks:
       - openmentor-network
     depends_on:
@@ -350,10 +527,22 @@ services:
       # Database observability secrets (created by deploy.sh, never committed)
       # Contains: postgres_secret_openmentor (DSN)
       - ./alloy-secrets:/var/lib/alloy/secrets:ro
+      # Backup freshness gauges written by the postgres-backup sidecar,
+      # scraped via prometheus.exporter.unix's textfile collector
+      - backup-metrics:/var/lib/alloy/backup-metrics:ro
+    # SECURITY (P10): explicit allowlist — every sys.env() read in
+    # alloy/config.alloy and nothing else. Alloy holds the Grafana Cloud write
+    # key and the monitoring DSN; it has no business holding the app's DATABASE_URL,
+    # JWT_SECRET, WORKER_AUTH_TOKEN, SES/S3/backup keys or the Cloudflare token.
     environment:
       - APP_ENV=${APP_ENV:-production}
+      # Stable per-VM label on the backup gauges; deploy.sh writes it from the
+      # deploy target because production and --staging share .env.production
+      - DEPLOYMENT_NAME=${DEPLOYMENT_NAME:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PORT=8081
+      - WORKER_PORT=8090
+      - PROMETHEUS_SCRAPE_INTERVAL
       - GCLOUD_HOSTED_METRICS_URL=${GCLOUD_HOSTED_METRICS_URL}
       - GCLOUD_HOSTED_METRICS_ID=${GCLOUD_HOSTED_METRICS_ID}
       - GCLOUD_HOSTED_LOGS_URL=${GCLOUD_HOSTED_LOGS_URL}
@@ -369,12 +558,6 @@ services:
       - O11Y_SERVICE_NAMESPACE=${O11Y_SERVICE_NAMESPACE}
       - METRICS_AUTH_TOKEN=${METRICS_AUTH_TOKEN}
       - POSTGRES_OBS_DSN=${POSTGRES_OBS_DSN}
-    env_file:
-      # Runtime env WITHOUT the image-tag lines, regenerated from .env by the
-      # deploy scripts. Keeping FRONTEND_IMAGE_TAG/BACKEND_IMAGE_TAG out of
-      # container env means a tag-only deploy recreates ONLY the retagged
-      # service (.env itself still drives compose interpolation).
-      - .env.runtime
     networks:
       - openmentor-network
     depends_on:
@@ -407,6 +590,9 @@ volumes:
     # Local fallback destination for dumps when BACKUP_S3_BUCKET is unset,
     # and scratch space for the dump before its S3 upload
     name: openmentor-postgres-backups
+  backup-metrics:
+    # Prometheus textfile metrics: written by postgres-backup, read-only in alloy
+    name: openmentor-backup-metrics
   frontend-logs:
     name: openmentor-frontend-logs
   backend-logs:

@@ -9,6 +9,8 @@ import (
 
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
+	"github.com/openmentor-io/openmentor/api/pkg/safego"
 	"go.uber.org/zap"
 )
 
@@ -36,20 +38,23 @@ func CallAsync(ctx context.Context, triggerURL, recordID, authToken string, http
 	}
 	ctx = context.WithoutCancel(ctx)
 
-	// Run in goroutine to avoid blocking
-	go func() {
+	// Run in goroutine to avoid blocking. safego.Go, not a bare goroutine:
+	// a panic here has no caller left to recover it and would kill the whole
+	// process (recover is per-goroutine).
+	safego.Go("trigger_call_async", func() {
 		targetURL := fmt.Sprintf("%s%s", triggerURL, recordID)
+		// SECURITY (P14): the record id is a client_requests id for some
+		// triggers, which is a bearer capability for the review flow — so the
+		// logs get the base URL and a hashed reference, never the id itself.
+		recordRef := zap.String("record_ref", redact.ID(recordID))
+		loggedURL := zap.String("url", triggerURL)
 
-		logger.Info("Calling trigger URL",
-			zap.String("url", targetURL),
-			zap.String("record_id", recordID))
+		logger.Info("Calling trigger URL", loggedURL, recordRef)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, http.NoBody)
 		if err != nil {
 			logger.Error("Failed to build trigger request",
-				zap.Error(err),
-				zap.String("url", targetURL),
-				zap.String("record_id", recordID))
+				logger.RedactedError(err), loggedURL, recordRef)
 			return
 		}
 		if authToken != "" {
@@ -59,25 +64,21 @@ func CallAsync(ctx context.Context, triggerURL, recordID, authToken string, http
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			logger.Error("Failed to call trigger URL",
-				zap.Error(err),
-				zap.String("url", targetURL),
-				zap.String("record_id", recordID))
+				logger.RedactedError(err), loggedURL, recordRef)
 			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			logger.Info("Trigger URL called successfully",
-				zap.String("url", targetURL),
-				zap.String("record_id", recordID),
+				loggedURL, recordRef,
 				zap.Int("status_code", resp.StatusCode))
 		} else {
 			logger.Warn("Trigger URL returned non-success status",
-				zap.String("url", targetURL),
-				zap.String("record_id", recordID),
+				loggedURL, recordRef,
 				zap.Int("status_code", resp.StatusCode))
 		}
-	}()
+	})
 }
 
 // CallAsyncWithPayload calls a trigger URL asynchronously with a JSON
@@ -93,8 +94,8 @@ func CallAsyncWithPayload(ctx context.Context, triggerURL string, payload interf
 	}
 	ctx = context.WithoutCancel(ctx)
 
-	// Run in goroutine to avoid blocking
-	go func() {
+	// Run in goroutine to avoid blocking (see CallAsync for why safego).
+	safego.Go("trigger_call_async_with_payload", func() {
 		jsonData, err := json.Marshal(payload)
 		if err != nil {
 			logger.Error("Failed to marshal trigger payload",
@@ -109,7 +110,7 @@ func CallAsyncWithPayload(ctx context.Context, triggerURL string, payload interf
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, triggerURL, bytes.NewBuffer(jsonData))
 		if err != nil {
 			logger.Error("Failed to build trigger request",
-				zap.Error(err),
+				logger.RedactedError(err),
 				zap.String("url", triggerURL))
 			return
 		}
@@ -121,7 +122,7 @@ func CallAsyncWithPayload(ctx context.Context, triggerURL string, payload interf
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			logger.Error("Failed to call trigger URL",
-				zap.Error(err),
+				logger.RedactedError(err),
 				zap.String("url", triggerURL))
 			return
 		}
@@ -136,5 +137,5 @@ func CallAsyncWithPayload(ctx context.Context, triggerURL string, payload interf
 				zap.String("url", triggerURL),
 				zap.Int("status_code", resp.StatusCode))
 		}
-	}()
+	})
 }

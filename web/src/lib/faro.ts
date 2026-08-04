@@ -6,6 +6,7 @@ import {
   type Faro,
   type Instrumentation,
 } from '@grafana/faro-web-sdk'
+import { REDACTED, isSensitiveKey, redactFreeText } from '@/lib/redact'
 
 let faroInstance: Faro | null = null
 
@@ -14,22 +15,28 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// SECURITY (M10): magic-link/confirm tokens and review request IDs travel in
-// the URL query string. Faro auto-captures page URLs, so scrub these params
-// from every outgoing item before it leaves the browser.
-const SENSITIVE_QUERY_PARAMS = /([?&](?:token|request_id)=)[^&#\s"']+/gi
-
-function redactSensitive(value: unknown): unknown {
+// SECURITY (M10, widened for P14): magic-link/confirm tokens and review request
+// IDs travel in the URL. Faro auto-captures page URLs, so scrub them from every
+// outgoing item before it leaves the browser. The rules come from lib/redact, so
+// this, PostHog and the server-side sinks share one list and now also cover
+// login_token, confirm_token and the camelCase spellings. The walk stays in place
+// because Faro serializes the very item object it is given.
+//
+// redactFreeText, not redactQueryValues: Faro's automatic instrumentation records
+// `page.url` / `view.name` / navigation-timing URLs, and on /mentor/requests/<uuid>
+// the capability sits in the PATH with no `key=` for the query rule to match.
+// Exported for the sentinel test, which drives a real transport item shape.
+export function redactFaroItem(value: unknown, key = ''): unknown {
   if (typeof value === 'string') {
-    return value.replace(SENSITIVE_QUERY_PARAMS, '$1[REDACTED]')
+    return key && isSensitiveKey(key) ? REDACTED : redactFreeText(value)
   }
   if (Array.isArray(value)) {
-    return value.map(redactSensitive)
+    return value.map((item) => redactFaroItem(item, key))
   }
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>
-    for (const key of Object.keys(obj)) {
-      obj[key] = redactSensitive(obj[key])
+    for (const childKey of Object.keys(obj)) {
+      obj[childKey] = redactFaroItem(obj[childKey], childKey)
     }
     return obj
   }
@@ -96,7 +103,7 @@ export function initializeFaro(): Faro | null {
       // SECURITY (M10): redact one-time tokens from URLs in every payload.
       beforeSend: (item) => {
         try {
-          redactSensitive(item)
+          redactFaroItem(item)
         } catch {
           // never let redaction throw away telemetry
         }

@@ -8,11 +8,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"html/template"
 	"net/http/httptest"
 	"sync"
+	"testing"
 
 	"github.com/openmentor-io/openmentor/api/config"
 	"github.com/openmentor-io/openmentor/api/pkg/email"
+	"github.com/openmentor-io/openmentor/api/pkg/email/templates"
 )
 
 // fakeRepo is an in-memory JobsRepository with error injection.
@@ -28,13 +31,19 @@ type fakeRepo struct {
 	mentorErr     error
 	duplicatesErr error
 	finalizeErr   error
-	setStatusErr  error
-	requestErr    error
-	setRequestErr error
-	moderatorErr  error
-	reviewErr     error
+	releaseErr    error
+	// finalizeNotApplied makes FinalizeNewMentor report that no row matched,
+	// which is what the real UPDATE's WHERE status = 'draft' does when the
+	// registration leaves draft between the read and the write.
+	finalizeNotApplied bool
+	setStatusErr       error
+	requestErr         error
+	setRequestErr      error
+	moderatorErr       error
+	reviewErr          error
 
 	finalized      []FinalizeNewMentorParams
+	released       []FinalizeNewMentorParams
 	statusUpdates  map[string]string // mentorID -> status
 	requestUpdates map[string]string // requestID -> contact
 
@@ -44,10 +53,12 @@ type fakeRepo struct {
 	staleProgressMentors  []JobMentor
 	staleProgressRequests map[string][]JobReminderRequest // mentorID -> requests
 	mentorsToDeactivate   []JobMentor
+	stuckDraftMentors     []JobMentor
 	activeMentorIDs       []string
 	listStaleMentorsErr   error
 	listStaleRequestsErr  error
 	listDeactivateErr     error
+	listStuckDraftErr     error
 	deactivateErr         error
 	listActiveErr         error
 	setSortOrdersErr      error
@@ -88,11 +99,22 @@ func (f *fakeRepo) CountActiveMentorsByEmail(_ context.Context, _ string) (int, 
 	return f.duplicates, nil
 }
 
-func (f *fakeRepo) FinalizeNewMentor(_ context.Context, params FinalizeNewMentorParams) error {
+func (f *fakeRepo) FinalizeNewMentor(_ context.Context, params FinalizeNewMentorParams) (bool, error) {
 	if f.finalizeErr != nil {
-		return f.finalizeErr
+		return false, f.finalizeErr
+	}
+	if f.finalizeNotApplied {
+		return false, nil
 	}
 	f.finalized = append(f.finalized, params)
+	return true, nil
+}
+
+func (f *fakeRepo) ReleaseNewMentorFinalization(_ context.Context, params FinalizeNewMentorParams) error {
+	if f.releaseErr != nil {
+		return f.releaseErr
+	}
+	f.released = append(f.released, params)
 	return nil
 }
 
@@ -193,6 +215,13 @@ func (f *fakeRepo) ListMentorsToDeactivate(_ context.Context) ([]JobMentor, erro
 	return append([]JobMentor(nil), f.mentorsToDeactivate...), nil
 }
 
+func (f *fakeRepo) ListStuckDraftRegistrations(_ context.Context) ([]JobMentor, error) {
+	if f.listStuckDraftErr != nil {
+		return nil, f.listStuckDraftErr
+	}
+	return append([]JobMentor(nil), f.stuckDraftMentors...), nil
+}
+
 func (f *fakeRepo) DeactivateMentor(_ context.Context, mentorID string) error {
 	if f.deactivateErr != nil {
 		return f.deactivateErr
@@ -230,7 +259,46 @@ func (f *fakeEmailSender) Send(_ context.Context, msg email.Message) (string, er
 	if f.failAll || f.failTemplates[msg.TemplateName] || f.failRecipients[msg.Recipient] {
 		return "", errors.New("ses send failed")
 	}
+	// The real sender renders the template before it calls SES, so a prop the
+	// template needs but the job did not supply is a send failure. Rendering
+	// here keeps that failure mode in the fake, which turns every job test
+	// into a check that the job's props satisfy the template it names.
+	if _, err := templates.Render(msg.TemplateName, msg.Props); err != nil {
+		return "", err
+	}
+	renderedTemplates.record(msg.TemplateName)
 	return "fake-message-id", nil
+}
+
+// renderedTemplates is the union of template names the job tests rendered
+// successfully. TestMain checks it against the registry, so a template with a
+// placeholder that no real call site supplies fails CI here instead of at
+// send time.
+var renderedTemplates = &templateCoverage{names: map[string]bool{}}
+
+type templateCoverage struct {
+	mu    sync.Mutex
+	names map[string]bool
+}
+
+func (c *templateCoverage) record(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.names[name] = true
+}
+
+// unrendered returns the registered templates no job test rendered.
+func (c *templateCoverage) unrendered() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var missing []string
+	for _, name := range templates.Names() {
+		if !c.names[name] {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 func (f *fakeEmailSender) templates() []string {
@@ -239,6 +307,18 @@ func (f *fakeEmailSender) templates() []string {
 		names = append(names, msg.TemplateName)
 	}
 	return names
+}
+
+// htmlProp reads a prop that carries server-built markup. It must be a
+// template.HTML: a plain string would be escaped into literal markup by the
+// email template.
+func htmlProp(t *testing.T, props map[string]interface{}, key string) string {
+	t.Helper()
+	v, ok := props[key].(template.HTML)
+	if !ok {
+		t.Fatalf("prop %q = %#v (%T), want template.HTML", key, props[key], props[key])
+	}
+	return string(v)
 }
 
 // trackedEvent is a recorded analytics call.

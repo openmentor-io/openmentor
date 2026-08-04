@@ -74,6 +74,68 @@ prometheus.scrape "yc_nextjs_frontend" {
   bearer_token = sys.env("METRICS_AUTH_TOKEN")
 }
 
+// Postgres backup freshness (P8)
+//
+// The postgres-backup sidecar writes two gauges as a Prometheus textfile
+// (openmentor_db_backup_last_{success,failure}_timestamp_seconds) into the
+// shared `openmentor-backup-metrics` volume, mounted here read-only. Chosen
+// over a loki.source.docker scrape of the sidecar's stdout deliberately: that
+// would need /var/run/docker.sock bind-mounted into Alloy, i.e. root-equivalent
+// host access for the container that also holds every Grafana Cloud
+// credential. A gauge is also what the staleness alert
+// (grafana/alerting/alert-rules.yaml, om-db-backup-stale) and the
+// om-database-infra panel actually need.
+prometheus.exporter.unix "backup_metrics" {
+  set_collectors = ["textfile"]
+
+  textfile {
+    directory = "/var/lib/alloy/backup-metrics"
+  }
+}
+
+discovery.relabel "backup_metrics" {
+  targets = prometheus.exporter.unix.backup_metrics.targets
+
+  rule {
+    target_label = "instance"
+    replacement  = coalesce(sys.env("HOSTNAME"), "postgres-backup")
+  }
+
+  rule {
+    target_label = "environment"
+    replacement  = coalesce(sys.env("APP_ENV"), "production")
+  }
+
+  rule {
+    target_label = "service_name"
+    replacement  = "openmentor-postgres-backup"
+  }
+
+  rule {
+    target_label = "namespace"
+    replacement  = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io")
+  }
+
+  // Backup freshness has to be evaluated PER DEPLOYMENT, and none of the labels
+  // above can carry that: `./deploy.sh --staging` uploads the same
+  // .env.production, so a staging VM remote-writes to this same Grafana Cloud
+  // tenant with APP_ENV=production too, and `instance` is the alloy container id
+  // (Docker's default HOSTNAME), which changes on every recreate. Without a
+  // stable per-VM label a global max() over these gauges lets one fresh staging
+  // backup hold DatabaseBackupStale Normal while production dumps rot.
+  // deploy.sh writes DEPLOYMENT_NAME into the VM's .env from the deploy target.
+  rule {
+    target_label = "deployment"
+    replacement  = coalesce(sys.env("DEPLOYMENT_NAME"), "production")
+  }
+}
+
+prometheus.scrape "backup_metrics" {
+  targets         = discovery.relabel.backup_metrics.output
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  scrape_interval = coalesce(sys.env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+}
+
 // Self-monitoring: Grafana Alloy metrics
 prometheus.scrape "yc_alloy_self_monitoring" {
   targets = [

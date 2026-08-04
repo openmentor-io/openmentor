@@ -1,9 +1,13 @@
-# Environment files
+# Environment files. A catch-all rather than a list of known names, and
+# deliberately duplicated from the repo-root .gitignore: the deploy rsyncs this
+# directory on its own, so any env file covered only by the root rule (e.g. the
+# generated `.env.runtime`, a plaintext copy of every secret in `.env`) loses
+# its rule the moment infra/ is used outside the monorepo. Templates are
+# `*.example` and stay tracked.
 .env
-.env.local
-.env.production
-.env.prod
-.env.*.local
+.env.*
+!.env.example
+!.env.*.example
 
 # Docker volumes
 /volumes/

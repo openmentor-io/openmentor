@@ -13,7 +13,7 @@ Docs: <https://grafana.com/docs/grafana-cloud/monitor-applications/database-obse
 ## Requirements (already satisfied by the repo)
 
 - PostgreSQL ≥ 14 — compose runs `postgres:16.14-alpine`.
-- Alloy ≥ 1.17.0 — compose pins `grafana/alloy:v1.17.1`.
+- Alloy ≥ 1.17.0 — compose pins `grafana/alloy:v1.18.0`.
 - Direct DB connection (no PgBouncer) — Alloy connects to `postgres:5432`
   on the compose network.
 - `pg_stat_statements` settings — set via the `postgres` service `command`

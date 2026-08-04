@@ -3,10 +3,15 @@ package worker
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -20,7 +25,18 @@ func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
 	logger.Log = zap.NewNop()
 	metrics.Init("openmentor-worker-test")
-	os.Exit(m.Run())
+
+	code := m.Run()
+	// Only meaningful for a full run: -run selects a subset of the jobs.
+	if code == 0 && flag.Lookup("test.run").Value.String() == "" {
+		if missing := renderedTemplates.unrendered(); len(missing) > 0 {
+			fmt.Fprintf(os.Stderr,
+				"FAIL: no job test rendered %v, so nothing checks that a real caller supplies their placeholders\n",
+				missing)
+			code = 1
+		}
+	}
+	os.Exit(code)
 }
 
 func testConfig() *config.Config {
@@ -133,16 +149,109 @@ func TestJobsAllowedWhenNoTokenConfigured(t *testing.T) {
 	}
 }
 
-func TestNewCronRegistersFourJobs(t *testing.T) {
+func TestNewCronRegistersEveryJob(t *testing.T) {
 	env := newJobsTestEnv()
 
 	c, err := NewCron(env.handlers)
 	if err != nil {
 		t.Fatalf("NewCron failed (invalid schedule expression?): %v", err)
 	}
-	if got := len(c.Entries()); got != 4 {
-		t.Errorf("registered %d cron entries, want 4", got)
+	if want := len(env.handlers.CronJobs()); len(c.Entries()) != want {
+		t.Errorf("registered %d cron entries, want %d", len(c.Entries()), want)
 	}
+}
+
+// TestScheduledJobSkipsOverlappingRun: finalize-stuck-registrations runs every
+// ten minutes and its pass emails a whole replay set, so a tick can fire while
+// the previous run is still working. A second concurrent pass over the same rows
+// only races the first one for them, so the tick must be dropped.
+func TestScheduledJobSkipsOverlappingRun(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{}, 2)
+	var runs atomic.Int32
+
+	job := scheduledJob(CronJob{
+		Name:          "finalize-stuck-registrations",
+		Schedule:      "0 */10 * * * *",
+		SkipIfRunning: true,
+		Run: func(context.Context) (JobSummary, error) {
+			runs.Add(1)
+			entered <- struct{}{}
+			<-release
+			return JobSummary{}, nil
+		},
+	})
+
+	firstDone := make(chan struct{})
+	go func() {
+		job.Run()
+		close(firstDone)
+	}()
+	<-entered // the first run is inside the handler and has not returned
+
+	// The overlapping tick must return without touching the handler, which is
+	// also why it cannot be called inline: unguarded it would block in there.
+	secondDone := make(chan struct{})
+	go func() {
+		job.Run()
+		close(secondDone)
+	}()
+	select {
+	case <-secondDone:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("the overlapping tick entered the handler instead of being dropped")
+	}
+	if got := runs.Load(); got != 1 {
+		t.Errorf("handler ran %d times while a run was in flight, want 1", got)
+	}
+
+	close(release)
+	<-firstDone
+
+	// The guard is a skip, not a permanent lock: the next tick runs again.
+	job.Run()
+	<-entered
+	if got := runs.Load(); got != 2 {
+		t.Errorf("handler ran %d times in total, want 2", got)
+	}
+}
+
+// TestScheduledJobWithoutGuardRunsConcurrently pins the opposite default: only
+// jobs that ask for the guard get it, so a long-running weekly job is never
+// silently skipped.
+func TestScheduledJobWithoutGuardRunsConcurrently(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{}, 2)
+	var runs atomic.Int32
+
+	job := scheduledJob(CronJob{
+		Name:     "sessions-watcher",
+		Schedule: "0 30 8 * * *",
+		Run: func(context.Context) (JobSummary, error) {
+			runs.Add(1)
+			entered <- struct{}{}
+			<-release
+			return JobSummary{}, nil
+		},
+	})
+
+	var running sync.WaitGroup
+	running.Add(2)
+	for range 2 {
+		go func() {
+			defer running.Done()
+			job.Run()
+		}()
+	}
+	<-entered
+	<-entered // both runs are inside the handler at the same time
+
+	if got := runs.Load(); got != 2 {
+		t.Errorf("handler ran %d times, want 2 (no overlap guard requested)", got)
+	}
+	close(release)
+	running.Wait()
 }
 
 func TestRunCronJobReturnsSummary(t *testing.T) {

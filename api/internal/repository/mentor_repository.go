@@ -15,6 +15,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// IsNoRows reports whether err means the query matched nothing, as opposed to
+// a row that matched but could not be read. Services that collapse both into
+// "not found" report a broken row as a typo'd input — see MentorAuthService.
+func IsNoRows(err error) bool {
+	return errors.Is(err, pgx.ErrNoRows)
+}
+
 // MentorRepository handles mentor data access with PostgreSQL.
 // Mentor reads always hit the database (the previous in-memory mentor cache
 // was removed — it was always disabled in production and only added staleness).
@@ -106,27 +113,46 @@ func (r *MentorRepository) GetByMentorId(ctx context.Context, mentorId string, o
 	return filtered, nil
 }
 
+// mentorSelect is the column list and join shape every full mentor read shares,
+// in the order models.ScanMentor expects. It exists as ONE constant because it
+// used to be pasted into three queries verbatim: sort_order was COALESCEd in all
+// three but a nullable column can just as easily be COALESCEd in two of them and
+// forgotten in the third, which is a mentor nobody can read.
+//
+// RULE for anyone adding a column here: mentors is nullable almost everywhere
+// and pgx fails the WHOLE row scan on a NULL in a non-pointer destination — so
+// every nullable column must either be COALESCEd here or land in a *pointer*
+// field of models.Mentor. airtable_id is the only member of the second group
+// (nil is meaningful: it marks a natively registered mentor).
+// api/internal/repository/mentor_nullable_columns_db_test.go enforces this
+// against a real database, per column.
+const mentorSelect = `
+	SELECT m.id, m.airtable_id, m.legacy_id, m.slug, m.name,
+		COALESCE(m.job_title, ''), COALESCE(m.workplace, ''), COALESCE(m.about, ''),
+		COALESCE(m.details, ''), COALESCE(m.competencies, ''),
+		COALESCE(m.experience, ''), COALESCE(m.price, ''), m.status,
+		COALESCE(array_to_string(array_agg(t.name), ','), '') as tags,
+		COALESCE(m.calendar_url, ''), COALESCE(m.sort_order, 0),
+		m.created_at, m.updated_at,
+		-- sessions on OpenMentor + sessions carried over from
+		-- getmentor.dev at migration time (D28)
+		COALESCE(
+			(SELECT COUNT(*)
+			 FROM client_requests cr
+			 WHERE cr.mentor_id = m.id
+			 AND cr.status = 'done'),
+			0
+		) + m.legacy_sessions_count AS mentee_count,
+		m.legacy_sessions_count,
+		m.photo_style, COALESCE(m.moderation_note, '')
+	FROM mentors m
+	LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
+	LEFT JOIN tags t ON t.id = mt.tag_id
+`
+
 // fetchMentorByUUIDFromDB retrieves a single mentor by UUID from PostgreSQL
 func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId string) (*models.Mentor, error) {
-	query := `
-		SELECT m.id, m.airtable_id, m.legacy_id, m.slug, m.name, m.job_title, m.workplace,
-			m.about, m.details, m.competencies, m.experience, m.price, m.status,
-			COALESCE(array_to_string(array_agg(t.name), ','), '') as tags,
-			m.calendar_url, m.sort_order, m.created_at, m.updated_at,
-			-- sessions on OpenMentor + sessions carried over from
-			-- getmentor.dev at migration time (D28)
-			COALESCE(
-				(SELECT COUNT(*)
-				 FROM client_requests cr
-				 WHERE cr.mentor_id = m.id
-				 AND cr.status = 'done'),
-				0
-			) + m.legacy_sessions_count AS mentee_count,
-			m.legacy_sessions_count,
-			m.photo_style, m.moderation_note
-		FROM mentors m
-		LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
-		LEFT JOIN tags t ON t.id = mt.tag_id
+	query := mentorSelect + `
 		WHERE m.id = $1
 		GROUP BY m.id
 	`
@@ -372,12 +398,20 @@ func (r *MentorRepository) GetAllTags(ctx context.Context) (map[string]string, e
 // mentors can log in too (to finish/fix their profile); declined mentors
 // stay excluded. When several rows share an email (only active emails are
 // unique), the most "advanced" profile wins.
+//
+// It cannot share mentorSelect (no tag join, and the session counts are
+// deliberately not computed for a login), but it obeys the same rule: every
+// nullable column is COALESCEd or scanned into a pointer field. A NULL that
+// fails the scan surfaces here as "unknown email" — i.e. a mentor locked out of
+// their own account by an empty profile field.
 func (r *MentorRepository) GetByEmail(ctx context.Context, email string) (*models.Mentor, error) {
 	query := `
-		SELECT id, airtable_id, legacy_id, slug, name, job_title, workplace, about, details,
-			competencies, experience, price, status, '' as tags, calendar_url,
-			sort_order, created_at, updated_at, 0 as mentee_count,
-			0 as legacy_sessions_count, photo_style, moderation_note
+		SELECT id, airtable_id, legacy_id, slug, name, COALESCE(job_title, ''),
+			COALESCE(workplace, ''), COALESCE(about, ''), COALESCE(details, ''),
+			COALESCE(competencies, ''), COALESCE(experience, ''), COALESCE(price, ''),
+			status, ''::text as tags, COALESCE(calendar_url, ''),
+			COALESCE(sort_order, 0), created_at, updated_at, 0 as mentee_count,
+			0 as legacy_sessions_count, photo_style, COALESCE(moderation_note, '')
 		FROM mentors
 		WHERE email = $1 AND status IN ('active', 'inactive', 'pending', 'draft')
 		ORDER BY CASE status
@@ -397,6 +431,11 @@ func (r *MentorRepository) GetByEmail(ctx context.Context, email string) (*model
 // GetByLoginToken finds a mentor by their login token
 // Note: Returns the token parameter for backwards compatibility, but it's not used for validation
 // The SQL WHERE clause (login_token = $1) is the actual security check
+//
+// This is the one mentor read with no COALESCE: its hand-rolled scan already
+// takes every nullable column through a pointer, which is the other half of the
+// rule stated on mentorSelect. The nullable-column test drives this path too, so
+// that stays a checked fact rather than a claim.
 func (r *MentorRepository) GetByLoginToken(ctx context.Context, token string) (*models.Mentor, time.Time, error) {
 	query := `
 		SELECT id, airtable_id, legacy_id, slug, name, job_title, workplace, about, details,
@@ -506,25 +545,7 @@ func (r *MentorRepository) ClearLoginToken(ctx context.Context, mentorId string)
 
 // FetchAllMentorsFromDB retrieves all mentors from PostgreSQL for cache population
 func (r *MentorRepository) FetchAllMentorsFromDB(ctx context.Context) ([]*models.Mentor, error) {
-	query := `
-		SELECT m.id, m.airtable_id, m.legacy_id, m.slug, m.name, m.job_title, m.workplace,
-			m.about, m.details, m.competencies, m.experience, m.price, m.status,
-			COALESCE(array_to_string(array_agg(t.name), ','), '') as tags,
-			m.calendar_url, m.sort_order, m.created_at, m.updated_at,
-			-- sessions on OpenMentor + sessions carried over from
-			-- getmentor.dev at migration time (D28)
-			COALESCE(
-				(SELECT COUNT(*)
-				 FROM client_requests cr
-				 WHERE cr.mentor_id = m.id
-				 AND cr.status = 'done'),
-				0
-			) + m.legacy_sessions_count AS mentee_count,
-			m.legacy_sessions_count,
-			m.photo_style, m.moderation_note
-		FROM mentors m
-		LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
-		LEFT JOIN tags t ON t.id = mt.tag_id
+	query := mentorSelect + `
 		WHERE m.status = 'active'
 		GROUP BY m.id
 		ORDER BY m.sort_order
@@ -540,25 +561,7 @@ func (r *MentorRepository) FetchAllMentorsFromDB(ctx context.Context) ([]*models
 
 // FetchSingleMentorFromDB retrieves a single mentor by slug from PostgreSQL
 func (r *MentorRepository) FetchSingleMentorFromDB(ctx context.Context, mentorSlug string) (*models.Mentor, error) {
-	query := `
-		SELECT m.id, m.airtable_id, m.legacy_id, m.slug, m.name, m.job_title, m.workplace,
-			m.about, m.details, m.competencies, m.experience, m.price, m.status,
-			COALESCE(array_to_string(array_agg(t.name), ','), '') as tags,
-			m.calendar_url, m.sort_order, m.created_at, m.updated_at,
-			-- sessions on OpenMentor + sessions carried over from
-			-- getmentor.dev at migration time (D28)
-			COALESCE(
-				(SELECT COUNT(*)
-				 FROM client_requests cr
-				 WHERE cr.mentor_id = m.id
-				 AND cr.status = 'done'),
-				0
-			) + m.legacy_sessions_count AS mentee_count,
-			m.legacy_sessions_count,
-			m.photo_style, m.moderation_note
-		FROM mentors m
-		LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
-		LEFT JOIN tags t ON t.id = mt.tag_id
+	query := mentorSelect + `
 		WHERE m.slug = $1
 		GROUP BY m.id
 	`

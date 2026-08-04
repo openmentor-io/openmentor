@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"html/template"
 	"net/http"
 	"testing"
 
@@ -38,7 +39,7 @@ func TestRequestProcessFinishedDone(t *testing.T) {
 	event := env.tracker.last()
 	require.NotNil(t, event)
 	assert.Equal(t, analytics.EventRequestProcessFinishedNotified, event.event)
-	assert.Equal(t, "request:r1", event.distinctID)
+	assert.Equal(t, "mentor:m1", event.distinctID, "events must be keyed by mentor, never by the request capability (P14)")
 	assert.Equal(t, "success", event.props["outcome"])
 	assert.Equal(t, "done", event.props["status"])
 }
@@ -56,8 +57,7 @@ func TestRequestProcessFinishedDeclinedWithReason(t *testing.T) {
 	require.Equal(t, []string{"session-declined"}, env.sender.templates())
 	msg := env.sender.attempts[0]
 
-	declineInfo, ok := msg.Props["decline_info"].(string)
-	require.True(t, ok)
+	declineInfo := htmlProp(t, msg.Props, "decline_info")
 	assert.Contains(t, declineInfo, "<strong>Reason:</strong> No time at the moment")
 	assert.Contains(t, declineInfo, "<strong>Comment:</strong> Try again &lt;soon&gt;", "comment must be HTML-escaped")
 
@@ -75,7 +75,7 @@ func TestRequestProcessFinishedDeclinedWithoutReason(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, env.sender.attempts, 1)
-	assert.Equal(t, defaultDeclineReasonText, env.sender.attempts[0].Props["decline_info"])
+	assert.Equal(t, template.HTML(defaultDeclineReasonText), env.sender.attempts[0].Props["decline_info"])
 	assert.Equal(t, defaultDeclineReasonText, env.sender.attempts[0].Props["decline_info_text"])
 }
 

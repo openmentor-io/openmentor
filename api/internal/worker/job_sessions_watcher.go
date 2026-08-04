@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"html/template"
 	"strconv"
 	"strings"
 
@@ -60,7 +61,7 @@ func (h *Handlers) SessionsWatcher(ctx context.Context) (JobSummary, error) {
 				"mentor_id":              mentor.ID,
 				"pending_requests_count": len(requests),
 				"outcome":                "error",
-				"error_type":             "email_send_failed",
+				"error_type":             errTypeEmailSendFailed,
 			})
 			continue
 		}
@@ -92,7 +93,7 @@ func (h *Handlers) SessionsWatcher(ctx context.Context) (JobSummary, error) {
 func (h *Handlers) trackSessionsWatcherError(ctx context.Context) {
 	h.track(ctx, analytics.EventMentorPendingRequestsReminded, analytics.SystemDistinctID("worker"), map[string]interface{}{
 		"outcome":    "error",
-		"error_type": "db_error",
+		"error_type": errTypeDBError,
 	})
 }
 
@@ -100,18 +101,12 @@ func (h *Handlers) trackSessionsWatcherError(ctx context.Context) {
 // props mentor_name, pending_count (stringified, like String(...) in JS),
 // requests_list (HTML) and requests_list_text.
 func pendingRequestsReminderMessage(mentor JobMentor, requests []JobReminderRequest) email.Message {
-	htmlItems := make([]string, 0, len(requests))
+	htmlItems := make([]pendingRequestItem, 0, len(requests))
 	textItems := make([]string, 0, len(requests))
 
 	for _, req := range requests {
 		title, preview := describePendingRequest(req)
-
-		item := `<li style="margin-bottom: 8px;"><strong>` + escapeHTML(title) + `</strong>`
-		if preview != "" {
-			item += `<br><em>` + escapeHTML(preview) + `</em>`
-		}
-		item += `</li>`
-		htmlItems = append(htmlItems, item)
+		htmlItems = append(htmlItems, pendingRequestItem{Title: title, Preview: preview})
 
 		text := "- " + title
 		if preview != "" {
@@ -126,11 +121,25 @@ func pendingRequestsReminderMessage(mentor JobMentor, requests []JobReminderRequ
 		Props: map[string]interface{}{
 			"mentor_name":        mentor.Name,
 			"pending_count":      strconv.Itoa(len(requests)),
-			"requests_list":      requestsListHTML(htmlItems),
+			"requests_list":      renderFragment(pendingRequestsListTpl, htmlItems),
 			"requests_list_text": strings.Join(textItems, "\n"),
 		},
 	}
 }
+
+// pendingRequestItem is one row of the reminder list.
+type pendingRequestItem struct {
+	Title   string
+	Preview string
+}
+
+// pendingRequestsListTpl reproduces the <ul>/<li> markup the func's
+// PendingRequestsReminderMessage emitted.
+var pendingRequestsListTpl = template.Must(template.New("pendingRequestsList").Parse(
+	requestsListOpen +
+		`{{range .}}<li style="margin-bottom: 8px;"><strong>{{.Title}}</strong>` +
+		`{{with .Preview}}<br><em>{{.}}</em>{{end}}</li>{{end}}` +
+		requestsListClose))
 
 // describePendingRequest mirrors describeRequest() in the func's message
 // class: "{name} — waiting for {1 day|N days}" plus a 160-char description

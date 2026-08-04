@@ -12,17 +12,28 @@ name: Checks
 # (identical commands here and in "CI / Web"), and `go vet` ran three times on
 # an api PR (here, in "CI / API -> Run Tests", and again inside golangci-lint).
 #
-#   web changed -> lint + type check + tests
-#   api changed -> golangci-lint + tests
-#   neither     -> passes trivially
+#   web changed        -> lint + type check + tests
+#   api changed        -> golangci-lint + tests
+#   infra changed      -> compose renders + per-service env allowlist + infra tests
+#   runbooks changed   -> shellcheck + the operator diagnostics tests
+#   .github/ changed   -> actionlint + dispatch-input scan
+#   none of the above  -> passes trivially
+#
+# Every group is a STEP of the single required-checks job, never a job of its
+# own: a second required job name deadlocks every PR whose paths do not match
+# it, which is the same trap as requiring "CI / Web".
 #
 # ci-web.yml / ci-api.yml keep only what this cannot cheaply do: the production
 # build, the race detector + coverage floor, the gosec SARIF upload for the
 # Security tab, and the Docker smoke test.
 #
+# The runbooks group lives ONLY here, and it starts its own throwaway Postgres in
+# the step rather than as a job-level `services:` block — a service would boot a
+# database on every PR, including the ones that touch neither runbook.
+#
 # Also runs on pushes to main. `strict_required_status_checks_policy` is off in
 # the ruleset, so a PR can merge against a stale base — post-merge verification
-# is what catches the resulting skew. On push both halves run regardless of
+# is what catches the resulting skew. On push every group runs regardless of
 # paths: main should always be verified end to end.
 
 on:
@@ -60,6 +71,66 @@ jobs:
               - 'api/**'
               - '.github/workflows/ci-api.yml'
               - '.github/workflows/checks.yml'
+            infra:
+              - 'infra/**'
+              # `make check` also asserts the backup alert, its dashboard panels,
+              # the Alloy labels and the sidecar gauges stay consistent
+              # (alert-consistency-test.sh), so a change to either Grafana file
+              # has to run it
+              - 'grafana/alerting/**'
+              - 'grafana/dashboards/**'
+              - '.github/workflows/checks.yml'
+            workflows:
+              - '.github/workflows/**'
+            runbooks:
+              - 'docs/runbooks/audit-2026-08/**'
+              # diagnostics_test.sh also asserts that the remediation plan's own
+              # operator instructions match the runbooks, so a plan-only edit has
+              # to run the gate too.
+              - 'docs/audit/2026-08-remediation-plan.md'
+              - 'api/migrations/**'
+              - '.github/workflows/checks.yml'
+
+      # --- Workflow quick gate ---------------------------------------------
+
+      # actionlint flags untrusted `${{ }}` values used in `run:` scripts (the
+      # P5 script-injection class), expression/context errors YAML parsing
+      # cannot see, and shellcheck findings in every `run:` block (shellcheck
+      # is preinstalled on the runner). Pinned release + sha256 instead of a
+      # third-party action: nothing unvetted belongs in the job that lints
+      # workflows.
+      - name: 'Workflows: actionlint'
+        if: steps.filter.outputs.workflows == 'true' || github.event_name == 'push'
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          bindir="$(mktemp -d)"
+          curl -fsSL -o "$bindir/$tarball" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${tarball}"
+          echo "$ACTIONLINT_SHA256  $bindir/$tarball" | sha256sum -c -
+          tar -xzf "$bindir/$tarball" -C "$bindir" actionlint
+          "$bindir/actionlint" -color
+
+      # actionlint's untrusted-input rule does NOT cover workflow_dispatch
+      # inputs (v1.7.12 stays silent on `${{ inputs.x }}` inside a run script),
+      # and that is the exact P5 vector, so gate it here. Only `run:` scripts
+      # are scanned, which leaves the safe `env:`/`with:`/`if:` uses alone. The
+      # leading class stops `needs.validate-inputs.*` from matching.
+      - name: 'Workflows: no dispatch input inside a run script'
+        if: steps.filter.outputs.workflows == 'true' || github.event_name == 'push'
+        run: |
+          rc=0
+          for f in .github/workflows/*.yml; do
+            scripts=$(yq '.jobs[] | .steps[]? | select(has("run")) | .run' "$f")
+            if echo "$scripts" \
+              | grep -nE '\$\{\{(.*[^A-Za-z0-9_.-])?(github\.event\.)?inputs\.'; then
+              echo "::error file=$f::Interpolates a workflow_dispatch input into a run script (script injection). Pass it through env: and validate it instead."
+              rc=1
+            fi
+          done
+          exit "$rc"
 
       # --- Web quick gates -------------------------------------------------
 
@@ -123,6 +194,62 @@ jobs:
         working-directory: api
         run: go test -timeout=5m ./...
 
-      - name: No web/api changes
-        if: github.event_name == 'pull_request' && steps.filter.outputs.web != 'true' && steps.filter.outputs.api != 'true'
-        run: echo "No web/ or api/ changes detected — nothing to gate."
+      # --- Infra quick gates -----------------------------------------------
+
+      # SECURITY (P10): this is what stops `- DATABASE_URL=${DATABASE_URL}`
+      # reappearing on the internet-facing frontend in a PR that touches only
+      # infra/. `make check` = compose renders (prod + dev) + the per-service
+      # env allowlist and secret-ownership check + the backup sidecar tests.
+      # Key names only, never values, so it is safe on a production-shaped env.
+      # Runner already has docker compose and jq; nothing else to install.
+      - name: 'Infra: checks'
+        if: steps.filter.outputs.infra == 'true' || github.event_name == 'push'
+        working-directory: infra
+        run: make check
+
+      # --- Operator runbook gates ------------------------------------------
+      #
+      # docs/runbooks/audit-2026-08 holds scripts an operator runs against the
+      # LIVE database, so they get the same treatment as code: shellcheck, plus
+      # tests that pin the safety properties (report file mode, no personal data
+      # on the console, no ambiguous connection, one consistent snapshot).
+
+      - name: 'Runbooks: shellcheck'
+        if: steps.filter.outputs.runbooks == 'true' || github.event_name == 'push'
+        run: |
+          shellcheck docs/runbooks/audit-2026-08/diagnostics.sh \
+                     docs/runbooks/audit-2026-08/diagnostics_test.sh
+
+      - name: 'Runbooks: diagnostics tests'
+        if: steps.filter.outputs.runbooks == 'true' || github.event_name == 'push'
+        run: |
+          set -euo pipefail
+
+          # The database tier of the test SKIPS itself when psql is missing, and a
+          # silent skip is worse than a red build — assert the client is here.
+          command -v psql >/dev/null || { echo "psql is required for the runbook DB tier"; exit 1; }
+          psql --version
+
+          # Throwaway Postgres. The password is an ephemeral fixture, not a
+          # secret: the container is created and destroyed inside this job and
+          # publishes only to localhost.
+          docker run -d --name pg-diagtest -p 55444:5432 \
+            -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD=diagtest \
+            -e POSTGRES_DB=openmentor postgres:16-alpine
+          for i in $(seq 1 30); do
+            docker exec pg-diagtest pg_isready -h 127.0.0.1 -U openmentor -d openmentor && break
+            [ "$i" = 30 ] && { echo "postgres never became ready"; docker logs pg-diagtest; exit 1; }
+            sleep 1
+          done
+
+          PGHOST=127.0.0.1 PGPORT=55444 PGUSER=openmentor PGPASSWORD=diagtest \
+          PGDATABASE=openmentor OM_DIAG_TEST_DB=1 \
+            docs/runbooks/audit-2026-08/diagnostics_test.sh
+
+      - name: 'Runbooks: remove the scratch database'
+        if: always() && (steps.filter.outputs.runbooks == 'true' || github.event_name == 'push')
+        run: docker rm -f pg-diagtest || true
+
+      - name: No gated changes
+        if: github.event_name == 'pull_request' && steps.filter.outputs.web != 'true' && steps.filter.outputs.api != 'true' && steps.filter.outputs.infra != 'true' && steps.filter.outputs.runbooks != 'true' && steps.filter.outputs.workflows != 'true'
+        run: echo "No web/, api/, infra/, runbook or .github/workflows/ changes detected — nothing to gate."

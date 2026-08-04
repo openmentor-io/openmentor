@@ -1,0 +1,54 @@
+# OpenMentor SLOs — versioned source of record.
+#
+# APPLIED 2026-08-04 via the Grafana Cloud SLO API (grafana-slo-app). Live
+# UUIDs are recorded per SLO below; nothing syncs this file automatically —
+# if you edit it, re-apply with a PUT to
+#   /api/plugins/grafana-slo-app/resources/v1/slo/<uuid>
+# (POST creates; the MCP's grafana_api_request tool can do both).
+#
+# Schema notes learned applying these (the API's parse errors don't say):
+#   - query.type "ratio" is REJECTED by the current plugin version's JSON
+#     parser — use "freeform" with a query that yields 0..1 and uses
+#     $__rate_interval.
+#   - destinationDatasource.uid is required (grafanacloud-prom).
+#   - the UI "Import" cannot ingest this file; it exists for humans + re-apply.
+#
+# Design notes:
+#   - Latency SLI uses le="0.5" over le="+Inf" (not _count): after container
+#     recreations the _count/_bucket pair briefly disagrees (observed ratio
+#     1.00008), while bucket/bucket is self-consistent by construction.
+#   - The worker has no SLO: it serves no users directly; its failures are
+#     covered by EmailSendFailures and the job metrics.
+#   - SLOs measure the quality of SERVED requests. A total outage (stack down,
+#     nothing scraped) is NOT visible to these SLIs — that class is covered by
+#     the ServiceDown alert (up, noDataState: Alerting).
+#   - Targets are starter values sized to ~7k req/day on the API (99.5%
+#     availability ≈ 36 requests/day of error budget). Revisit as traffic grows.
+#   - Burn-rate alerts (fastBurn ~14.4x, slowBurn ~1x — plugin defaults) are
+#     enabled on all three and route through the default notification policy.
+
+slos:
+  - uuid: 8jsmtuiicv4fdfha8njjx
+    name: openmentor-api-availability
+    objective: { value: 0.995, window: 30d }
+    sli: >-
+      sum(rate(http_server_request_total{service_name="openmentor-api",
+      http_response_status_code!~"5.."}[$__rate_interval])) /
+      sum(rate(http_server_request_total{service_name="openmentor-api"}[$__rate_interval]))
+
+  - uuid: 7fwf3rc4t4ywlu5r0835o
+    name: openmentor-api-latency
+    objective: { value: 0.99, window: 30d }
+    sli: >-
+      sum(rate(http_server_request_duration_seconds_bucket{service_name="openmentor-api",
+      le="0.5"}[$__rate_interval])) /
+      sum(rate(http_server_request_duration_seconds_bucket{service_name="openmentor-api",
+      le="+Inf"}[$__rate_interval]))
+
+  - uuid: 9v22ut6li36aib9t8gxdk
+    name: openmentor-frontend-availability
+    objective: { value: 0.995, window: 30d }
+    sli: >-
+      sum(rate(http_server_request_total{service_name="openmentor-frontend",
+      http_response_status_code!~"5.."}[$__rate_interval])) /
+      sum(rate(http_server_request_total{service_name="openmentor-frontend"}[$__rate_interval]))

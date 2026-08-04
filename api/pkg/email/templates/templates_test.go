@@ -1,7 +1,6 @@
 package templates
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -33,18 +32,6 @@ var expectedTemplates = map[string][]string{
 	// sent by the getmentor->openmentor migration tooling through the
 	// worker's /jobs/profile-migrated endpoint.
 	"profile-migrated": {"first_name", "mentor_profile_url"},
-}
-
-var placeholderRe = regexp.MustCompile(`\{\{([a-z_]+)\}\}`)
-
-func extractPlaceholders(tpl EmailTemplate) map[string]bool {
-	found := make(map[string]bool)
-	for _, section := range []string{tpl.Subject, tpl.HTML, tpl.Text} {
-		for _, match := range placeholderRe.FindAllStringSubmatch(section, -1) {
-			found[match[1]] = true
-		}
-	}
-	return found
 }
 
 func TestRegistryCompleteness(t *testing.T) {
@@ -85,13 +72,13 @@ func TestTemplatePlaceholders(t *testing.T) {
 			continue
 		}
 
-		found := extractPlaceholders(tpl)
+		found := Placeholders(tpl)
 		for _, placeholder := range wantPlaceholders {
-			if !found[placeholder] {
+			if !contains(found, placeholder) {
 				t.Errorf("template %q is missing placeholder {{%s}}", name, placeholder)
 			}
 		}
-		for placeholder := range found {
+		for _, placeholder := range found {
 			if !contains(wantPlaceholders, placeholder) {
 				t.Errorf("template %q has unexpected placeholder {{%s}}", name, placeholder)
 			}

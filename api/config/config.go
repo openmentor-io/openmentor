@@ -390,6 +390,9 @@ func (c *Config) Validate() error {
 	if err := c.validateWorkerConfig(); err != nil {
 		return err
 	}
+	if err := c.validateS3StorageConfig(); err != nil {
+		return err
+	}
 	return c.validateProfilingConfig()
 }
 
@@ -420,6 +423,46 @@ func (c *Config) validateWorkerConfig() error {
 		return fmt.Errorf("WORKER_AUTH_TOKEN is required in production")
 	}
 	return nil
+}
+
+// validateS3StorageConfig enforces a COMPLETE object storage configuration.
+// main.go only builds the storage client when the credentials are present, so
+// a half-configured bucket boots green and then nil-derefs on the first profile
+// picture — inside a detached goroutine, where recover() cannot save the
+// process. Production must be fully configured; off production an entirely
+// empty block is allowed (uploads self-disable and the photo paths reject with
+// ErrUploadsUnavailable), but a PARTIAL block is always a typo.
+func (c *Config) validateS3StorageConfig() error {
+	settings := []struct {
+		name  string
+		value string
+	}{
+		{"S3_STORAGE_ACCESS_KEY", c.S3Storage.AccessKeyID},
+		{"S3_STORAGE_SECRET_KEY", c.S3Storage.SecretAccessKey},
+		{"S3_STORAGE_BUCKET", c.S3Storage.BucketName},
+		{"S3_STORAGE_ENDPOINT", c.S3Storage.Endpoint},
+		{"S3_STORAGE_REGION", c.S3Storage.Region},
+	}
+
+	var missing []string
+	for _, setting := range settings {
+		if strings.TrimSpace(setting.value) == "" {
+			missing = append(missing, setting.name)
+		}
+	}
+
+	switch {
+	case len(missing) == 0:
+		return nil
+	case len(missing) < len(settings):
+		return fmt.Errorf("S3 object storage is partially configured: %s must also be set",
+			strings.Join(missing, ", "))
+	case c.IsProduction():
+		return fmt.Errorf("S3 object storage is required in production: %s",
+			strings.Join(missing, ", "))
+	default:
+		return nil
+	}
 }
 
 func (c *Config) validateDatabaseConfig() error {

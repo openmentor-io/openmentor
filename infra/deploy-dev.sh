@@ -126,13 +126,6 @@ env_get() {
     grep "^$1=" "$ENV_FILE" 2>/dev/null | head -n1 | cut -d'=' -f2-
 }
 
-# Regenerate .env.runtime: what the containers read via compose `env_file`.
-# It is .env WITHOUT the image-tag lines, so a tag-only deploy changes only
-# the retagged service's compose config (convergence recreates nothing else).
-regen_env_runtime() {
-    grep -vE '^(FRONTEND_IMAGE_TAG|BACKEND_IMAGE_TAG)=' "$ENV_FILE" > "$SCRIPT_DIR/.env.runtime"
-}
-
 # Set KEY=value in the local .env (replace existing line or append)
 env_set() {
     local key="$1" value="$2"
@@ -181,6 +174,9 @@ if [ ! -f "$ENV_FILE" ]; then
     cp "$SCRIPT_DIR/.env.example" "$ENV_FILE"
     env_set "DOMAIN" "localhost"
     env_set "APP_ENV" "development"
+    # Keeps a dev stack's metrics out of the production deployment's alert
+    # instances if it is ever pointed at the shared Grafana Cloud tenant
+    env_set "DEPLOYMENT_NAME" "local"
     env_set "LOG_LEVEL" "debug"
     env_set "NEXT_PUBLIC_APP_ENV" "development"
     env_set "JWT_SECRET" "$(openssl rand -hex 32)"
@@ -370,10 +366,12 @@ echo -e "${BLUE}🔐 Step 4/7: Updating image tags in .env...${NC}"
 cp "$ENV_FILE" "$ENV_FILE.backup"
 env_set "FRONTEND_IMAGE_TAG" "$FRONTEND_IMAGE_TAG"
 env_set "BACKEND_IMAGE_TAG" "$BACKEND_IMAGE_TAG"
-regen_env_runtime
+# SECURITY (P10): no .env.runtime any more - services declare explicit
+# `environment:` allowlists and .env alone drives compose interpolation.
+rm -f "$SCRIPT_DIR/.env.runtime"
 echo "  • FRONTEND_IMAGE_TAG=$FRONTEND_IMAGE_TAG"
 echo "  • BACKEND_IMAGE_TAG=$BACKEND_IMAGE_TAG"
-echo -e "${GREEN}✅ .env updated (previous version in .env.backup; .env.runtime regenerated)${NC}"
+echo -e "${GREEN}✅ .env updated (previous version in .env.backup)${NC}"
 echo ""
 
 # --------------------------------------------------------------------------
@@ -570,7 +568,6 @@ if [ $POSTGRES_HEALTHY -eq 0 ] || [ $FRONTEND_HEALTHY -eq 0 ] || \
     if [ -f "$ENV_FILE.backup" ] && ! cmp -s "$ENV_FILE" "$ENV_FILE.backup"; then
         echo -e "${YELLOW}🔄 ROLLING BACK to previous image tags (.env.backup)...${NC}"
         cp "$ENV_FILE.backup" "$ENV_FILE"
-        regen_env_runtime
         "${COMPOSE[@]}" up -d $UP_FLAGS
         echo -e "${YELLOW}Previous .env restored and stack re-converged.${NC}"
     fi

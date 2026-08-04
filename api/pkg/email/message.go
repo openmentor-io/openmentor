@@ -4,8 +4,8 @@ package email
 //
 // It mirrors the EmailMessage abstract class from
 // openmentor-func/lib/sendgrid/messages/EmailMessage.ts: a template
-// identifier, a recipient and the template properties (TemplateData)
-// substituted into {{placeholder}} markers server-side by SES.
+// identifier, a recipient and the template properties substituted into the
+// {{placeholder}} markers by pkg/email/templates.
 //
 // Stage 2 will add typed constructors for each business message
 // (new-mentor, new-request, ...) on top of this struct.
@@ -19,6 +19,8 @@ type Message struct {
 	Recipient string
 
 	// Props holds the template placeholder values, e.g.
-	// {"mentor_name": "...", "login_url": "..."}.
+	// {"mentor_name": "...", "login_url": "..."}. Values are escaped for the
+	// context they land in; use template.HTML only for markup the server
+	// itself built.
 	Props map[string]interface{}
 }

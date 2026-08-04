@@ -12,12 +12,10 @@ package imageclass
 
 import (
 	"bytes"
-	"encoding/base64"
+	"context"
 	"fmt"
 	"image"
-	"io"
 	"math"
-	"strings"
 
 	// Register the decoders for the profile-picture content types the API
 	// accepts (image/jpeg, image/png, image/webp).
@@ -49,7 +47,7 @@ const (
 )
 
 // recordClassification increments the photo classification counter with the
-// given result (hero|frame|error). It is a no-op when metrics are not
+// given result (hero|frame|error|busy). It is a no-op when metrics are not
 // initialized (e.g. in tests or tooling that never calls metrics.Init).
 func recordClassification(result string) {
 	if metrics.PhotoClassifications != nil {
@@ -57,11 +55,29 @@ func recordClassification(result string) {
 	}
 }
 
-// Classify decodes an image (jpeg, png or webp) from r and classifies it.
-// This is the shared core of ClassifyBytes/ClassifyBase64: every
-// classification attempt is counted here exactly once.
-func Classify(r io.Reader) (string, error) {
-	img, _, err := image.Decode(r)
+// ClassifyBytes classifies raw (already base64-decoded) image bytes: jpeg, png
+// or webp. It is the only path into image.Decode in this package, which is why
+// both memory guards live here: CheckBounds bounds the size of one decode and
+// the decode slot bounds how many run at once (see the decode budget in
+// bounds.go). Every classification attempt is counted here exactly once.
+//
+// ctx only bounds the wait for a decode slot; the decode itself is not
+// cancellable.
+func ClassifyBytes(ctx context.Context, data []byte) (string, error) {
+	if err := CheckBounds(data); err != nil {
+		recordClassification("error")
+		return "", err
+	}
+
+	if err := acquireDecodeSlot(ctx); err != nil {
+		recordClassification("busy")
+		return "", err
+	}
+	// Held past image.Decode on purpose: the budget is the live pixel buffer,
+	// which ClassifyImage still reads.
+	defer releaseDecodeSlot()
+
+	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		recordClassification("error")
 		return "", fmt.Errorf("failed to decode image: %w", err)
@@ -69,31 +85,6 @@ func Classify(r io.Reader) (string, error) {
 	style := ClassifyImage(img)
 	recordClassification(style)
 	return style, nil
-}
-
-// ClassifyBytes classifies raw (already decoded from base64) image bytes.
-func ClassifyBytes(data []byte) (string, error) {
-	return Classify(bytes.NewReader(data))
-}
-
-// ClassifyBase64 classifies a base64-encoded image, accepting both raw
-// base64 and data URI format (data:image/png;base64,...) — the same input
-// shape the profile-picture upload endpoints receive.
-func ClassifyBase64(imageData string) (string, error) {
-	if strings.HasPrefix(imageData, "data:") {
-		parts := strings.SplitN(imageData, ",", 2)
-		if len(parts) != 2 {
-			recordClassification("error")
-			return "", fmt.Errorf("invalid data URI format")
-		}
-		imageData = parts[1]
-	}
-	raw, err := base64.StdEncoding.DecodeString(imageData)
-	if err != nil {
-		recordClassification("error")
-		return "", fmt.Errorf("failed to decode base64 image: %w", err)
-	}
-	return ClassifyBytes(raw)
 }
 
 // ClassifyImage classifies an already-decoded image.

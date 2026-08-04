@@ -13,6 +13,9 @@ type ConfirmMentorEmailRequest struct {
 const (
 	ConfirmationCodeInvalid = "invalid_token"
 	ConfirmationCodeExpired = "token_expired"
+	// ConfirmationCodeRateLimited: this mentor's resend budget is spent, so the
+	// client should ask them to wait instead of retrying.
+	ConfirmationCodeRateLimited = "rate_limited"
 )
 
 // ConfirmMentorEmailResponse is the JSON response of both confirmation

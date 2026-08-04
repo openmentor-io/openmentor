@@ -37,7 +37,9 @@ import (
 func registerAPIRoutes(
 	group *gin.RouterGroup,
 	cfg *config.Config,
-	generalRateLimiter, contactRateLimiter, registrationRateLimiter, confirmResendRateLimiter *middleware.RateLimiter,
+	generalRateLimiter, contactRateLimiter, registrationRateLimiter *middleware.RateLimiter,
+	confirmResendFloodLimiter *middleware.RateLimiter,
+	uploadAdmission *middleware.AdmissionLimiter,
 	mentorHandler *handlers.MentorHandler,
 	contactHandler *handlers.ContactHandler,
 	logsHandler *handlers.LogsHandler,
@@ -52,16 +54,21 @@ func registerAPIRoutes(
 	group.GET("/mentor/:id", generalRateLimiter.Middleware(), middleware.TokenAuthMiddleware(cfg.Auth.MentorsAPIToken), mentorHandler.GetPublicMentorByID)
 	group.POST("/internal/mentors", generalRateLimiter.Middleware(), middleware.InternalAPIAuthMiddleware(cfg.Auth.InternalMentorsAPI), mentorHandler.GetInternalMentors)
 	group.POST("/contact-mentor", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), contactHandler.ContactMentor)
-	group.POST("/register-mentor", registrationRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024*1024), registrationHandler.RegisterMentor)
+	group.POST("/register-mentor", registrationRateLimiter.Middleware(), uploadAdmission.Middleware(),
+		middleware.BodySizeLimitMiddleware(10*1024*1024), registrationHandler.RegisterMentor)
 	// SECURITY: /logs appends to a file on disk, so it is gated behind the
 	// internal API token (server-to-server only, same as /internal/mentors) to
 	// prevent unauthenticated log injection / disk-fill DoS.
 	group.POST("/logs", generalRateLimiter.Middleware(), middleware.InternalAPIAuthMiddleware(cfg.Auth.InternalMentorsAPI), middleware.BodySizeLimitMiddleware(1*1024*1024), logsHandler.ReceiveFrontendLogs)
 
 	// Mentor email confirmation (public, draft-status registration flow).
-	// The resend endpoint issues fresh tokens and emails - login-tier limits.
+	// The resend endpoint issues fresh tokens and emails, so it carries a
+	// login-tier per-MENTOR limit — enforced inside MentorConfirmationService,
+	// which is the first place the mentor id exists. Here only the coarse global
+	// flood ceiling applies.
 	group.POST("/mentors/confirm", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024), mentorConfirmationHandler.Confirm)
-	group.POST("/mentors/confirm/resend", confirmResendRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024), mentorConfirmationHandler.Resend)
+	group.POST("/mentors/confirm/resend", confirmResendFloodLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024),
+		mentorConfirmationHandler.Resend)
 
 	// Review routes (public - uses captcha for protection)
 	group.GET("/reviews/:requestId/check", generalRateLimiter.Middleware(), reviewHandler.CheckReview)
@@ -84,6 +91,7 @@ func registerMentorAdminRoutes(
 	cfg *config.Config,
 	authRateLimiter *middleware.RateLimiter,
 	profileRateLimiter *middleware.RateLimiter,
+	uploadAdmission *middleware.AdmissionLimiter,
 	mentorAuthHandler *handlers.MentorAuthHandler,
 	mentorRequestsHandler *handlers.MentorRequestsHandler,
 	mentorProfileHandler *handlers.MentorProfileHandler,
@@ -122,7 +130,8 @@ func registerMentorAdminRoutes(
 	mentor.POST("/profile", profileRateLimiter.Middleware(), mentorProfileHandler.UpdateProfile)
 	mentor.POST("/profile/status", profileRateLimiter.Middleware(), mentorProfileHandler.UpdateProfileStatus)
 	mentor.POST("/profile/submit", profileRateLimiter.Middleware(), mentorProfileHandler.SubmitProfile)
-	mentor.POST("/profile/picture", profileRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024*1024), mentorProfileHandler.UploadPicture)
+	mentor.POST("/profile/picture", profileRateLimiter.Middleware(), uploadAdmission.Middleware(),
+		middleware.BodySizeLimitMiddleware(10*1024*1024), mentorProfileHandler.UploadPicture)
 
 	// Username (public name for the slug) — a DELIBERATELY separate flow from
 	// profile save: changing it is a breaking action (shared links, cached OG
@@ -138,6 +147,7 @@ func registerAdminModerationRoutes(
 	cfg *config.Config,
 	authRateLimiter *middleware.RateLimiter,
 	profileRateLimiter *middleware.RateLimiter,
+	uploadAdmission *middleware.AdmissionLimiter,
 	adminAuthHandler *handlers.AdminAuthHandler,
 	adminMentorsHandler *handlers.AdminMentorsHandler,
 	adminMentorRequestsHandler *handlers.AdminMentorRequestsHandler,
@@ -167,7 +177,8 @@ func registerAdminModerationRoutes(
 	admin.POST("/mentors/:id/decline", adminMentorsHandler.DeclineMentor)
 	admin.POST("/mentors/:id/return", adminMentorsHandler.ReturnMentor)
 	admin.POST("/mentors/:id/status", adminMentorsHandler.UpdateMentorStatus)
-	admin.POST("/mentors/:id/picture", profileRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024*1024), adminMentorsHandler.UploadMentorPicture)
+	admin.POST("/mentors/:id/picture", profileRateLimiter.Middleware(), uploadAdmission.Middleware(),
+		middleware.BodySizeLimitMiddleware(10*1024*1024), adminMentorsHandler.UploadMentorPicture)
 
 	// Username change (admin role only, no cooldown; goes through the same
 	// history/redirect machinery as the mentor flow).
@@ -268,7 +279,11 @@ func main() { //nolint:gocyclo
 	// NOTE: Database migrations are now run separately via the migrate command
 	// Run migrations before starting the app: ./migrate or docker-compose run migrate
 
-	// Initialize S3-compatible object storage client (profile pictures)
+	// Initialize S3-compatible object storage client (profile pictures).
+	// config.validateS3StorageConfig has already rejected a partial block and
+	// required a complete one in production, so the client is nil only when
+	// storage is deliberately unconfigured off production — the photo paths
+	// then reject with services.ErrUploadsUnavailable instead of panicking.
 	var storageClient *s3storage.StorageClient
 	if cfg.S3Storage.AccessKeyID != "" && cfg.S3Storage.SecretAccessKey != "" {
 		storageClient, err = s3storage.NewStorageClient(
@@ -281,6 +296,8 @@ func main() { //nolint:gocyclo
 		if err != nil {
 			logger.Fatal("Failed to initialize S3 storage client", zap.Error(err))
 		}
+	} else {
+		logger.Warn("S3 object storage not configured: profile picture uploads are disabled")
 	}
 
 	// Tags cache is created with a placeholder fetcher, then rebound to the
@@ -324,6 +341,13 @@ func main() { //nolint:gocyclo
 	reviewRepo := repository.NewReviewRepository(pool)
 	migrationIntentRepo := repository.NewMigrationIntentRepository(pool)
 
+	// Confirmation resends are limited per MENTOR, not per token or per IP: every
+	// resend issues a fresh token, so a token-keyed bucket is new on each attempt
+	// and limits nothing, and behind the BFF every request shares one source IP.
+	// The mentor id is only known after the token lookup, which is why this
+	// limiter is a service dependency rather than middleware.
+	confirmResendRateLimiter := middleware.NewRateLimiter(0.00667, 2) // per mentor: 2 per 5 min
+
 	// Initialize services
 	mentorService := services.NewMentorService(mentorRepo, cfg)
 	contactService := services.NewContactService(clientRequestRepo, mentorRepo, cfg, httpClient, analyticsTracker)
@@ -336,7 +360,7 @@ func main() { //nolint:gocyclo
 	adminMentorsService := services.NewAdminMentorsService(mentorRepo, profileService, cfg, httpClient, analyticsTracker)
 	adminRequestsService := services.NewAdminRequestsService(clientRequestRepo, analyticsTracker)
 	migrationIntentService := services.NewMigrationIntentService(migrationIntentRepo, cfg, httpClient, analyticsTracker)
-	mentorConfirmationService := services.NewMentorConfirmationService(mentorRepo, cfg, httpClient, analyticsTracker)
+	mentorConfirmationService := services.NewMentorConfirmationService(mentorRepo, cfg, httpClient, analyticsTracker, confirmResendRateLimiter)
 	usernameService := services.NewUsernameService(mentorRepo, analyticsTracker)
 
 	// Initialize handlers
@@ -394,22 +418,37 @@ func main() { //nolint:gocyclo
 	// SECURITY: Rate limiters to prevent abuse and DoS attacks
 	// Different limits for different endpoint types
 	generalRateLimiter := middleware.NewRateLimiter(100, 200) // 100 req/sec, burst of 200
-	contactRateLimiter := middleware.NewRateLimiter(5, 10)    // 5 req/sec, burst of 10 (prevent spam)
-	profileRateLimiter := middleware.NewRateLimiter(10, 20)   // 10 req/sec, burst of 20
-	// Registration abuse is stopped by server-verified, single-use Turnstile
-	// tokens (RegistrationService.captchaVerifier), so this is NOT a per-user
-	// throttle — the old 2/5min was IP-keyed and, behind the BFF's shared IP,
-	// collapsed into one global bucket that would lock out registrations under
-	// a launch surge. Kept only as a coarse GLOBAL DoS ceiling (bounds the
-	// blast radius of a captcha-solver flood on the DB + confirmation emails);
-	// legitimate volume is a few per minute, nowhere near this.
+	// contactRateLimiter stays IP-keyed, i.e. global behind the BFF: these
+	// endpoints are captcha-gated per request, and the only payload field that
+	// could key them (a mentee's self-declared email) is attacker-chosen, so
+	// keying on it would let a spammer opt out by varying it.
+	contactRateLimiter := middleware.NewRateLimiter(5, 10)  // 5 req/sec, burst of 10 (prevent spam)
+	profileRateLimiter := middleware.NewRateLimiter(10, 20) // 10 req/sec, burst of 20
+	// Registration abuse is stopped by the server-verified, single-use Turnstile
+	// token (RegistrationService.captchaVerifier). This limiter is only a coarse
+	// GLOBAL ceiling on a captcha-solver flood — per-user it cannot be, because
+	// behind the BFF every registration shares one source IP.
 	registrationRateLimiter := middleware.NewRateLimiter(5, 20) // coarse global cap: ~5/sec, burst 20
 	// Login-link limiters are keyed on the target EMAIL (EmailRateLimitMiddleware),
 	// not the shared BFF IP — burst 3 then ~1 per 3 min lets a mentor retry a
 	// couple of times without locking every other mentor out.
-	mentorAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3)  // 3 emails/addr, then 1 per 3 min
-	adminAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3)   // 3 emails/addr, then 1 per 3 min
-	confirmResendRateLimiter := middleware.NewRateLimiter(0.00667, 2) // 2 req/5min, burst of 2 (confirmation resend abuse prevention, login tier)
+	mentorAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3) // 3 emails/addr, then 1 per 3 min
+	adminAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3)  // 3 emails/addr, then 1 per 3 min
+	// The per-mentor resend limit lives in MentorConfirmationService (see
+	// confirmResendRateLimiter above); this one is only the coarse global ceiling
+	// on token-guessing lookups.
+	confirmResendFloodLimiter := middleware.NewRateLimiter(5, 20) // coarse global cap: ~5/sec, burst 20
+
+	// ONE admission limiter shared by every route that accepts a 10 MiB body
+	// (registration and the two picture uploads), because they share one 512 MiB
+	// container. The rate limiters above cap arrivals per second, not how many
+	// payloads are resident: an admitted upload retains ~31 MiB until it returns
+	// (body string + JSON decoder buffer + the base64-decoded image), so the
+	// burst of 20 those limiters allow is ~620 MiB and the decode semaphore in
+	// pkg/imageclass never gets to help. Four in flight is ~124 MiB, plus the
+	// 128 MiB decode budget, and it is far above real demand — a handful of
+	// uploads a day.
+	uploadAdmission := middleware.NewAdmissionLimiter(4, 5*time.Second)
 
 	// API routes
 	api := router.Group("/api")
@@ -420,15 +459,16 @@ func main() { //nolint:gocyclo
 	// API v1 routes
 	// SECURITY: Apply body size limits to prevent DoS attacks
 	v1 := router.Group("/api/v1")
-	registerAPIRoutes(v1, cfg, generalRateLimiter, contactRateLimiter, registrationRateLimiter, confirmResendRateLimiter,
+	registerAPIRoutes(v1, cfg, generalRateLimiter, contactRateLimiter, registrationRateLimiter,
+		confirmResendFloodLimiter, uploadAdmission,
 		mentorHandler, contactHandler, logsHandler, registrationHandler, reviewHandler, migrationIntentHandler,
 		mentorConfirmationHandler, usernameHandler)
 
 	// Mentor admin routes (authentication, request management, and profile)
-	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, usernameHandler, mentorAuthService.GetTokenManager())
+	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, uploadAdmission, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, usernameHandler, mentorAuthService.GetTokenManager())
 
 	// Moderator/Admin web moderation routes
-	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, adminAuthHandler, adminMentorsHandler, adminMentorRequestsHandler, usernameHandler, adminAuthService.GetTokenManager())
+	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, uploadAdmission, adminAuthHandler, adminMentorsHandler, adminMentorRequestsHandler, usernameHandler, adminAuthService.GetTokenManager())
 
 	// Create HTTP server
 	// SECURITY: Bind to all interfaces for Docker Compose networking

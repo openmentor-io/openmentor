@@ -319,12 +319,16 @@ func ModeratorDistinctID(moderatorID string) string {
 	return prefixedDistinctID("moderator", moderatorID)
 }
 
-func RequestDistinctID(requestID string) string {
-	return prefixedDistinctID("request", requestID)
-}
-
 func ReviewDistinctID(reviewID string) string {
 	return prefixedDistinctID("review", reviewID)
+}
+
+// AnonymousDistinctID is the distinct id for events that must not create a
+// person record. Track substitutes the source system's own id, so events group
+// under "system:api" / "system:worker" instead of the capability-bearing
+// "request:<uuid>" person the review and contact flows used to create (P14).
+func AnonymousDistinctID() string {
+	return ""
 }
 
 func SystemDistinctID(system string) string {
@@ -351,7 +355,7 @@ func sanitizeProperties(properties map[string]interface{}) map[string]interface{
 	safe := make(map[string]interface{}, len(properties))
 	for key, value := range properties {
 		normalizedKey := strings.TrimSpace(key)
-		if normalizedKey == "" || isBlockedPropertyKey(normalizedKey) || value == nil {
+		if normalizedKey == "" || value == nil || isBlockedProperty(normalizedKey, value) {
 			continue
 		}
 
@@ -380,24 +384,74 @@ func trimStringValue(input string) string {
 	return trimmed[:512]
 }
 
-func isBlockedPropertyKey(key string) bool {
-	blockedKeys := map[string]struct{}{
-		"email":           {},
-		"mentor_email":    {},
-		"moderator_email": {},
-		"name":            {},
-		"mentor_name":     {},
-		"moderator_name":  {},
-		"contact":         {},
-		"intro":           {},
-		"description":     {},
-		"review":          {},
-		"mentor_review":   {},
-		"platform_review": {},
-		"improvements":    {},
-		"login_url":       {},
+// blockedPropertyKeys are matched against the SEPARATOR-FREE spelling of a
+// property key, so request_id and requestId are one entry (mirrors
+// blockedPropertyKeys in web/src/lib/analytics.ts).
+var blockedPropertyKeys = map[string]struct{}{
+	"email":          {},
+	"mentoremail":    {},
+	"moderatoremail": {},
+	"name":           {},
+	"mentorname":     {},
+	"moderatorname":  {},
+	"contact":        {},
+	"intro":          {},
+	"description":    {},
+	"review":         {},
+	"mentorreview":   {},
+	"platformreview": {},
+	"improvements":   {},
+	"loginurl":       {},
+	"confirmurl":     {},
+}
+
+// blockedPropertyKeySuffixes catch credential- and capability-shaped keys
+// without enumerating every spelling: request_id / client_request_id are bearer
+// tokens for the review flow (P14), and login_token / confirm_token / captchaToken
+// are credentials.
+var blockedPropertyKeySuffixes = []string{
+	"requestid",
+	"token",
+	"secret",
+	"password",
+}
+
+func isBlockedProperty(key string, value interface{}) bool {
+	normalized := normalizePropertyKey(key)
+	if normalized == "" {
+		return false
 	}
 
-	_, found := blockedKeys[strings.ToLower(strings.TrimSpace(key))]
-	return found
+	if _, found := blockedPropertyKeys[normalized]; found {
+		return true
+	}
+
+	// A capability or credential is always a string, so a shape-matched key
+	// carrying a boolean or a number is a derived fact worth keeping
+	// (has_request_id, captcha_token_length).
+	switch value.(type) {
+	case bool, int, int8, int16, int32, int64, float32, float64, uint, uint8, uint16, uint32, uint64:
+		return false
+	}
+
+	for _, suffix := range blockedPropertyKeySuffixes {
+		if strings.HasSuffix(normalized, suffix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// normalizePropertyKey folds case and separators so request_id, requestId and
+// REQUEST-ID compare equal.
+func normalizePropertyKey(key string) string {
+	var builder strings.Builder
+	builder.Grow(len(key))
+	for _, r := range strings.ToLower(strings.TrimSpace(key)) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
 }

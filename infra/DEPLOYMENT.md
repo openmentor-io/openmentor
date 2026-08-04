@@ -105,9 +105,15 @@ The script will:
    - frontend `http://localhost:3000/api/healthcheck`
    - backend `http://localhost:8081/api/healthcheck`
    - worker `http://localhost:8090/healthz`
-   - postgres `pg_isready` + backup sidecar running state
+   - postgres `pg_isready` + the backup sidecar's compose healthcheck
+     (`.State.Health.Status` — docker keeps an *unhealthy* container in state
+     `running`, so `.State.Status` alone made stale dumps invisible here;
+     `starting` and a VM whose compose file predates the healthcheck pass)
 10. **Automatically roll back** (restore the previous `.env`, re-pull,
-    re-up) if any health check fails
+    re-up) if any health check fails — except a backup sidecar that is running
+    but `unhealthy`, which ends the deploy with **exit 2** and no rollback:
+    reverting working images cannot make a `pg_dump` run, and a deploy that
+    aborts halfway is worse than the stale dump
 11. Verify the public endpoint `https://$DOMAIN/api/healthcheck`
 
 Notes:
@@ -124,6 +130,30 @@ Notes:
 - Postgres image pin bumps recreate the container **safely**: the data lives
   in the external `openmentor-postgres-data` volume. Minor/patch versions
   only — major upgrades follow `../docs/runbooks/postgres-backup-restore.md`.
+
+### First deploy after the per-service env allowlists (P10)
+
+Recommended order: **`./deploy.sh infra` (or `all`) first**, then normal
+app-only deploys.
+
+The per-service `environment:` allowlists replaced `env_file: .env.runtime`.
+That change lives in `docker-compose.yml`, which only the `infra` target
+syncs, while `deploy-remote.sh` is always piped from the local checkout — so
+on a default `./deploy.sh` the VM would run the *old* compose file against the
+*new* remote script. Compose treats `env_file` as required, so a VM without
+`.env.runtime` cannot even be inspected:
+
+```
+env file /opt/openmentor/infra/.env.runtime not found
+```
+
+`deploy-remote.sh` and `rollback.sh` therefore decide from the compose file
+**on the VM**: while it still declares `env_file: .env.runtime` they
+regenerate that file (mode 600, image-tag lines stripped) and print the
+upgrade order; the first deploy that carries the new compose file is the one
+that deletes it. An app-only deploy is safe either way — it just leaves the
+shared secret file in place until `infra` is synced. Covered by
+`make deploy-tests`.
 
 ## Rollback
 

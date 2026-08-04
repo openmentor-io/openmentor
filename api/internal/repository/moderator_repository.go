@@ -41,8 +41,12 @@ func (r *ModeratorRepository) GetByEmail(ctx context.Context, email string) (*mo
 }
 
 func (r *ModeratorRepository) GetByLoginToken(ctx context.Context, token string) (*models.Moderator, time.Time, error) {
+	// moderators.email is nullable, and unlike GetByEmail no predicate here
+	// constrains it — so without the COALESCE a NULL would fail the scan and
+	// lock that moderator out of the admin panel. Read as ::text like every
+	// other citext read in the codebase.
 	query := `
-		SELECT id, name, email, role, login_token_expires_at
+		SELECT id, name, COALESCE(email::text, ''), role, login_token_expires_at
 		FROM moderators
 		WHERE login_token = $1
 		LIMIT 1

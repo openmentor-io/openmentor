@@ -1,8 +1,10 @@
 package worker
 
 import (
+	"context"
 	cryptorand "crypto/rand"
 	"encoding/hex"
+	"errors"
 	"math/rand/v2"
 	"net/http"
 	"strings"
@@ -51,7 +53,6 @@ func generateConfirmationToken() (string, error) {
 //     duplicates get the final 'declined' status here.
 func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 	ctx := c.Request.Context()
-	const job = "new-mentor-watcher"
 
 	mentorID := c.Query("mentorId")
 	if mentorID == "" {
@@ -62,43 +63,105 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		return
 	}
 
-	mentor, err := h.repo.GetJobMentorByID(ctx, mentorID)
+	res, err := h.finalizeNewMentor(ctx, mentorID)
 	if err != nil {
-		logger.Error("[New Mentor] Failed to fetch mentor", zap.String("mentor_id", mentorID), zap.Error(err))
+		if errors.Is(err, errFinalizeMentorNotFound) {
+			h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
+				"mentor_id": mentorID,
+				"outcome":   "mentor_not_found",
+			})
+			c.JSON(http.StatusNotFound, gin.H{"error": "mentor not found"})
+			return
+		}
 		h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id":  mentorID,
 			"outcome":    "error",
-			"error_type": "db_error",
+			"error_type": res.ErrorType,
 		})
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch mentor"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": res.Message})
 		return
+	}
+
+	if res.Superseded {
+		// Idempotent no-op, so answer 200: a retry would find the same state.
+		h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
+			"mentor_id": mentorID,
+			"outcome":   "superseded",
+		})
+		c.JSON(http.StatusOK, gin.H{"success": true, "mentorId": mentorID, "superseded": true})
+		return
+	}
+
+	h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
+		"mentor_id":        mentorID,
+		"status":           res.Status,
+		"duplicates_count": res.Duplicates,
+		"outcome":          "success",
+	})
+	c.JSON(http.StatusOK, gin.H{"success": true, "mentorId": mentorID, "status": res.Status})
+}
+
+// errFinalizeMentorNotFound reports that the mentor row is gone (the trigger
+// raced a deletion), which is a 404 rather than a retryable failure.
+var errFinalizeMentorNotFound = errors.New("mentor not found")
+
+// finalizeResult describes one finalization run for the caller's reporting:
+// the HTTP handler turns it into a response + analytics event, the
+// finalize-stuck-registrations cron job into a JobSummary.
+type finalizeResult struct {
+	Status     string // draft | declined
+	Duplicates int
+	// Superseded reports that the row was no longer 'draft' when the guarded
+	// finalization UPDATE ran, so nothing was written and nothing was emailed.
+	// Not an error: another actor already moved the registration forward.
+	Superseded bool
+	// ErrorType is the analytics error_type and Message the client-facing
+	// reason; both are set only when finalizeNewMentor returns an error.
+	ErrorType string
+	Message   string
+}
+
+// finalizeNewMentor is the idempotent core of the new-mentor-watcher job:
+// duplicate-email check, slug fallback, the single finalization UPDATE
+// (name/contact, status, sort_order, confirmation token) and the resulting
+// email. Re-running it is safe — the UPDATE is absolute, not incremental, and it
+// re-issues a confirmation token only once the previous one can no longer be used
+// — which is what lets finalize-stuck-registrations replay a trigger that never
+// arrived without stepping on a link a mentor may still be holding.
+//
+// Ordering: the UPDATE claims the row FIRST and the email goes out only once the
+// claim landed, so no mentor is ever sent a token that was not stored. A send
+// failure then releases the claim, which is what keeps the row in the cron's
+// replay set. The residual failure mode is narrow and self-correcting: if the
+// send actually reached SES but reported failure, or the process dies between the
+// send and the release, the mentor may receive a link that a later pass replaces
+// (or, if the release itself fails, waits for the token's 24h expiry before the
+// replay's second leg picks the row up).
+func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (finalizeResult, error) {
+	const job = "new-mentor-watcher"
+	res := finalizeResult{Status: mentorStatusDraft}
+
+	mentor, err := h.repo.GetJobMentorByID(ctx, mentorID)
+	if err != nil {
+		logger.Error("[New Mentor] Failed to fetch mentor", zap.String("mentor_id", mentorID), logger.RedactedError(err))
+		res.ErrorType, res.Message = errTypeDBError, "failed to fetch mentor"
+		return res, err
 	}
 	if mentor == nil {
 		logger.Warn("[New Mentor] Mentor not found", zap.String("mentor_id", mentorID))
-		h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
-			"mentor_id": mentorID,
-			"outcome":   "mentor_not_found",
-		})
-		c.JSON(http.StatusNotFound, gin.H{"error": "mentor not found"})
-		return
+		return res, errFinalizeMentorNotFound
 	}
-
-	newStatus := mentorStatusDraft
 
 	duplicates, err := h.repo.CountActiveMentorsByEmail(ctx, mentor.Email)
 	if err != nil {
-		logger.Error("[New Mentor] Failed to check duplicates", zap.String("mentor_id", mentorID), zap.Error(err))
-		h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
-			"mentor_id":  mentorID,
-			"outcome":    "error",
-			"error_type": "db_error",
-		})
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to check duplicates"})
-		return
+		logger.Error("[New Mentor] Failed to check duplicates", zap.String("mentor_id", mentorID), logger.RedactedError(err))
+		res.ErrorType, res.Message = errTypeDBError, "failed to check duplicates"
+		return res, err
 	}
+	res.Duplicates = duplicates
 	if duplicates > 0 {
 		logger.Info("[New Mentor] Duplicate mentor found", zap.String("mentor_id", mentorID))
-		newStatus = mentorStatusDeclined
+		res.Status = mentorStatusDeclined
 	}
 
 	mentor.PreferredContact = strings.TrimSpace(mentor.PreferredContact)
@@ -115,49 +178,58 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 	// link. Duplicates are declined and get no token.
 	var confirmToken *string
 	var confirmExpiresAt *time.Time
-	if newStatus == mentorStatusDraft {
+	if res.Status == mentorStatusDraft {
 		token, tokenErr := generateConfirmationToken()
 		if tokenErr != nil {
-			logger.Error("[New Mentor] Failed to generate confirmation token", zap.String("mentor_id", mentorID), zap.Error(tokenErr))
-			h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
-				"mentor_id":  mentorID,
-				"outcome":    "error",
-				"error_type": "token_generation_failed",
-			})
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to generate confirmation token"})
-			return
+			logger.Error("[New Mentor] Failed to generate confirmation token", zap.String("mentor_id", mentorID), logger.RedactedError(tokenErr))
+			res.ErrorType, res.Message = "token_generation_failed", "failed to generate confirmation token"
+			return res, tokenErr
 		}
 		expiresAt := time.Now().Add(confirmationTokenTTL)
 		confirmToken = &token
 		confirmExpiresAt = &expiresAt
 	}
 
-	err = h.repo.FinalizeNewMentor(ctx, FinalizeNewMentorParams{
-		MentorID:                   mentor.ID,
-		Name:                       mentor.Name,
-		PreferredContact:           mentor.PreferredContact,
-		Slug:                       mentor.Slug,
-		Status:                     newStatus,
-		SortOrder:                  rand.IntN(1000), //nolint:gosec // G404: cosmetic catalog shuffle, not a security decision
-		EmailConfirmationToken:     confirmToken,
-		EmailConfirmationExpiresAt: confirmExpiresAt,
-	})
+	// The row is CLAIMED before anything is emailed, because the confirmation
+	// link only works if the token behind it was stored: a mentor who confirms (or
+	// a moderator who acts) between the read above and this write leaves the claim
+	// matching no row, and emailing then would hand out a dead link and report
+	// success. ExpectedEmailConfirmationToken carries the token this job READ, so
+	// the claim is a compare-and-swap and only ONE of two racing callers (two cron
+	// passes, a cron pass against a redelivered trigger) can win it.
+	params := FinalizeNewMentorParams{
+		MentorID:                       mentor.ID,
+		Name:                           mentor.Name,
+		PreferredContact:               mentor.PreferredContact,
+		Slug:                           mentor.Slug,
+		Status:                         res.Status,
+		SortOrder:                      rand.IntN(1000), //nolint:gosec // G404: cosmetic catalog shuffle, not a security decision
+		EmailConfirmationToken:         confirmToken,
+		EmailConfirmationExpiresAt:     confirmExpiresAt,
+		ExpectedEmailConfirmationToken: mentor.EmailConfirmationToken,
+	}
+	applied, err := h.repo.FinalizeNewMentor(ctx, params)
 	if err != nil {
-		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), zap.Error(err))
-		h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentorID), map[string]interface{}{
-			"mentor_id":  mentorID,
-			"outcome":    "error",
-			"error_type": "db_error",
-		})
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to update mentor"})
-		return
+		logger.Error("[New Mentor] Failed to update mentor", zap.String("mentor_id", mentorID), logger.RedactedError(err))
+		res.ErrorType, res.Message = errTypeDBError, "failed to update mentor"
+		return res, err
+	}
+	if !applied {
+		// The registration left draft, or another caller finalized it first.
+		// Nothing was written, so there is nothing to tell the mentor about and
+		// nothing to retry — and in the lost-race case the winner is emailing the
+		// token that IS in the row.
+		logger.Info("[New Mentor] Registration already finalized or no longer draft, skipping",
+			zap.String("mentor_id", mentorID))
+		res.Superseded = true
+		return res, nil
 	}
 
 	// A fresh registration only gets the email confirmation request; the
 	// "application received" mentor email and the moderator notification
 	// move to the mentor-confirmed job (after the mentor clicks the link).
 	var sendErr error
-	if newStatus == mentorStatusDraft {
+	if res.Status == mentorStatusDraft {
 		sendErr = h.sendEmail(ctx, job, email.Message{
 			TemplateName: "mentor-confirm-email",
 			Recipient:    mentor.Email,
@@ -174,20 +246,17 @@ func (h *Handlers) NewMentorWatcher(c *gin.Context) {
 		})
 	}
 	if sendErr != nil {
-		h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentor.ID), map[string]interface{}{
-			"mentor_id":  mentor.ID,
-			"outcome":    "error",
-			"error_type": "email_send_failed",
-		})
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to send emails"})
-		return
+		// Claiming the row took it out of finalize-stuck-registrations' replay
+		// set, so hand it back: without this the mentor waits for the token's 24h
+		// expiry before the cron looks at them again, and a declined duplicate is
+		// never told at all.
+		if releaseErr := h.repo.ReleaseNewMentorFinalization(ctx, params); releaseErr != nil {
+			logger.Error("[New Mentor] Failed to release finalization after a failed send",
+				zap.String("mentor_id", mentorID), logger.RedactedError(releaseErr))
+		}
+		res.ErrorType, res.Message = errTypeEmailSendFailed, "failed to send emails"
+		return res, sendErr
 	}
 
-	h.track(ctx, analytics.EventNewMentorWatcherProcessed, analytics.MentorDistinctID(mentor.ID), map[string]interface{}{
-		"mentor_id":        mentor.ID,
-		"status":           newStatus,
-		"duplicates_count": duplicates,
-		"outcome":          "success",
-	})
-	c.JSON(http.StatusOK, gin.H{"success": true, "mentorId": mentor.ID, "status": newStatus})
+	return res, nil
 }

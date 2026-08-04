@@ -39,6 +39,29 @@ jobs:
     name: Run Tests
     runs-on: ubuntu-latest
 
+    # Two facts live in SQL and in pgx, where no fake can model them: the
+    # worker's registration-finalization claim (an UPDATE whose WHERE Postgres
+    # re-evaluates against the winning writer's row) and pgx's refusal to decode
+    # a NULL into a non-pointer destination, which is what makes an
+    # un-COALESCEd nullable column unreadable. The tests for both skip when
+    # OPENMENTOR_TEST_DATABASE_URL is unset, which is why they run in this deep
+    # job rather than the fast required-checks gate. Throwaway credentials, not
+    # secrets.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openmentor
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: openmentor_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U openmentor -d openmentor_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -56,6 +79,8 @@ jobs:
         run: go mod verify
 
       - name: Run tests with race detector and coverage
+        env:
+          OPENMENTOR_TEST_DATABASE_URL: postgres://openmentor:ci@127.0.0.1:5432/openmentor_test?sslmode=disable
         run: |
           # -coverpkg measures coverage across all packages, not just test packages
           go test -race -timeout=5m -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
@@ -162,6 +187,10 @@ jobs:
           # which hard-requires these vars in production (APP_ENV defaults to
           # production) — including JWT_SECRET (>=32 chars) and WORKER_AUTH_TOKEN
           # per the security hardening. Share one env file so they can't drift.
+          #
+          # The S3_STORAGE_* block must be COMPLETE or config validation fails
+          # in production; the values are unused here because NewStorageClient
+          # makes no network call and the smoke test uploads nothing.
           printf '%s\n' \
             "DATABASE_URL=$DBURL" \
             'INTERNAL_MENTORS_API=test-token' \
@@ -169,6 +198,11 @@ jobs:
             'TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA' \
             'JWT_SECRET=ci-jwt-secret-not-a-real-secret-0123456789' \
             'WORKER_AUTH_TOKEN=ci-worker-token' \
+            'S3_STORAGE_ACCESS_KEY=ci-access-key' \
+            'S3_STORAGE_SECRET_KEY=ci-secret-key' \
+            'S3_STORAGE_BUCKET=ci-bucket' \
+            'S3_STORAGE_ENDPOINT=http://s3.invalid' \
+            'S3_STORAGE_REGION=auto' \
             > ci.env
 
           docker run -d --name pg --network ci-net \

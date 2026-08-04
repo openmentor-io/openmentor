@@ -36,6 +36,13 @@ const (
 	mentorStatusDeclined = "declined"
 )
 
+// Failure kinds reported on job results and as the analytics `error_type`
+// property. Tests keep the literals on purpose: they pin the wire values.
+const (
+	errTypeDBError         = "db_error"
+	errTypeEmailSendFailed = "email_send_failed"
+)
+
 // EmailSender is the subset of pkg/email.Sender the job handlers use;
 // tests substitute a fake.
 type EmailSender interface {
@@ -127,7 +134,7 @@ func (h *Handlers) sendEmail(ctx context.Context, job string, msg email.Message)
 			zap.String("job", job),
 			zap.String("template", msg.TemplateName),
 			zap.String("recipient", msg.Recipient),
-			zap.Error(err),
+			logger.RedactedError(err),
 		)
 		return err
 	}

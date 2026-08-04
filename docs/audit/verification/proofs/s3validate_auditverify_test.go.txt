@@ -1,0 +1,60 @@
+package config
+
+import (
+	"strings"
+	"testing"
+)
+
+// productionBaseline is a Config that passes Validate() in production mode,
+// with EVERY S3 field left empty on purpose.
+func productionBaseline() *Config {
+	c := &Config{}
+	c.Server.AppEnv = "production"
+	c.Server.Port = "8080"
+	c.Server.GinMode = "release"
+	c.Server.BaseURL = "https://openmentor.io"
+	c.Server.AllowedOrigins = []string{"https://openmentor.io"}
+	c.Server.TrustedProxies = []string{"127.0.0.1/32"}
+	c.Database.URL = "postgres://user:pass@localhost:5432/db"
+	c.Auth.InternalMentorsAPI = "internal-token"
+	c.Auth.MentorsAPIToken = "list-token"
+	c.Analytics.Provider = "none"
+	c.Turnstile.SecretKey = "turnstile-secret"
+	c.MentorSession.JWTSecret = strings.Repeat("x", 32)
+	c.Worker.AuthToken = "worker-token"
+	// S3Storage left entirely zero-valued.
+	return c
+}
+
+// TestAuditConfigValidateIgnoresS3 asks: does Validate() catch missing S3
+// credentials in production?
+func TestAuditConfigValidateIgnoresS3(t *testing.T) {
+	c := productionBaseline()
+	t.Logf("IsProduction() = %v", c.IsProduction())
+	t.Logf("S3Storage = %+v (all empty)", c.S3Storage)
+
+	err := c.Validate()
+	t.Logf("Validate() with production APP_ENV and empty S3 creds -> err = %v", err)
+	if err == nil {
+		t.Logf("VERDICT: Validate() returns nil. S3 settings are NOT validated at all;")
+		t.Logf("         cmd/api/main.go:271-283 then leaves storageClient == nil with no fatal.")
+	} else {
+		t.Logf("VERDICT: Validate() rejected the empty S3 config.")
+	}
+
+	// Show that the baseline is otherwise a real production-mode check by
+	// removing a field that IS validated.
+	c2 := productionBaseline()
+	c2.MentorSession.JWTSecret = ""
+	t.Logf("control: same config with empty JWT_SECRET -> err = %v", c2.Validate())
+	c3 := productionBaseline()
+	c3.Worker.AuthToken = ""
+	t.Logf("control: same config with empty WORKER_AUTH_TOKEN -> err = %v", c3.Validate())
+
+	// Partial S3 config (creds present, endpoint/region missing) is the other
+	// silent failure mode: NewStorageClient errors -> logger.Fatal at boot.
+	c4 := productionBaseline()
+	c4.S3Storage.AccessKeyID = "key"
+	c4.S3Storage.SecretAccessKey = "secret"
+	t.Logf("partial S3 (creds set, endpoint+region empty) -> Validate() err = %v", c4.Validate())
+}

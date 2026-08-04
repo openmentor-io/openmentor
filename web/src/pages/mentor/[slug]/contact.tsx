@@ -15,11 +15,12 @@ import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import analytics from '@/lib/analytics'
 import { safeHttpUrl } from '@/lib/safe-url'
+import { GENERIC_SUBMIT_ERROR, upstreamErrorMessage } from '@/lib/upstream-error'
 import { captureException } from '@/lib/posthog'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
 import pluralize from '@/lib/pluralize'
-import type { MentorBase } from '@/types'
+import type { ContactMentorResponse, MentorBase } from '@/types'
 
 // Rate limiting configuration
 const RATE_LIMIT_CONFIG = {
@@ -155,6 +156,7 @@ export default function OrderMentor({
   const [readyStatus, setReadyStatus] = useState<ReadyStatus>('')
   const [formData, setFormData] = useState<ContactFormData | undefined>()
   const [submissionRequestId, setSubmissionRequestId] = useState<string | undefined>()
+  const [errorMessage, setErrorMessage] = useState<string>()
 
   const today = new Date().toISOString().slice(0, 10)
   const firstName = mentor.name.split(' ')[0]
@@ -243,46 +245,40 @@ export default function OrderMentor({
         'Content-Type': 'application/json',
       },
     })
-      .then((res) => {
-        if (!res.ok) {
-          analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
-            mentor_id: mentor.mentorId,
-            mentor_slug: mentor.slug,
-            outcome: 'error',
-            status_code: res.status,
-          })
-          throw new Error(`HTTP error! status: ${res.status}`)
-        }
-        return res.json() as Promise<{
-          success: boolean
-          requestId?: string
-          calendar_url?: string
-        }>
-      })
-      .then((responseData) => {
-        if (responseData.success) {
-          setSubmissionRequestId(responseData.requestId)
-          mentor.calendarUrl = responseData.calendar_url
-          setReadyStatus('success')
-          incrementRequestsPerDay()
-          analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
-            mentor_id: mentor.mentorId,
-            mentor_slug: mentor.slug,
-            request_id: responseData.requestId,
-            calendar_url_available: Boolean(responseData.calendar_url),
-            outcome: 'success',
-          })
-        } else {
+      .then(async (res) => {
+        const responseData = (await res.json().catch(() => null)) as ContactMentorResponse | null
+
+        if (!res.ok || !responseData?.success) {
+          // The proxy forwards the upstream 4xx body, so say what the mentee can
+          // act on — a spent captcha or a validation error, not "went wrong".
+          setErrorMessage(upstreamErrorMessage(res.status, responseData))
           setReadyStatus('error')
           analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
             mentor_id: mentor.mentorId,
             mentor_slug: mentor.slug,
             outcome: 'error',
-            error_type: 'api_error',
+            error_type: res.ok ? 'api_error' : 'http_error',
+            status_code: res.status,
           })
+          return
         }
+
+        setSubmissionRequestId(responseData.requestId)
+        mentor.calendarUrl = responseData.calendar_url
+        setReadyStatus('success')
+        incrementRequestsPerDay()
+        // SECURITY (P14): the requestId is deliberately NOT sent — it is the
+        // capability the confirmation email hands the mentee for the review
+        // flow, which /reviews/new already strips from the address bar.
+        analytics.event(analytics.events.MENTEE_CONTACT_SUBMITTED, {
+          mentor_id: mentor.mentorId,
+          mentor_slug: mentor.slug,
+          calendar_url_available: Boolean(responseData.calendar_url),
+          outcome: 'success',
+        })
       })
       .catch((e) => {
+        setErrorMessage(GENERIC_SUBMIT_ERROR)
         setReadyStatus('error')
         if (e instanceof Error) {
           captureException(e, { page: 'contact-mentor', mentorSlug: mentor.slug })
@@ -334,6 +330,7 @@ export default function OrderMentor({
               <ContactMentorForm
                 isLoading={readyStatus === 'loading'}
                 isError={readyStatus === 'error'}
+                errorMessage={errorMessage}
                 onSubmit={onSubmit}
                 mentorFirstName={firstName}
               />

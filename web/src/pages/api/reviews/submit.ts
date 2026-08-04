@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getGoApiClient } from '@/lib/go-api-client'
-import { logError } from '@/lib/logger'
+import { sendUpstreamError } from '@/lib/api-proxy'
 import { withObservability } from '@/lib/with-observability'
 
 interface SubmitReviewRequest {
@@ -77,10 +77,13 @@ async function handler(
 
     res.status(200).json(result)
   } catch (error) {
-    if (error instanceof Error) {
-      logError(error, { context: 'submit-review-proxy', method: req.method, url: req.url })
-    }
-    res.status(500).json({ error: 'Internal server error', message: 'Failed to submit review' })
+    // The page renders the upstream `error` field, so a spent captcha or an
+    // already-reviewed request must keep its 4xx status and message.
+    sendUpstreamError(res, error, {
+      context: 'submit-review-proxy',
+      method: req.method,
+      url: req.url,
+    })
   }
 }
 

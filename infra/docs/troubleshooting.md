@@ -21,30 +21,36 @@ Common issues and solutions for OpenMentor infrastructure.
 
 **Symptoms:**
 - Container status shows "Restarting" or "Exited"
-- `docker-compose ps` shows unhealthy containers
+- `docker compose ps` shows unhealthy containers
 
 **Diagnosis:**
 ```bash
 # Check logs
-docker-compose logs <service-name>
+docker compose logs <service-name>
 
 # Check container details
 docker inspect <container-name>
 
 # Check exit code
-docker-compose ps
+docker compose ps
 ```
 
 **Common Causes & Solutions:**
 
 1. **Missing Environment Variables**
    ```bash
-   # Check env vars
-   docker exec -it <container> env
+   # Which keys the container SHOULD have: its `environment:` block in
+   # docker-compose.yml (per-service allowlists since SECURITY P10).
+   # Never run a bare `env`/`printenv` - it prints every credential the
+   # service holds, and this output tends to end up in tickets. Key names:
+   docker exec <container> printenv | cut -d= -f1 | sort
+
+   # Which of them arrived empty (the usual cause of "variable not set")
+   docker exec <container> sh -c 'printenv | grep -E "^[A-Za-z_][A-Za-z_0-9]*=$"'
 
    # Solution: Update .env file
    nano /opt/openmentor/infra/.env
-   docker-compose up -d
+   docker compose up -d
    ```
 
 2. **Port Already in Use**
@@ -64,7 +70,7 @@ docker-compose ps
    docker stats
 
    # Solution: Increase VM RAM or restart services
-   docker-compose restart
+   docker compose restart
    ```
 
 4. **Image Pull Failure**
@@ -79,8 +85,8 @@ docker-compose ps
    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 
    # Retry pull
-   docker-compose pull
-   docker-compose up -d
+   docker compose pull
+   docker compose up -d
    ```
 
 ### Container Keeps Restarting
@@ -92,10 +98,10 @@ docker-compose ps
 **Diagnosis:**
 ```bash
 # Watch container status
-watch -n 1 'docker-compose ps'
+watch -n 1 'docker compose ps'
 
 # Check last 50 log lines
-docker-compose logs --tail=50 <service>
+docker compose logs --tail=50 <service>
 
 # Check restart count
 docker inspect <container> | grep -A 5 RestartCount
@@ -106,14 +112,14 @@ docker inspect <container> | grep -A 5 RestartCount
 1. **Application Crash on Startup**
    ```bash
    # Check logs for panic/error
-   docker-compose logs backend | grep -i "panic\|error\|fatal"
+   docker compose logs backend | grep -i "panic\|error\|fatal"
 
    # Solution: Fix configuration or code issue
    # Rollback to previous version if needed (./rollback.sh <previous-sha>
    # from a workstation, or manually on the VM):
    sed -i "s/^BACKEND_IMAGE_TAG=.*/BACKEND_IMAGE_TAG=<previous-sha>/" .env  # and/or FRONTEND_IMAGE_TAG
-   docker-compose pull
-   docker-compose up -d
+   docker compose pull
+   docker compose up -d
    ```
 
 2. **Health Check Failing**
@@ -123,7 +129,7 @@ docker inspect <container> | grep -A 5 RestartCount
 
    # Disable health check temporarily
    # Edit docker-compose.yml, comment out healthcheck
-   docker-compose up -d
+   docker compose up -d
    ```
 
 3. **Dependency Not Ready**
@@ -132,9 +138,9 @@ docker inspect <container> | grep -A 5 RestartCount
    # Check depends_on and health checks
 
    # Solution: Ensure dependencies start first
-   docker-compose up -d backend
+   docker compose up -d backend
    sleep 10
-   docker-compose up -d frontend
+   docker compose up -d frontend
    ```
 
 ---
@@ -150,7 +156,7 @@ docker inspect <container> | grep -A 5 RestartCount
 **Diagnosis:**
 ```bash
 # Check if backend is running
-docker-compose ps backend
+docker compose ps backend
 
 # Test backend from frontend container
 docker exec -it openmentor-frontend curl http://backend:8081/api/healthcheck
@@ -163,15 +169,16 @@ docker network inspect openmentor_openmentor-network
 
 1. **Wrong Service Name**
    ```bash
-   # Verify NEXT_PUBLIC_GO_API_URL
-   docker exec -it openmentor-frontend env | grep GO_API
+   # Verify NEXT_PUBLIC_GO_API_URL (a URL, safe to print). Do NOT widen this to
+   # `grep GO_API` - that also matches GO_API_INTERNAL_TOKEN.
+   docker exec openmentor-frontend printenv NEXT_PUBLIC_GO_API_URL
 
    # Should be: http://backend:8081
    # NOT: http://localhost:8081
 
    # Solution: Update .env
    NEXT_PUBLIC_GO_API_URL=http://backend:8081
-   docker-compose up -d frontend
+   docker compose up -d frontend
    ```
 
 2. **Backend Not Listening on 0.0.0.0**
@@ -192,7 +199,7 @@ docker network inspect openmentor_openmentor-network
 
    # Create network manually
    docker network create openmentor_openmentor-network
-   docker-compose up -d
+   docker compose up -d
    ```
 
 ### External Services Unreachable
@@ -208,7 +215,7 @@ docker network inspect openmentor_openmentor-network
 docker exec -it openmentor-backend nslookup google.com
 
 # Test PostgreSQL connection
-docker exec -it openmentor-backend psql $DATABASE_URL -c "SELECT 1"
+docker exec openmentor-postgres psql -U openmentor -d openmentor -c "SELECT 1"
 
 # Check firewall rules
 sudo ufw status
@@ -232,7 +239,7 @@ sudo ufw status
    }
 
    sudo systemctl restart docker
-   docker-compose up -d
+   docker compose up -d
    ```
 
 ---
@@ -249,7 +256,7 @@ sudo ufw status
 **Diagnosis:**
 ```bash
 # Check Traefik logs
-docker-compose logs traefik | grep -i acme
+docker compose logs traefik | grep -i acme
 
 # Check certificate storage
 sudo ls -la /var/lib/docker/volumes/traefik-letsencrypt-certificates/_data/
@@ -292,7 +299,7 @@ curl http://openmentor.io/.well-known/acme-challenge/test
    # Uncomment in docker-compose.yml:
    # --certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
 
-   docker-compose up -d traefik
+   docker compose up -d traefik
    ```
 
 4. **Invalid Email**
@@ -302,7 +309,7 @@ curl http://openmentor.io/.well-known/acme-challenge/test
 
    # Update .env
    LETSENCRYPT_EMAIL=admin@openmentor.io
-   docker-compose up -d traefik
+   docker compose up -d traefik
    ```
 
 ### Certificate Expired
@@ -324,12 +331,12 @@ echo | openssl s_client -servername openmentor.io -connect openmentor.io:443 2>/
 # If not, force renewal:
 
 # 1. Delete old certificate
-docker-compose down
+docker compose down
 sudo rm -rf /var/lib/docker/volumes/traefik-letsencrypt-certificates/_data/acme.json
-docker-compose up -d
+docker compose up -d
 
 # 2. Check Traefik logs
-docker-compose logs traefik | grep -i renew
+docker compose logs traefik | grep -i renew
 ```
 
 ---
@@ -356,14 +363,14 @@ docker exec -it openmentor-backend top
 1. **Infinite Loop or Busy Wait**
    ```bash
    # Check application logs
-   docker-compose logs backend | tail -100
+   docker compose logs backend | tail -100
 
    # Profile the application
    # For Go: enable pprof, analyze CPU profile
    # For Node: use clinic.js
 
    # Solution: Fix code issue, restart
-   docker-compose restart backend
+   docker compose restart backend
    ```
 
 2. **Too Many Requests**
@@ -395,7 +402,7 @@ docker exec -it openmentor-backend free -h
 1. **Memory Leak**
    ```bash
    # Restart affected service
-   docker-compose restart backend
+   docker compose restart backend
 
    # Monitor for recurrence
    # If repeats, investigate code for leaks
@@ -427,7 +434,7 @@ docker exec -it openmentor-backend free -h
 time curl https://openmentor.io/api/mentors
 
 # Check backend logs
-docker-compose logs backend | grep -i duration
+docker compose logs backend | grep -i duration
 
 # Check metrics in Grafana
 # Query: http_server_request_duration_seconds
@@ -447,7 +454,7 @@ docker-compose logs backend | grep -i duration
 2. **Database/Network Latency**
    ```bash
    # Test PostgreSQL connection latency
-   docker exec -it openmentor-backend psql $DATABASE_URL -c "SELECT 1"
+   docker exec openmentor-postgres psql -U openmentor -d openmentor -c "SELECT 1"
 
    # Solution: Optimize database queries
    # Or increase cache TTL
@@ -476,29 +483,33 @@ docker-compose logs backend | grep -i duration
 **Diagnosis:**
 ```bash
 # Check backend logs
-docker-compose logs backend | grep -i postgres
+docker compose logs backend | grep -i postgres
 
-# Test database connection
-docker exec -it openmentor-backend psql $DATABASE_URL -c "SELECT COUNT(*) FROM mentors"
+# Test database connection (from the postgres container, so the DSN never
+# appears on a command line where `ps` and your shell history can see it)
+docker exec -it openmentor-postgres \
+    psql -U openmentor -d openmentor -c "SELECT COUNT(*) FROM mentors"
 ```
 
 **Solutions:**
 
 1. **Invalid Connection String**
    ```bash
-   # Check DATABASE_URL in .env
-   cat /opt/openmentor/infra/.env | grep DATABASE_URL
+   # Is DATABASE_URL set at all? Check presence, not content - the DSN embeds
+   # the database password, and this output gets pasted into issues.
+   docker exec openmentor-backend sh -c \
+       'test -n "$DATABASE_URL" && echo DATABASE_URL=SET || echo DATABASE_URL=UNSET'
 
    # Solution: Update with valid connection string
    # Format: postgres://user:password@host:5432/database
    nano /opt/openmentor/infra/.env
-   docker-compose up -d backend
+   docker compose up -d backend
    ```
 
 2. **Connection Pool Exhausted**
    ```bash
    # Check connection pool settings
-   docker-compose logs backend | grep "connection pool"
+   docker compose logs backend | grep "connection pool"
 
    # Solution: Increase pool size or reduce concurrent queries
    # Or add connection pooling with PgBouncer
@@ -506,11 +517,14 @@ docker exec -it openmentor-backend psql $DATABASE_URL -c "SELECT COUNT(*) FROM m
 
 3. **Database Not Accessible**
    ```bash
-   # Verify PostgreSQL is running
-   # Check DATABASE_URL in .env
+   # Verify PostgreSQL is running and DATABASE_URL is set (presence only -
+   # the DSN embeds the password)
+   docker compose ps postgres
+   docker exec openmentor-backend sh -c \
+       'test -n "$DATABASE_URL" && echo DATABASE_URL=SET || echo DATABASE_URL=UNSET'
 
-   # Test connection from VM
-   psql $DATABASE_URL -c "SELECT 1"
+   # Test connection from the postgres container
+   docker exec openmentor-postgres psql -U openmentor -d openmentor -c "SELECT 1"
 
    # Check firewall rules if external DB
    ```
@@ -524,7 +538,7 @@ docker exec -it openmentor-backend psql $DATABASE_URL -c "SELECT COUNT(*) FROM m
 **Diagnosis:**
 ```bash
 # Check backend logs
-docker-compose logs backend | grep -i storage
+docker compose logs backend | grep -i storage
 
 # Test connection
 docker exec -it openmentor-backend curl -I $S3_STORAGE_ENDPOINT
@@ -539,7 +553,7 @@ docker exec -it openmentor-backend curl -I $S3_STORAGE_ENDPOINT
 
    # Solution: Get new credentials from your storage provider (R2/S3/B2)
    nano /opt/openmentor/infra/.env
-   docker-compose up -d backend
+   docker compose up -d backend
    ```
 
 2. **Bucket Not Found**
@@ -564,21 +578,26 @@ docker exec -it openmentor-backend curl -I $S3_STORAGE_ENDPOINT
 **Diagnosis:**
 ```bash
 # Check Alloy logs
-docker-compose logs alloy | grep -i error
+docker compose logs alloy | grep -i error
 
 # Check Alloy metrics endpoint
 curl http://localhost:12345/metrics | grep alloy_
 
 # Test remote write
-docker-compose logs alloy | grep "remote_write"
+docker compose logs alloy | grep "remote_write"
 ```
 
 **Solutions:**
 
 1. **Invalid Grafana Cloud Credentials**
    ```bash
-   # Check credentials in .env
-   cat /opt/openmentor/infra/.env | grep GCLOUD_
+   # Are the GCLOUD_* lines present? Count them; never print them -
+   # GCLOUD_RW_API_KEY is a write token for the whole observability stack.
+   grep -c '^GCLOUD_' /opt/openmentor/infra/.env          # expect 9
+   grep -c '^GCLOUD_RW_API_KEY=.\+' /opt/openmentor/infra/.env   # expect 1 (non-empty)
+
+   # The URL/ID halves are not secret, so print those if you need to compare:
+   grep -E '^GCLOUD_HOSTED_[A-Z]+_(URL|ID)=' /opt/openmentor/infra/.env
 
    # Solution: Update with valid credentials
    # Get from: Grafana Cloud → Configuration → Data Sources
@@ -611,10 +630,10 @@ docker-compose logs alloy | grep "remote_write"
 **Diagnosis:**
 ```bash
 # Check if logs are being written
-docker-compose logs backend --tail=50
+docker compose logs backend --tail=50
 
 # Check Alloy log collection
-docker-compose logs alloy | grep loki
+docker compose logs alloy | grep loki
 ```
 
 **Solutions:**
@@ -644,14 +663,14 @@ docker-compose logs alloy | grep loki
 ### Deployment Hangs
 
 **Symptoms:**
-- `docker-compose up -d` never completes
+- `docker compose up -d` never completes
 - Services stuck in "Starting" state
 
 **Diagnosis:**
 ```bash
 # Check what's happening
-docker-compose ps
-docker-compose logs --tail=50
+docker compose ps
+docker compose logs --tail=50
 
 # Check disk space
 df -h
@@ -678,8 +697,8 @@ sudo systemctl status docker
    ```bash
    # Remove image and re-pull (registry host = ECR_REGISTRY from .env)
    docker rmi ${ECR_REGISTRY}/openmentor-frontend:<tag>
-   docker-compose pull
-   docker-compose up -d
+   docker compose pull
+   docker compose up -d
    ```
 
 3. **Docker Daemon Stuck**
@@ -691,7 +710,7 @@ sudo systemctl status docker
    sleep 30
 
    # Retry
-   docker-compose up -d
+   docker compose up -d
    ```
 
 ### Health Checks Never Pass
@@ -706,7 +725,7 @@ sudo systemctl status docker
 docker exec -it openmentor-frontend curl -v http://localhost:3000/api/healthcheck
 
 # Check container logs
-docker-compose logs frontend
+docker compose logs frontend
 ```
 
 **Solutions:**
@@ -718,7 +737,7 @@ docker-compose logs frontend
    healthcheck:
      start_period: 60s  # Increase from 40s
 
-   docker-compose up -d
+   docker compose up -d
    ```
 
 2. **Health Endpoint Not Implemented**
@@ -746,27 +765,27 @@ docker-compose logs frontend
 
 2. **Check Docker containers**
    ```bash
-   docker-compose ps
-   docker-compose logs --tail=100
+   docker compose ps
+   docker compose logs --tail=100
    ```
 
 3. **Quick restart all services**
    ```bash
-   docker-compose restart
+   docker compose restart
    ```
 
 4. **If restart fails, full reset**
    ```bash
-   docker-compose down
-   docker-compose up -d
+   docker compose down
+   docker compose up -d
    ```
 
 5. **If still down, rollback**
    ```bash
    # ./rollback.sh <last-known-good-sha> from a workstation, or on the VM:
    sed -i "s/^BACKEND_IMAGE_TAG=.*/BACKEND_IMAGE_TAG=<last-known-good-sha>/" .env  # and/or FRONTEND_IMAGE_TAG
-   docker-compose pull
-   docker-compose up -d
+   docker compose pull
+   docker compose up -d
    ```
 
 ### Data Loss Prevention
@@ -775,7 +794,7 @@ docker-compose logs frontend
 
 ```bash
 # 1. Stop writes immediately
-docker-compose stop frontend backend
+docker compose stop frontend backend
 
 # 2. Backup current state
 sudo cp -r /opt/openmentor/infra ~/backup-$(date +%Y%m%d-%H%M%S)
@@ -798,11 +817,11 @@ sudo cp -r /opt/openmentor/infra ~/backup-$(date +%Y%m%d-%H%M%S)
 sudo ufw deny in on eth0
 
 # 2. Capture evidence
-docker-compose logs > /tmp/incident-logs-$(date +%Y%m%d-%H%M%S).txt
+docker compose logs > /tmp/incident-logs-$(date +%Y%m%d-%H%M%S).txt
 sudo journalctl > /tmp/system-logs-$(date +%Y%m%d-%H%M%S).txt
 
 # 3. Shut down compromised services
-docker-compose down
+docker compose down
 
 # 4. Rotate all secrets
 # Update all tokens in .env
@@ -811,8 +830,8 @@ docker-compose down
 # Regenerate all authentication tokens
 
 # 5. Rebuild from clean images
-docker-compose pull
-docker-compose up -d
+docker compose pull
+docker compose up -d
 
 # 6. Re-enable firewall properly
 sudo ufw default deny incoming
@@ -830,13 +849,26 @@ Before asking for help, collect:
 
 ```bash
 # 1. Service status
-docker-compose ps > debug-info.txt
+docker compose ps > debug-info.txt
 
 # 2. Logs
-docker-compose logs --tail=200 >> debug-info.txt
+docker compose logs --tail=200 >> debug-info.txt
 
-# 3. Environment
-docker exec -it openmentor-backend env | grep -v SECRET >> debug-info.txt
+# 3. Environment — non-sensitive values in full, everything else SET/UNSET only.
+#    NEVER dump `env`: a denylist like `grep -v SECRET` leaks DATABASE_URL
+#    (password in the DSN), POSTGRES_PASSWORD, CLOUDFLARE_DNS_API_TOKEN,
+#    GCLOUD_RW_API_KEY, WORKER_AUTH_TOKEN and every access-key id, and this
+#    file is destined for an inbox or an issue tracker.
+docker exec openmentor-backend env |
+    grep -E '^(APP_ENV|GIN_MODE|LOG_LEVEL|LOG_DIR|PORT|BASE_URL|ALLOWED_CORS_ORIGINS|TRUSTED_PROXIES|ANALYTICS_PROVIDER|ANALYTICS_EVENT_VERSION|POSTHOG_HOST|POSTHOG_ENABLED|SERVICE_INSTANCE_ID|O11Y_[A-Z_]*)=' \
+    >> debug-info.txt
+
+for k in DATABASE_URL JWT_SECRET WORKER_AUTH_TOKEN INTERNAL_MENTORS_API \
+         MENTORS_API_LIST_AUTH_TOKEN TURNSTILE_SECRET_KEY POSTHOG_API_KEY \
+         S3_STORAGE_ACCESS_KEY S3_STORAGE_SECRET_KEY; do
+    docker exec openmentor-backend sh -c \
+        "test -n \"\$$k\" && echo $k=SET || echo $k=UNSET" >> debug-info.txt
+done
 
 # 4. System info
 df -h >> debug-info.txt
@@ -846,8 +878,17 @@ docker version >> debug-info.txt
 # 5. Network
 docker network inspect openmentor_openmentor-network >> debug-info.txt
 
+# 6. Read it before you send it — logs can also carry request payloads
+less debug-info.txt
+
 # Send debug-info.txt to support
 ```
+
+> Same rule for the other containers: swap `openmentor-backend` for
+> `openmentor-frontend` / `openmentor-worker` and adjust the key list. Since
+> SECURITY P10 each container only holds its own allowlisted keys
+> (`infra/ENVIRONMENT_VARIABLES.md`), so the frontend has no database or email
+> credentials to leak at all.
 
 ### Support Contacts
 

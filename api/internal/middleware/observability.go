@@ -8,14 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
-
-// sensitiveQueryParams are redacted from logs to avoid leaking secrets.
-var sensitiveQueryParams = map[string]bool{
-	"token": true, "password": true, "secret": true, "key": true,
-	"auth": true, "api_key": true, "apikey": true,
-}
 
 // ObservabilityMiddleware instruments HTTP requests with metrics and logging
 func ObservabilityMiddleware() gin.HandlerFunc {
@@ -27,8 +24,25 @@ func ObservabilityMiddleware() gin.HandlerFunc {
 		metrics.ActiveRequests.WithLabelValues(method).Inc()
 		defer metrics.ActiveRequests.WithLabelValues(method).Dec()
 
+		// The path itself can be a capability: /api/v1/reviews/<uuid> is a bearer
+		// URL for submitting a review, so the id is stripped before the path is
+		// logged or left on the span (P14). Computed here — gin fills c.Params
+		// during route matching, before the chain runs — and applied to the span
+		// from a defer, because a panic unwinds past everything below c.Next()
+		// while otelgin's own `defer span.End()` still exports the span it tagged
+		// with the raw url.path at span start. Being the inner middleware is what
+		// makes this defer run before that End.
+		loggedPath := redactedPath(c)
+		defer func() { redactSpanURL(c, loggedPath) }()
+
 		// Process request - this allows Gin to set the matched route
 		c.Next()
+
+		// Redacted in place, before anything reads c.Errors, because this
+		// middleware is not its only sink: otelgin copies c.Errors.String() into
+		// the span status and calls RecordError, which repeats the text in an
+		// exception event. Fixing the value covers all three.
+		redactAttachedErrors(c)
 
 		// Get route template AFTER routing (prevents cardinality explosion)
 		// c.FullPath() returns the route pattern like "/api/v1/mentor/requests/:id"
@@ -48,8 +62,6 @@ func ObservabilityMiddleware() gin.HandlerFunc {
 		metrics.HTTPRequestDuration.WithLabelValues(method, path, statusStr).Observe(duration)
 		metrics.HTTPRequestTotal.WithLabelValues(method, path, statusStr).Inc()
 
-		// Log request (use actual path for debugging, but route template for metrics)
-		actualPath := c.Request.URL.Path
 		fields := []zap.Field{
 			zap.String("client_ip", c.ClientIP()),
 			zap.String("user_agent", c.Request.UserAgent()),
@@ -61,29 +73,93 @@ func ObservabilityMiddleware() gin.HandlerFunc {
 			if len(c.Params) > 0 {
 				params := make(map[string]string, len(c.Params))
 				for _, p := range c.Params {
-					params[p.Key] = p.Value
+					switch {
+					case redact.IsUUID(p.Value):
+						// Hashed, not dropped: a 4xx on one of the request routes
+						// is the line an operator has to tie back to one record.
+						params[p.Key] = redact.ID(p.Value)
+					case redact.SensitiveKey(p.Key):
+						params[p.Key] = redact.Placeholder
+					default:
+						params[p.Key] = p.Value
+					}
 				}
 				fields = append(fields, zap.Any("route_params", params))
 			}
 
 			if query := c.Request.URL.Query(); len(query) > 0 {
-				sanitized := make(map[string]string, len(query))
-				for k, v := range query {
-					if !sensitiveQueryParams[strings.ToLower(k)] && len(v) > 0 {
-						sanitized[k] = v[0]
-					}
-				}
-				if len(sanitized) > 0 {
-					fields = append(fields, zap.Any("query_params", sanitized))
-				}
+				fields = append(fields, zap.Any("query_params", redact.Query(query)))
 			}
 
 			if len(c.Errors) > 0 {
+				// Already redacted by redactAttachedErrors above; logging it raw
+				// would hand back the capability that the path and route_params
+				// rules just dropped.
 				fields = append(fields, zap.String("error", c.Errors.String()))
 			}
 		}
 
-		// Log with actual path for debugging purposes
-		logger.LogHTTPRequest(c.Request.Context(), method, actualPath, status, duration, fields...)
+		logger.LogHTTPRequest(c.Request.Context(), method, loggedPath, status, duration, fields...)
+	}
+}
+
+// redactAttachedErrors rewrites the messages handlers attached with c.Error so
+// that every consumer of c.Errors sees the redacted text. The wrapper keeps the
+// original error reachable through errors.Is/As, which only stops matching if a
+// consumer compares rendered strings.
+func redactAttachedErrors(c *gin.Context) {
+	for _, attached := range c.Errors {
+		if attached == nil || attached.Err == nil {
+			continue
+		}
+		if redacted := redact.Text(attached.Err.Error()); redacted != attached.Err.Error() {
+			attached.Err = redactedError{err: attached.Err, message: redacted}
+		}
+	}
+}
+
+type redactedError struct {
+	err     error
+	message string
+}
+
+func (e redactedError) Error() string { return e.message }
+func (e redactedError) Unwrap() error { return e.err }
+
+// redactedPath strips capability-bearing values out of the raw request path.
+// The parameter NAME is not enough to find them — the :id in
+// /api/v1/mentor/requests/:id is the same client_requests.id that
+// /api/v1/reviews/:requestId authorizes on — so redact.Path matches on the
+// value's shape, and the name rule then covers secrets that are not UUIDs.
+func redactedPath(c *gin.Context) string {
+	path := redact.Path(c.Request.URL.Path)
+	for _, p := range c.Params {
+		if p.Value != "" && redact.SensitiveKey(p.Key) {
+			path = strings.ReplaceAll(path, p.Value, redact.Placeholder)
+		}
+	}
+	return path
+}
+
+// redactSpanURL overwrites the url.* attributes otelgin tagged the server span
+// with at span start. Writing the same key again is what redacts it: the SDK
+// keeps the last value per key when it deduplicates attributes.
+func redactSpanURL(c *gin.Context, loggedPath string) {
+	span := trace.SpanFromContext(c.Request.Context())
+	if !span.IsRecording() {
+		return
+	}
+
+	attrs := make([]attribute.KeyValue, 0, 2)
+	if loggedPath != c.Request.URL.Path {
+		attrs = append(attrs, attribute.String("url.path", loggedPath))
+	}
+	if raw := c.Request.URL.RawQuery; raw != "" {
+		if redacted := redact.QueryString(raw); redacted != raw {
+			attrs = append(attrs, attribute.String("url.query", redacted))
+		}
+	}
+	if len(attrs) > 0 {
+		span.SetAttributes(attrs...)
 	}
 }

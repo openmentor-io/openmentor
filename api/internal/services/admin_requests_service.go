@@ -8,6 +8,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/internal/repository"
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"go.uber.org/zap"
 )
 
@@ -111,13 +112,13 @@ func (s *AdminRequestsService) GetMentorRequest(
 	request, err := s.requestRepo.GetByID(ctx, requestID)
 	if err != nil {
 		logger.Warn("Admin request lookup failed",
-			zap.String("request_id", requestID),
+			zap.String("request_ref", redact.ID(requestID)),
 			zap.Error(err))
 		return nil, ErrRequestNotFound
 	}
 	if request.MentorID != mentorID {
 		logger.Warn("Admin request lookup mentor mismatch",
-			zap.String("request_id", requestID),
+			zap.String("request_ref", redact.ID(requestID)),
 			zap.String("request_mentor", request.MentorID),
 			zap.String("route_mentor", mentorID))
 		return nil, ErrRequestNotFound
@@ -142,7 +143,6 @@ func (s *AdminRequestsService) UpdateRequestStatus(
 			"moderator_id":     session.ModeratorID,
 			"moderator_role":   string(session.Role),
 			"target_mentor_id": mentorID,
-			"request_id":       requestID,
 			"from_status":      string(fromStatus),
 			"to_status":        string(newStatus),
 			"outcome":          outcome,
@@ -169,14 +169,14 @@ func (s *AdminRequestsService) UpdateRequestStatus(
 	if err := s.requestRepo.UpdateStatus(ctx, requestID, newStatus); err != nil {
 		track(oldStatus, "update_failed")
 		logger.Error("Failed to update request status as admin",
-			zap.String("request_id", requestID),
+			zap.String("request_ref", redact.ID(requestID)),
 			zap.Error(err))
 		return nil, fmt.Errorf("failed to update status: %w", err)
 	}
 
 	track(oldStatus, "success")
 	logger.Info("Request status updated by admin",
-		zap.String("request_id", requestID),
+		zap.String("request_ref", redact.ID(requestID)),
 		zap.String("moderator_id", session.ModeratorID),
 		zap.String("from_status", string(oldStatus)),
 		zap.String("to_status", string(newStatus)))

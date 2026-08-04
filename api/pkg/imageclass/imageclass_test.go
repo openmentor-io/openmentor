@@ -2,7 +2,7 @@ package imageclass
 
 import (
 	"bytes"
-	"encoding/base64"
+	"context"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/test/imagefixture"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
@@ -101,7 +102,7 @@ func TestClassifyDecodesPNG(t *testing.T) {
 		t.Fatalf("png encode: %v", err)
 	}
 
-	got, err := ClassifyBytes(buf.Bytes())
+	got, err := ClassifyBytes(context.Background(), buf.Bytes())
 	if err != nil {
 		t.Fatalf("ClassifyBytes() error: %v", err)
 	}
@@ -116,39 +117,12 @@ func TestClassifyDecodesJPEG(t *testing.T) {
 		t.Fatalf("jpeg encode: %v", err)
 	}
 
-	got, err := ClassifyBytes(buf.Bytes())
+	got, err := ClassifyBytes(context.Background(), buf.Bytes())
 	if err != nil {
 		t.Fatalf("ClassifyBytes() error: %v", err)
 	}
 	if got != StyleFrame {
 		t.Errorf("ClassifyBytes(jpeg noise) = %q, want %q", got, StyleFrame)
-	}
-}
-
-func TestClassifyBase64(t *testing.T) {
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, solidImage(32, 32, color.White)); err != nil {
-		t.Fatalf("png encode: %v", err)
-	}
-	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
-
-	tests := []struct {
-		name  string
-		input string
-	}{
-		{"raw base64", encoded},
-		{"data URI", "data:image/png;base64," + encoded},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ClassifyBase64(tt.input)
-			if err != nil {
-				t.Fatalf("ClassifyBase64() error: %v", err)
-			}
-			if got != StyleHero {
-				t.Errorf("ClassifyBase64() = %q, want %q", got, StyleHero)
-			}
-		})
 	}
 }
 
@@ -164,24 +138,25 @@ func TestClassificationMetrics(t *testing.T) {
 		t.Fatalf("png encode: %v", err)
 	}
 
-	// hero via ClassifyBytes; hero again via ClassifyBase64 (counts once per
-	// classification, not once per layer).
-	if _, err := ClassifyBytes(heroBuf.Bytes()); err != nil {
-		t.Fatalf("ClassifyBytes() error: %v", err)
-	}
-	if _, err := ClassifyBase64(base64.StdEncoding.EncodeToString(heroBuf.Bytes())); err != nil {
-		t.Fatalf("ClassifyBase64() error: %v", err)
+	ctx := context.Background()
+
+	// Two hero classifications, counted once each.
+	for range 2 {
+		if _, err := ClassifyBytes(ctx, heroBuf.Bytes()); err != nil {
+			t.Fatalf("ClassifyBytes() error: %v", err)
+		}
 	}
 	// frame
-	if _, err := ClassifyBytes(frameBuf.Bytes()); err != nil {
+	if _, err := ClassifyBytes(ctx, frameBuf.Bytes()); err != nil {
 		t.Fatalf("ClassifyBytes() error: %v", err)
 	}
-	// errors: undecodable bytes, invalid base64
-	if _, err := ClassifyBytes([]byte("not an image")); err == nil {
+	// Both error branches: bytes with no image header, and geometry the bound
+	// rejects before the decoder sees it.
+	if _, err := ClassifyBytes(ctx, []byte("not an image")); err == nil {
 		t.Fatal("ClassifyBytes() expected error, got nil")
 	}
-	if _, err := ClassifyBase64("!!!not-base64!!!"); err == nil {
-		t.Fatal("ClassifyBase64() expected error, got nil")
+	if _, err := ClassifyBytes(ctx, imagefixture.BombPNG(t, 10000, 10000)); err == nil {
+		t.Fatal("ClassifyBytes(bomb) expected error, got nil")
 	}
 
 	if got := testutil.ToFloat64(metrics.PhotoClassifications.WithLabelValues(StyleHero)); got != 2 {
@@ -192,23 +167,5 @@ func TestClassificationMetrics(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metrics.PhotoClassifications.WithLabelValues("error")); got != 2 {
 		t.Errorf("error classifications = %v, want 2", got)
-	}
-}
-
-func TestClassifyBase64Errors(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-	}{
-		{"invalid base64", "!!!not-base64!!!"},
-		{"invalid data URI", "data:image/png;base64"},
-		{"valid base64, not an image", base64.StdEncoding.EncodeToString([]byte("hello"))},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if _, err := ClassifyBase64(tt.input); err == nil {
-				t.Errorf("ClassifyBase64(%q) expected error, got nil", tt.name)
-			}
-		})
 	}
 }

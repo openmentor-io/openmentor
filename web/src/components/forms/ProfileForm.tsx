@@ -9,6 +9,7 @@ import { Tooltip } from 'react-tooltip'
 import Link from 'next/link'
 import { useState, useRef, type ChangeEvent } from 'react'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
+import { isValidCalendarUrl } from '@/lib/safe-url'
 import type { MentorWithSecureFields } from '@/types'
 
 interface TagOption {
@@ -103,14 +104,24 @@ const tagsToOptions = (tags: string[]): TagOption[] =>
 // All available tags as options
 const tagOptions = tagsToOptions(filters.tags)
 
-function isValidUrl(value?: string): boolean {
-  if (!value) return true
-  try {
-    const url = new URL(value)
-    return url.protocol === 'http:' || url.protocol === 'https:'
-  } catch {
-    return false
-  }
+type SelectOption = [value: string, label: string]
+
+/**
+ * `price` (free text per DECISIONS D3) and `experience` are TEXT columns, while
+ * these selects only offer a few suggestions. An uncontrolled <select> whose
+ * defaultValue matches no <option> reports the FIRST option instead, which
+ * rewrites a stored "$75" to "Free" on any save — so keep the stored value as an
+ * option of its own and it round-trips untouched.
+ */
+function withStoredOption(
+  options: SelectOption[],
+  stored: string | null | undefined
+): SelectOption[] {
+  const value = stored ?? ''
+  if (options.some(([optionValue]) => optionValue === value)) return options
+  // An unset column becomes a placeholder the (required) field rejects, rather
+  // than saving whichever suggestion happens to be listed first.
+  return [[value, value || 'Please choose one'], ...options]
 }
 
 export default function ProfileForm({
@@ -133,6 +144,15 @@ export default function ProfileForm({
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [imageError, setImageError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const experienceOptions = withStoredOption(
+    Object.entries(filters.experience).map(([label, value]): SelectOption => [value, label]),
+    mentor.experience
+  )
+  const priceOptions = withStoredOption(
+    filters.price.map((price): SelectOption => [price, price]),
+    mentor.price
+  )
 
   const MAX_TAGS = 5
 
@@ -401,18 +421,19 @@ export default function ProfileForm({
             Experience
           </label>
 
+          {errors.experience && (
+            <div className="text-sm text-danger mt-3 mb-2">This field is required.</div>
+          )}
+
           <select
-            {...register('experience')}
+            {...register('experience', { required: true })}
             defaultValue={mentor.experience}
             id="experience"
             className="field"
           >
-            {Object.keys(filters.experience).map((item) => (
-              <option
-                key={filters.experience[item as keyof typeof filters.experience]}
-                value={filters.experience[item as keyof typeof filters.experience]}
-              >
-                {item}
+            {experienceOptions.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
               </option>
             ))}
           </select>
@@ -423,10 +444,19 @@ export default function ProfileForm({
             Price per one-hour session
           </label>
 
-          <select {...register('price')} defaultValue={mentor.price} id="price" className="field">
-            {filters.price.map((item) => (
-              <option key={item} value={item}>
-                {item}
+          {errors.price && (
+            <div className="text-sm text-danger mt-3 mb-2">This field is required.</div>
+          )}
+
+          <select
+            {...register('price', { required: true })}
+            defaultValue={mentor.price}
+            id="price"
+            className="field"
+          >
+            {priceOptions.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
               </option>
             ))}
           </select>
@@ -611,14 +641,17 @@ export default function ProfileForm({
         </label>
 
         {errors.calendarUrl && (
-          <div className="text-sm text-danger mt-3 mb-2">This must be a valid URL</div>
+          <div className="text-sm text-danger mt-3 mb-2">This must be a valid https:// URL</div>
         )}
 
         <input
           type="text"
           {...register('calendarUrl', {
+            // Trim first: a pasted booking link often carries surrounding
+            // whitespace, which the API's https_url tag rejects.
+            setValueAs: (value: string) => value.trim(),
             validate: {
-              checkUrl: isValidUrl,
+              checkUrl: isValidCalendarUrl,
             },
           })}
           defaultValue={mentor.calendarUrl || ''}

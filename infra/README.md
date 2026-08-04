@@ -78,7 +78,10 @@ scales/deploys independently of the API; S3/SES scale on their own.
 infra/
 ├── docker-compose.yml          # Production stack
 ├── docker-compose.dev.yml      # Dev overlay (local image tags, HTTP-only traefik, dev postgres creds, opt-in observability)
-├── postgres-backup/            # Backup sidecar image (pg_dump → S3, see Backups)
+├── Makefile                    # `make check` — the fast infra checks the required CI gate runs
+├── check-service-env.sh        # Per-service env allowlist + secret-ownership check (P10)
+├── env-allowlist.txt           # The allowlist it enforces (machine-checked half of the env contract)
+├── postgres-backup/            # Backup sidecar image (pg_dump → S3, see Backups) + its tests
 ├── .env.example                # Local development env template
 ├── .env.production.example     # Production env template (deploy creds + build args + runtime secrets)
 ├── deploy.sh                   # Deploy [frontend|backend|infra|all] to the VM (health checks + auto-rollback)
@@ -219,7 +222,7 @@ cp .env.production.example .env.production   # once; fill in everything
 ./deploy.sh all                    # frontend backend infra
 ./deploy.sh backend --tag abc123f  # deploy an already-pushed tag
 ./deploy.sh all --yes --dry-run    # print the plan / skip the prompt
-./deploy.sh --staging              # target the staging VM (VM_SSH_*_STAGING vars)
+./deploy.sh --staging              # target the staging VM (VM_SSH_*_STAGING + DOMAIN_STAGING)
 ```
 
 `deploy.sh`:
@@ -245,10 +248,23 @@ cp .env.production.example .env.production   # once; fill in everything
    bind-mounted config files, so after `up` the script restarts/rebuilds
    exactly the affected services (see inventory below),
 7. health-checks frontend (`/api/healthcheck`), backend (`/api/healthcheck`),
-   worker (`/healthz`) and postgres (`pg_isready`) **inside** the containers
-   plus the backup sidecar's running state, and
+   worker (`/healthz`) and postgres (`pg_isready`) **inside** the containers,
+   plus the backup sidecar's compose healthcheck — `.State.Health.Status`, not
+   just `.State.Status`, because docker keeps an *unhealthy* container in state
+   `running` and a sidecar whose nightly dumps had silently stopped used to pass
+   this gate. `starting` (its `start_period`) and a VM whose compose file
+   predates the healthcheck both still pass, and
 8. **automatically rolls back** to the previous `.env` (previous image tags)
-   if any health check fails, then verifies the rollback.
+   if any health check fails, then verifies the rollback. One exception: a
+   backup sidecar that is running but `unhealthy` (stale dumps) ends the deploy
+   with **exit 2** and no rollback — reverting working images cannot make a
+   `pg_dump` run, and a deploy that aborts halfway is worse than the stale dump.
+   `deploy.sh` and the CI workflow report that separately from a failed deploy,
+   and
+9. probes `https://$DOMAIN/api/healthcheck` from the workstation (12 × 10s) and
+   **fails the deploy** if it never returns 200 — the only check that traverses
+   DNS, TLS and Traefik, since step 7 is container-loopback only. With
+   `--staging` it probes `DOMAIN_STAGING`.
 
 Steps 5–8 run **on the VM** as `deploy-remote.sh` — the single canonical
 remote script, piped over ssh stdin from the local checkout (never executed
@@ -320,7 +336,9 @@ Everything ships to **Grafana Cloud** through the `alloy` container
 
 Grafana dashboards live as plain JSON in the repo-root [`grafana/`](../grafana/)
 directory and sync to Grafana Cloud via Git Sync; alert rules are versioned in
-`grafana/alerting/alert-rules.yaml` (see `grafana/README.md`). Product analytics
+`grafana/alerting/alert-rules.yaml` but Git Sync does not cover them — an
+operator applies them by hand, and none are on the stack today
+(see `grafana/README.md`). Product analytics
 dashboards live in `posthog/dashboards/` (`node sync.mjs`).
 
 ## Database access
@@ -355,6 +373,20 @@ procedures + quarterly drill: `../docs/runbooks/postgres-backup-restore.md`):
    falls back to the local `openmentor-postgres-backups` volume and logs a
    loud warning. Manual/drill run:
    `docker exec openmentor-postgres-backup backup.sh once`.
+   Every success refreshes `/backups/.last_success`; the container healthcheck
+   turns `unhealthy` once that marker ages past `BACKUP_MAX_AGE_HOURS`
+   (default 26h, also published as `openmentor_db_backup_max_age_seconds` so
+   the alert and its dashboard panels compare against the configured window
+   instead of a copy of it).
+   `deploy-remote.sh` and `rollback.sh` read that verdict
+   (`.State.Health.Status`) and end non-zero on `unhealthy`, so a deploy or a
+   rollback can no longer report green over stale dumps — but that only reaches
+   whoever is watching a deploy. Nothing pages off the VM until an operator
+   applies `DatabaseBackupStale` **and** `DatabaseBackupPipelineAbsent` (the
+   second catches one deployment's gauges disappearing while another keeps
+   publishing, which the first cannot see). Neither is on the stack yet; see the
+   operator step in `../docs/runbooks/postgres-backup-restore.md` and
+   `../grafana/README.md` § Alert rules.
 
 RPO ≤ 24 h, RTO ≈ 30 min with dumps. Documented next step (not implemented):
 **wal-g** continuous WAL archiving to S3 for ~minutes RPO / PITR. Scale path:

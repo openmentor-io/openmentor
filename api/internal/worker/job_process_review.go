@@ -37,11 +37,11 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 
 	review, err := h.repo.GetJobReviewByID(ctx, reviewID)
 	if err != nil {
-		logger.Error("[Mentor Review] Failed to fetch review", zap.String("review_id", reviewID), zap.Error(err))
+		logger.Error("[Mentor Review] Failed to fetch review", zap.String("review_id", reviewID), logger.RedactedError(err))
 		h.track(ctx, analytics.EventReviewSubmitted, analytics.ReviewDistinctID(reviewID), map[string]interface{}{
 			"review_id":  reviewID,
 			"outcome":    "error",
-			"error_type": "db_error",
+			"error_type": errTypeDBError,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch review"})
 		return
@@ -59,11 +59,11 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 	mentor, err := h.repo.GetJobMentorByID(ctx, review.MentorID)
 	if err != nil {
 		logger.Error("[Mentor Review] Failed to fetch mentor",
-			zap.String("review_id", reviewID), zap.String("mentor_id", review.MentorID), zap.Error(err))
+			zap.String("review_id", reviewID), zap.String("mentor_id", review.MentorID), logger.RedactedError(err))
 		h.track(ctx, analytics.EventReviewSubmitted, analytics.ReviewDistinctID(reviewID), map[string]interface{}{
 			"review_id":  reviewID,
 			"outcome":    "error",
-			"error_type": "db_error",
+			"error_type": errTypeDBError,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to fetch mentor"})
 		return
@@ -71,11 +71,10 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 	if mentor == nil {
 		logger.Warn("[Mentor Review] Mentor not found",
 			zap.String("review_id", reviewID), zap.String("mentor_id", review.MentorID))
-		h.track(ctx, analytics.EventReviewSubmitted, analytics.RequestDistinctID(review.RequestID), map[string]interface{}{
-			"review_id":  review.ID,
-			"request_id": review.RequestID,
-			"mentor_id":  review.MentorID,
-			"outcome":    "mentor_not_found",
+		h.track(ctx, analytics.EventReviewSubmitted, analytics.MentorDistinctID(review.MentorID), map[string]interface{}{
+			"review_id": review.ID,
+			"mentor_id": review.MentorID,
+			"outcome":   "mentor_not_found",
 		})
 		c.JSON(http.StatusNotFound, gin.H{"error": "mentor not found"})
 		return
@@ -94,7 +93,7 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 		h.track(ctx, analytics.EventReviewSubmitted, analytics.ReviewDistinctID(reviewID), map[string]interface{}{
 			"review_id":  reviewID,
 			"outcome":    "error",
-			"error_type": "email_send_failed",
+			"error_type": errTypeEmailSendFailed,
 		})
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to send email"})
 		return
@@ -102,11 +101,10 @@ func (h *Handlers) ProcessMenteeReview(c *gin.Context) {
 
 	logger.Info("[Mentor Review] Sent notification",
 		zap.String("review_id", reviewID), zap.String("mentor_id", mentor.ID))
-	h.track(ctx, analytics.EventReviewSubmitted, analytics.RequestDistinctID(review.RequestID), map[string]interface{}{
-		"review_id":  review.ID,
-		"request_id": review.RequestID,
-		"mentor_id":  mentor.ID,
-		"outcome":    "success",
+	h.track(ctx, analytics.EventReviewSubmitted, analytics.MentorDistinctID(mentor.ID), map[string]interface{}{
+		"review_id": review.ID,
+		"mentor_id": mentor.ID,
+		"outcome":   "success",
 	})
 	c.JSON(http.StatusOK, gin.H{"success": true, "reviewId": review.ID})
 }

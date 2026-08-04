@@ -10,9 +10,19 @@ import (
 
 // clientRequestSelect is the column list every read in this file shares — the
 // column order ScanClientRequest expects.
+//
+// Same rule as mentorSelect: client_requests is nullable nearly everywhere and
+// pgx fails the WHOLE row scan on a NULL in a non-pointer destination, so every
+// nullable column is either COALESCEd here or scanned into a pointer field of
+// MentorClientRequest. mentor_id is nullable because the FK is ON DELETE SET
+// NULL; the empty string is the right substitute rather than an invented id,
+// because the ownership checks that compare it against a session's mentor id can
+// never match it — one orphaned request is then refused, instead of failing the
+// read for every request the mentor has.
 const clientRequestSelect = `
-	SELECT cr.id, cr.mentor_id, COALESCE(cr.email::text, ''), cr.name,
-		COALESCE(cr.preferred_contact, ''), cr.description,
+	SELECT cr.id, COALESCE(cr.mentor_id::text, ''), COALESCE(cr.email::text, ''),
+		COALESCE(cr.name, ''), COALESCE(cr.preferred_contact, ''),
+		COALESCE(cr.description, ''),
 		cr.level, cr.status, cr.created_at, cr.updated_at, cr.status_changed_at,
 		cr.scheduled_at, cr.decline_reason, cr.decline_comment,
 		r.mentor_review

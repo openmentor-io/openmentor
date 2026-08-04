@@ -63,10 +63,10 @@ func (h *Handlers) MentorLoginEmail(c *gin.Context) {
 
 	mentor, err := h.repo.GetJobMentorByID(ctx, payload.MentorID)
 	if err != nil {
-		logger.Error("[Mentor Login Email] Failed to fetch mentor", zap.String("mentor_id", payload.MentorID), zap.Error(err))
+		logger.Error("[Mentor Login Email] Failed to fetch mentor", zap.String("mentor_id", payload.MentorID), logger.RedactedError(err))
 		h.track(ctx, analytics.EventMentorAuthLoginEmailSent, analytics.SystemDistinctID("worker"), map[string]interface{}{
 			"outcome":    "error",
-			"error_type": "db_error",
+			"error_type": errTypeDBError,
 		})
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to fetch mentor"})
 		return
@@ -92,7 +92,7 @@ func (h *Handlers) MentorLoginEmail(c *gin.Context) {
 	if sendErr != nil {
 		h.track(ctx, analytics.EventMentorAuthLoginEmailSent, analytics.SystemDistinctID("worker"), map[string]interface{}{
 			"outcome":    "error",
-			"error_type": "email_send_failed",
+			"error_type": errTypeEmailSendFailed,
 		})
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to send email"})
 		return
@@ -149,10 +149,10 @@ func (h *Handlers) ModeratorLoginEmail(c *gin.Context) {
 		moderator, err := h.repo.GetJobModeratorByID(ctx, payload.ModeratorID)
 		if err != nil {
 			logger.Error("[Moderator Login Email] Failed to fetch moderator",
-				zap.String("moderator_id", payload.ModeratorID), zap.Error(err))
+				zap.String("moderator_id", payload.ModeratorID), logger.RedactedError(err))
 			h.track(ctx, analytics.EventAdminAuthLoginEmailSent, analytics.SystemDistinctID("worker"), map[string]interface{}{
 				"outcome":    "error",
-				"error_type": "db_error",
+				"error_type": errTypeDBError,
 			})
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to fetch moderator"})
 			return
@@ -188,7 +188,7 @@ func (h *Handlers) ModeratorLoginEmail(c *gin.Context) {
 	if sendErr != nil {
 		h.track(ctx, analytics.EventAdminAuthLoginEmailSent, analytics.SystemDistinctID("worker"), map[string]interface{}{
 			"outcome":    "error",
-			"error_type": "email_send_failed",
+			"error_type": errTypeEmailSendFailed,
 		})
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to send email"})
 		return

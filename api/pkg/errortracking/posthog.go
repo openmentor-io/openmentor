@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 )
 
 // zapPostHogLogger bridges the posthog-go SDK logger interface to Zap so that
@@ -104,7 +105,12 @@ func CaptureException(err error, properties map[string]interface{}) {
 	extractor := posthog.DefaultStackTraceExtractor{InAppDecider: posthog.SimpleInAppDecider}
 	stacktrace := extractor.GetStackTrace(4)
 
-	client.captureWithStack(errType, err.Error(), debug.Stack(), stacktrace, properties)
+	// The message is redacted HERE because this is the one sink no middleware can
+	// reach: respondError calls it from inside the handler, before the
+	// observability middleware sanitizes c.Errors, and it ships to a third-party
+	// store (P14). Redacting also improves grouping — an id in the message would
+	// give every occurrence its own issue.
+	client.captureWithStack(errType, redact.Text(err.Error()), debug.Stack(), stacktrace, properties)
 }
 
 // CapturePanic reports a recovered panic to PostHog error tracking.
@@ -116,7 +122,8 @@ func CapturePanic(recovered interface{}, stack []byte) {
 		return
 	}
 	panicType := fmt.Sprintf("%T", recovered)
-	panicMsg := fmt.Sprintf("%v", recovered)
+	// panic(err) is a real pattern, and err can be a wrapped repository error.
+	panicMsg := redact.Text(fmt.Sprintf("%v", recovered))
 
 	// For panics we intentionally skip GetStackTrace: calling it from inside
 	// the recovery defer would capture the recovery middleware frames, not where

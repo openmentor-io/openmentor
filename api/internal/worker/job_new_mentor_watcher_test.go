@@ -124,20 +124,71 @@ func TestNewMentorWatcherMissingRecord(t *testing.T) {
 	}
 }
 
-func TestNewMentorWatcherEmailFailureResilience(t *testing.T) {
+func TestNewMentorWatcherEmailFailureLeavesRowReplayable(t *testing.T) {
 	env := newJobsTestEnv()
 	env.repo.mentors["m1"] = testMentor("m1")
 	env.sender.failTemplates["mentor-confirm-email"] = true
 
 	w := env.do(http.MethodPost, "/jobs/new-mentor-watcher?mentorId=m1", nil)
 
-	// A failed send reports an error, but the DB write stays.
+	// The row is claimed BEFORE the email — no mentor may receive a token that
+	// was not stored — so a failed send has to hand the claim back: holding it
+	// takes the mentor out of finalize-stuck-registrations' replay set until the
+	// token expires 24h later.
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	assert.Equal(t, []string{"mentor-confirm-email"}, env.sender.templates())
-	assert.Len(t, env.repo.finalized, 1)
+	require.Len(t, env.repo.finalized, 1)
+	require.Len(t, env.repo.released, 1, "the claim must be released so the cron replays the row")
+	assert.Equal(t, env.repo.finalized[0], env.repo.released[0],
+		"the release must name the exact claim it undoes, or it could revert somebody else's write")
 
 	event := env.tracker.last()
 	require.NotNil(t, event)
 	assert.Equal(t, "error", event.props["outcome"])
 	assert.Equal(t, "email_send_failed", event.props["error_type"])
+}
+
+// TestNewMentorWatcherClaimsOnTheTokenItRead: the claim is a compare-and-swap on
+// the confirmation token, and the value it swaps against has to be the one THIS
+// run read. Hand the repository an empty expectation instead and two concurrent
+// finalizations both match, both write and both email — the older link already
+// dead. (The SQL side of the claim is covered in repository_claim_db_test.go,
+// which needs a real Postgres.)
+func TestNewMentorWatcherClaimsOnTheTokenItRead(t *testing.T) {
+	env := newJobsTestEnv()
+	mentor := testMentor("m1")
+	mentor.EmailConfirmationToken = "expired-token-from-a-previous-pass"
+	env.repo.mentors["m1"] = mentor
+
+	w := env.do(http.MethodPost, "/jobs/new-mentor-watcher?mentorId=m1", nil)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, env.repo.finalized, 1)
+	assert.Equal(t, "expired-token-from-a-previous-pass",
+		env.repo.finalized[0].ExpectedEmailConfirmationToken)
+	require.NotNil(t, env.repo.finalized[0].EmailConfirmationToken)
+	assert.NotEqual(t, "expired-token-from-a-previous-pass",
+		*env.repo.finalized[0].EmailConfirmationToken, "the replay issues a fresh token")
+}
+
+// TestNewMentorWatcherSkipsEmailWhenRegistrationLeftDraft: the finalization
+// UPDATE is guarded by WHERE status = 'draft', so a mentor who confirms — or a
+// moderator who acts — between the read and the write leaves it matching no row.
+// The confirmation token in hand was then never stored, and emailing it would
+// send a link that is dead on arrival. A claim lost to a concurrent pass looks
+// identical from here and must behave the same way: the winner owns the email.
+func TestNewMentorWatcherSkipsEmailWhenRegistrationLeftDraft(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentors["m1"] = testMentor("m1")
+	env.repo.finalizeNotApplied = true
+
+	w := env.do(http.MethodPost, "/jobs/new-mentor-watcher?mentorId=m1", nil)
+
+	assert.Equal(t, http.StatusOK, w.Code, "an idempotent no-op, not a failure worth retrying")
+	assert.Empty(t, env.sender.attempts, "no email may go out for a token that was not stored")
+	assert.Empty(t, env.repo.released, "nothing was claimed, so nothing may be released")
+
+	event := env.tracker.last()
+	require.NotNil(t, event)
+	assert.Equal(t, "superseded", event.props["outcome"])
 }

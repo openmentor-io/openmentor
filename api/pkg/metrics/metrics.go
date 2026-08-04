@@ -183,7 +183,10 @@ func Init(serviceName string) {
 			Name: "openmentor_photo_classifications_total",
 			Help: "Total number of profile photo style classifications",
 		},
-		[]string{"result"}, // result: hero | frame | error
+		// busy = the decode was shed because every decode slot was taken
+		// (imageclass.ErrDecoderBusy); the photo is still stored, with the
+		// default style.
+		[]string{"result"}, // result: hero | frame | error | busy
 	)
 
 	// Mentor Auth Metrics
@@ -282,7 +285,9 @@ func Init(serviceName string) {
 			Name: "openmentor_worker_cron_runs_total",
 			Help: "Total number of worker cron job runs",
 		},
-		[]string{"job", "outcome"}, // outcome: success | error | panic | skipped
+		// outcome: success | error | panic | skipped (non-production gate) |
+		// skipped_overlap (tick dropped, previous run still in flight)
+		[]string{"job", "outcome"},
 	)
 
 	WorkerCronRunDuration = factory.NewHistogramVec(

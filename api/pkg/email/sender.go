@@ -1,6 +1,6 @@
 // Package email implements the transactional email layer: an AWS SESv2
-// sender with inline templates ({{placeholder}} rendering is performed
-// server-side by SES) and the DEV_EMAIL_OVERRIDE recipient rerouting.
+// sender for locally rendered templates (see pkg/email/templates) and the
+// DEV_EMAIL_OVERRIDE recipient rerouting.
 //
 // It is a functional port of openmentor-func's email stack
 // (lib/postbox/PostboxEmailSender.ts + lib/email/recipientOverride.ts).
@@ -10,7 +10,6 @@ package email
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -55,8 +54,8 @@ type Config struct {
 	DevEmailOverride string
 }
 
-// Sender sends transactional emails via the AWS SESv2 API using inline
-// templates from pkg/email/templates.
+// Sender sends transactional emails via the AWS SESv2 API, rendering the
+// templates from pkg/email/templates locally.
 type Sender struct {
 	client           SESClient
 	appEnv           string
@@ -95,10 +94,12 @@ func NewSenderWithClient(client SESClient, appEnv, devEmailOverride string) *Sen
 
 // BuildSendEmailInput constructs the SESv2 SendEmail parameters for a
 // message, mirroring what PostboxEmailSender.send() assembles: the fixed
-// FromEmailAddress, the (possibly overridden) recipient and the inline
-// template content with JSON-encoded TemplateData.
+// FromEmailAddress, the (possibly overridden) recipient and the message
+// body. The template is rendered here rather than by SES, so the content is
+// Simple (Subject + Body.Html + Body.Text) instead of Template +
+// TemplateData; that is what gives each part the escaping it needs.
 func (s *Sender) BuildSendEmailInput(msg Message) (*sesv2.SendEmailInput, error) {
-	tpl, err := templates.GetTemplate(msg.TemplateName)
+	rendered, err := templates.Render(msg.TemplateName, msg.Props)
 	if err != nil {
 		return nil, err
 	}
@@ -106,35 +107,35 @@ func (s *Sender) BuildSendEmailInput(msg Message) (*sesv2.SendEmailInput, error)
 	// In non-production, DEV_EMAIL_OVERRIDE reroutes all emails to a dev inbox.
 	recipient := ResolveRecipient(msg.Recipient, s.devEmailOverride, s.appEnv)
 
-	props := msg.Props
-	if props == nil {
-		props = map[string]interface{}{}
-	}
-	templateData, err := json.Marshal(props)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal template data for %s: %w", msg.TemplateName, err)
-	}
-
 	return &sesv2.SendEmailInput{
 		FromEmailAddress: aws.String(fmt.Sprintf("%s <%s>", senderName, senderEmail)),
 		Destination: &sesv2types.Destination{
 			ToAddresses: []string{recipient},
 		},
 		Content: &sesv2types.EmailContent{
-			Template: &sesv2types.Template{
-				TemplateContent: &sesv2types.EmailTemplateContent{
-					Subject: aws.String(tpl.Subject),
-					Html:    aws.String(tpl.HTML),
-					Text:    aws.String(tpl.Text),
+			Simple: &sesv2types.Message{
+				Subject: utf8Content(rendered.Subject),
+				Body: &sesv2types.Body{
+					Html: utf8Content(rendered.HTML),
+					Text: utf8Content(rendered.Text),
 				},
-				TemplateData: aws.String(string(templateData)),
 			},
 		},
 	}, nil
 }
 
-// Send sends an email via SES and returns the SES MessageId.
-// Template rendering is performed server-side by SES.
+// utf8Content wraps a rendered part for SES. The charset must be declared:
+// the subjects and bodies contain em dashes and other non-ASCII characters,
+// and SES defaults to 7-bit ASCII.
+func utf8Content(data string) *sesv2types.Content {
+	return &sesv2types.Content{
+		Data:    aws.String(data),
+		Charset: aws.String("UTF-8"),
+	}
+}
+
+// Send renders the template, sends the email via SES and returns the SES
+// MessageId.
 func (s *Sender) Send(ctx context.Context, msg Message) (string, error) {
 	start := time.Now()
 

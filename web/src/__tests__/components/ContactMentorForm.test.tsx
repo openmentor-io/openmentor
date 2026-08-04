@@ -2,21 +2,40 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ContactMentorForm from '@/components/forms/ContactMentorForm'
 
-// Mock Turnstile component
-jest.mock('@marsidev/react-turnstile', () => ({
-  __esModule: true,
-  Turnstile: function MockTurnstile({ onSuccess }: { onSuccess?: (token: string) => void }) {
-    return (
-      <button
-        type="button"
-        data-testid="turnstile"
-        onClick={() => onSuccess?.('mock-turnstile-token')}
-      >
-        Complete Turnstile
-      </button>
-    )
-  },
-}))
+// Mock Turnstile component (forwardRef so the widget's reset() is callable)
+const mockTurnstileReset = jest.fn()
+let freshTokenSeq = 0
+jest.mock('@marsidev/react-turnstile', () => {
+  const react = jest.requireActual('react')
+  return {
+    __esModule: true,
+    Turnstile: react.forwardRef(function MockTurnstile(
+      { onSuccess }: { onSuccess?: (token: string) => void },
+      ref: React.Ref<{ reset: () => void }>
+    ) {
+      react.useImperativeHandle(ref, () => ({
+        reset: () => {
+          mockTurnstileReset()
+          // The real widget re-solves the challenge asynchronously. Issuing the
+          // token synchronously here would have it wiped by the setValue('')
+          // that follows reset() in the component's effect.
+          freshTokenSeq += 1
+          const token = `fresh-turnstile-token-${freshTokenSeq}`
+          setTimeout(() => onSuccess?.(token), 0)
+        },
+      }))
+      return (
+        <button
+          type="button"
+          data-testid="turnstile"
+          onClick={() => onSuccess?.('mock-turnstile-token')}
+        >
+          Complete Turnstile
+        </button>
+      )
+    }),
+  }
+})
 
 describe('ContactMentorForm', () => {
   const mockOnSubmit = jest.fn()
@@ -51,6 +70,35 @@ describe('ContactMentorForm', () => {
     render(<ContactMentorForm isLoading={false} isError={true} onSubmit={mockOnSubmit} />)
 
     expect(screen.getByText(/Something went wrong/i)).toBeInTheDocument()
+  })
+
+  // Whatever the mentee can act on has to replace the generic text, or the
+  // route-level 4xx forwarding never reaches them.
+  it('shows the upstream reason instead of the generic error when there is one', () => {
+    render(
+      <ContactMentorForm
+        isLoading={false}
+        isError={true}
+        errorMessage="Captcha verification failed."
+        onSubmit={mockOnSubmit}
+      />
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Captcha verification failed.')
+    expect(screen.queryByText(/Something went wrong/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps the error panel out of the tree while there is no error', () => {
+    render(
+      <ContactMentorForm
+        isLoading={false}
+        isError={false}
+        errorMessage="Captcha verification failed."
+        onSubmit={mockOnSubmit}
+      />
+    )
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('shows validation error for empty required fields on submit', async () => {
@@ -267,5 +315,74 @@ describe('ContactMentorForm', () => {
       // Form should not be submitted without a captcha token
       expect(mockOnSubmit).not.toHaveBeenCalled()
     })
+  })
+
+  // Turnstile tokens are single-use: siteverify has consumed this one by the
+  // time the submit fails, so a retry carrying the same token can only fail
+  // again — while the form stays mounted with a live submit button.
+  it('resets the captcha after a failed submit so the retry carries a fresh token', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(
+      <ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />
+    )
+
+    await user.type(screen.getByLabelText(/Your email/i), 'test@example.com')
+    await user.type(screen.getByLabelText(/Your full name/i), 'John Doe')
+    await user.type(
+      screen.getByLabelText(/What would you like to talk about/i),
+      'I need help with my career development in tech industry.'
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('turnstile'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Send request/i }))
+    })
+
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1))
+    expect(mockOnSubmit.mock.calls[0][0].captchaToken).toBe('mock-turnstile-token')
+
+    // The page flips readyStatus loading -> error, which is what keys the reset.
+    const fail = async (): Promise<void> => {
+      rerender(<ContactMentorForm isLoading={true} isError={false} onSubmit={mockOnSubmit} />)
+      rerender(<ContactMentorForm isLoading={false} isError={true} onSubmit={mockOnSubmit} />)
+      // Let the widget hand back the replacement token.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+
+    await fail()
+    expect(mockTurnstileReset).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Send request/i }))
+    })
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(2))
+
+    const retryToken = mockOnSubmit.mock.calls[1][0].captchaToken
+    expect(retryToken).not.toBe('mock-turnstile-token')
+    expect(retryToken).toMatch(/^fresh-turnstile-token-\d+$/)
+
+    // Every failure has to reset, not just the first one.
+    await fail()
+    expect(mockTurnstileReset).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Send request/i }))
+    })
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(3))
+    expect(mockOnSubmit.mock.calls[2][0].captchaToken).not.toBe(retryToken)
+  })
+
+  it('leaves the captcha alone while no error is reported', async () => {
+    const { rerender } = render(
+      <ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />
+    )
+
+    rerender(<ContactMentorForm isLoading={true} isError={false} onSubmit={mockOnSubmit} />)
+    rerender(<ContactMentorForm isLoading={false} isError={false} onSubmit={mockOnSubmit} />)
+
+    expect(mockTurnstileReset).not.toHaveBeenCalled()
   })
 })

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -29,6 +30,13 @@ func (h *RegistrationHandler) RegisterMentor(c *gin.Context) {
 
 	resp, err := h.service.RegisterMentor(c.Request.Context(), &req)
 	if err != nil {
+		// Uploads being unconfigured is a server fault, not bad input: the
+		// registrant should retry later, not edit their form.
+		if errors.Is(err, services.ErrUploadsUnavailable) {
+			attachError(c, err)
+			c.JSON(http.StatusServiceUnavailable, resp)
+			return
+		}
 		if resp != nil && resp.Error != "" {
 			attachError(c, err)
 			c.JSON(http.StatusBadRequest, resp)

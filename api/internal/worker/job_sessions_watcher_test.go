@@ -56,7 +56,7 @@ func TestSessionsWatcherSendsOneEmailPerMentor(t *testing.T) {
 		t.Errorf("requests_list_text = %q, want %q", text, wantText)
 	}
 
-	htmlList, _ := first.Props["requests_list"].(string)
+	htmlList := htmlProp(t, first.Props, "requests_list")
 	if !strings.HasPrefix(htmlList, `<ul style="padding-left: 20px; margin: 0;">`) {
 		t.Errorf("requests_list missing <ul> wrapper: %q", htmlList)
 	}
