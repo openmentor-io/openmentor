@@ -1,4 +1,4 @@
--- Reverses 000010. Dropping the table discards every outstanding review
+-- Reverses 000011. Dropping the table discards every outstanding review
 -- capability, so a rollback must be followed by reissuing invitations for any
 -- request whose mentee has not reviewed yet.
 DROP TABLE IF EXISTS review_invitations;

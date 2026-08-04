@@ -17,7 +17,7 @@ import (
 const pgUniqueViolation = "23505"
 
 // reviewTokenHashLen is the length of the hex sha256 this repository stores,
-// mirroring the CHECK constraint in migration 000010.
+// mirroring the CHECK constraint in migration 000011.
 const reviewTokenHashLen = 64
 
 var (

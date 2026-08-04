@@ -41,7 +41,7 @@ const Len = len(Prefix) + EncodedLen
 
 // hashLen is the length of the lowercase-hex sha256 digest stored in
 // review_invitations.token_hash (pinned by a CHECK constraint in migration
-// 000010).
+// 000011).
 const hashLen = sha256.Size * 2
 
 // TTL is how long an invitation stays spendable. Thirty days is long enough
@@ -96,7 +96,7 @@ func WellFormed(raw string) bool {
 
 // HashWellFormed reports whether a value is a digest this package produced. Used
 // by the repository to keep a raw token from ever being passed where a hash is
-// expected — the CHECK constraint in migration 000010 is the same guard in SQL.
+// expected — the CHECK constraint in migration 000011 is the same guard in SQL.
 func HashWellFormed(hash string) bool {
 	if len(hash) != hashLen {
 		return false
