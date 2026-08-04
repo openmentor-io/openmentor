@@ -57,7 +57,7 @@ Docs: <https://grafana.com/docs/grafana-cloud/monitor-applications/database-obse
    SECURITY (H8): `GRANT pg_read_all_data` used to be on this list, for
    `schema_details` and `explain_plans`. It is SELECT on *everything*, including
    every mentor and client email, so the monitoring credential read PII. The
-   replacement is `om_monitor_ro` — a group role created by migration `000010`
+   replacement is `om_monitor_ro` — a group role created by migration `000012`
    with an explicit, reviewable read set (`tags`, `mentor_tags`,
    `mentor_slug_history`, `migration_intents`, `schema_migrations`) and no access
    to `mentors`, `client_requests`, `moderators` or `reviews`. A new table is not

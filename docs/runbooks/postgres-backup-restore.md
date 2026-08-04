@@ -113,7 +113,7 @@ docker volume create openmentor-postgres-data
 #    successful and the app then cannot connect:
 docker compose up -d postgres           # wait for (healthy) in `docker compose ps`
 docker exec -i openmentor-postgres psql -U openmentor -d openmentor -v ON_ERROR_STOP=1 \
-    < ../api/migrations/000010_split_database_identities.up.sql
+    < ../api/migrations/000012_split_database_identities.up.sql
 docker cp /tmp/restore.dump openmentor-postgres:/tmp/restore.dump
 docker exec openmentor-postgres \
     pg_restore -U openmentor -d openmentor --clean --if-exists /tmp/restore.dump
@@ -144,7 +144,7 @@ docker volume rm openmentor-postgres-data-old
 
 Notes:
 
-- `pg_dump -Fc` dumps a single database (`openmentor`), not roles. Recreate extra roles (steps 4-5) — the app role `openmentor` is created by the container from `POSTGRES_USER`, and `om_*` come from migration `000010`.
+- `pg_dump -Fc` dumps a single database (`openmentor`), not roles. Recreate extra roles (steps 4-5) — the app role `openmentor` is created by the container from `POSTGRES_USER`, and `om_*` come from migration `000012`.
 - `pg_restore --clean --if-exists` also works into a non-empty DB (e.g. rolling back a bad data migration without recreating the volume) — steps 2, 4(restore), 6 only.
 
 ## (b) Full VM-snapshot restore (Hetzner)

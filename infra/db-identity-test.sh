@@ -251,10 +251,10 @@ psql_as openmentor -c "ALTER ROLE om_api PASSWORD 'h8-identity-test-fixture'" >/
 BEFORE=$(psql_as openmentor -c \
     "SELECT rolcanlogin::text || ':' || (rolpassword IS NOT NULL)::text FROM pg_authid WHERE rolname = 'om_api'")
 if OUT=$(docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -X -q -1 -U openmentor -d openmentor \
-        < "$MIGRATIONS/000010_split_database_identities.up.sql" 2>&1); then
-    ok "000010 re-applies cleanly"
+        < "$MIGRATIONS/000012_split_database_identities.up.sql" 2>&1); then
+    ok "000012 re-applies cleanly"
 else
-    bad "000010 is not idempotent: $OUT"
+    bad "000012 is not idempotent: $OUT"
 fi
 AFTER=$(psql_as openmentor -c \
     "SELECT rolcanlogin::text || ':' || (rolpassword IS NOT NULL)::text FROM pg_authid WHERE rolname = 'om_api'")
@@ -262,17 +262,17 @@ AFTER=$(psql_as openmentor -c \
 if [ "$BEFORE" = "$AFTER" ] && [ "$(printf '%s' "$AFTER" | tr -d ' \n')" = "true:true" ]; then
     ok "om_api keeps LOGIN and its password across a re-run"
 else
-    bad "re-running 000010 changed om_api's login state ($BEFORE -> $AFTER)"
+    bad "re-running 000012 changed om_api's login state ($BEFORE -> $AFTER)"
 fi
 assert_allowed om_api "om_api still works after the re-run" "SELECT count(*) FROM mentors"
 
 # ---------------------------------------------------------------------------
 case_start "10. the down migration reverses cleanly"
 if OUT=$(docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -X -q -1 -U openmentor -d openmentor \
-        < "$MIGRATIONS/000010_split_database_identities.down.sql" 2>&1); then
-    ok "000010 down applies"
+        < "$MIGRATIONS/000012_split_database_identities.down.sql" 2>&1); then
+    ok "000012 down applies"
 else
-    bad "000010 down failed: $OUT"
+    bad "000012 down failed: $OUT"
 fi
 assert_query openmentor "the roles are gone" \
     "SELECT count(*) FROM pg_roles WHERE rolname IN ('om_migrate','om_api','om_worker','om_backup','om_monitor_ro')" \
@@ -283,10 +283,10 @@ assert_query openmentor "ownership is back with the bootstrap superuser" \
     0
 assert_allowed openmentor "the schema still works after the reversal" "SELECT count(*) FROM mentors"
 if OUT=$(docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -X -q -1 -U openmentor -d openmentor \
-        < "$MIGRATIONS/000010_split_database_identities.up.sql" 2>&1); then
-    ok "and 000010 can be applied again afterwards"
+        < "$MIGRATIONS/000012_split_database_identities.up.sql" 2>&1); then
+    ok "and 000012 can be applied again afterwards"
 else
-    bad "re-applying 000010 after the down failed: $OUT"
+    bad "re-applying 000012 after the down failed: $OUT"
 fi
 
 echo

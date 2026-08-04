@@ -1,4 +1,4 @@
--- Reverse of 000010 (SECURITY H8).
+-- Reverse of 000012 (SECURITY H8).
 --
 -- DANGER: this drops the roles the services may already be authenticating as.
 -- Run it ONLY after every DSN has been pointed back at POSTGRES_USER and the
@@ -30,5 +30,5 @@ BEGIN
     END LOOP;
 END $$;
 
--- Default privileges recorded FOR the role that ran 000010 are removed with the
+-- Default privileges recorded FOR the role that ran 000012 are removed with the
 -- grantee, so no separate ALTER DEFAULT PRIVILEGES ... REVOKE is needed here.

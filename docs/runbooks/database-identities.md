@@ -29,7 +29,7 @@ after any step leaves a consistent system.
 
 | # | Check | Why |
 |---|---|---|
-| 1 | The H8 change is deployed: `cd infra && ./db.sh -c "SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname LIKE 'om\_%' ORDER BY 1"` lists `om_api`, `om_backup`, `om_migrate`, `om_monitor_ro`, `om_worker`, all with `rolcanlogin = f` | migration `000010` is what creates them; without it every step below fails at authentication |
+| 1 | The H8 change is deployed: `cd infra && ./db.sh -c "SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname LIKE 'om\_%' ORDER BY 1"` lists `om_api`, `om_backup`, `om_migrate`, `om_monitor_ro`, `om_worker`, all with `rolcanlogin = f` | migration `000012` is what creates them; without it every step below fails at authentication |
 | 2 | `./db.sh -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relowner='om_migrate'::regrole"` returns the table count (9 at the time of writing) | ownership moved; step 5 depends on it |
 | 3 | A fresh backup: `docker exec openmentor-postgres-backup /usr/local/bin/backup.sh once` shows `SUCCESS` | you are about to change the credentials the backup path uses |
 | 4 | `cp .env.production .env.production.pre-h8` (kept OUTSIDE the repo) | the rollback for every step is an `.env` edit |
@@ -115,7 +115,7 @@ Notes that save time:
 ## Step 6 — narrow the monitoring role (optional, separate)
 
 `grafana_monitoring` currently holds `pg_read_all_data`, i.e. SELECT on every
-mentor and client email. Migration `000010` created `om_monitor_ro` with the
+mentor and client email. Migration `000012` created `om_monitor_ro` with the
 scoped read set (`tags`, `mentor_tags`, `mentor_slug_history`,
 `migration_intents`, `schema_migrations`) but granted it to nobody: this narrows
 a LIVE integration, so it is a deliberate step, not a side effect of a deploy.
@@ -156,5 +156,5 @@ What is deliberately NOT done here, and why:
   instead of a reversion.
 - **Restores need the roles to exist.** A `pg_dump` of this database now carries
   `OWNER TO om_migrate` lines. Restoring into a *fresh* cluster therefore either
-  needs the roles created first (apply `000010`) or `pg_restore --no-owner` —
+  needs the roles created first (apply `000012`) or `pg_restore --no-owner` —
   see `postgres-backup-restore.md`.
