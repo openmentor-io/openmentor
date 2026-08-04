@@ -53,6 +53,11 @@ services:
     # want has to be repeated here — including the project constraint.
     command:
       - "--providers.docker=true"
+      # SECURITY (H7): the socket is no longer mounted into traefik in the base
+      # file, so this flag is not optional here — without it dev traefik dials
+      # /var/run/docker.sock, finds nothing, and http://localhost/ 404s while
+      # :3000 still answers. Exactly the trap the header describes.
+      - "--providers.docker.endpoint=tcp://docker-socket-proxy:2375"
       - "--providers.docker.exposedbydefault=false"
       # Without this, a getmentor.dev stack running on the same Docker daemon
       # (they can now run side by side) also publishes a router called

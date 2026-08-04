@@ -20,6 +20,16 @@
 # DNS-01 ACME challenge. The ONE legitimate holder of this token.
 CLOUDFLARE_DNS_API_TOKEN
 
+[docker-socket-proxy]
+# SECURITY (H7): endpoint switches for the filtered Docker API, not secrets —
+# the whole point of this service is that it holds no credential at all. Every
+# other switch in the image defaults to 0; adding one here widens what an RCE in
+# traefik can reach, so it needs the same review as a new secret owner.
+CONTAINERS
+EVENTS
+PING
+VERSION
+
 [cadvisor]
 # No environment at all.
 

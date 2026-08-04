@@ -27,8 +27,9 @@ One **active** provider (Hetzner), passive AWS/Cloudflare accounts
 
 ```
 Hetzner VM (only thing operated day-to-day)
-└── docker compose: traefik / frontend / backend(api) / worker / migrate
-                    / postgres / postgres-backup / alloy / cadvisor
+└── docker compose: traefik / docker-socket-proxy / frontend / backend(api)
+                    / worker / migrate / postgres / postgres-backup
+                    / alloy / cadvisor
 AWS (passive, one account):  S3 = profile images (D15) · SES = email (D1)
 Cloudflare (passive):        DNS
 AWS ECR (passive, D19):      container images (`${ECR_REGISTRY}` in compose)
@@ -62,7 +63,8 @@ scales/deploys independently of the API; S3/SES scale on their own.
 
 | Service | Image | Exposure | Purpose |
 |---|---|---|---|
-| `traefik` | traefik:v3.7 | :80/:443 public | TLS termination (Let's Encrypt via Cloudflare DNS-01), routing, global :80 -> :443 redirect (entrypoint-level). Dev overlay: HTTP-only on :80, no redirect |
+| `traefik` | traefik:v3.7 | :80/:443 public | TLS termination (Let's Encrypt via Cloudflare DNS-01), routing, global :80 -> :443 redirect (entrypoint-level). Dev overlay: HTTP-only on :80, no redirect. Reads the Docker API through `docker-socket-proxy`, never the socket (H7) |
+| `docker-socket-proxy` | tecnativa/docker-socket-proxy | internal, `openmentor-docker-api` network only | The filtered Docker API Traefik's provider reads: GET `/version`, `/_ping`, `/containers/*` and `/events`, everything else 403 — including every POST, so a Traefik RCE cannot create a container (H7). Traefik 404s everything while this is down, so it is `restart: always` with a healthcheck. `docs/runbooks/container-hardening.md` |
 | `frontend` | openmentor-frontend | via Traefik | Next.js web app |
 | `backend` | openmentor-backend | internal only | Go REST API (`/app/main`) |
 | `worker` | openmentor-backend (same image, `/app/worker`) | internal :8090 | Async event triggers from the API (`/jobs/*`, `X-Worker-Token` auth) + daily cron jobs. Replaces the deprecated `openmentor-func` Azure Functions app (D6) |
@@ -70,7 +72,7 @@ scales/deploys independently of the API; S3/SES scale on their own.
 | `postgres` | postgres:16.14-alpine | internal only (no published ports) | Production database (DECISIONS D2). Data in the **external** volume `openmentor-postgres-data` (survives `compose down -v`; created by deploy scripts). Admin access via `docker exec -it openmentor-postgres psql`. Dev overlay overrides it with dev creds + host :5433 |
 | `postgres-backup` | built from `postgres-backup/` | internal only | Nightly `pg_dump -Fc` of the database at `BACKUP_TIME` (UTC) → S3 (`BACKUP_S3_BUCKET`) with `BACKUP_RETENTION_DAYS` pruning; local `openmentor-postgres-backups` volume fallback. Disabled in the dev overlay |
 | `alloy` | grafana/alloy | internal :12345 | Metrics scraping, log tailing, OTLP traces, Pyroscope profiles → Grafana Cloud |
-| `cadvisor` | cadvisor | internal | Container resource metrics |
+| `cadvisor` | cadvisor | internal | Container resource metrics. Keeps `docker.sock` + `containerd.sock` (its docker factory needs both), but no longer mounts the host root filesystem (H7) |
 
 ## Repository Layout
 
@@ -81,6 +83,8 @@ infra/
 ├── Makefile                    # `make check` — the fast infra checks the required CI gate runs
 ├── check-service-env.sh        # Per-service env allowlist + secret-ownership check (P10)
 ├── env-allowlist.txt           # The allowlist it enforces (machine-checked half of the env contract)
+├── db-identity-test.sh         # Applies ../api/migrations to a throwaway DB and asserts the
+│                               # per-service Postgres roles stay least-privilege (H8)
 ├── postgres-backup/            # Backup sidecar image (pg_dump → S3, see Backups) + its tests
 ├── .env.example                # Local development env template
 ├── .env.production.example     # Production env template (deploy creds + build args + runtime secrets)
@@ -415,6 +419,19 @@ Also back up:
 ## Security Considerations
 
 - Only Traefik has public ports; backend/worker/alloy/cadvisor are internal.
+- **No container gets the Docker socket except cAdvisor.** Traefik reads a
+  filtered, GET-only Docker API through `docker-socket-proxy` on its own
+  `internal` network, so an RCE at the edge cannot create a container (H7).
+  `docs/runbooks/container-hardening.md` has the verification and rollback.
+- **Every service runs `no-new-privileges` + `cap_drop: [ALL]`**, with the few
+  capabilities each image genuinely needs added back and `read_only` where it
+  has been exercised. The exceptions are listed with their reasons inline in
+  `docker-compose.yml`; none of them is "we didn't get round to it".
+- **Postgres identities are split per process** (`om_migrate` owns the schema,
+  `om_api`/`om_worker` are DML-only, `om_backup` is read-only), so a SQL
+  injection no longer reaches `COPY ... FROM PROGRAM`. The roles ship unusable
+  (`NOLOGIN`) and each service is switched over by an operator, one `.env` line
+  at a time — `../docs/runbooks/database-identities.md`.
 - The worker requires `X-Worker-Token` (`WORKER_AUTH_TOKEN`) on all `/jobs/*`
   calls.
 - Never commit `.env` / `.env.production`; both are gitignored. Rotate tokens

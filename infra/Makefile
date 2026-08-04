@@ -1,4 +1,4 @@
-.PHONY: help check compose-config env-allowlist backup-tests deploy-tests alert-tests
+.PHONY: help check compose-config env-allowlist backup-tests deploy-tests alert-tests db-identity-tests
 
 # The fast infra checks, in one place. .github/workflows/checks.yml calls these
 # targets (as web/ and api/ do), so `make check` here runs exactly what the
@@ -17,8 +17,9 @@ help:
 	@echo "  backup-tests   - postgres-backup sidecar behaviour tests"
 	@echo "  deploy-tests   - blocks the deploy scripts share (.env.runtime, backup gate)"
 	@echo "  alert-tests    - backup alert + panels vs Alloy labels vs sidecar gauges"
+	@echo "  db-identity-tests - the split Postgres roles, on a throwaway database"
 
-check: compose-config env-allowlist backup-tests deploy-tests alert-tests
+check: compose-config env-allowlist backup-tests deploy-tests alert-tests db-identity-tests
 	@echo "✅ Infra checks passed!"
 
 compose-config:
@@ -41,3 +42,10 @@ deploy-tests:
 # filter covers both, so a Grafana-only PR still runs this.
 alert-tests:
 	@./alert-consistency-test.sh
+
+# Applies ../api/migrations to a throwaway postgres container and asserts what
+# each role can and cannot do (SECURITY H8). The checks.yml infra filter covers
+# api/migrations/** so a migration that quietly re-grants the app superuser-ish
+# privileges fails the gate.
+db-identity-tests:
+	@./db-identity-test.sh

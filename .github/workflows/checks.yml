@@ -79,6 +79,11 @@ jobs:
               # has to run it
               - 'grafana/alerting/**'
               - 'grafana/dashboards/**'
+              # `make check` also applies every migration to a throwaway database
+              # and asserts the per-service Postgres roles stay least-privilege
+              # (db-identity-test.sh), so a new migration has to run it — a stray
+              # GRANT is how H8 comes back silently.
+              - 'api/migrations/**'
               - '.github/workflows/checks.yml'
             workflows:
               - '.github/workflows/**'

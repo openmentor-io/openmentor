@@ -50,9 +50,28 @@ Docs: <https://grafana.com/docs/grafana-cloud/monitor-applications/database-obse
    ./db.sh -c "CREATE USER grafana_monitoring WITH PASSWORD '<PASSWORD>'"
    ./db.sh -c "GRANT pg_monitor TO grafana_monitoring"
    ./db.sh -c "GRANT pg_read_all_stats TO grafana_monitoring"
-   ./db.sh -c "GRANT pg_read_all_data TO grafana_monitoring"   -- schema_details / explain_plans
+   ./db.sh -c "GRANT om_monitor_ro TO grafana_monitoring"     -- see the note below
    ./db.sh -c "ALTER ROLE grafana_monitoring SET pg_stat_statements.track = 'none'"
    ```
+
+   SECURITY (H8): `GRANT pg_read_all_data` used to be on this list, for
+   `schema_details` and `explain_plans`. It is SELECT on *everything*, including
+   every mentor and client email, so the monitoring credential read PII. The
+   replacement is `om_monitor_ro` — a group role created by migration `000010`
+   with an explicit, reviewable read set (`tags`, `mentor_tags`,
+   `mentor_slug_history`, `migration_intents`, `schema_migrations`) and no access
+   to `mentors`, `client_requests`, `moderators` or `reviews`. A new table is not
+   added to it automatically; that is the point.
+
+   Query stats, wait events and normalized query text are unaffected (they come
+   from `pg_monitor`). EXPLAIN plans and schema sampling for the excluded tables
+   are given up on purpose. On the EXISTING installation this is a narrowing of a
+   live integration, so it is a separate operator step, with its rollback, in
+   `database-identities.md` — not something a deploy does.
+
+   Residual, unchanged by this: `pg_read_all_stats` (inside `pg_monitor`) exposes
+   `pg_stat_activity.query` for other roles, which can contain literal parameter
+   values. That is inherent to query-sample collection.
 
 4. Restart Alloy so it picks up the secret written in step 2 (deploy
    already restarts it; otherwise `docker restart grafana-alloy`).
