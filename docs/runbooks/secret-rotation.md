@@ -198,7 +198,8 @@ Once all six groups are done:
   disable the old one.
 - On the VM, confirm no stale full-secret copy remains:
   `ls -la /opt/openmentor/infra/.env*` should show `.env` (mode 600),
-  `.env.backup`, and **no** `.env.runtime`. If that file is still there the VM
+  `.env.lastgood`, up to five `.env.backup.<epoch>` snapshots — all mode 600 —
+  and **no** `.env.runtime`. If that file is still there the VM
   has not yet received the P10 `docker-compose.yml`: run `./deploy.sh infra`,
   which is the deploy that removes it (`infra/DEPLOYMENT.md`).
 - Record the date and which groups were rotated in the ops tracker.

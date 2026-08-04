@@ -16,9 +16,11 @@ set -e
 # Options:
 #   --yes, -y    skip the confirmation prompt
 #
-# The script edits the tags in /opt/openmentor/infra/.env on the VM (keeping
-# a .env.backup), pulls, re-converges with `docker compose up -d` and runs
-# the same health checks as deploy.sh.
+# The script edits the tags in /opt/openmentor/infra/.env on the VM (snapshotting
+# the previous one as .env.backup.<epoch>), pulls, re-converges with
+# `docker compose up -d` and runs the same health checks as deploy.sh. It holds
+# the same .deploy.lock a deploy holds, and promotes .env.lastgood when the
+# rolled-back version passes those checks — see the header of deploy-remote.sh.
 # ============================================================================
 
 RED='\033[0;31m'
@@ -130,6 +132,92 @@ BACKEND_TARGET_TAG="$BACKEND_TARGET_TAG"
 # The monorepo's infra/ directory lives at $REMOTE_INFRA_DIR on the VM
 cd $REMOTE_INFRA_DIR
 
+# The block below is byte-identical to the one in rollback.sh (modulo that
+# file's heredoc escaping) and is extracted from both by
+# deploy-transition-test.sh; keep them in sync.
+# --- H9 deploy serialization (mirrored in deploy-remote.sh + rollback.sh) ----
+# NOTE: rollback.sh embeds this block in an UNQUOTED here-document, so every
+# expansion is backslash-escaped there. deploy-transition-test.sh pushes that
+# copy through a heredoc and requires the result to equal this one byte for
+# byte, so keep the block free of backticks and of any other backslash.
+#
+# NOTE: if/elif, not case, and every paren in CODE balanced — bash 3.2 (still
+# /bin/bash on macOS, where rollback.sh runs) finds the end of the \$( ) around
+# its here-document by counting parens in the body.
+#
+# WHY: three writers converge the same compose project and rewrite the same
+# .env — this script (driven by CI and by deploy.sh) and rollback.sh. The
+# deploy workflow's concurrency group serializes CI against itself only; an
+# operator running deploy.sh or rollback.sh from a workstation is invisible to
+# it. Two overlapping runs interleaved a pull/up with the other's .env edit,
+# and each left the other's UNVERIFIED tags as the rollback target.
+#
+# The lock is fd 9 on a file in this directory, released whenever the shell
+# exits — so a killed deploy cannot wedge the next one. A missing flock is fatal
+# on purpose: warn-and-continue would silently restore the unserialized
+# behaviour this exists to remove.
+acquire_deploy_lock() {
+    if ! command -v flock >/dev/null 2>&1; then
+        echo "❌ flock (util-linux) is not installed on this VM — refusing to deploy unserialized."
+        exit 1
+    fi
+    exec 9>>.deploy.lock
+    chmod 600 .deploy.lock 2>/dev/null || true
+    if ! flock -w "\${DEPLOY_LOCK_WAIT:-900}" 9; then
+        echo "❌ Timed out waiting for the deploy lock (.deploy.lock in this directory):"
+        echo "   another deploy or rollback is converging this VM. Nothing was changed."
+        exit 1
+    fi
+    echo "🔒 Holding the deploy lock"
+}
+
+# Snapshot .env before changing it: timestamped, never a single slot, so no
+# writer can destroy another's. Pruned to the 5 newest — each file is a copy of
+# every production secret.
+snapshot_env() {
+    if [ -f .env ]; then
+        snapshot=".env.backup.\$(date +%s)"
+        cp .env "\$snapshot"
+        chmod 600 "\$snapshot"
+        # shellcheck disable=SC2012 # fixed prefix, no user-supplied names
+        ls -1t .env.backup.* 2>/dev/null | tail -n +6 | xargs -r rm -f
+        echo "   Snapshotted the current .env as \$snapshot"
+    fi
+}
+
+# Promote the running .env to the verified rollback target. Called ONLY after
+# every application health check has passed — that is the whole point: a tag
+# that was merely attempted must never become something to roll back TO.
+promote_env_lastgood() {
+    cp .env .env.lastgood
+    chmod 600 .env.lastgood
+    echo "   .env.lastgood updated (this version is now the rollback target)"
+}
+
+# Where an auto-rollback restores from, most trustworthy first: the last
+# verified .env, then the newest snapshot, then the pre-H9 single slot (which
+# only the first deploy after this change can still need). Prints nothing when
+# there is no candidate at all.
+rollback_env_source() {
+    if [ -f .env.lastgood ]; then
+        echo .env.lastgood
+        return 0
+    fi
+    # shellcheck disable=SC2012 # fixed prefix, no user-supplied names
+    newest=\$(ls -1t .env.backup.* 2>/dev/null | head -1)
+    if [ -n "\$newest" ]; then
+        echo "\$newest"
+        return 0
+    fi
+    if [ -f .env.backup ]; then
+        echo .env.backup
+    fi
+}
+# --- end H9 deploy serialization --------------------------------------------
+
+# Serialize against a deploy converging this same VM (H9).
+acquire_deploy_lock
+
 # Replace-or-append a KEY=value in .env
 set_env_tag() {
     local key="\$1" value="\$2"
@@ -144,7 +232,10 @@ set_env_tag() {
 CURRENT_FRONTEND_TAG=\$(grep "^FRONTEND_IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
 CURRENT_BACKEND_TAG=\$(grep "^BACKEND_IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
 echo "Current tags: frontend=\$CURRENT_FRONTEND_TAG backend=\$CURRENT_BACKEND_TAG"
-cp .env .env.backup
+# H9: a timestamped snapshot, not the single .env.backup slot a concurrent
+# deploy would overwrite. The verified rollback target is .env.lastgood, updated
+# at the bottom of this script when the rolled-back version checks out.
+snapshot_env
 
 # Update the per-service image tags in .env (compose reads them from there)
 if [ -n "\$FRONTEND_TARGET_TAG" ]; then
@@ -310,6 +401,11 @@ elif [ "\$BACKUP_RC" -eq 2 ]; then
 fi
 
 if [ \$HEALTH_OK -eq 1 ]; then
+    # H9: the rolled-back version just passed every application health check, so
+    # it becomes the verified target a later failed deploy reverts to. Without
+    # this, the next auto-rollback would aim at the version this rollback was
+    # run to escape.
+    promote_env_lastgood
     if [ \$BACKUP_UNHEALTHY -eq 1 ]; then
         echo "✅ Rollback successful — images rolled back, app health checks passed"
         echo "❌ ...but the postgres-backup sidecar is UNHEALTHY (see above). Exiting 2:"
@@ -320,7 +416,8 @@ if [ \$HEALTH_OK -eq 1 ]; then
     exit 0
 else
     echo "❌ Rollback health checks failed!"
-    echo "Previous .env preserved as .env.backup in $REMOTE_INFRA_DIR"
+    echo "The .env this rollback replaced is the newest .env.backup.* in $REMOTE_INFRA_DIR;"
+    echo ".env.lastgood still points at the last version that passed its health checks."
     exit 1
 fi
 REMOTE_SCRIPT

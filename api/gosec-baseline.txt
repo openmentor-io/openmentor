@@ -1,0 +1,28 @@
+# Reviewed gosec HIGH findings (H6).
+#
+# One "<RULE> <path>" per line. api/scripts/gosec-sarif-gate.sh fails CI on any
+# HIGH finding NOT listed here, and on any line here that no longer matches —
+# so this file cannot rot into a blanket exemption. Line numbers are deliberately
+# not part of the key; they move.
+#
+# MEDIUM/LOW findings are not gated here: golangci-lint's gosec (medium
+# severity + confidence) already blocks merges on non-test code, and the full
+# report is in the Security tab.
+
+# Header NAME, not a credential: "X-Worker-Token" is the header the worker's
+# /jobs middleware reads. The site carries //nolint:gosec, which golangci-lint
+# honours and standalone gosec does not.
+G101 pkg/trigger/trigger.go
+
+# Test-only PNG fixture: int -> uint32 for a PNG header field and a chunk
+# length, both derived from test-chosen dimensions and an in-memory buffer.
+# gosec tags G115 HIGH; api/.golangci.yml excludes the rule outright, and the
+# fixture already carries //nolint:gosec at the two header sites. Standalone
+# gosec also scans _test-adjacent packages, which is why it shows up only here.
+G115 test/imagefixture/imagefixture.go
+
+# math/rand is the correct tool in both places, and neither is a security
+# decision: one shuffles the public mentor list's display order, the other
+# jitters a watcher's poll. Switching to crypto/rand would buy nothing.
+G404 internal/worker/job_randomize_sort_order.go
+G404 internal/worker/job_new_mentor_watcher.go

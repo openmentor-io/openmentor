@@ -28,16 +28,32 @@ set -e
 #   • /opt/openmentor/infra/.env contains the desired FRONTEND_IMAGE_TAG /
 #     BACKEND_IMAGE_TAG (deploy.sh uploads a fresh .env; the workflow edits
 #     the tag lines of the existing one in place),
-#   • .env.backup holds the PREVIOUS .env (previous image tags) — the
-#     auto-rollback below restores it if health checks fail,
+#   • the caller has snapshotted the .env it is about to change as
+#     .env.backup.<epoch> (see the H9 block below),
 #   • the VM's docker is already logged in to ECR (short-lived token minted
 #     on the calling machine and piped over ssh stdin — the VM needs no aws
 #     CLI and no AWS credentials at all; tokens last 12h, each deploy
 #     re-authenticates).
 #
+# The three .env files on the VM (H9):
+#   .env                  what compose reads right now
+#   .env.lastgood         the last .env whose deploy passed every application
+#                         health check — the auto-rollback target, written ONLY
+#                         after verification, so it can never be a tag that was
+#                         merely attempted. This replaces the single
+#                         .env.backup slot: two overlapping deploys used to
+#                         overwrite it for each other, and deploy B's failure
+#                         then "rolled back" to deploy A's unverified tags.
+#   .env.backup.<epoch>   per-writer snapshot taken before .env is changed,
+#                         5 newest kept. History and forensics only; no writer
+#                         can clobber another's. (The legacy single-slot
+#                         .env.backup is still accepted as a last-resort
+#                         rollback source, for the first deploy after this
+#                         change.)
+#
 # Exit codes:
 #   0  deploy converged and all health checks passed
-#   1  deploy failed (auto-rollback to .env.backup attempted when health
+#   1  deploy failed (auto-rollback to .env.lastgood attempted when health
 #      checks fail; its outcome is logged)
 #   2  deploy converged and every application health check passed, but the
 #      postgres-backup sidecar reports UNHEALTHY (stale dumps). Nothing was
@@ -54,6 +70,92 @@ echo "🚀 Starting deployment on production VM..."
 # The monorepo's infra/ directory is synced to /opt/openmentor/infra (by the
 # infra target of deploy.sh or the deploy workflow); compose runs from there.
 cd /opt/openmentor/infra
+
+# The block below is byte-identical to the one in rollback.sh (modulo that
+# file's heredoc escaping) and is extracted from both by
+# deploy-transition-test.sh; keep them in sync.
+# --- H9 deploy serialization (mirrored in deploy-remote.sh + rollback.sh) ----
+# NOTE: rollback.sh embeds this block in an UNQUOTED here-document, so every
+# expansion is backslash-escaped there. deploy-transition-test.sh pushes that
+# copy through a heredoc and requires the result to equal this one byte for
+# byte, so keep the block free of backticks and of any other backslash.
+#
+# NOTE: if/elif, not case, and every paren in CODE balanced — bash 3.2 (still
+# /bin/bash on macOS, where rollback.sh runs) finds the end of the $( ) around
+# its here-document by counting parens in the body.
+#
+# WHY: three writers converge the same compose project and rewrite the same
+# .env — this script (driven by CI and by deploy.sh) and rollback.sh. The
+# deploy workflow's concurrency group serializes CI against itself only; an
+# operator running deploy.sh or rollback.sh from a workstation is invisible to
+# it. Two overlapping runs interleaved a pull/up with the other's .env edit,
+# and each left the other's UNVERIFIED tags as the rollback target.
+#
+# The lock is fd 9 on a file in this directory, released whenever the shell
+# exits — so a killed deploy cannot wedge the next one. A missing flock is fatal
+# on purpose: warn-and-continue would silently restore the unserialized
+# behaviour this exists to remove.
+acquire_deploy_lock() {
+    if ! command -v flock >/dev/null 2>&1; then
+        echo "❌ flock (util-linux) is not installed on this VM — refusing to deploy unserialized."
+        exit 1
+    fi
+    exec 9>>.deploy.lock
+    chmod 600 .deploy.lock 2>/dev/null || true
+    if ! flock -w "${DEPLOY_LOCK_WAIT:-900}" 9; then
+        echo "❌ Timed out waiting for the deploy lock (.deploy.lock in this directory):"
+        echo "   another deploy or rollback is converging this VM. Nothing was changed."
+        exit 1
+    fi
+    echo "🔒 Holding the deploy lock"
+}
+
+# Snapshot .env before changing it: timestamped, never a single slot, so no
+# writer can destroy another's. Pruned to the 5 newest — each file is a copy of
+# every production secret.
+snapshot_env() {
+    if [ -f .env ]; then
+        snapshot=".env.backup.$(date +%s)"
+        cp .env "$snapshot"
+        chmod 600 "$snapshot"
+        # shellcheck disable=SC2012 # fixed prefix, no user-supplied names
+        ls -1t .env.backup.* 2>/dev/null | tail -n +6 | xargs -r rm -f
+        echo "   Snapshotted the current .env as $snapshot"
+    fi
+}
+
+# Promote the running .env to the verified rollback target. Called ONLY after
+# every application health check has passed — that is the whole point: a tag
+# that was merely attempted must never become something to roll back TO.
+promote_env_lastgood() {
+    cp .env .env.lastgood
+    chmod 600 .env.lastgood
+    echo "   .env.lastgood updated (this version is now the rollback target)"
+}
+
+# Where an auto-rollback restores from, most trustworthy first: the last
+# verified .env, then the newest snapshot, then the pre-H9 single slot (which
+# only the first deploy after this change can still need). Prints nothing when
+# there is no candidate at all.
+rollback_env_source() {
+    if [ -f .env.lastgood ]; then
+        echo .env.lastgood
+        return 0
+    fi
+    # shellcheck disable=SC2012 # fixed prefix, no user-supplied names
+    newest=$(ls -1t .env.backup.* 2>/dev/null | head -1)
+    if [ -n "$newest" ]; then
+        echo "$newest"
+        return 0
+    fi
+    if [ -f .env.backup ]; then
+        echo .env.backup
+    fi
+}
+# --- end H9 deploy serialization --------------------------------------------
+
+# Serialize against the other two writers before touching anything.
+acquire_deploy_lock
 
 # Read image tags from the prepared .env file
 FRONTEND_IMAGE_TAG=$(grep "^FRONTEND_IMAGE_TAG=" .env | cut -d'=' -f2)
@@ -289,15 +391,19 @@ fi
 if [ $HEALTH_CHECK_FAILED -eq 1 ]; then
     echo "🔄 ROLLING BACK to previous version..."
 
-    # Restore backup .env file (previous image tags, written by the caller
-    # before it touched .env)
-    if [ -f .env.backup ]; then
-        cp .env.backup .env
+    # H9: restore the last VERIFIED .env, not merely "whatever was here before".
+    # The .env being replaced is snapshotted first — it is the evidence of what
+    # just failed.
+    ROLLBACK_ENV=$(rollback_env_source)
+    if [ -n "$ROLLBACK_ENV" ]; then
+        snapshot_env
+        cp "$ROLLBACK_ENV" .env
+        chmod 600 .env
         # Re-derive the legacy file from the restored .env on a not-yet-upgraded VM
         sync_env_runtime
-        echo "Restored previous .env file"
+        echo "Restored .env from $ROLLBACK_ENV"
     else
-        echo "❌ No backup .env file found, cannot rollback!"
+        echo "❌ No rollback .env found (.env.lastgood, .env.backup.*, .env.backup), cannot rollback!"
         exit 1
     fi
 
@@ -318,6 +424,13 @@ if [ $HEALTH_CHECK_FAILED -eq 1 ]; then
 
     exit 1
 fi
+
+# Every application health check passed, so THIS .env is now the known-good one
+# (H9). Promoted before the backup-sidecar verdict below on purpose: exit 2 means
+# the running code is fine and nothing was reverted, so it is still a legitimate
+# rollback target — and refusing to promote it would leave the next failed
+# deploy rolling back to an older, needlessly stale version.
+promote_env_lastgood
 
 # The deploy itself is done. A stale backup sidecar still has to leave this run
 # non-zero — with its own code, so the caller can say which of the two happened

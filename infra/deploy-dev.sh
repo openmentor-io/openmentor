@@ -253,6 +253,7 @@ if [ "$DEPLOY_FRONTEND" = true ]; then
     # uses with .env.production). Preserve computed tags across the source.
     SAVED_FRONTEND_TAG="$FRONTEND_GIT_TAG"
     SAVED_BACKEND_TAG="$BACKEND_GIT_TAG"
+    # shellcheck source=/dev/null # a developer's runtime .env, not a repo file
     source "$ENV_FILE" 2>/dev/null || true
     FRONTEND_GIT_TAG="$SAVED_FRONTEND_TAG"
     BACKEND_GIT_TAG="$SAVED_BACKEND_TAG"

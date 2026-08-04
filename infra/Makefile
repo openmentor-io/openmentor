@@ -1,4 +1,4 @@
-.PHONY: help check compose-config env-allowlist backup-tests deploy-tests alert-tests
+.PHONY: help check compose-config env-allowlist shellcheck backup-tests deploy-tests alert-tests
 
 # The fast infra checks, in one place. .github/workflows/checks.yml calls these
 # targets (as web/ and api/ do), so `make check` here runs exactly what the
@@ -14,11 +14,12 @@ help:
 	@echo "  check          - All fast infra checks (what CI runs)"
 	@echo "  compose-config - Validate the prod and dev compose renders"
 	@echo "  env-allowlist  - Per-service env allowlist + secret ownership"
+	@echo "  shellcheck     - shellcheck every script in infra/"
 	@echo "  backup-tests   - postgres-backup sidecar behaviour tests"
 	@echo "  deploy-tests   - blocks the deploy scripts share (.env.runtime, backup gate)"
 	@echo "  alert-tests    - backup alert + panels vs Alloy labels vs sidecar gauges"
 
-check: compose-config env-allowlist backup-tests deploy-tests alert-tests
+check: compose-config env-allowlist shellcheck backup-tests deploy-tests alert-tests
 	@echo "✅ Infra checks passed!"
 
 compose-config:
@@ -30,6 +31,22 @@ compose-config:
 # as an empty one.
 env-allowlist:
 	@./check-service-env.sh --self-test
+
+# These scripts run as root on the production VM and are piped over ssh, where a
+# quoting slip is a live-system incident rather than a stack trace (H12).
+#
+# --severity=warning, not the default "style": the three long deploy scripts
+# carry ~40 pre-existing style notes (SC2181, SC2269 and friends), and gating on
+# those today would mean a mechanical rewrite of deploy.sh inside an unrelated
+# change. Warnings are the class that hides real bugs — quoting, word splitting,
+# traps that expand at the wrong time.
+shellcheck:
+	@command -v shellcheck >/dev/null || { \
+		echo "❌ shellcheck is not installed (brew install shellcheck / apt-get install shellcheck)"; \
+		exit 1; \
+	}
+	@echo "Running shellcheck (severity=warning) over infra/..."
+	@shellcheck --severity=warning ./*.sh ./postgres-backup/*.sh ./migration/*.sh
 
 backup-tests:
 	@./postgres-backup/backup-test.sh

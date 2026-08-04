@@ -165,9 +165,23 @@ shared secret file in place until `infra` is synced. Covered by
 ```
 
 Reads the same `.env.production`, SSHes to the VM, updates
-`FRONTEND_IMAGE_TAG`/`BACKEND_IMAGE_TAG` in `/opt/openmentor/infra/.env`
-(keeping `.env.backup`), pulls, re-converges, and verifies the same health
-checks as `deploy.sh`.
+`FRONTEND_IMAGE_TAG`/`BACKEND_IMAGE_TAG` in `/opt/openmentor/infra/.env`,
+pulls, re-converges, and verifies the same health checks as `deploy.sh`. It takes
+the same `.deploy.lock` a deploy takes, so a rollback and a deploy cannot
+converge the VM at the same time.
+
+### The three `.env` files on the VM (H9)
+
+| File | Written by | Meaning |
+|---|---|---|
+| `.env` | every deploy/rollback | what compose reads right now |
+| `.env.lastgood` | `deploy-remote.sh`, `rollback.sh` — **only after every application health check passed** | the auto-rollback target. A tag that was merely attempted can never appear here |
+| `.env.backup.<epoch>` | every writer, before it changes `.env` | history/forensics, 5 newest kept |
+
+Manual recovery on the VM is therefore `cp .env.lastgood .env && docker compose up -d`.
+The pre-H9 single `.env.backup` slot is gone: two overlapping deploys overwrote
+it for each other, so a failed deploy B could "roll back" to deploy A's
+unverified tags.
 
 ### Rollback does NOT revert database migrations
 

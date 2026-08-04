@@ -32,6 +32,19 @@
 #      /bin/bash): it ends the enclosing $( ) at the first unbalanced ')', so a
 #      `case` pattern in the remote script breaks the whole file
 #
+# H9 — serialized deploys and a rollback target that was actually verified. All
+# three writers (this VM's .env is edited by deploy-remote.sh's callers and by
+# rollback.sh) used a single `cp .env .env.backup` slot, so two overlapping
+# deploys destroyed each other's rollback target:
+#
+#   9. the lock/snapshot block is one block in both scripts, heredoc-safe
+#  10. snapshot_env / promote_env_lastgood / rollback_env_source behave (mode
+#      600, pruning, and the lastgood > newest snapshot > legacy preference)
+#  11. two concurrent holders of the lock serialize (skipped where flock does
+#      not exist, i.e. macOS; CI is Linux and always runs it)
+#  12. no writer still uses the single .env.backup slot, every writer takes the
+#      lock, and the deploy workflow has the concurrency group
+#
 # Usage: ./deploy-transition-test.sh
 # ============================================================================
 set -euo pipefail
@@ -42,6 +55,8 @@ BEGIN='# --- P10 .env.runtime transition'
 END='# --- end P10 .env.runtime transition'
 GATE_BEGIN='# --- P8 backup sidecar health gate'
 GATE_END='# --- end P8 backup sidecar health gate'
+LOCK_BEGIN='# --- H9 deploy serialization'
+LOCK_END='# --- end H9 deploy serialization'
 
 # The block between markers $2/$3 as literally written in $1, markers included
 extract_block() {
@@ -353,9 +368,206 @@ for f in rollback.sh deploy-remote.sh deploy.sh; do
     fi
 done
 
+# --- 9. the H9 lock block is one block in two files ------------------------
+# Same technique as case 5: push rollback.sh's escaped copy through a heredoc and
+# require the result to equal deploy-remote.sh's copy byte for byte.
+echo "the deploy lock block is identical in both scripts once the heredoc runs"
+extract_block deploy-remote.sh "$LOCK_BEGIN" "$LOCK_END" > "$ROOT/lock-deploy"
+extract_block rollback.sh "$LOCK_BEGIN" "$LOCK_END" > "$ROOT/lock-rollback-raw"
+if [ ! -s "$ROOT/lock-deploy" ] || [ ! -s "$ROOT/lock-rollback-raw" ]; then
+    bad "H9 lock markers not found in both scripts"
+else
+    {
+        echo 'cat <<REMOTE_SCRIPT'
+        cat "$ROOT/lock-rollback-raw"
+        echo 'REMOTE_SCRIPT'
+    } > "$ROOT/lock-heredoc.sh"
+    (cd "$ROOT" && bash lock-heredoc.sh) > "$ROOT/lock-expanded"
+    if cmp -s "$ROOT/lock-deploy" "$ROOT/lock-expanded"; then
+        ok "rollback.sh's escaped copy expands to deploy-remote.sh's block"
+    else
+        bad "the two lock blocks differ after the heredoc:$(printf '\n    %s' "$(diff "$ROOT/lock-deploy" "$ROOT/lock-expanded")")"
+    fi
+fi
+
+# --- 10. what the .env helpers actually do ---------------------------------
+echo "the .env helpers snapshot, promote and pick a restore source correctly"
+LOCKFNS="$ROOT/lockfns.sh"
+cp "$ROOT/lock-deploy" "$LOCKFNS"
+ENVDIR="$ROOT/envdir"
+mkdir -p "$ENVDIR"
+echo "POSTGRES_PASSWORD=not-a-real-secret" > "$ENVDIR/.env"
+
+# snapshot_env: one timestamped copy at mode 600, and never the shared slot
+# shellcheck source=/dev/null # the block under test, extracted above
+(cd "$ENVDIR" && . "$LOCKFNS" && snapshot_env) > "$ROOT/snap.out" 2>&1
+SNAPS=$(find "$ENVDIR" -maxdepth 1 -name '.env.backup.*' | wc -l | tr -d ' ')
+if [ "$SNAPS" = "1" ]; then
+    ok "snapshot_env wrote one .env.backup.<epoch>"
+else
+    bad "expected 1 timestamped snapshot, found $SNAPS"
+fi
+if [ -e "$ENVDIR/.env.backup" ]; then
+    bad "snapshot_env still writes the single .env.backup slot that two deploys overwrite for each other"
+else
+    ok "the single .env.backup slot is not written"
+fi
+# shellcheck disable=SC2012 # fixed prefix in a scratch dir; ls reads the mode
+SNAPMODE=$(ls -l "$ENVDIR"/.env.backup.* | cut -c1-10)
+if [ "$SNAPMODE" = "-rw-------" ]; then
+    ok "snapshot mode 600"
+else
+    bad "snapshot mode is '$SNAPMODE', expected -rw------- (it holds every production secret)"
+fi
+
+# Pruning: 8 snapshots in, 5 kept
+for i in 1 2 3 4 5 6 7; do touch "$ENVDIR/.env.backup.$((1700000000 + i))"; done
+# shellcheck source=/dev/null
+(cd "$ENVDIR" && . "$LOCKFNS" && snapshot_env) >/dev/null 2>&1
+KEPT=$(find "$ENVDIR" -maxdepth 1 -name '.env.backup.*' | wc -l | tr -d ' ')
+if [ "$KEPT" = "5" ]; then
+    ok "snapshots pruned to the 5 newest"
+else
+    bad "expected 5 snapshots after pruning, found $KEPT — copies of every production secret accumulate"
+fi
+
+# rollback_env_source: preference order, and nothing when there is no candidate
+PICKDIR="$ROOT/pickdir"
+mkdir -p "$PICKDIR"
+echo x > "$PICKDIR/.env"
+# shellcheck source=/dev/null
+PICKED=$(cd "$PICKDIR" && . "$LOCKFNS" && rollback_env_source)
+if [ -z "$PICKED" ]; then
+    ok "no candidate -> prints nothing (the caller refuses to roll back)"
+else
+    bad "picked '$PICKED' with no backup present"
+fi
+echo legacy > "$PICKDIR/.env.backup"
+# shellcheck source=/dev/null
+PICKED=$(cd "$PICKDIR" && . "$LOCKFNS" && rollback_env_source)
+if [ "$PICKED" = ".env.backup" ]; then
+    ok "falls back to the pre-H9 slot"
+else
+    bad "expected .env.backup, got '$PICKED'"
+fi
+touch "$PICKDIR/.env.backup.1700000001"
+sleep 1
+touch "$PICKDIR/.env.backup.1700000002"
+# shellcheck source=/dev/null
+PICKED=$(cd "$PICKDIR" && . "$LOCKFNS" && rollback_env_source)
+if [ "$PICKED" = ".env.backup.1700000002" ]; then
+    ok "prefers the newest snapshot over the legacy slot"
+else
+    bad "expected the newest snapshot, got '$PICKED'"
+fi
+echo verified > "$PICKDIR/.env.lastgood"
+# shellcheck source=/dev/null
+PICKED=$(cd "$PICKDIR" && . "$LOCKFNS" && rollback_env_source)
+if [ "$PICKED" = ".env.lastgood" ]; then
+    ok "prefers .env.lastgood — the only candidate whose health checks passed"
+else
+    bad "expected .env.lastgood, got '$PICKED': a rollback would target an UNVERIFIED .env"
+fi
+
+# promote_env_lastgood
+# shellcheck source=/dev/null
+(cd "$PICKDIR" && . "$LOCKFNS" && promote_env_lastgood) >/dev/null 2>&1
+if [ "$(cat "$PICKDIR/.env.lastgood")" = "x" ]; then
+    ok "promote_env_lastgood copies the running .env"
+else
+    bad "promote_env_lastgood did not copy .env"
+fi
+
+# --- 11. the lock actually excludes a second writer ------------------------
+echo "two writers cannot hold the deploy lock at once"
+if command -v flock >/dev/null 2>&1; then
+    LOCKDIR="$ROOT/lockdir"
+    mkdir -p "$LOCKDIR"
+    # Holder: takes the lock and keeps it for 5s
+    # shellcheck source=/dev/null
+    (cd "$LOCKDIR" && . "$LOCKFNS" && acquire_deploy_lock >/dev/null && sleep 5) &
+    HOLDER=$!
+    sleep 1
+    set +e
+    SECOND=$( (cd "$LOCKDIR" && DEPLOY_LOCK_WAIT=1 bash -c ". '$LOCKFNS'; acquire_deploy_lock") 2>&1 )
+    SECOND_RC=$?
+    set -e
+    wait "$HOLDER" || true
+    if [ "$SECOND_RC" -ne 0 ] && printf '%s' "$SECOND" | grep -q 'Timed out'; then
+        ok "the second writer waits, times out and exits $SECOND_RC without touching anything"
+    else
+        bad "a second writer got the lock (rc=$SECOND_RC): deploys are NOT serialized. Output:$(printf '\n    %s' "$SECOND")"
+    fi
+    # And it succeeds once the holder is gone
+    set +e
+    THIRD=$( (cd "$LOCKDIR" && DEPLOY_LOCK_WAIT=1 bash -c ". '$LOCKFNS'; acquire_deploy_lock") 2>&1 )
+    THIRD_RC=$?
+    set -e
+    if [ "$THIRD_RC" -eq 0 ]; then
+        ok "the lock is released when the holder's shell exits"
+    else
+        bad "the lock was not released (rc=$THIRD_RC): a crashed deploy wedges every later one. Output:$(printf '\n    %s' "$THIRD")"
+    fi
+else
+    echo "  skip flock is not installed here (macOS); CI runs this case on Linux"
+fi
+# The fatal branch is asserted textually, because making `command -v flock` fail
+# would mean running the block with a PATH that has no coreutils either.
+if grep -q 'refusing to deploy unserialized' "$ROOT/lock-deploy"; then
+    ok "a missing flock is fatal, not a warning"
+else
+    bad "the block tolerates a missing flock — deploys would silently go back to being unserialized"
+fi
+
+# --- 12. every writer of the VM's .env uses the new scheme -----------------
+# deploy-remote.sh's two callers edit .env themselves, before it runs, so the
+# scheme has to hold in all three places or the interleaving comes back.
+echo "all three .env writers take the lock and snapshot under a timestamp"
+WORKFLOW=../.github/workflows/deploy.yml
+for f in deploy.sh rollback.sh "$WORKFLOW"; do
+    if grep -qE '^[^#]*cp[[:space:]]+\.env[[:space:]]+\.env\.backup[[:space:]]*$' "$f"; then
+        bad "$f still copies .env to the single .env.backup slot — a concurrent writer overwrites it"
+    else
+        ok "$f does not use the single .env.backup slot"
+    fi
+    # ".env.backup.<something expanded>": $(date +%s) inline, or a $ts set above
+    if grep -qE '[.]env[.]backup[.]["]?[$]' "$f" || grep -q 'snapshot_env' "$f"; then
+        ok "$f snapshots .env under a timestamp"
+    else
+        bad "$f does not snapshot .env under a timestamp"
+    fi
+    if grep -q 'flock -w' "$f"; then
+        ok "$f takes the deploy lock"
+    else
+        bad "$f mutates the VM's .env without taking the deploy lock"
+    fi
+done
+if grep -q 'group: production-deploy' "$WORKFLOW"; then
+    ok "the deploy workflow serializes its own runs (concurrency group)"
+else
+    bad "$WORKFLOW has no 'production-deploy' concurrency group — two CI deploys can still interleave"
+fi
+if grep -q 'cancel-in-progress: false' "$WORKFLOW"; then
+    ok "queued rather than cancelled (a cancelled converge leaves the VM half-deployed)"
+else
+    bad "$WORKFLOW cancels in-progress deploys, which can abort a converge halfway"
+fi
+# The verified target must be written where the health checks passed, and
+# nowhere else.
+if grep -qx 'promote_env_lastgood' deploy-remote.sh; then
+    ok "deploy-remote.sh promotes .env.lastgood after its health checks"
+else
+    bad "deploy-remote.sh never promotes .env.lastgood, so the auto-rollback target is unverified again"
+fi
+if grep -qE 'ROLLBACK_ENV=.*rollback_env_source' deploy-remote.sh; then
+    ok "deploy-remote.sh's auto-rollback restores the verified .env"
+else
+    bad "deploy-remote.sh's auto-rollback does not use rollback_env_source"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-    echo "OK: the shared deploy-script blocks (P10 transition, P8 backup gate) all passed"
+    echo "OK: the shared deploy-script blocks (P10 transition, P8 backup gate, H9 lock) all passed"
 else
     echo "$FAILURES assertion(s) failed"
     exit 1
