@@ -299,7 +299,10 @@ jobs:
 
           # H9: the deploy lock, held for the .env edit only — deploy-remote.sh
           # retakes it for the converge. Without it a tag edit can land in the
-          # middle of another writer's converge and get deployed by it.
+          # middle of another writer's converge and get deployed by it. The gap
+          # between the two holds is covered by the tag assertion in
+          # deploy-remote.sh: the converge refuses to run if .env no longer
+          # carries the tags written here.
           exec 9>>.deploy.lock
           if ! flock -w 900 9; then
             echo "::error::Timed out waiting for /opt/openmentor/infra/.deploy.lock — another deploy or rollback is in progress on the VM. Nothing was changed."
@@ -371,9 +374,26 @@ jobs:
           RESTART_ALLOY: ${{ steps.sync.outputs.restart_alloy }}
           REBUILD_BACKUP: ${{ steps.sync.outputs.rebuild_backup }}
         run: |
+          # H9: the tag edit above ran in its own ssh session, so its flock was
+          # released before this converge takes one — the deploy is two critical
+          # sections, and a workstation deploy.sh can rewrite .env in between
+          # (it builds a full .env from tags it read earlier, unlocked). Hand the
+          # tags THIS run set to deploy-remote.sh, which re-checks .env against
+          # them under the lock before pulling: a lost update then fails loudly
+          # instead of deploying another writer's tags under this run's TAG.
+          # Only the service(s) this run deploys are claimed — the other keeps
+          # whatever tag the VM already had, which this run does not know.
+          EXPECTED_FRONTEND_TAG=""
+          EXPECTED_BACKEND_TAG=""
+          if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
+            EXPECTED_FRONTEND_TAG="$TAG"
+          fi
+          if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
+            EXPECTED_BACKEND_TAG="$TAG"
+          fi
           ssh -i ~/.ssh/deploy_key -p 22 \
             "$VM_SSH_USER@$VM_SSH_HOST" \
-            "bash -s -- $(printf '%q ' "--remove-orphans" "$RESTART_ALLOY" "$REBUILD_BACKUP")" \
+            "bash -s -- $(printf '%q ' "--remove-orphans" "$RESTART_ALLOY" "$REBUILD_BACKUP" "$EXPECTED_FRONTEND_TAG" "$EXPECTED_BACKEND_TAG")" \
             < infra/deploy-remote.sh
 
       # Mandatory and fatal: deploy-remote.sh only probes container loopback, so

@@ -23,11 +23,18 @@ set -e
 #                               config.alloy changed in the sync)
 #   $3  REBUILD_BACKUP_SIDECAR  "1" → rebuild the postgres-backup image
 #                               (its build context changed in the sync)
+#   $4  EXPECTED_FRONTEND_TAG   the FRONTEND_IMAGE_TAG the caller wrote into
+#                               .env and is reporting as deployed; asserted
+#                               under the lock before anything is pulled.
+#                               Empty = this caller claims no frontend tag.
+#   $5  EXPECTED_BACKEND_TAG    same for BACKEND_IMAGE_TAG
 #
 # Preconditions (arranged by the caller BEFORE piping this script):
 #   • /opt/openmentor/infra/.env contains the desired FRONTEND_IMAGE_TAG /
 #     BACKEND_IMAGE_TAG (deploy.sh uploads a fresh .env; the workflow edits
-#     the tag lines of the existing one in place),
+#     the tag lines of the existing one in place). That write happens in an
+#     EARLIER ssh session, i.e. outside the lock this script takes — hence the
+#     tag assertion below,
 #   • the caller has snapshotted the .env it is about to change as
 #     .env.backup.<epoch> (see the H9 block below),
 #   • the VM's docker is already logged in to ECR (short-lived token minted
@@ -54,7 +61,9 @@ set -e
 # Exit codes:
 #   0  deploy converged and all health checks passed
 #   1  deploy failed (auto-rollback to .env.lastgood attempted when health
-#      checks fail; its outcome is logged)
+#      checks fail; its outcome is logged), or the tag assertion below found
+#      .env no longer carrying this run's tags — in which case nothing was
+#      pulled, converged or rolled back
 #   2  deploy converged and every application health check passed, but the
 #      postgres-backup sidecar reports UNHEALTHY (stale dumps). Nothing was
 #      rolled back — reverting working images cannot make a pg_dump run — yet
@@ -64,6 +73,9 @@ set -e
 UP_FLAGS="$1"
 RESTART_ALLOY="$2"
 REBUILD_BACKUP_SIDECAR="$3"
+# Optional so a caller that predates the assertion still runs (empty = unclaimed)
+EXPECTED_FRONTEND_TAG="${4:-}"
+EXPECTED_BACKEND_TAG="${5:-}"
 
 echo "🚀 Starting deployment on production VM..."
 
@@ -163,6 +175,43 @@ BACKEND_IMAGE_TAG=$(grep "^BACKEND_IMAGE_TAG=" .env | cut -d'=' -f2)
 echo "Deploying with:"
 echo "  • Frontend image tag: $FRONTEND_IMAGE_TAG"
 echo "  • Backend image tag: $BACKEND_IMAGE_TAG"
+
+# --- H9 tag assertion (lost update between the caller's .env edit and here) --
+# WHY: the caller writes the tags into .env in an EARLIER ssh session and the
+# lock dies with that session; this script retakes it only now, so the deploy is
+# two critical sections, not one. Another writer can slip into the gap: a
+# workstation infra/deploy.sh reads the VM's current tags in its step 4 — long
+# before its own locked swap in step 7 — and then swaps in a full .env built
+# from those now-stale tags, silently reverting the edit. The same read-then-
+# write race exists between two workstation deploys. Without this check the
+# converge below would deploy the OTHER writer's tags while this run reports,
+# health-verifies and greens its own.
+#
+# Asserted after the lock and before any pull, so a lost update costs a re-run
+# instead of becoming a green deploy of something else. An empty expectation
+# means the caller claims no tag for that service (the workflow only edits the
+# tag of the service it deploys and leaves the other one alone).
+assert_expected_tags() {
+    tag_mismatch=0
+    if [ -n "$EXPECTED_FRONTEND_TAG" ] && [ "$FRONTEND_IMAGE_TAG" != "$EXPECTED_FRONTEND_TAG" ]; then
+        echo "❌ FRONTEND_IMAGE_TAG in .env is '$FRONTEND_IMAGE_TAG', but this run is deploying '$EXPECTED_FRONTEND_TAG'"
+        tag_mismatch=1
+    fi
+    if [ -n "$EXPECTED_BACKEND_TAG" ] && [ "$BACKEND_IMAGE_TAG" != "$EXPECTED_BACKEND_TAG" ]; then
+        echo "❌ BACKEND_IMAGE_TAG in .env is '$BACKEND_IMAGE_TAG', but this run is deploying '$EXPECTED_BACKEND_TAG'"
+        tag_mismatch=1
+    fi
+    if [ "$tag_mismatch" -eq 1 ]; then
+        echo "   Another deploy or rollback rewrote .env between this run's tag edit and"
+        echo "   this converge taking the lock. Nothing was pulled, converged or rolled"
+        echo "   back: the VM still runs what it ran. Re-run this deploy once the other"
+        echo "   one has finished."
+        exit 1
+    fi
+    echo "   .env still carries this run's tags"
+}
+assert_expected_tags
+# --- end H9 tag assertion ---------------------------------------------------
 
 # SECURITY (P10): .env.runtime is gone. It was a second full copy of every
 # production secret on disk, handed wholesale to six containers via compose

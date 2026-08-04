@@ -132,7 +132,7 @@ BACKEND_TARGET_TAG="$BACKEND_TARGET_TAG"
 # The monorepo's infra/ directory lives at $REMOTE_INFRA_DIR on the VM
 cd $REMOTE_INFRA_DIR
 
-# The block below is byte-identical to the one in rollback.sh (modulo that
+# The block below is byte-identical to the one in deploy-remote.sh (modulo this
 # file's heredoc escaping) and is extracted from both by
 # deploy-transition-test.sh; keep them in sync.
 # --- H9 deploy serialization (mirrored in deploy-remote.sh + rollback.sh) ----

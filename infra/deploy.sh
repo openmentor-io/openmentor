@@ -692,9 +692,15 @@ DEPLOY_EXIT_CODE=0
 # DROPS empty arguments (an empty UP_FLAGS made the remote script read the
 # alloy flag as a compose service name). %q preserves every arg, empty ones
 # included, across the ssh boundary.
+#
+# H9: the last two arguments are the tags step 7 just swapped in. The lock was
+# released when that ssh session exited, so deploy-remote.sh re-checks .env
+# against them under its own lock before pulling — a concurrent writer that
+# reverted the swap fails this deploy loudly instead of getting its own tags
+# deployed under this run's banner.
 ssh "${SSH_OPTS[@]}" \
     "$_VM_SSH_USER@$_VM_SSH_HOST" \
-    "bash -s -- $(printf '%q ' "$UP_FLAGS" "$RESTART_ALLOY" "$REBUILD_BACKUP_SIDECAR")" \
+    "bash -s -- $(printf '%q ' "$UP_FLAGS" "$RESTART_ALLOY" "$REBUILD_BACKUP_SIDECAR" "$FRONTEND_IMAGE_TAG" "$BACKEND_IMAGE_TAG")" \
     < "$SCRIPT_DIR/deploy-remote.sh" \
     || DEPLOY_EXIT_CODE=$?
 

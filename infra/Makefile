@@ -35,18 +35,11 @@ env-allowlist:
 # These scripts run as root on the production VM and are piped over ssh, where a
 # quoting slip is a live-system incident rather than a stack trace (H12).
 #
-# --severity=warning, not the default "style": the three long deploy scripts
-# carry ~40 pre-existing style notes (SC2181, SC2269 and friends), and gating on
-# those today would mean a mechanical rewrite of deploy.sh inside an unrelated
-# change. Warnings are the class that hides real bugs — quoting, word splitting,
-# traps that expand at the wrong time.
+# The file list and the severity live in ../scripts/shellcheck-all.sh, which the
+# merge gate also calls for the scripts OUTSIDE infra/ — one definition, so CI
+# and this target can't drift apart on either.
 shellcheck:
-	@command -v shellcheck >/dev/null || { \
-		echo "❌ shellcheck is not installed (brew install shellcheck / apt-get install shellcheck)"; \
-		exit 1; \
-	}
-	@echo "Running shellcheck (severity=warning) over infra/..."
-	@shellcheck --severity=warning ./*.sh ./postgres-backup/*.sh ./migration/*.sh
+	@../scripts/shellcheck-all.sh infra
 
 backup-tests:
 	@./postgres-backup/backup-test.sh

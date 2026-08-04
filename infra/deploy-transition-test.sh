@@ -44,6 +44,10 @@
 #      not exist, i.e. macOS; CI is Linux and always runs it)
 #  12. no writer still uses the single .env.backup slot, every writer takes the
 #      lock, and the deploy workflow has the concurrency group
+#  13. the converge asserts, under its own lock and before pulling, that .env
+#      still carries the tags its caller set — the lock is dropped between the
+#      caller's .env write and the converge, and a writer that slips into that
+#      window used to get ITS tags deployed under this run's banner
 #
 # Usage: ./deploy-transition-test.sh
 # ============================================================================
@@ -57,6 +61,8 @@ GATE_BEGIN='# --- P8 backup sidecar health gate'
 GATE_END='# --- end P8 backup sidecar health gate'
 LOCK_BEGIN='# --- H9 deploy serialization'
 LOCK_END='# --- end H9 deploy serialization'
+TAG_BEGIN='# --- H9 tag assertion'
+TAG_END='# --- end H9 tag assertion'
 
 # The block between markers $2/$3 as literally written in $1, markers included
 extract_block() {
@@ -565,9 +571,72 @@ else
     bad "deploy-remote.sh's auto-rollback does not use rollback_env_source"
 fi
 
+# --- 13. the converge refuses to deploy a lost update ----------------------
+# The lock is released when the caller's tag-writing ssh session exits and
+# retaken by deploy-remote.sh, so the deploy is two critical sections. A writer
+# in the gap (a workstation deploy.sh rebuilding .env from tags it read before
+# the edit) used to have its tags pulled and converged while THIS run reported,
+# health-verified and greened its own. The assertion turns that into a failure.
+echo "the converge asserts .env still carries the tags this run set"
+extract_block deploy-remote.sh "$TAG_BEGIN" "$TAG_END" > "$ROOT/tagcheck.sh"
+if [ ! -s "$ROOT/tagcheck.sh" ]; then
+    bad "no tag assertion block in deploy-remote.sh — the converge deploys whatever .env happens to say, including another writer's tags"
+else
+    # run_tagcheck <expected-fe> <expected-be> <env-fe> <env-be>
+    run_tagcheck() {
+        set +e
+        OUT=$(EXPECTED_FRONTEND_TAG="$1" EXPECTED_BACKEND_TAG="$2" \
+              FRONTEND_IMAGE_TAG="$3" BACKEND_IMAGE_TAG="$4" \
+              bash "$ROOT/tagcheck.sh" 2>&1)
+        RC=$?
+        set -e
+    }
+    # assert_tagcheck <label> <e-fe> <e-be> <fe> <be> <want-rc> <want-substring>
+    assert_tagcheck() {
+        local label="$1" want_rc="$6" want_text="$7"
+        run_tagcheck "$2" "$3" "$4" "$5"
+        if [ "$RC" != "$want_rc" ]; then
+            bad "$label: expected exit $want_rc, got $RC. Output:$(printf '\n    %s' "$OUT")"
+            return
+        fi
+        case "$OUT" in
+            *"$want_text"*) ok "$label -> exit $RC, says '$want_text'" ;;
+            *) bad "$label: exited $RC but the output does not mention '$want_text':$(printf '\n    %s' "$OUT")" ;;
+        esac
+    }
+    assert_tagcheck "both tags intact" new1 new2 new1 new2 0 "still carries"
+    # THE regression: the workstation's swap put the old frontend tag back
+    assert_tagcheck "frontend tag reverted" new1 new2 old1 new2 1 "FRONTEND_IMAGE_TAG in .env is 'old1'"
+    assert_tagcheck "backend tag reverted"  new1 new2 new1 old2 1 "BACKEND_IMAGE_TAG in .env is 'old2'"
+    # A single-service deploy claims one tag; the other service's tag is
+    # whatever the VM already had, so it must not be asserted.
+    assert_tagcheck "unclaimed service ignored" "" new2 anything new2 0 "still carries"
+fi
+# Wiring: the assertion is worthless unless it runs under the lock, before the
+# pull, and unless both callers actually pass what they are deploying.
+ASSERT_LINE=$(grep -n '^assert_expected_tags$' deploy-remote.sh | head -1 | cut -d: -f1)
+LOCK_LINE=$(grep -n '^acquire_deploy_lock$' deploy-remote.sh | head -1 | cut -d: -f1)
+PULL_LINE=$(grep -n 'docker compose pull' deploy-remote.sh | head -1 | cut -d: -f1)
+if [ -n "$ASSERT_LINE" ] && [ -n "$LOCK_LINE" ] && [ -n "$PULL_LINE" ] &&
+   [ "$ASSERT_LINE" -gt "$LOCK_LINE" ] && [ "$ASSERT_LINE" -lt "$PULL_LINE" ]; then
+    ok "the assertion runs after the lock and before the first pull"
+else
+    bad "deploy-remote.sh does not call assert_expected_tags between acquire_deploy_lock and 'docker compose pull' (lock=$LOCK_LINE assert=$ASSERT_LINE pull=$PULL_LINE) — checking after the pull would already have deployed the other writer's tags"
+fi
+if grep -q 'REBUILD_BACKUP_SIDECAR" "\$FRONTEND_IMAGE_TAG" "\$BACKEND_IMAGE_TAG"' deploy.sh; then
+    ok "deploy.sh tells the converge which tags it swapped in"
+else
+    bad "deploy.sh does not pass its two image tags to deploy-remote.sh, so its own lost updates stay silent"
+fi
+if grep -q 'EXPECTED_FRONTEND_TAG" "\$EXPECTED_BACKEND_TAG"' "$WORKFLOW"; then
+    ok "the deploy workflow tells the converge which tags it edited in"
+else
+    bad "$WORKFLOW does not pass EXPECTED_FRONTEND_TAG/EXPECTED_BACKEND_TAG to deploy-remote.sh, so a run can still green a deploy of somebody else's tags"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
-    echo "OK: the shared deploy-script blocks (P10 transition, P8 backup gate, H9 lock) all passed"
+    echo "OK: the shared deploy-script blocks (P10 transition, P8 backup gate, H9 lock + tag assertion) all passed"
 else
     echo "$FAILURES assertion(s) failed"
     exit 1
