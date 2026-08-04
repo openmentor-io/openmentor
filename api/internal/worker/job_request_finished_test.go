@@ -17,9 +17,16 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/reviewtoken"
 )
 
+// finishedRequestID is uuid-shaped rather than "r1" because the assertions below
+// check that the request id does not appear ANYWHERE in the review link — and a
+// two-character id collides with random base64url roughly once in a hundred
+// runs, which is a flaky test that fails on the one assertion that must not be
+// flaky. Production ids are uuids; the fixture now matches.
+const finishedRequestID = "9f1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d"
+
 func finishedRequest(status string) *JobRequest {
 	return &JobRequest{
-		ID:         "r1",
+		ID:         finishedRequestID,
 		MentorID:   "m1",
 		Name:       "Jane Mentee",
 		Email:      "jane@example.com",
@@ -30,9 +37,9 @@ func finishedRequest(status string) *JobRequest {
 
 func TestRequestProcessFinishedDone(t *testing.T) {
 	env := newJobsTestEnv()
-	env.repo.requestsWithMentor["r1"] = finishedRequest("done")
+	env.repo.requestsWithMentor[finishedRequestID] = finishedRequest("done")
 
-	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil)
+	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId="+finishedRequestID, nil)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, []string{"session-complete"}, env.sender.templates())
@@ -55,9 +62,9 @@ func TestRequestProcessFinishedDeclinedWithReason(t *testing.T) {
 	request := finishedRequest("declined")
 	request.DeclineReason = "no_time"
 	request.DeclineComment = "Try again <soon>"
-	env.repo.requestsWithMentor["r1"] = request
+	env.repo.requestsWithMentor[finishedRequestID] = request
 
-	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil)
+	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId="+finishedRequestID, nil)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, []string{"session-declined"}, env.sender.templates())
@@ -75,9 +82,9 @@ func TestRequestProcessFinishedDeclinedWithReason(t *testing.T) {
 
 func TestRequestProcessFinishedDeclinedWithoutReason(t *testing.T) {
 	env := newJobsTestEnv()
-	env.repo.requestsWithMentor["r1"] = finishedRequest("declined")
+	env.repo.requestsWithMentor[finishedRequestID] = finishedRequest("declined")
 
-	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil)
+	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId="+finishedRequestID, nil)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, env.sender.attempts, 1)
@@ -87,9 +94,9 @@ func TestRequestProcessFinishedDeclinedWithoutReason(t *testing.T) {
 
 func TestRequestProcessFinishedNonActionableStatus(t *testing.T) {
 	env := newJobsTestEnv()
-	env.repo.requestsWithMentor["r1"] = finishedRequest("pending")
+	env.repo.requestsWithMentor[finishedRequestID] = finishedRequest("pending")
 
-	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil)
+	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId="+finishedRequestID, nil)
 
 	// Mirrors the func: non-final statuses are a tracked no-op with a 200.
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -132,10 +139,10 @@ func TestRequestProcessFinishedMissingRecords(t *testing.T) {
 
 func TestRequestProcessFinishedEmailFailure(t *testing.T) {
 	env := newJobsTestEnv()
-	env.repo.requestsWithMentor["r1"] = finishedRequest("done")
+	env.repo.requestsWithMentor[finishedRequestID] = finishedRequest("done")
 	env.sender.failAll = true
 
-	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil)
+	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId="+finishedRequestID, nil)
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
@@ -180,10 +187,10 @@ func assertReviewInvitationLink(t *testing.T, env *jobsTestEnv, props map[string
 // and neither overwrites the other.
 func TestRequestProcessFinishedMintsAFreshCapabilityPerSend(t *testing.T) {
 	env := newJobsTestEnv()
-	env.repo.requestsWithMentor["r1"] = finishedRequest("done")
+	env.repo.requestsWithMentor[finishedRequestID] = finishedRequest("done")
 
-	require.Equal(t, http.StatusOK, env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil).Code)
-	require.Equal(t, http.StatusOK, env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil).Code)
+	require.Equal(t, http.StatusOK, env.do(http.MethodGet, "/jobs/request-process-finished?requestId="+finishedRequestID, nil).Code)
+	require.Equal(t, http.StatusOK, env.do(http.MethodGet, "/jobs/request-process-finished?requestId="+finishedRequestID, nil).Code)
 
 	require.Len(t, env.repo.reviewInvitations, 2)
 	first, second := env.repo.reviewInvitations[0], env.repo.reviewInvitations[1]
@@ -203,10 +210,10 @@ func TestRequestProcessFinishedMintsAFreshCapabilityPerSend(t *testing.T) {
 // was never stored is a link that can never be spent.
 func TestRequestProcessFinishedNeverMailsAnUnstoredToken(t *testing.T) {
 	env := newJobsTestEnv()
-	env.repo.requestsWithMentor["r1"] = finishedRequest("done")
+	env.repo.requestsWithMentor[finishedRequestID] = finishedRequest("done")
 	env.repo.reviewInvitationErr = errors.New("insert failed")
 
-	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil)
+	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId="+finishedRequestID, nil)
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	assert.Empty(t, env.sender.attempts, "no email may be sent when the capability was not stored")
@@ -232,7 +239,7 @@ func TestWorkerInvitationInsertRejectsARawTokenBeforeTheDatabase(t *testing.T) {
 
 	repo := NewRepository(nil)
 	assert.Error(t, repo.CreateReviewInvitation(t.Context(),
-		"9f1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d", raw, time.Now().Add(reviewtoken.TTL)),
+		finishedRequestID, raw, time.Now().Add(reviewtoken.TTL)),
 		"a raw token passed where a digest belongs must not reach the database")
 }
 
@@ -242,9 +249,6 @@ func TestWorkerInvitationInsertRejectsARawTokenBeforeTheDatabase(t *testing.T) {
 func TestSessionCompleteEmailCarriesNoRequestID(t *testing.T) {
 	env := newJobsTestEnv()
 	request := finishedRequest("done")
-	// A uuid-shaped id, because that is what production has and what a substring
-	// assertion on a short id like "r1" would match by accident.
-	request.ID = "9f1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d"
 	env.repo.requestsWithMentor[request.ID] = request
 
 	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId="+request.ID, nil)
