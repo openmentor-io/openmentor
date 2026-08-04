@@ -59,29 +59,12 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 
 	request.PreferredContact = strings.TrimSpace(request.PreferredContact)
 
-	// The request is CLAIMED before anything is emailed: all three emails below
-	// announce a brand-new request waiting for its mentor, so none of them may go
-	// out for a request this call did not just move into that state. A replay after
-	// the request advanced — or a second delivery of the same callback — loses the
-	// claim and stops here.
-	applied, err := h.repo.SetRequestContactPending(ctx, request.ID, request.PreferredContact)
-	if err != nil {
-		logger.Error("[New Client Request] Failed to update request", zap.String("request_ref", redact.ID(requestID)), logger.RedactedError(err))
-		trackError(errTypeDBError)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to update request"})
-		return
-	}
-	if !applied {
-		logger.Info("[New Client Request] Request already processed or no longer new, skipping",
-			zap.String("request_ref", redact.ID(requestID)))
-		h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.SystemDistinctID("worker"), map[string]interface{}{
-			"outcome": "superseded",
-		})
-		// Idempotent no-op, so 200: a retry would find the same state.
-		c.JSON(http.StatusOK, gin.H{"success": true, "requestId": request.ID, "superseded": true})
-		return
-	}
-
+	// Every fallible step that is only a READ happens before the claim, so that
+	// failing one leaves the request claimable. The mentor fetch used to sit
+	// after the claim: a transient DB error there answered 503 with the claim
+	// already burned, and every later replay landed in the superseded branch
+	// below — the three announcement emails lost until an operator hand-repaired
+	// status_changed_at.
 	mentor, err := h.repo.GetJobMentorByID(ctx, request.MentorID)
 	if err != nil {
 		logger.Error("[New Client Request] Failed to fetch mentor",
@@ -98,6 +81,34 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 			"outcome":   "mentor_not_found",
 		})
 		c.JSON(http.StatusNotFound, gin.H{"error": "mentor not found"})
+		return
+	}
+
+	// The request is CLAIMED directly against the sends below: all three emails
+	// announce a brand-new request waiting for its mentor, so none of them may go
+	// out for a request this call did not just move into that state. A replay after
+	// the request advanced — or a second delivery of the same callback — loses the
+	// claim and stops here.
+	//
+	// A send failure after this point still consumes the claim. That window is
+	// inherent, not an oversight: sendEmails attempts every message even when an
+	// earlier one fails, so releasing the claim on send error (the way
+	// finalizeNewMentor does) would let a replay re-send whatever already went out.
+	applied, err := h.repo.SetRequestContactPending(ctx, request.ID, request.PreferredContact)
+	if err != nil {
+		logger.Error("[New Client Request] Failed to update request", zap.String("request_ref", redact.ID(requestID)), logger.RedactedError(err))
+		trackError(errTypeDBError)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to update request"})
+		return
+	}
+	if !applied {
+		logger.Info("[New Client Request] Request already processed or no longer new, skipping",
+			zap.String("request_ref", redact.ID(requestID)))
+		h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.SystemDistinctID("worker"), map[string]interface{}{
+			"outcome": "superseded",
+		})
+		// Idempotent no-op, so 200: a retry would find the same state.
+		c.JSON(http.StatusOK, gin.H{"success": true, "requestId": request.ID, "superseded": true})
 		return
 	}
 
