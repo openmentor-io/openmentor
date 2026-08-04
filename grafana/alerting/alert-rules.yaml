@@ -1,28 +1,31 @@
 # OpenMentor Grafana-managed alert rules — versioned source of record.
 #
-# !! DESIRED STATE, NOT LIVE STATE — the stack has no Grafana-managed alert
-# !! rules; nothing here pages until an operator applies it (evidence and
-# !! current status: grafana/README.md § Alert rules). Read the ordering warning
-# !! there first: the live notification policy fans out to telegram/slack/Discord,
-# !! the noDataState: Alerting rules fire the moment their series is missing, and
-# !! DatabaseBackupPipelineAbsent fires while its gauges do not exist yet (its
-# !! absent() query IS the alarm) — so applying any of them before the metric
-# !! exists pages immediately.
+# APPLIED 2026-08-04 (all 14 rules, atomically, via the group PUT below) after
+# the 2026-08-04 deploy outage paged nobody. If you edit this file, re-apply —
+# nothing syncs it automatically. The pre-apply ordering rule still holds for
+# NEW noDataState:Alerting rules: verify the series exists (an instant query)
+# before applying, or the rule pages the moment it is created — the live
+# notification policy fans out to telegram/slack/Discord.
 #
-# Target: folder "openmentor" (uid `repository-7b3d712` — the folder Git Sync
-# created; there is no folder with uid `openmentor`), rule group `openmentor`,
-# org 1.
+# Target: folder "OpenMentor" (uid `fd2fpl`), rule group `openmentor`, org 1.
+# NOT the Git Sync folder `repository-7b3d712` this file used to name:
+# Grafana refuses alert rules in Git Sync-managed folders
+# ("invalid alert rule: cannot store rules in folder managed by Git Sync"),
+# so the dashboards' folder can never hold these rules.
 #
 # How to apply:
-#   * Grafana provisioning API: POST each rule to
-#       https://<stack>.grafana.net/api/v1/provisioning/alert-rules
-#     with an editor/admin service-account token, or PUT the whole group to
-#     /api/v1/provisioning/folder/repository-7b3d712/rule-groups/openmentor.
-#     Add header `X-Disable-Provenance: true` to keep rules editable in the UI.
-#   * Or ask Claude/the Grafana MCP (`alerting_manage_rules`, operation `create`/`update`)
-#     to sync from this file.
-#   * This file also matches the file-provisioning format (`apiVersion: 1` / `groups:`)
-#     used by self-hosted Grafana (`/etc/grafana/provisioning/alerting/`).
+#   * Grafana provisioning API — PUT the whole group (atomic, matches this file):
+#       PUT https://<stack>.grafana.net/api/v1/provisioning/folder/fd2fpl/rule-groups/openmentor
+#     with an editor/admin service-account token and header
+#     `X-Disable-Provenance: true` (keeps rules editable in the UI). Body: this
+#     file's group converted to JSON ({title, folderUid, interval: 60, rules}).
+#   * Or ask Claude/the Grafana MCP (`alerting_manage_rules`, or a raw
+#     `grafana_api_request` PUT as above) to sync from this file.
+#   * NOT the UI "Import alert rules" button — that importer takes
+#     Prometheus/Mimir rule YAML (groups[].rules[].alert/expr) and rejects this
+#     Grafana provisioning format with "missing or invalid groups array".
+#   * This file also matches the file-provisioning format (`apiVersion: 1` /
+#     `groups:`) used by self-hosted Grafana (`/etc/grafana/provisioning/alerting/`).
 #
 # Notifications: rules route through the DEFAULT notification policy. No contact
 # points are provisioned here — see grafana/README.md for the manual Telegram/email
@@ -34,7 +37,7 @@ apiVersion: 1
 groups:
   - orgId: 1
     name: openmentor
-    folder: openmentor
+    folder: OpenMentor # uid fd2fpl — NOT the Git Sync dashboards folder (see header)
     interval: 1m
     rules:
       - uid: om-service-down

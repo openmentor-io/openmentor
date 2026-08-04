@@ -64,31 +64,29 @@ are no longer needed.
 
 ## Alert rules
 
-> ### ⚠️ NOT APPLIED: the stack currently has ZERO alert rules
+> ### ✅ APPLIED 2026-08-04: all 14 rules are live
 >
-> Verified 2026-08-03 against the live stack — all three read paths agree and
-> none of them is a permissions artefact (the same token lists the five
-> dashboards and reads the notification policy tree):
->
-> ```
-> GET /api/v1/provisioning/alert-rules      -> []
-> GET /api/ruler/grafana/api/v1/rules       -> {}
-> GET /api/prometheus/grafana/api/v1/rules  -> {"groups":[]}
-> ```
->
-> So every rule below is **desired state, not live state**: nothing pages
-> today, for anything. Applying them is an operator action (see below) — this
-> file cannot do it, and Git Sync does not cover alert rules.
+> Applied after the 2026-08-04 deploy outage (migrate config-validation
+> failure, site 404) paged nobody — the rules had been desired-state only
+> since 2026-08-03. Applied atomically via
+> `PUT /api/v1/provisioning/folder/fd2fpl/rule-groups/openmentor` with
+> `X-Disable-Provenance: true`; contact points, the fan-out policy tree, the
+> backup gauges, `up` and `pg_up` were all verified live first. Nothing syncs
+> this file automatically — if you edit it, re-apply the group.
 
-Alert rules are Grafana-managed rules in the `openmentor` folder — uid
-`repository-7b3d712`, the folder Git Sync created; there is **no** folder with
-uid `openmentor` — rule group `openmentor`, evaluated every 1m. The versioned
+Alert rules are Grafana-managed rules in the **OpenMentor** folder (uid
+`fd2fpl`) — NOT the Git Sync dashboards folder `repository-7b3d712`: Grafana
+refuses to store alert rules in Git Sync-managed folders ("cannot store rules
+in folder managed by Git Sync"), which is also why the Grafana UI's "Import
+alert rules" button cannot ingest `alerting/alert-rules.yaml` (that importer
+takes Prometheus/Mimir rule YAML, not the provisioning format; it fails with
+"missing or invalid groups array"). Rule group `openmentor`, evaluated every 1m. The versioned
 source of record is [`alerting/alert-rules.yaml`](alerting/alert-rules.yaml)
 (Grafana alerting provisioning format, `apiVersion: 1`). Apply it via:
 
 - the Grafana provisioning API
   (`POST /api/v1/provisioning/alert-rules` per rule, or
-  `PUT /api/v1/provisioning/folder/repository-7b3d712/rule-groups/openmentor`
+  `PUT /api/v1/provisioning/folder/fd2fpl/rule-groups/openmentor`
   for the group; header `X-Disable-Provenance: true` so they stay editable in
   the UI), or
 - the Grafana Cloud MCP (`alerting_manage_rules`, operation `create`).

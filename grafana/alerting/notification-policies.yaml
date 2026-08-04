@@ -21,7 +21,16 @@
 #          "group_wait":"30s","group_interval":"5m","repeat_interval":"4h",
 #          "routes":[{"receiver":"telegram","continue":true},
 #                    {"receiver":"slack","continue":true},
-#                    {"receiver":"email"}]}'
+#                    {"receiver":"Discord"}]}'
+#
+# !! DRIFT FOUND 2026-08-04: the live tree had all three child routes with
+# !! continue unset (= false), so ONLY telegram ever received anything —
+# !! slack, Discord and the email fallback were dead routes. The tree was
+# !! built by hand in the UI without the continue toggles this file has
+# !! always specified. If you rebuild it in the UI: "Continue matching
+# !! subsequent sibling nodes" must be ON for telegram and slack.
+# !! (The Grafana Cloud MCP got 403 on this PUT — policies need
+# !! alert.provisioning:write, which its service account lacks.)
 #
 # (X-Disable-Provenance keeps the tree editable in the UI afterwards.)
 # Or edit by hand at https://openmentor.grafana.net/alerting/routes — see
@@ -44,4 +53,4 @@ policies:
         continue: true
       - receiver: slack
         continue: true
-      - receiver: email
+      - receiver: Discord
