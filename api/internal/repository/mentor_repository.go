@@ -161,7 +161,14 @@ func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId
 	return models.ScanMentor(row)
 }
 
-// allowedUpdateColumns defines the columns that can be updated via the Update method
+// allowedUpdateColumns defines the columns that can be updated via the Update
+// method.
+//
+// updated_at is deliberately NOT a member: Update always appends
+// `updated_at = NOW()` itself, so accepting it from a caller built
+// `SET updated_at = $1, updated_at = NOW()`, which Postgres rejects outright
+// ("multiple assignments to same column") — a 500 on a save. Rejecting the
+// column name says so instead.
 var allowedUpdateColumns = map[string]bool{
 	"name":              true,
 	"email":             true,
@@ -177,16 +184,23 @@ var allowedUpdateColumns = map[string]bool{
 	"slug":              true,
 	"status":            true,
 	"photo_style":       true,
-	"updated_at":        true,
 }
 
-// Update updates a mentor in PostgreSQL
+// Update updates a mentor in PostgreSQL.
+//
+// An empty updates map is a no-op rather than an error: it used to build
+// `UPDATE mentors SET , updated_at = NOW() WHERE ...` — a syntax error — so a
+// caller whose diff came out empty got a failed save instead of nothing to do.
 func (r *MentorRepository) Update(ctx context.Context, mentorId string, updates map[string]interface{}) error {
 	// Validate all keys against allowlist to prevent SQL injection
 	for key := range updates {
 		if !allowedUpdateColumns[key] {
 			return fmt.Errorf("invalid column name: %s", key)
 		}
+	}
+
+	if len(updates) == 0 {
+		return nil
 	}
 
 	// Build dynamic UPDATE query

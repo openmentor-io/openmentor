@@ -67,7 +67,7 @@ func NewRegistrationService(
 		storageClient:   storageClient,
 		config:          cfg,
 		httpClient:      httpClient,
-		captchaVerifier: turnstile.NewVerifier(cfg.Turnstile.SecretKey, httpClient),
+		captchaVerifier: newCaptchaVerifier(cfg, httpClient),
 		tracker:         tracker,
 	}
 }
@@ -139,7 +139,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 	}
 
 	// 1. Verify captcha (Cloudflare Turnstile)
-	if err := s.captchaVerifier.Verify(req.CaptchaToken); err != nil {
+	if err := s.captchaVerifier.Verify(ctx, req.CaptchaToken); err != nil {
 		metrics.MentorRegistrations.WithLabelValues("captcha_failed").Inc()
 		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"),
 			registrationProperties(baseProperties, "captcha_failed"))

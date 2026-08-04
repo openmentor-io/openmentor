@@ -174,8 +174,10 @@ Do this deliberately:
    **once** rather than twice.
 3. Announce it to the moderators beforehand — they will be logged out mid-task
    otherwise.
-4. Minimum 32 bytes: `config.Validate()` rejects anything shorter, and the API
-   refuses to start (not just refuses logins).
+4. Minimum 32 bytes: `config.ValidateForAPI()` rejects anything shorter, and the
+   API refuses to start (not just refuses logins). Since D62 only the backend
+   holds `JWT_SECRET` — migrate and worker no longer need it, so there is
+   nothing to rotate there.
 
 ```bash
 openssl rand -base64 48    # comfortably over the 32-byte floor

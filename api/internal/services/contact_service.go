@@ -45,7 +45,7 @@ func NewContactService(
 		mentorRepo:        mentorRepo,
 		config:            cfg,
 		httpClient:        httpClient,
-		captchaVerifier:   turnstile.NewVerifier(cfg.Turnstile.SecretKey, httpClient),
+		captchaVerifier:   newCaptchaVerifier(cfg, httpClient),
 		tracker:           tracker,
 	}
 }
@@ -59,7 +59,7 @@ func (s *ContactService) SubmitContactForm(ctx context.Context, req *models.Cont
 	}
 
 	// Verify captcha (Cloudflare Turnstile)
-	if err := s.captchaVerifier.Verify(req.CaptchaToken); err != nil {
+	if err := s.captchaVerifier.Verify(ctx, req.CaptchaToken); err != nil {
 		metrics.ContactFormSubmissions.WithLabelValues("captcha_failed").Inc()
 		s.tracker.Track(ctx, analytics.EventMenteeContactSubmitted, analytics.MentorDistinctID(req.MentorID), map[string]interface{}{
 			"mentor_id":              req.MentorID,

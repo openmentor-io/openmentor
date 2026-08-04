@@ -36,28 +36,32 @@ COMPOSE_FILE=docker-compose.yml
 # key -> space-separated services permitted to receive it. Anything not listed
 # here is governed by the allowlist file alone; these are the ones where a
 # mistake is a security incident rather than a config bug.
+#
+# These lists narrowed in D62: with a per-binary validation profile in api/config,
+# migrate holds only DATABASE_URL and the worker holds only what it reads. Widening
+# one again to satisfy a shared validator is the mistake a57aec2 made.
 SECRET_OWNERS="
 DATABASE_URL=backend worker migrate
 POSTGRES_USER=postgres postgres-backup
 POSTGRES_PASSWORD=postgres postgres-backup
 POSTGRES_DB=postgres postgres-backup
 POSTGRES_OBS_DSN=alloy
-JWT_SECRET=backend worker migrate
-WORKER_AUTH_TOKEN=backend worker migrate
-INTERNAL_MENTORS_API=backend worker migrate
-MENTORS_API_LIST_AUTH_TOKEN=backend worker migrate
-TURNSTILE_SECRET_KEY=backend worker migrate
+JWT_SECRET=backend
+WORKER_AUTH_TOKEN=backend worker
+INTERNAL_MENTORS_API=backend
+MENTORS_API_LIST_AUTH_TOKEN=backend
+TURNSTILE_SECRET_KEY=backend
 GO_API_INTERNAL_TOKEN=frontend
 METRICS_AUTH_TOKEN=frontend alloy
-S3_STORAGE_ACCESS_KEY=backend worker migrate
-S3_STORAGE_SECRET_KEY=backend worker migrate
+S3_STORAGE_ACCESS_KEY=backend
+S3_STORAGE_SECRET_KEY=backend
 SES_ACCESS_KEY_ID=worker
 SES_SECRET_ACCESS_KEY=worker
 BACKUP_AWS_ACCESS_KEY_ID=postgres-backup
 BACKUP_AWS_SECRET_ACCESS_KEY=postgres-backup
 CLOUDFLARE_DNS_API_TOKEN=traefik
 GCLOUD_RW_API_KEY=alloy
-POSTHOG_API_KEY=backend worker migrate
+POSTHOG_API_KEY=backend worker
 POSTHOG_PERSONAL_API_KEY=
 POSTHOG_PROJECT_ID=
 FARO_API_KEY=
