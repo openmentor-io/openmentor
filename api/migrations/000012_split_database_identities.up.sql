@@ -25,6 +25,34 @@
 -- ALTER ROLE below sets only the security attributes and deliberately never
 -- touches LOGIN or PASSWORD, so re-applying this file after the DSN switch
 -- cannot lock out a live service. Do not add `NOLOGIN` to it.
+--
+-- ===========================================================================
+-- MERGE ORDER: 000010 (PR #75) -> 000011 (PR #77) -> 000012 (THIS FILE, #78).
+-- ===========================================================================
+-- These three migrations are on three branches open at the same time, and
+-- `api/pkg/db/migrate.go` runs golang-migrate's `m.Up()`, which applies only
+-- versions GREATER THAN the version recorded in `schema_migrations`. So if this
+-- file merges and deploys FIRST, production's schema_migrations lands at 12 and
+-- 000010/000011 are then SILENTLY NEVER APPLIED there — while every fresh
+-- database (dev, CI, a staging clone, a DR rebuild) applies them, because those
+-- start from version 0. Nothing errors: `migrate` exits 0, the deploy is green,
+-- and the divergence only surfaces when the app code from those PRs hits a
+-- production schema that never got their tables and columns.
+--
+-- Merging out of order is therefore recoverable ONLY by renumbering the skipped
+-- migration before its deploy, or by forcing the version by hand on the VM.
+-- Re-check the recorded version and the sibling PRs at merge time (D67). PR #73
+-- adds the CI guard that fails a PR whose migration version is not greater than
+-- the highest version on `origin/main`, so this comment is the record, not the
+-- enforcement.
+--
+-- Separately, and for the same reason a version can be skipped without an error:
+-- this file CANNOT be applied by om_migrate itself. CREATE ROLE / ALTER ROLE and
+-- GRANT pg_read_all_data need CREATEROLE or superuser, which the migrator
+-- correctly does not have — so a FRESH cluster must run the migration set as the
+-- bootstrap superuser once before MIGRATE_DATABASE_URL may point at om_migrate.
+-- See the fresh-database bullet in ../../docs/runbooks/database-identities.md;
+-- case 9 of infra/db-identity-test.sh asserts it.
 
 -- 1. The identities ---------------------------------------------------------
 -- om_migrate    owns the schema and runs migrations (DDL)

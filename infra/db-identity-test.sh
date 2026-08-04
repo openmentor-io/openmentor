@@ -20,9 +20,13 @@
 #      immediately usable by om_api (the default-privileges half)
 #   7. om_backup can pg_dump the database and write nothing
 #   8. the scoped monitoring read set excludes the PII tables
-#   9. re-applying the migration is a no-op that does NOT clear the password an
+#   9. om_migrate CANNOT bootstrap a fresh database even when it owns it — the
+#      role management in 000012 needs CREATEROLE — so a new volume must run the
+#      migration set as the bootstrap superuser first (the runbook's fresh-DB
+#      step), and the superuser fallback is proven to work on the same database
+#  10. re-applying the migration is a no-op that does NOT clear the password an
 #      operator set, i.e. a redeploy cannot lock a live service out
-#  10. the down migration restores ownership and removes the roles
+#  11. the down migration restores ownership and removes the roles
 #
 # No password value is ever passed or printed: the container authenticates
 # local socket connections with `trust`, and case 9 compares only whether a
@@ -246,7 +250,50 @@ for t in mentors client_requests moderators reviews; do
 done
 
 # ---------------------------------------------------------------------------
-case_start "9. re-applying the migration does not lock a live service out"
+case_start "9. a FRESH database cannot be bootstrapped by om_migrate"
+# This is the assertion behind the "fresh database" bullet in
+# ../docs/runbooks/database-identities.md: on a new volume the migration set MUST
+# run as the bootstrap superuser first, so MIGRATE_DATABASE_URL has to be
+# commented out for the first converge or the whole stack deadlocks (migrate
+# fails, and backend/worker never start behind service_completed_successfully).
+#
+# The setup is deliberately the most FAVOURABLE case for om_migrate — the roles
+# already exist and it OWNS the target database, i.e. an operator who
+# pre-provisioned everything by hand. It still cannot get through 000012, because
+# CREATE ROLE / ALTER ROLE and GRANT pg_read_all_data need CREATEROLE or
+# superuser, which the migrator correctly does not have. That is why
+# pre-creating the roles is not a workaround.
+apply_all_as() { # <role> <database>
+    local f
+    for f in "$MIGRATIONS"/*.up.sql; do
+        docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -X -q -1 \
+            -U "$1" -d "$2" < "$f" || return 1
+    done
+}
+docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -X -q \
+    -U openmentor -d postgres -c 'CREATE DATABASE h8_fresh OWNER om_migrate' >/dev/null
+if OUT=$(apply_all_as om_migrate h8_fresh 2>&1); then
+    bad "om_migrate bootstrapped a fresh database — the runbook's fresh-DB step is now wrong"
+elif printf '%s' "$OUT" | grep -qiE 'permission denied|must be superuser|CREATEROLE'; then
+    ok "applying the migration set as om_migrate on a fresh database is refused"
+else
+    bad "om_migrate's fresh-database run failed for the wrong reason: $OUT"
+fi
+# The documented recovery: the same set, same fresh database, as the superuser.
+docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -X -q \
+    -U openmentor -d postgres -c 'DROP DATABASE h8_fresh' >/dev/null
+docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -X -q \
+    -U openmentor -d postgres -c 'CREATE DATABASE h8_fresh' >/dev/null
+if OUT=$(apply_all_as openmentor h8_fresh 2>&1); then
+    ok "the superuser fallback DOES bootstrap the same fresh database"
+else
+    bad "the fresh-database fallback path is broken: $OUT"
+fi
+docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -X -q \
+    -U openmentor -d postgres -c 'DROP DATABASE h8_fresh' >/dev/null
+
+# ---------------------------------------------------------------------------
+case_start "10. re-applying the migration does not lock a live service out"
 psql_as openmentor -c "ALTER ROLE om_api PASSWORD 'h8-identity-test-fixture'" >/dev/null
 BEFORE=$(psql_as openmentor -c \
     "SELECT rolcanlogin::text || ':' || (rolpassword IS NOT NULL)::text FROM pg_authid WHERE rolname = 'om_api'")
@@ -267,7 +314,7 @@ fi
 assert_allowed om_api "om_api still works after the re-run" "SELECT count(*) FROM mentors"
 
 # ---------------------------------------------------------------------------
-case_start "10. the down migration reverses cleanly"
+case_start "11. the down migration reverses cleanly"
 if OUT=$(docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -X -q -1 -U openmentor -d openmentor \
         < "$MIGRATIONS/000012_split_database_identities.down.sql" 2>&1); then
     ok "000012 down applies"

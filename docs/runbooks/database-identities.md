@@ -111,6 +111,11 @@ Notes that save time:
   role was not granted. Roll back step 5, land the grant as a new additive
   migration, then retry — do not grant it by hand on the VM, or the next fresh
   database will not have it.
+- **Step 5 is what makes a fresh database need a different bring-up.** From here
+  on, a new postgres volume (staging clone, DR rebuild) cannot converge on this
+  `.env` — `migrate` cannot authenticate as a role that no `initdb` created, and
+  the stack blocks behind it. The three-step fresh-database path is in
+  "Afterwards" below; read it *before* you need it at 3 a.m.
 
 ## Step 6 — narrow the monitoring role (optional, separate)
 
@@ -158,3 +163,38 @@ What is deliberately NOT done here, and why:
   `OWNER TO om_migrate` lines. Restoring into a *fresh* cluster therefore either
   needs the roles created first (apply `000012`) or `pg_restore --no-owner` —
   see `postgres-backup-restore.md`.
+- **A FRESH database has to be brought up on the superuser DSN first.** Once step
+  5 is done, `.env.production` tells `migrate` to connect as `om_migrate` — and a
+  brand-new postgres volume (staging clone, DR rebuild, anyone who deletes the
+  volume) has a cluster where `initdb` created only the bootstrap superuser. The
+  first converge then **deadlocks the whole stack**: `migrate` fails with
+  `role "om_migrate" does not exist`, and because `backend` and `worker`
+  `depends_on` it with `condition: service_completed_successfully`, neither ever
+  starts. Nothing recovers on its own; the site stays down until an operator
+  edits `.env`.
+
+  **Pre-creating the roles by hand does not rescue it either**, which is the part
+  that costs an hour if you have not read this: `000012` cannot run as
+  `om_migrate` at all. Its `CREATE ROLE`/`ALTER ROLE` and
+  `GRANT pg_read_all_data` need CREATEROLE or superuser, and `om_migrate`
+  correctly has neither — it fails on
+  `ALTER ROLE om_migrate NOSUPERUSER ... NOCREATEROLE ...` with
+  `permission denied to alter role`, even in a database it owns. On any fresh
+  cluster the migration set **must** run as the bootstrap superuser once.
+  Case 9 of `infra/db-identity-test.sh` asserts both halves of that.
+
+  **Do**, on the fresh machine, before the first `./deploy.sh`:
+
+  1. In `.env.production`, comment out `MIGRATE_DATABASE_URL`, `API_DATABASE_URL`,
+     `WORKER_DATABASE_URL`, `BACKUP_POSTGRES_USER` and `BACKUP_POSTGRES_PASSWORD`.
+     Every one of them falls back to `DATABASE_URL`/`POSTGRES_USER`, so the stack
+     comes up exactly as it did before H8 — and the fallback run is what applies
+     `000012` and *creates* the roles.
+  2. Converge (`./deploy.sh infra`). Confirm `migrate` exited 0 and precondition 1
+     above now lists the five `om_*` roles.
+  3. Redo **step 1** of this runbook (new passwords — the old ones do not exist in
+     this cluster), then re-add the commented lines and converge again.
+
+  Restoring a dump instead of starting empty does not change this: `pg_restore`
+  needs the roles to exist for the `OWNER TO om_migrate` lines, and only the
+  superuser run can create them.
