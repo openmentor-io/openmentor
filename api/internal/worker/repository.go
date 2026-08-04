@@ -125,6 +125,11 @@ type JobsRepository interface {
 	GetJobModeratorByID(ctx context.Context, moderatorID string) (*JobModerator, error)
 	GetJobReviewByID(ctx context.Context, reviewID string) (*JobReview, error)
 
+	// CreateReviewInvitation persists a minted review capability (H4). Called
+	// BEFORE the email carrying the raw token is sent, because a token that was
+	// not stored must never be mailed.
+	CreateReviewInvitation(ctx context.Context, requestID, tokenHash string, expiresAt time.Time) error
+
 	// Cron job queries (stage 3, timer-triggered functions).
 	ListMentorsWithStalePendingRequests(ctx context.Context) ([]JobMentor, error)
 	ListStalePendingRequests(ctx context.Context, mentorID string) ([]JobReminderRequest, error)
@@ -695,4 +700,22 @@ func (r *Repository) GetJobReviewByID(ctx context.Context, reviewID string) (*Jo
 		return nil, fmt.Errorf("failed to fetch review %s: %w", reviewID, err)
 	}
 	return &rv, nil
+}
+
+// CreateReviewInvitation stores a minted review capability (H4). Only the sha256
+// digest is written — the raw token exists solely in the email this row
+// authorizes. Rows are appended rather than updated so a resend cannot invalidate
+// a link already sitting in the mentee's inbox; see the long note on
+// repository.ReviewRepository.CreateReviewInvitation.
+func (r *Repository) CreateReviewInvitation(ctx context.Context, requestID, tokenHash string, expiresAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO review_invitations (client_request_id, token_hash, expires_at)
+		VALUES ($1, $2, $3)
+	`, requestID, tokenHash, expiresAt)
+	if err != nil {
+		// The request id is a legacy capability, so it is not interpolated here;
+		// redact.Text would hash it at the sink but the message need not carry it.
+		return fmt.Errorf("failed to create review invitation: %w", err)
+	}
+	return nil
 }

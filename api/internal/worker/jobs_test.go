@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/openmentor-io/openmentor/api/config"
 	"github.com/openmentor-io/openmentor/api/pkg/email"
@@ -41,6 +42,10 @@ type fakeRepo struct {
 	setRequestErr      error
 	moderatorErr       error
 	reviewErr          error
+
+	// H4 review capability minting.
+	reviewInvitations   []reviewInvitation
+	reviewInvitationErr error
 
 	finalized      []FinalizeNewMentorParams
 	released       []FinalizeNewMentorParams
@@ -176,6 +181,25 @@ func (f *fakeRepo) GetJobReviewByID(_ context.Context, reviewID string) (*JobRev
 		return &copied, nil
 	}
 	return nil, nil
+}
+
+// reviewInvitation is one persisted review capability (H4). Only the HASH is
+// recorded, mirroring the real table — a fake that could hand the raw token back
+// would not be testing the property we care about.
+type reviewInvitation struct {
+	requestID string
+	tokenHash string
+	expiresAt time.Time
+}
+
+func (f *fakeRepo) CreateReviewInvitation(_ context.Context, requestID, tokenHash string, expiresAt time.Time) error {
+	if f.reviewInvitationErr != nil {
+		return f.reviewInvitationErr
+	}
+	f.reviewInvitations = append(f.reviewInvitations, reviewInvitation{
+		requestID: requestID, tokenHash: tokenHash, expiresAt: expiresAt,
+	})
+	return nil
 }
 
 func (f *fakeRepo) ListMentorsWithStalePendingRequests(_ context.Context) ([]JobMentor, error) {

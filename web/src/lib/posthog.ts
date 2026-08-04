@@ -106,8 +106,11 @@ function redactNestedString(key: string, value: string): string {
   // `=` padding and corrupt the asset in playback, and it cannot carry a
   // capability path.
   if (value.startsWith('data:')) return value
-  // Neither rule can match without one of these two characters.
-  if (!value.includes('/') && !value.includes('=')) return value
+  // No rule can match without one of these markers. `rvw_` is in the list because
+  // an H4 review capability contains neither a `/` nor an `=`, so the earlier
+  // two-character gate would have skipped a token sitting in a serialized DOM
+  // attribute value.
+  if (!value.includes('/') && !value.includes('=') && !value.includes('rvw_')) return value
   return redactFreeText(value)
 }
 

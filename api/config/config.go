@@ -24,6 +24,7 @@ type Config struct {
 	Analytics     AnalyticsConfig
 	PostHog       PostHogConfig
 	Turnstile     TurnstileConfig
+	Review        ReviewConfig
 	EventTriggers EventTriggerFunctionsConfig
 	Logging       LoggingConfig
 	Observability ObservabilityConfig
@@ -85,6 +86,21 @@ type PostHogConfig struct {
 
 type TurnstileConfig struct {
 	SecretKey string
+}
+
+// ReviewConfig holds the H4 dual-read switch.
+type ReviewConfig struct {
+	// LegacyRequestIDLinksEnabled keeps the pre-H4 review endpoints alive:
+	// GET /api/v1/reviews/:requestId/check and POST /api/v1/reviews/:requestId,
+	// which authorize on client_requests.id itself.
+	//
+	// It defaults to TRUE because turning it off breaks every "leave a review"
+	// link already sitting in a mentee's inbox. Flipping it to false is the H4
+	// CUTOVER and is an operator decision gated on
+	// openmentor_review_legacy_link_uses_total having been zero for longer than
+	// reviewtoken.TTL — see
+	// docs/runbooks/audit-2026-08/review-capability-cutover.md.
+	LegacyRequestIDLinksEnabled bool
 }
 
 type EventTriggerFunctionsConfig struct {
@@ -213,6 +229,11 @@ func Load() (*Config, error) {
 	v.SetDefault("POSTHOG_HOST", "https://eu.i.posthog.com")
 	v.SetDefault("POSTHOG_DISABLE_GEOIP", true)
 
+	// H4 dual-read: the pre-H4 request-id review links stay accepted by default.
+	// Defaulting this to false would break every review link already in a
+	// mentee's inbox the moment this ships.
+	v.SetDefault("REVIEW_LEGACY_REQUEST_ID_LINKS_ENABLED", true)
+
 	// Worker defaults (background worker binary, cmd/worker)
 	v.SetDefault("WORKER_PORT", "8090")
 	v.SetDefault("WORKER_DB_MAX_CONNS", 5)
@@ -302,6 +323,9 @@ func Load() (*Config, error) {
 		},
 		Turnstile: TurnstileConfig{
 			SecretKey: v.GetString("TURNSTILE_SECRET_KEY"),
+		},
+		Review: ReviewConfig{
+			LegacyRequestIDLinksEnabled: v.GetBool("REVIEW_LEGACY_REQUEST_ID_LINKS_ENABLED"),
 		},
 		EventTriggers: EventTriggerFunctionsConfig{
 			MentorCreatedTriggerURL:          v.GetString("MENTOR_CREATED_TRIGGER_URL"),

@@ -70,7 +70,20 @@ func registerAPIRoutes(
 	group.POST("/mentors/confirm/resend", confirmResendFloodLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024),
 		mentorConfirmationHandler.Resend)
 
-	// Review routes (public - uses captcha for protection)
+	// Review routes (public - captcha plus a single-use capability token).
+	//
+	// H4: the capability lives in the request BODY, so both URLs are constants —
+	// nothing capability-bearing reaches url.path, url.query, an access log line
+	// or PostHog's $current_url. `check` is a POST for exactly that reason, even
+	// though it only reads.
+	group.POST("/reviews/check", generalRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(4*1024), reviewHandler.CheckReviewByToken)
+	group.POST("/reviews/submit", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), reviewHandler.SubmitReviewWithToken)
+
+	// LEGACY review routes: these authorize on client_requests.id itself, which is
+	// the vulnerability H4 replaces. They stay registered for the dual-read window
+	// so links already in mentees' inboxes keep working, and refuse with 410 once
+	// REVIEW_LEGACY_REQUEST_ID_LINKS_ENABLED is off. Delete them at the cutover
+	// (docs/runbooks/audit-2026-08/review-capability-cutover.md).
 	group.GET("/reviews/:requestId/check", generalRateLimiter.Middleware(), reviewHandler.CheckReview)
 	group.POST("/reviews/:requestId", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), reviewHandler.SubmitReview)
 

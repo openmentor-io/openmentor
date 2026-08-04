@@ -372,6 +372,9 @@ services:
       - LOGIN_TOKEN_TTL_MINUTES
       - COOKIE_DOMAIN
       - COOKIE_SECURE
+      # H4 dual-read switch for the pre-H4 request-id review links. Backend only:
+      # the worker mints tokens unconditionally, so it has no legacy path.
+      - REVIEW_LEGACY_REQUEST_ID_LINKS_ENABLED
       # Worker triggers (X-Worker-Token + the /jobs/* URLs the API calls)
       - WORKER_AUTH_TOKEN
       - MENTOR_CREATED_TRIGGER_URL

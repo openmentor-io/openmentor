@@ -1,9 +1,12 @@
 package worker
 
 import (
+	"context"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -12,6 +15,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/email"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/redact"
+	"github.com/openmentor-io/openmentor/api/pkg/reviewtoken"
 )
 
 // defaultDeclineReasonText mirrors DEFAULT_DECLINE_REASON_TEXT in the func's
@@ -57,13 +61,25 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 	var message *email.Message
 	switch request.Status {
 	case "done":
+		reviewURL, mintErr := h.issueReviewInvitation(ctx, request.ID)
+		if mintErr != nil {
+			logger.Error("[Request Process Finished] Failed to issue review invitation",
+				zap.String("request_ref", redact.ID(request.ID)), logger.RedactedError(mintErr))
+			h.track(ctx, analytics.EventRequestProcessFinishedNotified, analytics.MentorDistinctID(request.MentorID), map[string]interface{}{
+				"mentor_id":  request.MentorID,
+				"outcome":    "error",
+				"error_type": errTypeDBError,
+			})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Internal error"})
+			return
+		}
 		message = &email.Message{
 			TemplateName: "session-complete",
 			Recipient:    request.Email,
 			Props: map[string]interface{}{
 				"first_name":  request.Name,
 				"mentor_name": request.MentorName,
-				"request_id":  request.ID,
+				"review_url":  reviewURL,
 			},
 		}
 	case mentorStatusDeclined:
@@ -107,6 +123,38 @@ func (h *Handlers) RequestProcessFinished(c *gin.Context) {
 		"outcome":   "success",
 	})
 	c.JSON(http.StatusOK, gin.H{"success": true, "requestId": requestID})
+}
+
+// ReviewTokenFragmentKey is the URL-fragment parameter the review page reads the
+// capability out of. Kept exported so the sentinel tests and the web contract
+// have one spelling to agree on.
+const ReviewTokenFragmentKey = "review_token"
+
+// issueReviewInvitation mints a review capability, stores its hash, and returns
+// the link to mail (H4).
+//
+// The token rides in the URL **fragment**, not the path and not the query, and
+// that is the whole point: a fragment is never transmitted to a server, so it
+// cannot land in Traefik's access log, in otelgin's url.path/url.query, in a
+// Referer header, or in PostHog's $current_url — which is exactly where the old
+// ?request_id= ended up (12 uuids, 93 events, 21 sessions, 15 replays). The
+// review page reads window.location.hash and clears it before analytics
+// initializes, and web/src/lib/redact.ts scrubs the fragment from telemetry
+// strings as a second line of defense.
+//
+// Storing precedes mailing: a token whose hash was not committed is a link that
+// can never be spent.
+func (h *Handlers) issueReviewInvitation(ctx context.Context, requestID string) (string, error) {
+	raw, hash, err := reviewtoken.New()
+	if err != nil {
+		return "", err
+	}
+	if storeErr := h.repo.CreateReviewInvitation(ctx, requestID, hash, time.Now().Add(reviewtoken.TTL)); storeErr != nil {
+		return "", storeErr
+	}
+	// base64url needs no escaping, but escape anyway so a future encoding change
+	// cannot silently produce a broken link.
+	return h.baseURL + "/reviews/new#" + ReviewTokenFragmentKey + "=" + url.QueryEscape(raw), nil
 }
 
 // mapDeclineReason mirrors SessionDeclinedMessage.mapDeclineReason (P2.6):

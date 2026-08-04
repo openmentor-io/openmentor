@@ -1,14 +1,20 @@
 package worker
 
 import (
+	"errors"
 	"html/template"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/email/templates"
+	"github.com/openmentor-io/openmentor/api/pkg/reviewtoken"
 )
 
 func finishedRequest(status string) *JobRequest {
@@ -34,7 +40,7 @@ func TestRequestProcessFinishedDone(t *testing.T) {
 	assert.Equal(t, "jane@example.com", msg.Recipient)
 	assert.Equal(t, "Jane Mentee", msg.Props["first_name"])
 	assert.Equal(t, "John Doe", msg.Props["mentor_name"])
-	assert.Equal(t, "r1", msg.Props["request_id"])
+	assertReviewInvitationLink(t, env, msg.Props)
 
 	event := env.tracker.last()
 	require.NotNil(t, event)
@@ -137,4 +143,98 @@ func TestRequestProcessFinishedEmailFailure(t *testing.T) {
 	require.NotNil(t, event)
 	assert.Equal(t, "error", event.props["outcome"])
 	assert.Equal(t, "email_send_failed", event.props["error_type"])
+}
+
+// assertReviewInvitationLink is the H4 sentinel on the outgoing email: the link
+// must carry the capability in a URL FRAGMENT and nowhere else, and what got
+// stored must be the token's hash rather than the token.
+func assertReviewInvitationLink(t *testing.T, env *jobsTestEnv, props map[string]interface{}) string {
+	t.Helper()
+
+	reviewURL, ok := props["review_url"].(string)
+	require.True(t, ok, "session-complete must carry review_url")
+
+	parsed, err := url.Parse(reviewURL)
+	require.NoError(t, err)
+	assert.Equal(t, "/reviews/new", parsed.Path, "the capability must not be a path segment")
+	assert.Empty(t, parsed.RawQuery, "the capability must not be a query parameter")
+
+	raw := parsed.Fragment[len(ReviewTokenFragmentKey)+1:]
+	require.True(t, strings.HasPrefix(parsed.Fragment, ReviewTokenFragmentKey+"="), "fragment = %q", parsed.Fragment)
+	assert.True(t, reviewtoken.WellFormed(raw), "the fragment must carry a well-formed token")
+
+	require.Len(t, env.repo.reviewInvitations, 1)
+	stored := env.repo.reviewInvitations[0]
+	assert.Equal(t, reviewtoken.Hash(raw), stored.tokenHash, "only the hash may be persisted")
+	assert.NotContains(t, stored.tokenHash, raw, "the raw token must not be recoverable from storage")
+	assert.WithinDuration(t, time.Now().Add(reviewtoken.TTL), stored.expiresAt, time.Minute)
+
+	// The request id it authorizes stays internal: it is not in the link.
+	assert.NotContains(t, reviewURL, stored.requestID)
+	return raw
+}
+
+// TestRequestProcessFinishedMintsAFreshCapabilityPerSend pins the append
+// semantics that keep a resend from invalidating the link already in the
+// mentee's inbox: two sends produce two DIFFERENT tokens and two stored rows,
+// and neither overwrites the other.
+func TestRequestProcessFinishedMintsAFreshCapabilityPerSend(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.requestsWithMentor["r1"] = finishedRequest("done")
+
+	require.Equal(t, http.StatusOK, env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil).Code)
+	require.Equal(t, http.StatusOK, env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil).Code)
+
+	require.Len(t, env.repo.reviewInvitations, 2)
+	first, second := env.repo.reviewInvitations[0], env.repo.reviewInvitations[1]
+	assert.NotEqual(t, first.tokenHash, second.tokenHash, "each send must mint fresh entropy")
+	assert.Equal(t, first.requestID, second.requestID)
+
+	require.Len(t, env.sender.attempts, 2)
+	firstLink, ok := env.sender.attempts[0].Props["review_url"].(string)
+	require.True(t, ok)
+	secondLink, ok := env.sender.attempts[1].Props["review_url"].(string)
+	require.True(t, ok)
+	assert.NotEqual(t, firstLink, secondLink)
+}
+
+// TestRequestProcessFinishedNeverMailsAnUnstoredToken is the ordering guarantee:
+// if the invitation cannot be persisted, no email goes out. A mailed token that
+// was never stored is a link that can never be spent.
+func TestRequestProcessFinishedNeverMailsAnUnstoredToken(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.requestsWithMentor["r1"] = finishedRequest("done")
+	env.repo.reviewInvitationErr = errors.New("insert failed")
+
+	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId=r1", nil)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Empty(t, env.sender.attempts, "no email may be sent when the capability was not stored")
+
+	event := env.tracker.last()
+	require.NotNil(t, event)
+	assert.Equal(t, "error", event.props["outcome"])
+	assert.Equal(t, errTypeDBError, event.props["error_type"])
+}
+
+// TestSessionCompleteEmailCarriesNoRequestID is the sentinel on the rendered
+// email: the pre-H4 template interpolated client_requests.id into the review
+// link, which is what made the primary key a bearer capability.
+func TestSessionCompleteEmailCarriesNoRequestID(t *testing.T) {
+	env := newJobsTestEnv()
+	request := finishedRequest("done")
+	// A uuid-shaped id, because that is what production has and what a substring
+	// assertion on a short id like "r1" would match by accident.
+	request.ID = "9f1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d"
+	env.repo.requestsWithMentor[request.ID] = request
+
+	w := env.do(http.MethodGet, "/jobs/request-process-finished?requestId="+request.ID, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	rendered, err := templates.Render("session-complete", env.sender.attempts[0].Props)
+	require.NoError(t, err)
+	for part, body := range map[string]string{"html": rendered.HTML, "text": rendered.Text} {
+		assert.NotContains(t, body, request.ID, "%s part still carries the request id", part)
+		assert.NotContains(t, body, "request_id", "%s part still references request_id", part)
+	}
 }

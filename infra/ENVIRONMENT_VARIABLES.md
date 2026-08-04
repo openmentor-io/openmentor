@@ -169,6 +169,7 @@ enforced by [`check-service-env.sh`](check-service-env.sh). Sensitive keys are
 | `TRUSTED_PROXIES` | | | | | | ● | | |
 | **`INTERNAL_MENTORS_API`**, **`MENTORS_API_LIST_AUTH_TOKEN`**, **`TURNSTILE_SECRET_KEY`**, **`JWT_SECRET`** | | | | | ○ | ● | ○ | |
 | `JWT_ISSUER`, `SESSION_TTL_HOURS`, `LOGIN_TOKEN_TTL_MINUTES`, `COOKIE_*` | | | | | | ● | | |
+| `REVIEW_LEGACY_REQUEST_ID_LINKS_ENABLED` (H4 dual-read switch, default `true`) | | | | | | ● | | |
 | **`WORKER_AUTH_TOKEN`** | | | | | ○ | ● | ● | |
 | `*_TRIGGER_URL` | | | | | | ● | | |
 | **`S3_STORAGE_*`** | | | | | ○ | ● | ○ | |

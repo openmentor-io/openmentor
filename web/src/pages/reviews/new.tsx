@@ -2,7 +2,23 @@
  * New Review Page
  *
  * Allows mentees to submit feedback about their mentorship session.
- * URL: /reviews/new?request_id=<uuid>
+ *
+ * URL: `/reviews/new#review_token=<token>` — the H4 capability link.
+ *
+ * The capability rides in the FRAGMENT on purpose. A fragment is never sent to a
+ * server, so it cannot reach an access log, a `Referer` header, or the Go API's
+ * `url.path`/`url.query` span attributes — which is exactly where the previous
+ * `?request_id=` ended up. The one sink that does see a fragment is
+ * `window.location.href`, which posthog-js reads for `$current_url` and rrweb for
+ * a replay's `first_url`, so this page strips it in an effect that runs BEFORE
+ * `_app` initializes analytics (in React, child effects run before parent ones),
+ * and `lib/redact.ts` scrubs fragments out of telemetry strings as a backstop.
+ *
+ * The token is held in a ref and never rendered into the DOM, because session
+ * replay serializes the DOM — a hidden input carrying it would be recorded.
+ *
+ * Legacy: `/reviews/new?request_id=<uuid>` still works for links already sitting
+ * in mentees' inboxes, and is removed at the cutover.
  */
 
 import { useState, useEffect, useRef } from 'react'
@@ -33,6 +49,30 @@ interface ReviewCheckResponse {
   mentorName?: string
 }
 
+/**
+ * Fragment parameter carrying the review capability. Must match
+ * `worker.ReviewTokenFragmentKey` in the Go worker, which builds the email link.
+ */
+export const REVIEW_TOKEN_FRAGMENT_KEY = 'review_token'
+
+/**
+ * Reads the capability out of `location.hash` and clears the hash in the same
+ * turn. Returns '' when there is none (a legacy link, or a bare visit).
+ *
+ * `history.replaceState` rather than assigning `location.hash`: assigning would
+ * push a history entry that still contains the token, so a back navigation — or
+ * anything reading `history.state` — would resurrect it.
+ */
+function takeReviewTokenFromFragment(): string {
+  if (typeof window === 'undefined') return ''
+  const hash = window.location.hash.replace(/^#/, '')
+  if (!hash) return ''
+
+  const token = new URLSearchParams(hash).get(REVIEW_TOKEN_FRAGMENT_KEY) ?? ''
+  window.history.replaceState(null, '', window.location.pathname)
+  return token
+}
+
 export default function NewReviewPage(): JSX.Element {
   const router = useRouter()
   const { request_id } = router.query
@@ -45,23 +85,37 @@ export default function NewReviewPage(): JSX.Element {
   const turnstileRef = useRef<TurnstileInstance>(null)
   const viewTracked = useRef(false)
 
-  // SECURITY (M10): the request_id is a capability token for submitting a
-  // review; strip it from the address bar so it isn't captured by telemetry or
-  // leaked via referrer. router.query.request_id stays intact for the checks
-  // below because replaceState doesn't touch Next's router state.
+  // The capability lives in a ref, NOT in state and not in a form field: state
+  // shows up in React DevTools, and a form field shows up in the serialized DOM
+  // that session replay records. A ref also means reading it never schedules a
+  // re-render, which is what keeps the check below from firing twice.
+  const reviewToken = useRef<string | null>(null)
+  const checkStarted = useRef(false)
+
+  // SECURITY (H4): take the token out of the address bar before anything can read
+  // `location.href`. This effect runs before `_app`'s analytics initialization
+  // because React flushes child effects first, so the first `$pageview` never sees
+  // it. The legacy `?request_id=` is stripped for the same reason (M10);
+  // `router.query.request_id` survives because replaceState does not touch Next's
+  // router state.
+  //
+  // Empty deps: it must run exactly once, on mount, before every effect below.
   useEffect(() => {
-    if (!router.isReady) return
-    if (typeof window !== 'undefined' && window.location.search) {
+    if (typeof window === 'undefined') return
+    reviewToken.current = takeReviewTokenFromFragment() || null
+    if (window.location.search) {
       window.history.replaceState(null, '', window.location.pathname)
     }
-  }, [router.isReady])
+  }, [])
 
   // Page-view analytics — once per mount, after the router query is ready.
+  // Only sanitized facts: a boolean and an enum, never the capability itself.
   useEffect(() => {
     if (!router.isReady || viewTracked.current) return
     viewTracked.current = true
     analytics.event(analytics.events.REVIEW_PAGE_VIEWED, {
       has_request_id: Boolean(request_id),
+      link_type: reviewToken.current ? 'token' : request_id ? 'legacy_request_id' : 'none',
     })
   }, [router.isReady, request_id])
 
@@ -72,22 +126,30 @@ export default function NewReviewPage(): JSX.Element {
     formState: { errors },
   } = useForm<ReviewFormData>()
 
-  // Check if review can be submitted
+  // Check if review can be submitted. Guarded by a ref rather than by its
+  // dependency list: the check must run exactly once per mount, and re-running it
+  // would spend a request per render for no benefit.
   useEffect(() => {
-    if (!router.isReady) return
+    if (!router.isReady || checkStarted.current) return
+    checkStarted.current = true
 
-    const requestId = request_id as string
-    if (!requestId) {
+    const token = reviewToken.current
+    const requestId = request_id as string | undefined
+    if (!token && !requestId) {
       setIsChecking(false)
-      setCheckError('Invalid link — the request ID is missing')
+      setCheckError('This review link is not valid. Please use the link from your email.')
       return
     }
 
     const checkReview = async (): Promise<void> => {
       try {
-        const response = await fetch(
-          `/api/reviews/check?request_id=${encodeURIComponent(requestId)}`
-        )
+        const response = await fetch('/api/reviews/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // The capability goes in the body. Sending it as a query parameter is
+          // what put request ids into `$current_url` for 93 events.
+          body: JSON.stringify(token ? { token } : { requestId }),
+        })
         const data = (await response.json()) as ReviewCheckResponse
 
         if (!response.ok || !data.canSubmit) {
@@ -117,7 +179,8 @@ export default function NewReviewPage(): JSX.Element {
   }
 
   const onSubmit = async (data: ReviewFormData): Promise<void> => {
-    if (!request_id) return
+    const token = reviewToken.current
+    if (!token && !request_id) return
 
     setIsLoading(true)
     setSubmitError(null)
@@ -127,7 +190,8 @@ export default function NewReviewPage(): JSX.Element {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          requestId: request_id,
+          // Exactly one of these; the token path is preferred when both exist.
+          ...(token ? { token } : { requestId: request_id }),
           mentorReview: data.mentorReview,
           platformReview: data.platformReview || '',
           improvements: data.improvements || '',
