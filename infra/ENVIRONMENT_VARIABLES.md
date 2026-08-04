@@ -171,7 +171,7 @@ enforced by [`check-service-env.sh`](check-service-env.sh). Sensitive keys are
 | `JWT_ISSUER`, `SESSION_TTL_HOURS`, `LOGIN_TOKEN_TTL_MINUTES`, `COOKIE_*` | | | | | | ● | | |
 | **`WORKER_AUTH_TOKEN`** | | | | | ○ | ● | ● | |
 | `*_TRIGGER_URL` | | | | | | ● | | |
-| **`S3_STORAGE_*`** | | | | | | ● | | |
+| **`S3_STORAGE_*`** | | | | | ○ | ● | ○ | |
 | **`SES_*`**, `MODERATORS_EMAIL`, `DISCORD_MENTORS_PRIVATE_INVITE_LINK`, `DEV_EMAIL_OVERRIDE` | | | | | | | ● | |
 | `WORKER_CRON_ENABLED`, `WORKER_DB_MAX_CONNS`, `HIGHLIGHTED_MENTORS` | | | | | | | ● | |
 | `ANALYTICS_*`, **`POSTHOG_API_KEY`**, `POSTHOG_HOST/ENABLED/CAPTURE_ENDPOINT` | | | | | ○ | ● | ● | |

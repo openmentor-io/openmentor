@@ -286,12 +286,13 @@ services:
     # SECURITY (P10): explicit allowlist. cmd/migrate only needs DATABASE_URL,
     # but it calls the shared config.Load(), whose Validate() rejects a missing
     # INTERNAL_MENTORS_API / MENTORS_API_LIST_AUTH_TOKEN / TURNSTILE_SECRET_KEY
-    # / JWT_SECRET / WORKER_AUTH_TOKEN / POSTHOG_API_KEY — dropping those makes
-    # this container exit 1, and `depends_on: service_completed_successfully`
-    # then blocks the backend entirely. They are passed to satisfy validation
-    # and nothing else; trimming them needs a per-binary validation profile in
-    # api/config (follow-up, not an infra change). No S3, SES or observability
-    # credentials reach this container.
+    # / JWT_SECRET / WORKER_AUTH_TOKEN / POSTHOG_API_KEY / S3_STORAGE_* (the
+    # last added by P1's fail-fast storage validation, which took prod down on
+    # 2026-08-04: this list predated it, migrate exited 1, and
+    # `depends_on: service_completed_successfully` blocked the whole stack).
+    # They are passed to satisfy validation and nothing else; trimming them
+    # needs a per-binary validation profile in api/config (follow-up, not an
+    # infra change). No SES or observability credentials reach this container.
     environment:
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -299,6 +300,11 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DB_WORK_OFFLINE
       # validation-only below
+      - S3_STORAGE_ACCESS_KEY
+      - S3_STORAGE_SECRET_KEY
+      - S3_STORAGE_BUCKET
+      - S3_STORAGE_ENDPOINT
+      - S3_STORAGE_REGION
       - BASE_URL
       - ALLOWED_CORS_ORIGINS
       - INTERNAL_MENTORS_API
@@ -420,9 +426,12 @@ services:
     command: ["/app/worker"]
     # SECURITY (P10): explicit allowlist. The worker is the only container that
     # sends email, so it is the only one holding SES_*. Deliberately absent:
-    # S3_STORAGE_* (cmd/api only), the trigger URLs (it *serves* those routes),
-    # POSTGRES_PASSWORD, BACKUP_*, GCLOUD_*, CLOUDFLARE_DNS_API_TOKEN,
-    # METRICS_AUTH_TOKEN, GO_API_INTERNAL_TOKEN.
+    # the trigger URLs (it *serves* those routes), POSTGRES_PASSWORD, BACKUP_*,
+    # GCLOUD_*, CLOUDFLARE_DNS_API_TOKEN, METRICS_AUTH_TOKEN,
+    # GO_API_INTERNAL_TOKEN. S3_STORAGE_* is present only because the shared
+    # config.Load() Validate() requires it in production since P1 — cmd/worker
+    # never touches S3 (same validation-only story as the migrate service; the
+    # per-binary validation profile is the follow-up that removes both).
     environment:
       - GIN_MODE=release
       - WORKER_PORT=8090
@@ -438,6 +447,12 @@ services:
       - DB_WORK_OFFLINE
       - BASE_URL # rendered into email links
       - ALLOWED_CORS_ORIGINS
+      # validation-only (see the allowlist comment above)
+      - S3_STORAGE_ACCESS_KEY
+      - S3_STORAGE_SECRET_KEY
+      - S3_STORAGE_BUCKET
+      - S3_STORAGE_ENDPOINT
+      - S3_STORAGE_REGION
       # Worker itself
       - WORKER_AUTH_TOKEN
       - WORKER_CRON_ENABLED
