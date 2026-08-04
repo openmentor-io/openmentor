@@ -17,6 +17,8 @@ grafana/
 ├── alerting/
 │   ├── alert-rules.yaml            # Alert rules — versioned source of record
 │   └── notification-policies.yaml  # Routing tree — versioned source of record
+├── slo/
+│   └── slos.yaml                   # SLOs — versioned source of record (see file header)
 └── README.md
 ```
 
