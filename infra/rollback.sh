@@ -238,10 +238,35 @@ check_migration_boundary() {
 
     TARGET_IMAGE="\${ECR_REGISTRY_GUARD}/openmentor-backend:\${BACKEND_TARGET_TAG}"
     echo "🔎 Checking the migration boundary (schema is at version \$SCHEMA_VERSION)..."
-    if ! docker pull "\$TARGET_IMAGE" >/dev/null 2>&1; then
-        echo "❌ REFUSING: cannot pull \$TARGET_IMAGE."
-        echo "   Nothing has been changed. Check the tag exists in the registry"
-        echo "   (ECR lifecycle policy keeps only the last ~20 images)."
+    # This fires on ANY pull failure, not just a missing tag, and the old message
+    # only named the tag — which sends an operator hunting for a tag that exists
+    # while the actual fault is ECR or the network. docker's own error strings
+    # are not a reliable discriminator (an expired ECR token and a deleted tag
+    # both surface as "denied"/"repository does not exist"), so instead of
+    # guessing we (a) print what docker actually said and (b) use the one signal
+    # that IS conclusive: a tag sitting in the local cache provably exists.
+    if ! GUARD_PULL_ERR=\$(docker pull "\$TARGET_IMAGE" 2>&1); then
+        echo "❌ REFUSING: cannot pull \$TARGET_IMAGE. Nothing has been changed."
+        echo "   docker said: \$(printf '%s\n' "\$GUARD_PULL_ERR" | tail -1)"
+        if docker image inspect "\$TARGET_IMAGE" >/dev/null 2>&1; then
+            echo "   That tag IS in this VM's local image cache, so it EXISTS."
+            echo "   The registry or the network is what is unreachable — do not go"
+            echo "   looking for a missing tag. Check ECR reachability and the token"
+            echo "   (deploy-remote.sh/rollback.sh pipe a fresh one in over ssh stdin;"
+            echo "   the VM itself has no aws CLI and no AWS credentials)."
+        else
+            echo "   It is also not in the local cache, so this is one of two things"
+            echo "   and docker's message cannot reliably tell them apart:"
+            echo "     * the tag is gone — ECR lifecycle keeps only the last ~20 images; or"
+            echo "     * ECR is unreachable / the pushed token has expired."
+            echo "   From a workstation, 'aws ecr describe-images --repository-name"
+            echo "   openmentor-backend' settles the first; pulling any known-good tag"
+            echo "   settles the second."
+        fi
+        echo "   Either way the rollback could not have completed: the converge below"
+        echo "   runs 'docker compose pull' under set -e and needs the very registry"
+        echo "   access this probe just failed. That compose pull is the real gate —"
+        echo "   this check only moves the failure to before .env is rewritten."
         return 1
     fi
     if ! migrations_from_image "\$TARGET_IMAGE" "\$GUARD_DIR/target"; then

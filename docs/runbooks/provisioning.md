@@ -127,9 +127,11 @@ Manual: PostHog, GTM.*
 - [ ] [console] Dashboards: connect Grafana Git Sync to this repo, path `grafana/dashboards/` (one-time, see `grafana/README.md`)
 - [ ] [terminal] Alert rules from `grafana/alerting/alert-rules.yaml`, after the first deploy so the
       `noDataState: Alerting` rules have their series: `PUT /api/v1/provisioning/folder/<uid>/rule-groups/openmentor`
-      into a **manually created** folder (production uses "OpenMentor", uid `fd2fpl`) — **not** the Git Sync
-      dashboards folder, which Grafana refuses to store alert rules in. Nothing syncs this file, so it must be
-      re-applied after every edit; see `grafana/README.md` § Alert rules
+      into a **manually created** folder (production uses "OpenMentor Alerts", uid `openmentor-alerts`) —
+      **not** the Git Sync dashboards folder, which Grafana refuses to store alert rules in. Name it so it
+      cannot be mistaken for the Git Sync folder: the original "OpenMentor"/`fd2fpl` was deleted on
+      2026-08-04 by someone tidying an apparent duplicate, silently taking all 14 rules with it. Nothing
+      syncs this file, so it must be re-applied after every edit; see `grafana/README.md` § Alert rules
 - [ ] [console] PostHog (EU): project → `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST=https://eu.i.posthog.com`,
   `POSTHOG_API_KEY` (api/worker), `POSTHOG_HOST`; sync dashboards later (`infra/posthog/dashboards/sync.mjs`)
 - [ ] [console] **GTM (`GTM-NBGRPCZ`): remove the Mixpanel tag** (leftover manual task from D18)
@@ -196,8 +198,21 @@ Manual: PostHog, GTM.*
       that a real object in the backup bucket restores. That is the drill.
 - [ ] Accept/sign DPAs: AWS, Hetzner, Cloudflare, PostHog, Grafana, Google (GTM)
 - [x] Grafana alert rules + notification channels — **done 2026-08-04**: all 14 rules in
-      `grafana/alerting/alert-rules.yaml` applied to folder uid `fd2fpl`, fanning out to
-      telegram/slack/Discord with email as the parent fallback. Re-apply after any edit to that file
+      `grafana/alerting/alert-rules.yaml` are live in folder uid `openmentor-alerts`, fanning out to
+      telegram/slack/Discord with email as the parent fallback. Applied twice that day: the first
+      target, `fd2fpl`, was deleted along with every rule in it (see `grafana/README.md` § Alert rules),
+      so **re-verify against `GET /api/v1/provisioning/alert-rules` before trusting this tick** —
+      a checked box here is not evidence, and a folder deletion leaves none.
+      Alerting also comes from a **second, separate** place: the three SLOs in `grafana/slo/slos.yaml`
+      carry fastBurn/slowBurn error-budget alerts that Grafana generates into its own `grafana-slo`
+      folder (45 rules there, applied 2026-08-04) and routes through the same policy. API/frontend
+      availability and API latency therefore page from both sets — check both before concluding
+      "nothing alerts on X", and silence both when you silence one.
+- [ ] **Re-apply the four rules audit H13 rewrote** (ContainerHighCPU, ContainerHighMemory, DBErrorRate,
+      DBLatencyP95). Alert rules are NOT Git-Synced — only `grafana/dashboards` is, hourly — so the edited
+      YAML is *desired state* and the OLD expressions are what is live and evaluating. Re-run the group PUT
+      in `grafana/README.md` § Alert rules, then diff the response against the file. Ticking this box before
+      that PUT is exactly the monitoring theatre H13 removes
 - [ ] External uptime check (e.g. UptimeRobot) on `https://openmentor.io/api/healthcheck` via frontend
 - [ ] Replace donate-page Ko-fi placeholder with the real URL
 - [ ] Cloudflare proxy (orange-cloud) if desired, after confirming ACME renewals work

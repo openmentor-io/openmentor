@@ -73,17 +73,22 @@ docker exec openmentor-postgres-backup backup.sh once     # expect SUCCESS
 #    openmentor_db_backup_last_success_timestamp_seconds
 
 # 2. PUT the whole group — atomic, and it matches the file exactly:
-#    PUT /api/v1/provisioning/folder/fd2fpl/rule-groups/openmentor
+#    PUT /api/v1/provisioning/folder/openmentor-alerts/rule-groups/openmentor
 #    with an editor/admin service-account token and X-Disable-Provenance: true.
-#    Folder "OpenMentor", uid fd2fpl — NOT the Git Sync folder repository-7b3d712:
-#    Grafana refuses to store alert rules in a Git-Sync-managed folder.
+#    Folder "OpenMentor Alerts", uid openmentor-alerts — NOT the Git Sync folder
+#    repository-7b3d712: Grafana refuses to store alert rules in a
+#    Git-Sync-managed folder. This runbook said uid fd2fpl until 2026-08-04;
+#    that folder was deleted from the stack that afternoon, taking all 14 rules
+#    with it, and the group was re-applied to the folder named above.
 #    Details and the exact body shape: grafana/README.md § Alert rules
 ```
 
-Then confirm the group under Alerting → Alert rules in the **OpenMentor** folder
-evaluates to Normal, and that
-`GET /api/v1/provisioning/folder/fd2fpl/rule-groups/openmentor` returns what the
-file says.
+Then confirm the group under Alerting → Alert rules in the **OpenMentor Alerts**
+folder evaluates to Normal, and that
+`GET /api/v1/provisioning/folder/openmentor-alerts/rule-groups/openmentor`
+returns what the file says. Read the live folder uid rather than trusting this
+line: the whole point of the 2026-08-04 deletion is that a folder can vanish
+and take its rules with it silently.
 
 ## How to reach S3 — read this before (a) or (c)
 

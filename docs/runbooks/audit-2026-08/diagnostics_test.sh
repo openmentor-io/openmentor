@@ -414,11 +414,33 @@ self_committing_sql_blocks() {
 # Counts `aws` command lines that are NOT inside a `docker exec … sh -c '…'`
 # block. Must be zero in every runbook: the VM holds no AWS credentials, so an
 # `aws` call anywhere else fails before the operator gets started.
+#
+# A `sh -c '…'` span can open AND close on one line — prose, or a table cell
+# citing the form. The first version of this treated any such line as opening a
+# multi-line block and never closed it, so ONE inline mention blinded the check
+# for the whole rest of the file: the `error=s3_upload_failed` row in
+# postgres-backup-restore.md's failure-mode table is exactly that, and a bare
+# `aws s3 cp` appended after it was counted as 0. So consume
+# closed spans in place and only enter block state on an unterminated opener,
+# then test what is LEFT of the line.
 bare_aws_lines() {
     awk -v q="'" '
-        index($0, "sh -c " q)             { inblock = 1; next }
-        inblock && index($0, q)           { inblock = 0; next }
-        !inblock && /(^|[[:space:]])aws / { n++ }
+        {
+            line = $0
+            if (inblock) {
+                c = index(line, q)
+                if (c == 0) { next }            # still inside the sh -c quote
+                inblock = 0
+                line = substr(line, c + 1)
+            }
+            while ((p = index(line, "sh -c " q)) > 0) {
+                line = substr(line, p + length("sh -c " q))
+                c = index(line, q)
+                if (c == 0) { inblock = 1; line = ""; break }
+                line = substr(line, c + 1)      # span closed on this same line
+            }
+            if (line ~ /(^|[[:space:]])aws /) { n++ }
+        }
         END { print n + 0 }' "$1"
 }
 
@@ -678,6 +700,47 @@ assert_absent   'and no longer counts files as call sites' \
     "$decisions" 'from **seven** call sites'
 }
 check_decisions_md
+
+# ---------------------------------------------------------------------------
+# The sidecar-only S3 convention is not specific to the audit runbooks: it comes
+# from where the credentials live, so it binds every runbook that touches the
+# backup bucket. Until this section existed, reintroducing a bare `aws s3 cp`
+# "on the VM" failed `make check` in data-repair.md and passed silently in the
+# two operational runbooks — the exact H11 defect, in the files an operator is
+# most likely to be holding at 3am.
+#
+# Note for editors: bare_aws_lines counts any line with an unquoted `aws ` token
+# outside a `sh -c '…'` block, so PROSE about the CLI trips it too. Write it as
+# `aws` in backticks, the way both runbooks already do; do not loosen the awk.
+# ---------------------------------------------------------------------------
+# The needles are literal markdown fragments, so SC2016 is the point (as above).
+# shellcheck disable=SC2016
+check_operational_runbooks() {
+local restore_md upgrade_md restore
+section 'operational runbooks — S3 only ever runs inside the backup sidecar'
+
+restore_md="$REPO_ROOT/docs/runbooks/postgres-backup-restore.md"
+upgrade_md="$REPO_ROOT/docs/runbooks/postgres-16-to-18-upgrade.md"
+
+assert_eq 'postgres-backup-restore.md: no bare aws command outside the backup sidecar' \
+    "$(bare_aws_lines "$restore_md")" 0
+assert_eq 'postgres-16-to-18-upgrade.md: no bare aws command outside the backup sidecar' \
+    "$(bare_aws_lines "$upgrade_md")" 0
+
+# The restore runbook is the one that actually reaches S3, so it must also carry
+# the sidecar form itself rather than only asserting the rule.
+restore="$(cat "$restore_md")"
+assert_contains 'the restore runbook fetches dumps through the sidecar' \
+    "$restore" 'docker exec openmentor-postgres-backup sh -c'
+assert_contains 'and maps BACKUP_AWS_* onto AWS_* inside the container' \
+    "$restore" 'AWS_ACCESS_KEY_ID="$BACKUP_AWS_ACCESS_KEY_ID"'
+
+# The upgrade runbook deliberately owns no S3 block; it delegates. If that
+# pointer rots, the next editor's fix is to paste an `aws` line back in.
+assert_contains 'the upgrade runbook delegates its S3 step to the restore runbook' \
+    "$(cat "$upgrade_md")" 'postgres-backup-restore.md'
+}
+check_operational_runbooks
 
 section 'diagnostics_test.sh — the scratch database is one it created itself'
 

@@ -101,6 +101,16 @@ source of record is [`alerting/alert-rules.yaml`](alerting/alert-rules.yaml)
 
 If you change a rule in the UI, mirror the change into the YAML file.
 
+**These 14 rules are not the only alerting on this stack.** The three SLOs in
+[`slo/slos.yaml`](slo/slos.yaml) each carry fastBurn/slowBurn error-budget
+alerts, which Grafana materialises as its own rules in the separate
+`grafana-slo` folder (45 rules there as of 2026-08-04 — generated, do not
+hand-edit). They route through the same default notification policy, so
+API/frontend availability and API latency page from two independent places:
+check both before concluding nothing alerts on something, and silence both when
+you silence one. Editing an SLO is a separate re-apply with a separate API
+(`slo/slos.yaml` header) — the group PUT above does not touch them.
+
 **Order matters when applying.** The default notification policy is live and
 fans out to `telegram`, `slack` and `Discord` with `repeat_interval: 4h`, so a
 rule that is true the moment it lands pages immediately and keeps paging. The

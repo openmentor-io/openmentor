@@ -107,7 +107,7 @@ docker compose stop backend worker migrate postgres-backup
 docker exec openmentor-postgres-backup backup.sh once
 docker logs openmentor-postgres-backup --tail 5     # expect SUCCESS
 # Then fetch it with the two blocks in postgres-backup-restore.md
-# § "Fetching a dump out of the sidecar" — the VM has no aws CLI and no AWS
+# § "Fetching a dump out of the sidecar" — the VM has no `aws` CLI and no AWS
 # credentials; only the sidecar does. That leaves /tmp/restore.dump at mode 600.
 cp -p /tmp/restore.dump /tmp/upgrade.dump   # keeps 600; the name this runbook uses below
 
