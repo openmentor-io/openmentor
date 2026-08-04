@@ -147,7 +147,7 @@ func (h *Handlers) MentorConfirmEmail(c *gin.Context) {
 	if confirmURL == "" && tokenhash.IsLegacyPlaintext(mentor.EmailConfirmationToken) {
 		// Pre-D57 row: the stored token IS the token, so a link can still be built
 		// from it. Delete this branch with the rest of the legacy handling once no
-		// unhashed token can be outstanding (24h after the deploy).
+		// unhashed token can be outstanding (24h after the deploy) — issue #80.
 		confirmURL = h.baseURL + "/mentor/confirm?token=" + mentor.EmailConfirmationToken
 	}
 	if confirmURL == "" {

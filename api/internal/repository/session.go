@@ -115,8 +115,8 @@ func (r *MentorRepository) BumpMentorSessionVersion(ctx context.Context, mentorI
 //
 // Two positions because tokens issued before D57 are still stored in plaintext
 // and their links live 24h; see tokenhash.IsLegacyPlaintext for why the fallback
-// is prefix-scoped and when to delete it. Once it goes, this collapses to a
-// single equality and the helper can go with it.
+// is prefix-scoped and when to delete it (#80). Once it goes, this collapses to
+// a single equality and the helper can go with it.
 func confirmationTokenPredicate(hashIdx, legacyIdx int) string {
 	return fmt.Sprintf("(email_confirmation_token = $%d OR email_confirmation_token = $%d)",
 		hashIdx, legacyIdx)

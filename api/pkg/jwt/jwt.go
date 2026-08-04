@@ -204,7 +204,8 @@ func (tm *TokenManager) validate(tokenString, wantType, wantAudience string) (*M
 //
 // Remove the empty-audience branch once one session TTL (24h) has passed since
 // the deploy — at that point no token without `aud` can still be valid — and
-// replace this with jwt.WithAudience in the parser options.
+// replace this with jwt.WithAudience in the parser options. Tracked in issue #80
+// with the rest of the D57/D58 compatibility batch; it is one deletion PR.
 func validateAudience(claims *MentorClaims, wantAudience string) error {
 	aud, err := claims.GetAudience()
 	if err != nil {
@@ -225,7 +226,7 @@ func validateAudience(claims *MentorClaims, wantAudience string) error {
 // carry a role — so an empty token_type WITH a role is rejected in the mentor
 // realm rather than waved through.
 //
-// Remove the legacy branches together with the empty-audience one above.
+// Remove the legacy branches together with the empty-audience one above (#80).
 func validateTokenType(claims *MentorClaims, wantType string) error {
 	switch {
 	case claims.TokenType == wantType:

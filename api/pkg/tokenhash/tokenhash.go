@@ -44,7 +44,10 @@ func Hash(token string) string {
 // so scoping the fallback to prefixed values closes that.
 //
 // Remove this (and its two call sites) once no unhashed confirmation token can
-// still be outstanding — they live 24h, so one day after the deploy.
+// still be outstanding — they live 24h, so one day after the deploy. Issue #80
+// tracks it with the rest of the D57/D58 compatibility batch, and of that batch
+// this is the one to get out on schedule: until it does, a plaintext
+// confirmation token is still an accepted credential shape.
 func IsLegacyPlaintext(token string) bool {
 	return strings.HasPrefix(token, legacyConfirmationPrefix)
 }

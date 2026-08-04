@@ -8,7 +8,9 @@ import "net/http"
 // A claim of 0 means the token predates the claim — those are grandfathered in
 // rather than rejected, because rejecting them would log out every live session
 // the moment this deploys. Delete this allowance one session TTL (24h) after the
-// rollout, at which point no token without the claim can still be valid.
+// rollout, at which point no token without the claim can still be valid: issue
+// #80 tracks it together with the rest of the D57/D58 compatibility batch, which
+// all comes out in one PR.
 func sessionVersionCurrent(claimed, current int) bool {
 	if claimed == 0 {
 		return true
