@@ -1,3 +1,4 @@
+-- phase: expand
 -- Add one-time login token support for moderator/admin web authentication
 
 ALTER TABLE moderators

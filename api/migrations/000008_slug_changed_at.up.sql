@@ -1,3 +1,4 @@
+-- phase: expand
 -- Cooldown timestamp for mentor-initiated username (slug) changes (D29).
 --
 -- The 14-day cooldown previously read the newest changed_by='mentor' row from

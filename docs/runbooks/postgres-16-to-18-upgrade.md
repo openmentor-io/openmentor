@@ -66,16 +66,25 @@ Both paths keep the old volume untouched, so rollback is always "point compose b
 
 1. **Run a restore drill** on the *current* dump into a **PG18** throwaway, not a PG16 one. This is the real go/no-go: it proves the dump restores under 18 before you touch production.
 
+   Runs **on the VM**: the backup bucket's credentials exist only inside the
+   `openmentor-postgres-backup` container, never on the VM itself — see
+   `postgres-backup-restore.md` § "How to reach S3", whose two fetch blocks are
+   step 1 here. The throwaway gets no `--network`, so it cannot reach production.
+
    ```bash
-   aws s3 cp s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/<latest>.dump /tmp/drill.dump
-   docker run -d --name pg18-drill -e POSTGRES_USER=openmentor \
-       -e POSTGRES_PASSWORD=drill -e POSTGRES_DB=openmentor postgres:18.4-alpine
-   docker cp /tmp/drill.dump pg18-drill:/tmp/drill.dump
+   # /tmp/restore.dump at mode 600, per postgres-backup-restore.md
+   docker run -d --name pg18-drill --network none -e POSTGRES_USER=openmentor \
+       -e POSTGRES_PASSWORD="$(openssl rand -hex 16)" \
+       -e POSTGRES_DB=openmentor postgres:18.4-alpine
+   until docker exec pg18-drill pg_isready -U openmentor -q; do sleep 1; done
+   docker cp /tmp/restore.dump pg18-drill:/tmp/drill.dump
    # pg_restore from the 18 image; a 16-produced custom dump restores into 18 fine
    docker exec pg18-drill pg_restore -U openmentor -d openmentor -v /tmp/drill.dump 2>&1 | tail -30
    docker exec pg18-drill psql -U openmentor -c "SELECT count(*) FROM mentors;"
    docker exec pg18-drill psql -U openmentor -c "SELECT max(created_at) FROM client_requests;"
    docker rm -f pg18-drill
+   rm -f /tmp/restore.dump
+   docker exec openmentor-postgres-backup rm -f /backups/restore-candidate.dump
    ```
 
    Investigate every `pg_restore` warning. Expect noise about the `postgres` role/ownership; do **not** wave through anything mentioning a type, extension or function.
@@ -97,8 +106,10 @@ docker compose stop backend worker migrate postgres-backup
 # 2. Final dump from the RUNNING 16 server, with the 16 sidecar
 docker exec openmentor-postgres-backup backup.sh once
 docker logs openmentor-postgres-backup --tail 5     # expect SUCCESS
-aws s3 ls s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/ | sort | tail -1
-aws s3 cp s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/<that file> /tmp/upgrade.dump
+# Then fetch it with the two blocks in postgres-backup-restore.md
+# § "Fetching a dump out of the sidecar" — the VM has no aws CLI and no AWS
+# credentials; only the sidecar does. That leaves /tmp/restore.dump at mode 600.
+cp -p /tmp/restore.dump /tmp/upgrade.dump   # keeps 600; the name this runbook uses below
 
 # 3. Stop postgres and KEEP the old volume as the rollback point
 docker compose stop postgres && docker compose rm -f postgres
@@ -110,8 +121,16 @@ docker run --rm -v openmentor-postgres-data:/from -v openmentor-postgres-data-pg
 docker volume rm openmentor-postgres-data
 docker volume create openmentor-postgres-data
 
-# 5. Deploy the branch (18 image + PGDATA + sidecar), then start postgres alone
-git -C /opt/openmentor pull       # or your normal deploy path
+# 5. Ship the branch, then start postgres alone.
+#    The VM has NO monorepo checkout — only /opt/openmentor/infra, rsynced by
+#    the `infra` deploy target. So this step runs on your WORKSTATION, from the
+#    branch, and it is `deploy.sh` that carries the new compose file over:
+#
+#      cd infra && ./deploy.sh all        # (from the workstation, on the branch)
+#
+#    `deploy.sh all` also brings postgres up as part of the converge. If you want
+#    postgres alone first, use `./deploy.sh infra` to sync the compose file and
+#    then, back on the VM:
 docker compose up -d postgres     # wait for (healthy)
 docker compose ps postgres
 
@@ -199,7 +218,17 @@ docker volume rm openmentor-postgres-data
 docker volume create openmentor-postgres-data
 docker run --rm -v openmentor-postgres-data-pg16:/from -v openmentor-postgres-data:/to \
     alpine sh -c "cp -a /from/. /to/"
-git -C /opt/openmentor checkout <previous-sha>   # back to the 16 pins
+
+# Back to the 16 pins. There is no git checkout on the VM to revert — the 16
+# compose file has to be shipped from a workstation, from the pre-upgrade commit:
+#
+#   git checkout <previous-sha> && cd infra && ./deploy.sh all
+#
+# `rollback.sh` alone is NOT enough here: it only moves image tags, and the
+# postgres image pin and PGDATA live in docker-compose.yml, which only the
+# `infra` target syncs. It will also refuse if the 18 window applied a migration
+# the older backend image does not carry (see infra/DEPLOYMENT.md, "Rolling back
+# across a migration boundary").
 docker compose up -d postgres && docker compose up -d backend worker postgres-backup
 ```
 

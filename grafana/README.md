@@ -208,17 +208,46 @@ Notes:
   - A dump that succeeds but is corrupt, truncated, or unrestorable. Only the
     quarterly restore drill covers that
     (`docs/runbooks/postgres-backup-restore.md`).
-  - Anything at all while Grafana's own alerting engine or this repo's
-    unapplied-rules gap is the failure. Neither rule is on the stack today.
+  - Anything at all while Grafana's own alerting engine is the failure — or
+    while an edit to `alerting/alert-rules.yaml` has not been re-applied. Both
+    rules are live on the stack (applied 2026-08-04); nothing syncs later edits
+    to this file, so "in the repo" and "on the stack" can still diverge.
 - **PostgresDown** watches `pg_up`, shipped continuously by the Database
   Observability pipeline (live since 2026-07-18; setup in
   `docs/runbooks/database-observability.md`). `NoData=Alerting`, so the
   exporter disappearing also pages. Candidate follow-up: postgres panels
   (connections, TPS, locks) on `om-database-infra`.
-- **ContainerHighCPU/Memory** key off cAdvisor's `name` label. cAdvisor
-  currently exposes only host cgroup slices (no per-container series), so these
-  stay quiet until per-container metrics appear; the Host row on
-  `om-database-infra` covers the gap meanwhile.
+- **ContainerHighCPU/Memory** key off cAdvisor's `name` label, and that label
+  **does** exist — re-verified against the live tenant 2026-08-04:
+  `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`
+  carry `name="openmentor-backend"`, `"grafana-alloy"`, `"traefik"`, … alongside
+  the host cgroup slices, which the rules' `name=~` matcher filters out. The
+  earlier note here — that cAdvisor exposed only host slices — was wrong, and it
+  is why both rules were left with unreachable thresholds (audit H13). **No
+  cAdvisor mount or flag change is needed.** Both rules were rewritten in the
+  same pass and are **desired state until an operator re-applies the group**:
+  - CPU is now a share of the whole VM (`/ machine_cpu_cores`, which is 4 here),
+    not of one core. The old `rate(...) * 100 > 90` fired at 22.5% of the machine
+    while claiming "CPU above 90%".
+  - Memory is now a ratio of each container's own `mem_limit` (85%), not an
+    absolute 1 GiB — which was above the *largest* limit in the stack (768m), so
+    the kernel OOM-killed every container before that rule could ever fire
+    (verified live: 6 container series, none above 1 GiB). The divisors are
+    written out in the rule because Adaptive Metrics has
+    `container_spec_memory_limit_bytes` aggregated on this tenant and strips
+    `name` from it, so the obvious `/ on (name) group_left ()` form errors out.
+    `infra/alert-fireability-test.sh` checks each divisor against
+    `infra/docker-compose.yml` so they cannot drift from the real limits.
+  - `noDataState: OK` stays on both, and is now correct rather than a fig leaf:
+    an empty result means the containers are not running, and `up` carries
+    `job="prometheus.scrape.cadvisor"`, so **ServiceDown** covers cAdvisor
+    itself disappearing.
+- **DBErrorRate / DBLatencyP95** are grouped by `service_name`
+  (`openmentor-api`, `openmentor-worker`). Ungrouped they summed both services
+  together, and since the API does far more database work than the worker at
+  every hour, a worker failing *every* query stayed under 5% of the combined
+  denominator and never paged. A merged p95 is likewise a p95 of neither.
+  Also desired state until re-applied.
 
 ## Notifications
 

@@ -144,6 +144,198 @@ set_env_tag() {
 CURRENT_FRONTEND_TAG=\$(grep "^FRONTEND_IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
 CURRENT_BACKEND_TAG=\$(grep "^BACKEND_IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
 echo "Current tags: frontend=\$CURRENT_FRONTEND_TAG backend=\$CURRENT_BACKEND_TAG"
+
+# --- H10 migration boundary guard (rollback.sh only) ------------------------
+# NOTE: this block lives in an UNQUOTED here-document, so every expansion is
+# backslash-escaped and it stays free of backticks. bash 3.2 — still /bin/bash
+# on macOS, where rollback.sh is run — finds the end of the enclosing \$( ) by
+# counting parens in the body, so no "case" here and every paren in CODE must
+# balance. rollback-migration-guard-test.sh pushes this block back through a
+# here-document and runs it against stubbed docker, so it tests the shipped text.
+#
+# WHY: migrate shares BACKEND_IMAGE_TAG with backend and worker (one image) and
+# the migrations are baked in at /app/migrations. Point that tag at a build
+# older than the applied schema version and golang-migrate's versionExists()
+# cannot find the current version in the image's source: it fails with "no
+# migration found for version N", migrate exits 1,
+# depends_on: service_completed_successfully is never satisfied, and this
+# script's set -e aborts — leaving production on the version being rolled back
+# FROM. Refusing before .env is touched is the only outcome that leaves the VM
+# where it was.
+#
+# This guard never applies a down-migration. 000009_modernise_tags.down.sql
+# cannot restore the mentor associations its up-migration cascaded away, so that
+# call belongs to a human with the runbook open.
+GUARD_DIR=\$(mktemp -d)
+POSTGRES_USER_GUARD=\$(grep "^POSTGRES_USER=" .env | cut -d'=' -f2)
+POSTGRES_DB_GUARD=\$(grep "^POSTGRES_DB=" .env | cut -d'=' -f2)
+ECR_REGISTRY_GUARD=\$(grep "^ECR_REGISTRY=" .env | cut -d'=' -f2)
+
+SCHEMA_ROW=\$(docker exec openmentor-postgres psql \
+    -U "\${POSTGRES_USER_GUARD:-openmentor}" -d "\${POSTGRES_DB_GUARD:-openmentor}" \
+    -t -A -F'|' -c "SELECT version, dirty FROM schema_migrations" 2>/dev/null | head -1)
+SCHEMA_VERSION=\${SCHEMA_ROW%%|*}
+SCHEMA_DIRTY=\${SCHEMA_ROW##*|}
+
+# The image's /app/migrations, read with "docker cp" from a container that is
+# CREATED and never started: the runtime image ships no shell we want to depend
+# on for this, and docker cp reads a created container's filesystem fine.
+# The trailing /. is what makes docker cp write the CONTENTS into \$2.
+migrations_from_image() {
+    mkdir -p "\$2"
+    GUARD_CID=\$(docker create "\$1" 2>/dev/null) || return 1
+    GUARD_CP_RC=0
+    docker cp "\$GUARD_CID:/app/migrations/." "\$2" >/dev/null 2>&1 || GUARD_CP_RC=1
+    docker rm -f "\$GUARD_CID" >/dev/null 2>&1 || true
+    return \$GUARD_CP_RC
+}
+
+# Highest migration version a directory of *.up.sql files carries, leading
+# zeros stripped so [ -gt ] compares it as a decimal.
+max_migration_in() {
+    ls "\$1" 2>/dev/null | grep '\.up\.sql' | cut -c1-6 | sort -n | tail -1 | sed 's/^0*//'
+}
+
+# Contract-phase migrations that are already APPLIED. Read from the running
+# backend's image, which by definition contains every version the database is at.
+applied_contract_migrations() {
+    for up in "\$GUARD_DIR/current"/*.up.sql; do
+        if [ ! -f "\$up" ]; then continue; fi
+        GUARD_V=\$(basename "\$up" | cut -c1-6 | sed 's/^0*//')
+        if [ -z "\$GUARD_V" ]; then continue; fi
+        if [ "\$GUARD_V" -gt "\${SCHEMA_VERSION:-0}" ]; then continue; fi
+        if grep -q '^-- phase: contract' "\$up"; then
+            printf ' %s' "\$(basename "\$up" .up.sql)"
+        fi
+    done
+    return 0
+}
+
+migrations_from_image "\${ECR_REGISTRY_GUARD}/openmentor-backend:\${CURRENT_BACKEND_TAG}" \
+    "\$GUARD_DIR/current" || true
+
+check_migration_boundary() {
+    if [ -z "\$BACKEND_TARGET_TAG" ] || [ "\$BACKEND_TARGET_TAG" = "\$CURRENT_BACKEND_TAG" ]; then
+        return 0
+    fi
+    if [ -z "\$SCHEMA_VERSION" ]; then
+        echo "⚠️  Could not read schema_migrations from openmentor-postgres, so the"
+        echo "   migration boundary is UNVERIFIED. Expected when postgres is down —"
+        echo "   which is also when you least want a rollback blocked, so this is not"
+        echo "   a refusal. If the converge then dies at the migrate gate with 'no"
+        echo "   migration found for version N', that was the boundary: follow"
+        echo "   DEPLOYMENT.md 'Rolling back across a migration boundary'."
+        return 0
+    fi
+    if [ "\$SCHEMA_DIRTY" = "t" ]; then
+        echo "❌ REFUSING: schema_migrations reports the database DIRTY at version \$SCHEMA_VERSION."
+        echo "   golang-migrate refuses to run at all in that state ('Dirty database"
+        echo "   version \$SCHEMA_VERSION'), so this rollback would die at the migrate gate"
+        echo "   whatever tag it carries. Resolve the half-applied migration first:"
+        echo "   infra/DEPLOYMENT.md, 'Rolling back across a migration boundary'."
+        return 1
+    fi
+
+    TARGET_IMAGE="\${ECR_REGISTRY_GUARD}/openmentor-backend:\${BACKEND_TARGET_TAG}"
+    echo "🔎 Checking the migration boundary (schema is at version \$SCHEMA_VERSION)..."
+    if ! docker pull "\$TARGET_IMAGE" >/dev/null 2>&1; then
+        echo "❌ REFUSING: cannot pull \$TARGET_IMAGE."
+        echo "   Nothing has been changed. Check the tag exists in the registry"
+        echo "   (ECR lifecycle policy keeps only the last ~20 images)."
+        return 1
+    fi
+    if ! migrations_from_image "\$TARGET_IMAGE" "\$GUARD_DIR/target"; then
+        echo "⚠️  Could not read /app/migrations out of \$TARGET_IMAGE, so the boundary"
+        echo "   is UNVERIFIED. Continuing; see DEPLOYMENT.md if migrate then fails."
+        return 0
+    fi
+    TARGET_MAX=\$(max_migration_in "\$GUARD_DIR/target")
+    if [ -z "\$TARGET_MAX" ]; then
+        echo "⚠️  \$TARGET_IMAGE ships no *.up.sql under /app/migrations — boundary"
+        echo "   UNVERIFIED. Continuing."
+        return 0
+    fi
+    if [ "\$SCHEMA_VERSION" -le "\$TARGET_MAX" ]; then
+        echo "✅ Migration boundary OK: the target image ships migrations up to \$TARGET_MAX,"
+        echo "   the database is at \$SCHEMA_VERSION, so migrate will find its version."
+        return 0
+    fi
+
+    # Everything between the target's highest version and the applied one is
+    # only in the CURRENT image; the target predates those files by definition.
+    GUARD_ORPHANS=""
+    GUARD_CONTRACTS=""
+    for up in "\$GUARD_DIR/current"/*.up.sql; do
+        if [ ! -f "\$up" ]; then continue; fi
+        GUARD_V=\$(basename "\$up" | cut -c1-6 | sed 's/^0*//')
+        if [ -z "\$GUARD_V" ]; then continue; fi
+        if [ "\$GUARD_V" -le "\$TARGET_MAX" ]; then continue; fi
+        if [ "\$GUARD_V" -gt "\$SCHEMA_VERSION" ]; then continue; fi
+        GUARD_PHASE=\$(grep -m1 '^-- phase:' "\$up" | sed 's/^-- phase: *//')
+        GUARD_ORPHANS="\$GUARD_ORPHANS \$(basename "\$up" .up.sql)[\${GUARD_PHASE:-unmarked}]"
+        if [ "\$GUARD_PHASE" != "expand" ]; then
+            GUARD_CONTRACTS="\$GUARD_CONTRACTS \$(basename "\$up" .up.sql)"
+        fi
+    done
+
+    echo "❌ REFUSING: this rollback would cross a migration boundary."
+    echo ""
+    echo "   schema_migrations.version              : \$SCHEMA_VERSION"
+    echo "   openmentor-backend:\$BACKEND_TARGET_TAG carries migrations up to: \$TARGET_MAX"
+    echo "   Orphaned by the target image           :\${GUARD_ORPHANS:- <could not read the running image>}"
+    echo ""
+    echo "   Why a refusal and not a warning: migrate shares this tag, so"
+    echo "   golang-migrate would look for version \$SCHEMA_VERSION in an image that"
+    echo "   does not contain it, print 'no migration found for version"
+    echo "   \$SCHEMA_VERSION' and exit 1. service_completed_successfully then never"
+    echo "   completes, set -e aborts this script, and production is left on the"
+    echo "   version you are rolling back FROM. There is nothing safer about trying."
+    echo ""
+    if [ -n "\$GUARD_CONTRACTS" ]; then
+        echo "   Contract-phase migrations in the way:\$GUARD_CONTRACTS"
+        echo "   Those removed or renamed something the target build still reads, so the"
+        echo "   schema has to move with the image. Read each .down.sql header first —"
+        echo "   some are explicitly lossy and a restore is the honest answer instead."
+    else
+        echo "   Every orphaned migration is expand-phase, so the target build runs"
+        echo "   correctly against today's schema and nothing has to be undone for"
+        echo "   correctness. Only the migrate gate is in the way."
+    fi
+    echo ""
+    echo "   Do this instead — infra/DEPLOYMENT.md, section"
+    echo "   'Rolling back across a migration boundary' — then re-run this script."
+    echo "   Nothing has been changed — .env still reads frontend=\$CURRENT_FRONTEND_TAG"
+    echo "   backend=\$CURRENT_BACKEND_TAG, and no .env.backup was written."
+    return 1
+}
+
+# A frontend tag carries no migrations, so nothing on the VM can decide whether
+# it predates an applied contract migration. Warn, do not refuse: the failure
+# mode is wrong content (a pre-D30 build asks for tag names 000009 renamed away,
+# so its catalog filters match nothing), not data loss or a failed converge —
+# and a frontend rollback is often the fix being reached for mid-incident.
+warn_frontend_schema_skew() {
+    if [ -z "\$FRONTEND_TARGET_TAG" ] || [ -z "\$SCHEMA_VERSION" ]; then return 0; fi
+    GUARD_SKEW=\$(applied_contract_migrations)
+    if [ -z "\$GUARD_SKEW" ]; then return 0; fi
+    echo "⚠️  Frontend rollback vs applied contract migrations:\$GUARD_SKEW"
+    echo "   If \$FRONTEND_TARGET_TAG was built before those, it renders against a"
+    echo "   schema that no longer has what it asks for. Not a refusal — but if the"
+    echo "   catalog comes back with empty category filters, this is why."
+    return 0
+}
+
+GUARD_RC=0
+check_migration_boundary || GUARD_RC=1
+if [ \$GUARD_RC -eq 0 ]; then
+    warn_frontend_schema_skew
+fi
+rm -rf "\$GUARD_DIR"
+if [ \$GUARD_RC -ne 0 ]; then
+    exit 1
+fi
+# --- end H10 migration boundary guard ---------------------------------------
+
 cp .env .env.backup
 
 # Update the per-service image tags in .env (compose reads them from there)

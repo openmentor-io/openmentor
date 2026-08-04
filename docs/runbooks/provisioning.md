@@ -90,10 +90,23 @@ distribution can exist; re-runs are single-pass no-ops.*
 - [ ] [terminal] Harden + prep:
   ```bash
   adduser deploy && usermod -aG docker,sudo deploy   # key-only SSH, disable root login + passwords
-  apt update && apt install -y docker.io docker-compose-v2 awscli && systemctl enable docker
+  apt update && apt install -y docker.io docker-compose-v2 && systemctl enable docker
   mkdir -p /opt/openmentor/infra && chown deploy /opt/openmentor/infra
   docker volume create openmentor-postgres-data
   ```
+  **Deliberately no `awscli` and no AWS credentials on the VM.** ECR pulls use a
+  short-lived token minted on the deploying machine and piped in over ssh stdin
+  (`infra/deploy-remote.sh`, `infra/rollback.sh`), and the backup bucket's keys
+  live only inside the `openmentor-postgres-backup` container, which ships its
+  own `aws-cli` — those keys can delete every dump (SECURITY M12), so they are
+  not on the host. Installing `awscli` here would put a tool on the box that has
+  nothing to authenticate with, and the runbooks that used to assume it
+  (`postgres-backup-restore.md`, `postgres-16-to-18-upgrade.md`) now run their S3
+  calls inside the sidecar instead.
+- [ ] The VM receives **only `infra/`** (rsynced to `/opt/openmentor/infra` by
+  `./deploy.sh infra`), not a monorepo checkout. Anything needing `api/` or
+  `web/` — a `.down.sql` file, a compose change — is shipped from a workstation;
+  see `infra/DEPLOYMENT.md`.
 - [ ] `VM_SSH_HOST/USER/KEY` noted for GitHub secrets + `.env.production`
 - [ ] **VM SSH host key is pinned** (SECURITY H2): `set-github-secrets.sh` in
   the provisioning repo reads the VM's host key (cross-checked against an
@@ -111,7 +124,12 @@ Manual: PostHog, GTM.*
 
 - [ ] [console] Grafana Cloud (EU): note Prometheus/Loki/Tempo/Pyroscope endpoints + IDs, create RW
   API key → all `GCLOUD_*` vars
-- [ ] [console] Dashboards: connect Grafana Git Sync to this repo, path `grafana/dashboards/` (one-time, see `grafana/README.md`); apply alert rules from `grafana/alerting/alert-rules.yaml` after first deploy
+- [ ] [console] Dashboards: connect Grafana Git Sync to this repo, path `grafana/dashboards/` (one-time, see `grafana/README.md`)
+- [ ] [terminal] Alert rules from `grafana/alerting/alert-rules.yaml`, after the first deploy so the
+      `noDataState: Alerting` rules have their series: `PUT /api/v1/provisioning/folder/<uid>/rule-groups/openmentor`
+      into a **manually created** folder (production uses "OpenMentor", uid `fd2fpl`) — **not** the Git Sync
+      dashboards folder, which Grafana refuses to store alert rules in. Nothing syncs this file, so it must be
+      re-applied after every edit; see `grafana/README.md` § Alert rules
 - [ ] [console] PostHog (EU): project → `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST=https://eu.i.posthog.com`,
   `POSTHOG_API_KEY` (api/worker), `POSTHOG_HOST`; sync dashboards later (`infra/posthog/dashboards/sync.mjs`)
 - [ ] [console] **GTM (`GTM-NBGRPCZ`): remove the Mixpanel tag** (leftover manual task from D18)
@@ -165,13 +183,21 @@ Manual: PostHog, GTM.*
   (on the VM) returns a summary
 - [ ] Grafana: dashboards receiving metrics/logs/traces; PostHog: events arriving
 - [ ] Email deliverability: send a flow email to mail-tester.com, expect ≥9/10 (DKIM/SPF/DMARC pass)
-- [ ] Backup: `docker exec openmentor-postgres-backup /backup.sh once` → object lands in the backups bucket
+- [ ] Backup: `docker exec openmentor-postgres-backup backup.sh once` → `SUCCESS` in
+      `docker logs openmentor-postgres-backup --tail 5`, and the object lands in the backups
+      bucket. (The script is at `/usr/local/bin/backup.sh`, i.e. on `PATH` — not `/backup.sh`.)
+      List the bucket with the sidecar `docker exec` form in
+      `postgres-backup-restore.md` § "How to reach S3"; there is no `aws` on the VM.
 
 ## 8. Post-launch hygiene
 
-- [ ] Restore drill within the first week (docs/runbooks/postgres-backup-restore.md) — then quarterly
+- [ ] Restore drill within the first week (docs/runbooks/postgres-backup-restore.md) — then quarterly.
+      The *procedure* was rehearsed 2026-08-04 against a scratch cluster; what is still unproven is
+      that a real object in the backup bucket restores. That is the drill.
 - [ ] Accept/sign DPAs: AWS, Hetzner, Cloudflare, PostHog, Grafana, Google (GTM)
-- [ ] Grafana alert rules (availability, error rate, latency) + a notification channel
+- [x] Grafana alert rules + notification channels — **done 2026-08-04**: all 14 rules in
+      `grafana/alerting/alert-rules.yaml` applied to folder uid `fd2fpl`, fanning out to
+      telegram/slack/Discord with email as the parent fallback. Re-apply after any edit to that file
 - [ ] External uptime check (e.g. UptimeRobot) on `https://openmentor.io/api/healthcheck` via frontend
 - [ ] Replace donate-page Ko-fi placeholder with the real URL
 - [ ] Cloudflare proxy (orange-cloud) if desired, after confirming ACME renewals work

@@ -79,6 +79,11 @@ jobs:
               # has to run it
               - 'grafana/alerting/**'
               - 'grafana/dashboards/**'
+              # rollback-migration-guard-test.sh reads the `-- phase:` markers in
+              # api/migrations, because rollback.sh's boundary guard reads them
+              # out of the backend image at rollback time (H10) — an unmarked or
+              # mismarked migration is a silently degraded guard.
+              - 'api/migrations/**'
               - '.github/workflows/checks.yml'
             workflows:
               - '.github/workflows/**'

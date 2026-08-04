@@ -7,6 +7,15 @@
 # before applying, or the rule pages the moment it is created — the live
 # notification policy fans out to telegram/slack/Discord.
 #
+# ⚠️ PENDING RE-APPLY (audit H13, edited 2026-08-04 after the group was applied):
+# ContainerHighCPU, ContainerHighMemory, DBErrorRate and DBLatencyP95 were
+# rewritten because none of the first two could fire and the last two aggregated
+# the API and the worker into one number. The versions LIVE on the stack are the
+# old ones until an operator re-runs the group PUT below. Nothing about the new
+# expressions pages on arrival — all four keep noDataState: OK and every
+# threshold was checked against live data first (ContainerHighMemory's highest
+# instance is ~37% against an 85% threshold).
+#
 # Target: folder "OpenMentor" (uid `fd2fpl`), rule group `openmentor`, org 1.
 # NOT the Git Sync folder `repository-7b3d712` this file used to name:
 # Grafana refuses alert rules in Git Sync-managed folders
@@ -115,6 +124,18 @@ groups:
               refId: B
               conditions: [{ evaluator: { type: gt, params: [2] } }]
 
+      # The two container rules below key on cAdvisor's `name` label. That label
+      # IS exposed by this setup — verified against the live tenant 2026-08-04:
+      # container_cpu_usage_seconds_total and container_memory_working_set_bytes
+      # both carry name="openmentor-backend", "grafana-alloy", "traefik", … The
+      # older claim that it was missing (grafana/README.md, audit H13) was wrong,
+      # so NO cAdvisor mount or flag change is needed for these to work.
+      #
+      # noDataState: OK is correct for both, unlike the version of this file where
+      # it merely hid a rule that never returned data: an empty result now means
+      # the containers are not running, which ServiceDown pages for (up carries
+      # job="prometheus.scrape.cadvisor", verified live). A container that has
+      # legitimately stopped must not raise a *resource* warning.
       - uid: om-container-high-cpu
         title: ContainerHighCPU
         condition: B
@@ -123,14 +144,21 @@ groups:
         execErrState: Error
         labels: { severity: warning, team: openmentor }
         annotations:
-          summary: "Container {{ $labels.name }} CPU above 90%"
-          description: "Container {{ $labels.name }} is using {{ printf \"%.1f\" $values.A.Value }}% CPU (threshold 90%). Note: requires per-container cAdvisor metrics (name label)."
+          summary: "Container {{ $labels.name }} is using {{ printf \"%.0f\" $values.A.Value }}% of the VM's CPU"
+          description: "Container {{ $labels.name }} has held {{ printf \"%.1f\" $values.A.Value }}% of the whole VM's CPU capacity for 15 minutes (threshold 75%). This is a share of ALL cores, not of one: no container in docker-compose.yml sets a CPU quota, so the VM's core count is the only real denominator. Check `docker stats` and the service's own latency/goroutine panels — a runaway loop and a genuine traffic spike look identical here."
         data:
+          # 90% of ONE core was the old threshold, described as "CPU above 90%".
+          # machine_cpu_cores is 4 on this VM (verified live 2026-08-04), so that
+          # fired at 22.5% of the machine — and would drift silently on a resize.
+          # Divide by it instead: `on (instance) group_left ()` matches the one
+          # machine_cpu_cores series per cAdvisor, then max by (name) drops
+          # instance/id/image so an alert instance survives a redeploy instead of
+          # resolving and re-firing under a new container id.
           - refId: A
             relativeTimeRange: { from: 900, to: 0 }
             datasourceUid: grafanacloud-prom
             model:
-              expr: 'sum by (name) (rate(container_cpu_usage_seconds_total{name=~"openmentor-.*|grafana-alloy"}[5m])) * 100'
+              expr: '100 * max by (name) (sum by (instance, name) (rate(container_cpu_usage_seconds_total{name=~"openmentor-.*|grafana-alloy|traefik|cadvisor"}[5m])) / on (instance) group_left () machine_cpu_cores)'
               instant: true
               refId: A
           - refId: B
@@ -139,7 +167,7 @@ groups:
               type: threshold
               expression: A
               refId: B
-              conditions: [{ evaluator: { type: gt, params: [90] } }]
+              conditions: [{ evaluator: { type: gt, params: [75] } }]
 
       - uid: om-container-high-memory
         title: ContainerHighMemory
@@ -149,14 +177,36 @@ groups:
         execErrState: Error
         labels: { severity: warning, team: openmentor }
         annotations:
-          summary: "Container {{ $labels.name }} memory above 1GiB"
-          description: "Container {{ $labels.name }} is using {{ humanize1024 $values.A.Value }}B of memory (threshold 1GiB). Note: requires per-container cAdvisor metrics (name label)."
+          summary: "Container {{ $labels.name }} is at {{ printf \"%.0f\" $values.A.Value }}% of its memory limit"
+          description: "Container {{ $labels.name }} has held {{ printf \"%.1f\" $values.A.Value }}% of its own docker-compose mem_limit for 15 minutes (threshold 85%). Working set, i.e. what the kernel OOM killer accounts — at 100% the container is killed and restarted with no other warning. Go services also carry a GOMEMLIMIT ~20% under mem_limit (docker-compose.yml), so a Go container sitting here is already GC-thrashing."
         data:
+          # A RATIO of each container's own mem_limit, because a single absolute
+          # threshold cannot work: the limits are 256m/512m/768m and the previous
+          # threshold of 1073741824 (1GiB) was above the LARGEST of them, so the
+          # kernel OOM-killed every container long before the rule could fire.
+          # Verified live 2026-08-04: 6 series exist, 0 above 1GiB, ever.
+          #
+          # The divisors are mem_limit in bytes and are written out here rather
+          # than read from container_spec_memory_limit_bytes, which would be the
+          # obvious source: Grafana Cloud Adaptive Metrics has that metric
+          # aggregated on this tenant and drops `name` from it, so
+          # `... / on (name) group_left () container_spec_memory_limit_bytes`
+          # errors out ("Can't query aggregated metric ... without aggregation").
+          # Excluding it from aggregation is an operator action in Grafana Cloud,
+          # and a rule that needs one to fire is exactly what H13 forbids.
+          # infra/alert-fireability-test.sh therefore checks every divisor here
+          # against the service's mem_limit in docker-compose.yml, and fails when
+          # a container is missing, double-counted, or paired with a stale limit.
+          #
+          #   805306368 = 768m   536870912 = 512m   268435456 = 256m
+          #
+          # openmentor-migrate is deliberately absent: it is a one-shot that runs
+          # to completion and exits, so a 15m window over it is meaningless.
           - refId: A
             relativeTimeRange: { from: 900, to: 0 }
             datasourceUid: grafanacloud-prom
             model:
-              expr: 'container_memory_usage_bytes{name=~"openmentor-.*|grafana-alloy"}'
+              expr: '100 * max by (name) (container_memory_working_set_bytes{name="openmentor-frontend"} / 805306368 or container_memory_working_set_bytes{name=~"openmentor-backend|openmentor-postgres|grafana-alloy"} / 536870912 or container_memory_working_set_bytes{name=~"openmentor-worker|openmentor-postgres-backup|traefik|cadvisor"} / 268435456)'
               instant: true
               refId: A
           - refId: B
@@ -165,12 +215,18 @@ groups:
               type: threshold
               expression: A
               refId: B
-              conditions: [{ evaluator: { type: gt, params: [1073741824] } }]
+              conditions: [{ evaluator: { type: gt, params: [85] } }]
 
       - uid: om-goroutine-leak
         title: GoroutineLeak
         condition: B
         for: 15m
+        # nodata-ok: process_runtime_go_goroutines is published continuously by
+        # both Go services, so an empty result really does mean they stopped
+        # being scraped — but ServiceDown already pages for that with
+        # noDataState: Alerting on `up`, per job. Alerting here would only add a
+        # second page for the same cause, and NoData on a service that is
+        # intentionally stopped (a deploy recreating it) is not a leak.
         noDataState: OK
         execErrState: Error
         labels: { severity: warning, team: openmentor }
@@ -305,14 +361,20 @@ groups:
         execErrState: OK
         labels: { severity: warning, team: openmentor }
         annotations:
-          summary: "Database operation error rate above 5%"
-          description: "{{ printf \"%.2f\" $values.A.Value }}% of database client operations returned status=error over the last 10 minutes (threshold 5%)."
+          summary: "{{ $labels.service_name }} database operation error rate above 5%"
+          description: "{{ printf \"%.2f\" $values.A.Value }}% of {{ $labels.service_name }}'s database client operations returned status=error over the last 10 minutes (threshold 5%)."
         data:
+          # Grouped by service_name. Ungrouped, this summed the API and the worker
+          # into one number, and the API does far more database work than the
+          # worker at every hour of the day — so a worker whose every query was
+          # failing stayed well under 5% of the combined denominator and never
+          # paged. Live values 2026-08-04: service_name="openmentor-api" and
+          # "openmentor-worker", both from db_client_operation_total.
           - refId: A
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: grafanacloud-prom
             model:
-              expr: '100 * sum(rate(db_client_operation_total{status="error"}[10m])) / sum(rate(db_client_operation_total[10m]))'
+              expr: '100 * sum by (service_name) (rate(db_client_operation_total{service_name=~"openmentor-.*", status="error"}[10m])) / sum by (service_name) (rate(db_client_operation_total{service_name=~"openmentor-.*"}[10m]))'
               instant: true
               refId: A
           - refId: B
@@ -331,14 +393,18 @@ groups:
         execErrState: OK
         labels: { severity: warning, team: openmentor }
         annotations:
-          summary: "Database p95 latency above 0.5s"
-          description: "95th percentile database operation duration is {{ printf \"%.3f\" $values.A.Value }}s over the last 15 minutes (threshold 0.5s)."
+          summary: "{{ $labels.service_name }} database p95 latency above 0.5s"
+          description: "{{ $labels.service_name }}'s 95th percentile database operation duration is {{ printf \"%.3f\" $values.A.Value }}s over the last 15 minutes (threshold 0.5s)."
         data:
+          # Grouped by service_name, same reason as DBErrorRate: one p95 over both
+          # services is a p95 of neither. The worker's batch queries are legitimately
+          # slower than the API's request-path ones, so a merged histogram either
+          # pages on healthy worker traffic or hides real API latency behind it.
           - refId: A
             relativeTimeRange: { from: 900, to: 0 }
             datasourceUid: grafanacloud-prom
             model:
-              expr: 'histogram_quantile(0.95, sum by (le) (rate(db_client_operation_duration_seconds_bucket[15m])))'
+              expr: 'histogram_quantile(0.95, sum by (le, service_name) (rate(db_client_operation_duration_seconds_bucket{service_name=~"openmentor-.*"}[15m])))'
               instant: true
               refId: A
           - refId: B
