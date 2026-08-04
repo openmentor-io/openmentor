@@ -210,6 +210,43 @@ func TestExpiredTokenReportsExpiry(t *testing.T) {
 	}
 }
 
+// TestClockSkewLeewayIsBoundedAt30s pins both halves of the leeway: a token
+// minted a few seconds in the "future" by a host whose clock runs ahead must
+// validate (otherwise a multi-host deploy 401s people right after login), and a
+// token past its expiry by more than the leeway must still be refused. The
+// second half is what stops the leeway from being widened into a real extension
+// of the 24h session.
+func TestClockSkewLeewayIsBoundedAt30s(t *testing.T) {
+	cases := map[string]struct {
+		exp, iat time.Duration // offsets from now; nbf follows iat, as minting does
+		wantErr  error         // nil means "must validate"
+	}{
+		"minted 20s ahead by a faster clock": {exp: 24 * time.Hour, iat: 20 * time.Second, wantErr: nil},
+		"minted 5m ahead is not skew":        {exp: 24 * time.Hour, iat: 5 * time.Minute, wantErr: ErrInvalidToken},
+		"expired 10s ago, inside the leeway": {exp: -10 * time.Second, iat: -time.Hour, wantErr: nil},
+		"expired 45s ago":                    {exp: -45 * time.Second, iat: -time.Hour, wantErr: ErrExpiredToken},
+		"expired 1h ago":                     {exp: -time.Hour, iat: -2 * time.Hour, wantErr: ErrExpiredToken},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			now := time.Now()
+			claims := validMentorClaims()
+			claims.ExpiresAt = gojwt.NewNumericDate(now.Add(tc.exp))
+			claims.IssuedAt = gojwt.NewNumericDate(now.Add(tc.iat))
+			claims.NotBefore = claims.IssuedAt
+
+			_, err := testManager().ValidateMentorToken(signClaims(t, gojwt.SigningMethodHS256, claims))
+			switch {
+			case tc.wantErr == nil && err != nil:
+				t.Fatalf("token was rejected: %v", err)
+			case tc.wantErr != nil && !errors.Is(err, tc.wantErr):
+				t.Fatalf("error = %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestRejectsATokenSignedWithAnotherSecret(t *testing.T) {
 	other := NewTokenManager("a-completely-different-secret-0123456789", testIssuer, 24)
 	token, err := other.GenerateToken(testUUID, 1, "", "M", 1)

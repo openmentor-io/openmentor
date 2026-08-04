@@ -43,6 +43,12 @@ const (
 // algorithm. Pinning the exact method removes the choice.
 var signingMethod = jwt.SigningMethodHS256
 
+// clockSkewLeeway is how far the validating host's clock may sit behind the
+// minting host's before a freshly issued token is rejected as not-yet-valid.
+// See the parser options in validate for why it is not zero, and
+// TestClockSkewLeewayIsBoundedAt30s for what it must not become.
+const clockSkewLeeway = 30 * time.Second
+
 // MentorClaims represents the JWT claims for a mentor session
 type MentorClaims struct {
 	MentorUUID string `json:"mentor_uuid"` // Primary identifier (UUID)
@@ -145,6 +151,13 @@ func (tm *TokenManager) validate(tokenString, wantType, wantAudience string) (*M
 		jwt.WithIssuer(tm.issuer),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt(),
+		// Every minted token carries nbf = iat = now, so with zero leeway a token
+		// minted on a host whose clock is a second ahead is "not yet valid" on a
+		// host that is a second behind — an intermittent 401 immediately after
+		// login, the first time the API runs on more than one machine. 30s is the
+		// usual NTP-corrected drift ceiling and stays four orders of magnitude
+		// below the 24h TTL, so it cannot meaningfully extend a session's life.
+		jwt.WithLeeway(clockSkewLeeway),
 	)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
