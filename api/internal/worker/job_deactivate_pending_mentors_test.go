@@ -77,6 +77,37 @@ func TestDeactivatePendingMentorsIsolatesEmailFailures(t *testing.T) {
 	}
 }
 
+// TestDeactivatePendingMentorsSkipsMentorsThatLeftActive: the listing and the
+// write are separate statements, so a mentor can be approved, declined or
+// self-deactivated in between — or an overlapping pass can get there first. The
+// guarded write then reports that it changed nothing, and that mentor must NOT be
+// told their profile was deactivated.
+func TestDeactivatePendingMentorsSkipsMentorsThatLeftActive(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentorsToDeactivate = []JobMentor{
+		{ID: "m1", Name: "Alice", Email: "alice@example.com"},
+		{ID: "m2", Name: "Bob", Email: "bob@example.com"},
+	}
+	env.repo.notActive["m1"] = true
+
+	summary, err := env.handlers.DeactivatePendingMentors(context.Background())
+	if err != nil {
+		t.Fatalf("DeactivatePendingMentors returned error: %v", err)
+	}
+
+	if len(env.repo.deactivated) != 1 || env.repo.deactivated[0] != "m2" {
+		t.Errorf("deactivated = %v, want only [m2]", env.repo.deactivated)
+	}
+	if len(env.sender.attempts) != 1 || env.sender.attempts[0].Recipient != "bob@example.com" {
+		t.Errorf("emailed %v, want only bob@example.com", env.sender.attempts)
+	}
+	if summary.MentorsMatched != 2 || summary.MentorsDeactivated != 1 ||
+		summary.MentorsSuperseded != 1 || summary.EmailsSent != 1 {
+
+		t.Errorf("summary = %+v, want 2 matched / 1 deactivated / 1 superseded / 1 sent", summary)
+	}
+}
+
 func TestDeactivatePendingMentorsStatusWriteErrorAbortsRun(t *testing.T) {
 	env := newJobsTestEnv()
 	env.repo.mentorsToDeactivate = []JobMentor{{ID: "m1", Name: "Alice", Email: "a@example.com"}}

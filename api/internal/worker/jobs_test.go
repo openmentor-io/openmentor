@@ -36,16 +36,19 @@ type fakeRepo struct {
 	// which is what the real UPDATE's WHERE status = 'draft' does when the
 	// registration leaves draft between the read and the write.
 	finalizeNotApplied bool
-	setStatusErr       error
 	requestErr         error
 	setRequestErr      error
 	moderatorErr       error
 	reviewErr          error
+	// requestAlreadyClaimed makes the FIRST SetRequestContactPending report that
+	// no row matched, which is what the real UPDATE's status_changed_at IS NULL
+	// guard does for a request that has already been processed or moved on.
+	requestAlreadyClaimed bool
 
 	finalized      []FinalizeNewMentorParams
 	released       []FinalizeNewMentorParams
-	statusUpdates  map[string]string // mentorID -> status
 	requestUpdates map[string]string // requestID -> contact
+	requestClaims  map[string]int    // requestID -> successful claims
 
 	// Cron job fixtures (stage 3).
 	stalePendingMentors   []JobMentor
@@ -63,6 +66,9 @@ type fakeRepo struct {
 	listActiveErr         error
 	setSortOrdersErr      error
 	deactivated           []string
+	// notActive are mentors the guarded DeactivateMentor write finds no longer
+	// 'active', so it reports that nothing was deactivated.
+	notActive             map[string]bool
 	sortOrderTransactions [][]SortOrderUpdate
 	staleRequestsQueryLog []string // mentorIDs queried for reminder requests
 }
@@ -74,8 +80,9 @@ func newFakeRepo() *fakeRepo {
 		requestsWithMentor:    map[string]*JobRequest{},
 		moderators:            map[string]*JobModerator{},
 		reviews:               map[string]*JobReview{},
-		statusUpdates:         map[string]string{},
 		requestUpdates:        map[string]string{},
+		requestClaims:         map[string]int{},
+		notActive:             map[string]bool{},
 		stalePendingRequests:  map[string][]JobReminderRequest{},
 		staleProgressRequests: map[string][]JobReminderRequest{},
 	}
@@ -92,7 +99,7 @@ func (f *fakeRepo) GetJobMentorByID(_ context.Context, mentorID string) (*JobMen
 	return nil, nil
 }
 
-func (f *fakeRepo) CountActiveMentorsByEmail(_ context.Context, _ string) (int, error) {
+func (f *fakeRepo) CountActiveMentorsByEmail(_ context.Context, _, _ string) (int, error) {
 	if f.duplicatesErr != nil {
 		return 0, f.duplicatesErr
 	}
@@ -118,14 +125,6 @@ func (f *fakeRepo) ReleaseNewMentorFinalization(_ context.Context, params Finali
 	return nil
 }
 
-func (f *fakeRepo) SetMentorStatus(_ context.Context, mentorID, status string) error {
-	if f.setStatusErr != nil {
-		return f.setStatusErr
-	}
-	f.statusUpdates[mentorID] = status
-	return nil
-}
-
 func (f *fakeRepo) GetJobRequestByID(_ context.Context, requestID string) (*JobRequest, error) {
 	if f.requestErr != nil {
 		return nil, f.requestErr
@@ -148,12 +147,19 @@ func (f *fakeRepo) GetJobRequestWithMentorName(_ context.Context, requestID stri
 	return nil, nil
 }
 
-func (f *fakeRepo) SetRequestContactPending(_ context.Context, requestID, contact string) error {
+// SetRequestContactPending models the real one-shot claim: the first call wins the
+// request and every later one reports that no row matched, the way the SQL guard
+// on status_changed_at behaves for a replayed callback.
+func (f *fakeRepo) SetRequestContactPending(_ context.Context, requestID, contact string) (bool, error) {
 	if f.setRequestErr != nil {
-		return f.setRequestErr
+		return false, f.setRequestErr
 	}
+	if f.requestAlreadyClaimed || f.requestClaims[requestID] > 0 {
+		return false, nil
+	}
+	f.requestClaims[requestID]++
 	f.requestUpdates[requestID] = contact
-	return nil
+	return true, nil
 }
 
 func (f *fakeRepo) GetJobModeratorByID(_ context.Context, moderatorID string) (*JobModerator, error) {
@@ -222,12 +228,15 @@ func (f *fakeRepo) ListStuckDraftRegistrations(_ context.Context) ([]JobMentor, 
 	return append([]JobMentor(nil), f.stuckDraftMentors...), nil
 }
 
-func (f *fakeRepo) DeactivateMentor(_ context.Context, mentorID string) error {
+func (f *fakeRepo) DeactivateMentor(_ context.Context, mentorID string) (bool, error) {
 	if f.deactivateErr != nil {
-		return f.deactivateErr
+		return false, f.deactivateErr
+	}
+	if f.notActive[mentorID] {
+		return false, nil
 	}
 	f.deactivated = append(f.deactivated, mentorID)
-	return nil
+	return true, nil
 }
 
 func (f *fakeRepo) ListActiveMentorIDs(_ context.Context) ([]string, error) {

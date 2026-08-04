@@ -59,10 +59,26 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 
 	request.PreferredContact = strings.TrimSpace(request.PreferredContact)
 
-	if err := h.repo.SetRequestContactPending(ctx, request.ID, request.PreferredContact); err != nil {
+	// The request is CLAIMED before anything is emailed: all three emails below
+	// announce a brand-new request waiting for its mentor, so none of them may go
+	// out for a request this call did not just move into that state. A replay after
+	// the request advanced — or a second delivery of the same callback — loses the
+	// claim and stops here.
+	applied, err := h.repo.SetRequestContactPending(ctx, request.ID, request.PreferredContact)
+	if err != nil {
 		logger.Error("[New Client Request] Failed to update request", zap.String("request_ref", redact.ID(requestID)), logger.RedactedError(err))
 		trackError(errTypeDBError)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "failed to update request"})
+		return
+	}
+	if !applied {
+		logger.Info("[New Client Request] Request already processed or no longer new, skipping",
+			zap.String("request_ref", redact.ID(requestID)))
+		h.track(ctx, analytics.EventNewRequestWatcherProcessed, analytics.SystemDistinctID("worker"), map[string]interface{}{
+			"outcome": "superseded",
+		})
+		// Idempotent no-op, so 200: a retry would find the same state.
+		c.JSON(http.StatusOK, gin.H{"success": true, "requestId": request.ID, "superseded": true})
 		return
 	}
 

@@ -170,7 +170,8 @@ func TestRepositoryErrorsDoNotNameTheRequest(t *testing.T) {
 			return err
 		},
 		"SetRequestContactPending": func() error {
-			return repo.SetRequestContactPending(ctx, workerReviewCapability, "@handle")
+			_, err := repo.SetRequestContactPending(ctx, workerReviewCapability, "@handle")
+			return err
 		},
 	}
 

@@ -32,8 +32,8 @@ func TestMentorConfirmedHappyPath(t *testing.T) {
 	assert.Equal(t, "john@example.com", mentorMsg.Recipient)
 	assert.Equal(t, "John Doe", mentorMsg.Props["first_name"])
 
-	// No status writes: the API already moved draft -> pending.
-	assert.Empty(t, env.repo.statusUpdates)
+	// No status writes: the API already moved draft -> pending (and the worker
+	// repository carries no mentor-status write at all).
 	assert.Empty(t, env.repo.finalized)
 
 	event := env.tracker.last()

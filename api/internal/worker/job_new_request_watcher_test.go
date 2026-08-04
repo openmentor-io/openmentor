@@ -162,6 +162,50 @@ func TestNewRequestWatcherMissingRecords(t *testing.T) {
 	}
 }
 
+// TestNewRequestWatcherReplayEmailsNobody: the callback delivered twice must not
+// announce the same request twice. The claim inside SetRequestContactPending is
+// what decides, so the second call reaches no email and no write.
+func TestNewRequestWatcherReplayEmailsNobody(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentors["m1"] = testMentor("m1")
+	env.repo.requests["r1"] = testRequest("r1", "m1")
+
+	first := env.do(http.MethodPost, "/jobs/new-request-watcher?requestId=r1", nil)
+	require.Equal(t, http.StatusOK, first.Code)
+	require.Len(t, env.sender.attempts, 3)
+
+	second := env.do(http.MethodPost, "/jobs/new-request-watcher?requestId=r1", nil)
+
+	// 200 with superseded: a replay is acknowledged, not retried.
+	assert.Equal(t, http.StatusOK, second.Code)
+	assert.Contains(t, second.Body.String(), `"superseded":true`)
+	assert.Len(t, env.sender.attempts, 3, "a replayed callback must email nobody a second time")
+	assert.Equal(t, 1, env.repo.requestClaims["r1"], "the request may be claimed exactly once")
+
+	event := env.tracker.last()
+	require.NotNil(t, event)
+	assert.Equal(t, analytics.EventNewRequestWatcherProcessed, event.event)
+	assert.Equal(t, "superseded", event.props["outcome"])
+	assert.Equal(t, "system:worker", event.distinctID, "no mentor is involved in a no-op")
+}
+
+// TestNewRequestWatcherAdvancedRequestEmailsNobody is the same guard for the
+// worse case: the request has already been declined or completed, so the blind
+// status = 'pending' write would have REOPENED it and then told the mentee, the
+// mentor and the moderators that a new request was waiting.
+func TestNewRequestWatcherAdvancedRequestEmailsNobody(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentors["m1"] = testMentor("m1")
+	env.repo.requests["r1"] = testRequest("r1", "m1")
+	env.repo.requestAlreadyClaimed = true
+
+	w := env.do(http.MethodPost, "/jobs/new-request-watcher?requestId=r1", nil)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, env.sender.attempts)
+	assert.Empty(t, env.repo.requestUpdates, "no write for a request that has moved on")
+}
+
 func TestNewRequestWatcherEmailFailureResilience(t *testing.T) {
 	env := newJobsTestEnv()
 	env.repo.mentors["m1"] = testMentor("m1")
