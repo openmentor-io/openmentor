@@ -109,7 +109,7 @@ func adminToken(t *testing.T, role string, version int) string {
 }
 
 func TestMentorSessionRejectsAMissingCookie(t *testing.T) {
-	mw := MentorSessionMiddleware(testTokenManager(), nil, "", false)
+	mw := MentorSessionMiddleware(testTokenManager(), nil, "", false, LiveCheckOnMutations)
 
 	rec := run(t, mw, http.MethodGet, MentorSessionCookieName, "")
 
@@ -120,7 +120,7 @@ func TestMentorSessionRejectsAMissingCookie(t *testing.T) {
 
 func TestMentorSessionAcceptsItsOwnToken(t *testing.T) {
 	checker := &stubChecker{status: "active", version: 4}
-	mw := MentorSessionMiddleware(testTokenManager(), checker, "", false)
+	mw := MentorSessionMiddleware(testTokenManager(), checker, "", false, LiveCheckOnMutations)
 
 	rec := run(t, mw, http.MethodPost, MentorSessionCookieName, mentorToken(t, 4))
 
@@ -134,7 +134,7 @@ func TestMentorSessionAcceptsItsOwnToken(t *testing.T) {
 // (M13). The check moved into pkg/jwt; this pins that the middleware still
 // enforces it.
 func TestMentorSessionRejectsAnAdminToken(t *testing.T) {
-	mw := MentorSessionMiddleware(testTokenManager(), nil, "", false)
+	mw := MentorSessionMiddleware(testTokenManager(), nil, "", false, LiveCheckOnMutations)
 
 	rec := run(t, mw, http.MethodGet, MentorSessionCookieName, adminToken(t, "admin", 1))
 
@@ -216,7 +216,7 @@ func TestDemotingAnAdminInvalidatesTheirSession(t *testing.T) {
 func TestBumpedSessionVersionRevokesTheSession(t *testing.T) {
 	t.Run("mentor", func(t *testing.T) {
 		checker := &stubChecker{status: "active", version: 5}
-		mw := MentorSessionMiddleware(testTokenManager(), checker, "", false)
+		mw := MentorSessionMiddleware(testTokenManager(), checker, "", false, LiveCheckOnMutations)
 
 		rec := run(t, mw, http.MethodPost, MentorSessionCookieName, mentorToken(t, 4))
 
@@ -242,7 +242,7 @@ func TestBumpedSessionVersionRevokesTheSession(t *testing.T) {
 // deploys. Delete with sessionVersionCurrent's allowance.
 func TestLegacySessionsWithoutAVersionSurvive(t *testing.T) {
 	checker := &stubChecker{status: "active", version: 3}
-	mw := MentorSessionMiddleware(testTokenManager(), checker, "", false)
+	mw := MentorSessionMiddleware(testTokenManager(), checker, "", false, LiveCheckOnMutations)
 
 	rec := run(t, mw, http.MethodPost, MentorSessionCookieName, mentorToken(t, 0))
 
@@ -256,7 +256,7 @@ func TestLegacySessionsWithoutAVersionSurvive(t *testing.T) {
 // their profile for the rest of the token's life.
 func TestADeclinedMentorCannotMutate(t *testing.T) {
 	checker := &stubChecker{status: "declined", version: 1}
-	mw := MentorSessionMiddleware(testTokenManager(), checker, "", false)
+	mw := MentorSessionMiddleware(testTokenManager(), checker, "", false, LiveCheckOnMutations)
 
 	rec := run(t, mw, http.MethodPost, MentorSessionCookieName, mentorToken(t, 1))
 
@@ -265,12 +265,12 @@ func TestADeclinedMentorCannotMutate(t *testing.T) {
 	}
 }
 
-// TestMentorReadsSkipTheLiveCheck: the re-read is scoped to mutations on purpose,
-// so a profile GET does not pay a database round trip for a rule that only
-// governs writes.
-func TestMentorReadsSkipTheLiveCheck(t *testing.T) {
+// TestOwnDataReadsSkipTheLiveCheck: under LiveCheckOnMutations a GET does not pay
+// a database round trip, because the routes on that scope return only the cookie
+// holder's own data — which the holder of the cookie already has.
+func TestOwnDataReadsSkipTheLiveCheck(t *testing.T) {
 	checker := &stubChecker{status: "declined", version: 99}
-	mw := MentorSessionMiddleware(testTokenManager(), checker, "", false)
+	mw := MentorSessionMiddleware(testTokenManager(), checker, "", false, LiveCheckOnMutations)
 
 	rec := run(t, mw, http.MethodGet, MentorSessionCookieName, mentorToken(t, 1))
 
@@ -282,6 +282,54 @@ func TestMentorReadsSkipTheLiveCheck(t *testing.T) {
 	}
 }
 
+// TestRevokedSessionsCannotReadMenteeData is the read half of revocation, and the
+// reason LiveCheckOnEveryRequest exists: the mentee inbox is the PII in this
+// system, and a cookie taken off a shared machine reads it — it never needs to
+// write. Scoping the re-read to mutations left that readable for the rest of the
+// token's 24 hours, so each case here is a GET that must NOT be served.
+func TestRevokedSessionsCannotReadMenteeData(t *testing.T) {
+	cases := map[string]struct {
+		checker *stubChecker
+		want    int
+	}{
+		"logged out (session_version bumped)": {&stubChecker{status: "active", version: 5}, http.StatusUnauthorized},
+		"declined mid-session":                {&stubChecker{status: "declined", version: 4}, http.StatusForbidden},
+		"row deleted":                         {&stubChecker{err: models.ErrSessionSubjectGone}, http.StatusUnauthorized},
+		"still good":                          {&stubChecker{status: "active", version: 4}, http.StatusOK},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			mw := MentorSessionMiddleware(testTokenManager(), tc.checker, "", false, LiveCheckOnEveryRequest)
+
+			rec := run(t, mw, http.MethodGet, MentorSessionCookieName, mentorToken(t, 4))
+
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tc.want, rec.Body.String())
+			}
+			if tc.checker.calls != 1 {
+				t.Errorf("checker calls = %d, want 1: the live row must be read on a PII read", tc.checker.calls)
+			}
+		})
+	}
+}
+
+// TestPreD58SessionsStillReadMenteeData is the session-impact half of the same
+// change: extending the re-read to reads must not sign anybody out. A token
+// minted before session_version existed carries 0, and 0 is grandfathered on
+// reads exactly as it is on writes (D56 keeps JWT_SECRET untouched, so those
+// tokens are live).
+func TestPreD58SessionsStillReadMenteeData(t *testing.T) {
+	checker := &stubChecker{status: "active", version: 3}
+	mw := MentorSessionMiddleware(testTokenManager(), checker, "", false, LiveCheckOnEveryRequest)
+
+	rec := run(t, mw, http.MethodGet, MentorSessionCookieName, mentorToken(t, 0))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for a pre-D58 session: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestACheckerFailureFailsClosedWithoutLoggingAnybodyOut: a database blip must not
 // let a mutation through, and must not clear the cookie either — a 401 there would
 // throw away sessions that are perfectly valid.
@@ -289,7 +337,7 @@ func TestACheckerFailureFailsClosedWithoutLoggingAnybodyOut(t *testing.T) {
 	blip := errors.New("connection reset")
 
 	t.Run("mentor", func(t *testing.T) {
-		mw := MentorSessionMiddleware(testTokenManager(), &stubChecker{err: blip}, "", false)
+		mw := MentorSessionMiddleware(testTokenManager(), &stubChecker{err: blip}, "", false, LiveCheckOnMutations)
 
 		rec := run(t, mw, http.MethodPost, MentorSessionCookieName, mentorToken(t, 1))
 
@@ -316,7 +364,7 @@ func TestACheckerFailureFailsClosedWithoutLoggingAnybodyOut(t *testing.T) {
 }
 
 func TestSessionCookieIsClearedOnAnUnusableToken(t *testing.T) {
-	mw := MentorSessionMiddleware(testTokenManager(), nil, "", false)
+	mw := MentorSessionMiddleware(testTokenManager(), nil, "", false, LiveCheckOnMutations)
 
 	rec := run(t, mw, http.MethodGet, MentorSessionCookieName, "not-a-jwt")
 

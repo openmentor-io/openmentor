@@ -114,17 +114,26 @@ func registerMentorAdminRoutes(
 		middleware.EmailRateLimitMiddleware(authRateLimiter), mentorAuthHandler.RequestLogin)
 	auth.POST("/verify", mentorAuthHandler.VerifyLogin)
 	auth.POST("/logout", mentorAuthHandler.Logout)
-	auth.GET("/session", middleware.MentorSessionMiddleware(tokenManager, sessionChecker, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure), mentorAuthHandler.GetSession)
+	auth.GET("/session", middleware.MentorSessionMiddleware(tokenManager, sessionChecker,
+		cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure, middleware.LiveCheckOnMutations),
+		mentorAuthHandler.GetSession)
 
 	// Mentor admin routes (protected)
 	mentor := router.Group("/api/v1/mentor")
-	mentor.Use(middleware.MentorSessionMiddleware(tokenManager, sessionChecker, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure))
+	mentor.Use(middleware.MentorSessionMiddleware(tokenManager, sessionChecker,
+		cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure, middleware.LiveCheckOnMutations))
 
-	// Request management routes
-	mentor.GET("/requests", mentorRequestsHandler.GetRequests)
-	mentor.GET("/requests/:id", mentorRequestsHandler.GetRequestByID)
-	mentor.POST("/requests/:id/status", mentorRequestsHandler.UpdateStatus)
-	mentor.POST("/requests/:id/decline", mentorRequestsHandler.DeclineRequest)
+	// Request management routes. Their OWN group, on the stricter scope: every
+	// response here carries mentee personal data (name, email, preferred contact,
+	// message body), so a revoked, logged-out or declined mentor has to lose READ
+	// access at once — not keep it for the rest of the cookie's 24 hours (D58).
+	requests := router.Group("/api/v1/mentor/requests")
+	requests.Use(middleware.MentorSessionMiddleware(tokenManager, sessionChecker,
+		cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure, middleware.LiveCheckOnEveryRequest))
+	requests.GET("", mentorRequestsHandler.GetRequests)
+	requests.GET("/:id", mentorRequestsHandler.GetRequestByID)
+	requests.POST("/:id/status", mentorRequestsHandler.UpdateStatus)
+	requests.POST("/:id/decline", mentorRequestsHandler.DeclineRequest)
 
 	// Profile routes
 	mentor.GET("/profile", mentorProfileHandler.GetProfile)

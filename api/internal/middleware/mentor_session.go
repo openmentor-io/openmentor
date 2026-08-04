@@ -33,15 +33,20 @@ type MentorSessionChecker interface {
 // MentorSessionMiddleware validates the JWT session cookie and adds the session
 // to the request context.
 //
-// checker may be nil, which skips the live re-read (tests and tooling with no
-// database). When it is set, MUTATIONS additionally verify that the mentor still
-// exists, may still hold a session, and has not had their sessions revoked. Reads
-// are deliberately exempt: the point is to stop a declined or logged-out mentor
-// from *changing* anything, and paying a primary-key lookup on every profile GET
-// buys nothing for that.
+// checker may be nil, which skips the live re-read entirely (tests and tooling
+// with no database). When it is set, the re-read verifies that the mentor still
+// exists, may still hold a session, and has not had their sessions revoked — on
+// the requests scope selects.
+//
+// Mutations are re-read under every scope: a mentor declined or logged out
+// mid-session must stop being able to change anything. Reads are re-read only
+// under LiveCheckOnEveryRequest, which is required for any route that returns
+// somebody ELSE's personal data — revocation is primarily a READ threat there. A
+// cookie copied off a shared machine is used to read the mentee inbox; it never
+// has to write anything. See LiveCheckScope for which routes take which scope.
 func MentorSessionMiddleware(
 	tokenManager *jwt.TokenManager, checker MentorSessionChecker,
-	cookieDomain string, cookieSecure bool,
+	cookieDomain string, cookieSecure bool, scope LiveCheckScope,
 ) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
@@ -74,7 +79,7 @@ func MentorSessionMiddleware(
 			return
 		}
 
-		mustRecheck := checker != nil && isMutation(c.Request.Method)
+		mustRecheck := checker != nil && (scope == LiveCheckOnEveryRequest || isMutation(c.Request.Method))
 		if mustRecheck && !mentorSessionStillValid(c, checker, claims, cookieDomain, cookieSecure) {
 			return
 		}
