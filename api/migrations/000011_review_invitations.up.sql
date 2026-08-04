@@ -20,6 +20,25 @@
 -- request-id path keeps working (dual-read) so invitations already sitting in
 -- mentees' inboxes do not break; the cutover that removes it is a follow-up
 -- gated on the outstanding-invitation count (D4).
+--
+-- ===========================================================================
+-- MERGE ORDER: 000010 (PR #75) -> 000011 (THIS FILE, PR #77) -> 000012 (#78).
+-- ===========================================================================
+-- These three migrations are on three branches open at the same time, and
+-- `api/pkg/db/migrate.go` runs golang-migrate's `m.Up()`, which applies only
+-- versions GREATER THAN the version recorded in `schema_migrations`. So if a
+-- HIGHER-numbered sibling merges and deploys first, production records that
+-- version and this file is then SILENTLY NEVER APPLIED there — while every
+-- fresh database (dev, CI, a staging clone, a DR rebuild) applies it, because
+-- those start from version 0. Nothing errors: `migrate` exits 0, the deploy is
+-- green, and the divergence only surfaces when the code from this PR queries
+-- `review_invitations` against a production schema that has no such table.
+--
+-- Merging out of order is therefore recoverable ONLY by renumbering before the
+-- deploy, or by forcing the version by hand on the VM. Re-check the recorded
+-- version at merge time (D61). PR #73 adds the CI guard that fails a PR whose
+-- migration version is not greater than the highest version on `origin/main`,
+-- so this comment is the record, not the enforcement.
 
 -- A row per issued invitation, not three columns on client_requests, because:
 --   * Only the hash is stored, so a resend cannot re-emit the token it already

@@ -217,6 +217,25 @@ func TestRequestProcessFinishedNeverMailsAnUnstoredToken(t *testing.T) {
 	assert.Equal(t, errTypeDBError, event.props["error_type"])
 }
 
+// TestWorkerInvitationInsertRejectsARawTokenBeforeTheDatabase pins the parity
+// that made the worker delegate to internal/repository instead of keeping its
+// own copy of the INSERT: minting happens here, so the pre-database guard has to
+// cover here too.
+//
+// The pool is deliberately nil — reaching Postgres would panic, so passing means
+// the raw token was rejected before any statement was sent, rather than by the
+// CHECK constraint at the far end.
+func TestWorkerInvitationInsertRejectsARawTokenBeforeTheDatabase(t *testing.T) {
+	raw, hash, err := reviewtoken.New()
+	require.NoError(t, err)
+	require.NotEqual(t, raw, hash)
+
+	repo := NewRepository(nil)
+	assert.Error(t, repo.CreateReviewInvitation(t.Context(),
+		"9f1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d", raw, time.Now().Add(reviewtoken.TTL)),
+		"a raw token passed where a digest belongs must not reach the database")
+}
+
 // TestSessionCompleteEmailCarriesNoRequestID is the sentinel on the rendered
 // email: the pre-H4 template interpolated client_requests.id into the review
 // link, which is what made the primary key a bearer capability.
