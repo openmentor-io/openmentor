@@ -47,6 +47,12 @@ const (
 	// demand — profile pictures are uploaded a few times a day.
 	maxConcurrentDecodes = 2
 
+	// DecodeBudgetBytes is the whole share of the container the decode path may
+	// occupy at once. Exported because it is only half the upload budget: the
+	// other half is the resident request payloads, which are bounded in
+	// internal/middleware, and neither package can check the total alone.
+	DecodeBudgetBytes = MaxDecodeBytes * maxConcurrentDecodes
+
 	// decodeQueueWait is how long an upload waits for a slot before giving up
 	// on classification: long enough to absorb two real uploads overlapping,
 	// short enough that waiters cannot pile up holding their payloads.

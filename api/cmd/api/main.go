@@ -402,7 +402,7 @@ func main() { //nolint:gocyclo
 	// Before this, every mentor-profile and admin-moderation POST had no cap at
 	// all. Routes needing more re-apply BodySizeLimitMiddleware with their own
 	// value, which REPLACES this one rather than nesting inside it — the three
-	// 10 MiB image routes depend on that, and they keep their AdmissionLimiter,
+	// image routes depend on that, and they keep their AdmissionLimiter,
 	// which bounds a different thing (how many such bodies are resident at once).
 	router.Use(middleware.BodySizeLimitMiddleware(middleware.DefaultMaxBodyBytes))
 
@@ -446,16 +446,16 @@ func main() { //nolint:gocyclo
 	// on token-guessing lookups.
 	confirmResendFloodLimiter := middleware.NewRateLimiter(5, 20) // coarse global cap: ~5/sec, burst 20
 
-	// ONE admission limiter shared by every route that accepts a 10 MiB body
-	// (registration and the two picture uploads), because they share one 512 MiB
-	// container. The rate limiters above cap arrivals per second, not how many
-	// payloads are resident: an admitted upload retains ~31 MiB until it returns
-	// (body string + JSON decoder buffer + the base64-decoded image), so the
-	// burst of 20 those limiters allow is ~620 MiB and the decode semaphore in
-	// pkg/imageclass never gets to help. Four in flight is ~124 MiB, plus the
-	// 128 MiB decode budget, and it is far above real demand — a handful of
-	// uploads a day.
-	uploadAdmission := middleware.NewAdmissionLimiter(4, 5*time.Second)
+	// ONE admission limiter shared by every route that accepts a
+	// middleware.MaxImageBodyBytes body (registration and the two picture
+	// uploads), because they share one 512 MiB container. The rate limiters above
+	// cap arrivals per second, not how many payloads are resident: an admitted
+	// upload retains ~3x its body until it returns (body string + JSON decoder
+	// buffer + the base64-decoded image), so the burst of 20 those limiters allow
+	// is ~840 MiB and the decode semaphore in pkg/imageclass never gets to help.
+	// The slot count, and the arithmetic tying it to the body cap it multiplies,
+	// live next to that cap — see middleware.MaxUploadsInFlight.
+	uploadAdmission := middleware.NewAdmissionLimiter(middleware.MaxUploadsInFlight, 5*time.Second)
 
 	// API routes
 	api := router.Group("/api")

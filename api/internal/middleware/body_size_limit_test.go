@@ -1,10 +1,12 @@
 package middleware
 
 import (
+	"encoding/base64"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/pkg/imageclass"
+	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
 )
 
 // readAllHandler drains the body and reports whether the cap stopped it. Reading
@@ -52,8 +58,8 @@ func TestGlobalCapAppliesToRoutesThatSetNone(t *testing.T) {
 
 // TestRouteOverrideReplacesTheGlobalCap: the override must REPLACE, not nest.
 // Nesting would leave the smaller global MaxBytesReader in the chain, so the
-// image routes would still fail at 256 KiB and the 10 MiB override would be a
-// no-op nobody noticed until an upload failed in production.
+// image routes would still fail at the global cap and the bigger override would
+// be a no-op nobody noticed until an upload failed in production.
 func TestRouteOverrideReplacesTheGlobalCap(t *testing.T) {
 	router := gin.New()
 	router.Use(BodySizeLimitMiddleware(DefaultMaxBodyBytes))
@@ -124,14 +130,168 @@ func TestBodyCapAndAdmissionLimiterCoexist(t *testing.T) {
 	require.Equal(t, 0, admission.InFlight())
 }
 
-// TestProfileSaveFitsUnderTheGlobalCap sizes the cap against the biggest
-// legitimate body it applies to: a full profile save, whose text fields are
-// capped at 5,000 characters each.
-func TestProfileSaveFitsUnderTheGlobalCap(t *testing.T) {
-	const maxTextField = 5000
-	const textFields = 8
-	const tagsAndOverhead = 4096
+// bindHandler binds the body into a fresh proto and separates the two ways it
+// can fail: 413 when the cap stopped the read, 400 when the payload reached the
+// validator and was rejected. A worst-case body has to survive both — a payload
+// the tags reject is not evidence about the cap.
+func bindHandler(proto any, capture func(any)) gin.HandlerFunc {
+	typ := reflect.TypeOf(proto)
+	return func(c *gin.Context) {
+		out := reflect.New(typ).Interface()
+		if err := c.ShouldBindJSON(out); err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				c.String(http.StatusRequestEntityTooLarge, "over the %d-byte cap", tooLarge.Limit)
+				return
+			}
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+		if capture != nil {
+			capture(out)
+		}
+		c.Status(http.StatusOK)
+	}
+}
 
-	assert.Less(t, int64(maxTextField*textFields+tagsAndOverhead), DefaultMaxBodyBytes,
-		"the global cap must leave room for the largest non-image request")
+func postJSON(t *testing.T, router *gin.Engine, path, body string) (int, string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec.Code, rec.Body.String()
+}
+
+// TestWorstCaseTextBodiesFitTheGlobalCap sizes the cap against the biggest body
+// that is legal under every `max=` tag, not against the biggest body a browser
+// sends. The two differ by 12x: validator counts RUNES, and a hand-written
+// client can spend 12 wire bytes on one rune (astral character, `\uXXXX\uXXXX`
+// surrogate pair). Counting the tags as bytes said a full profile save was ~44
+// KiB with ~218 KiB to spare; it is really 265,851, and the admin variant — the
+// same fields plus an email and a contact line — is 267,330. Both were over the
+// old 256 KiB cap, i.e. a save that passed every validator still got a 413.
+//
+// The payload is generated FROM the struct tags, so bumping any `max=` past the
+// headroom fails here instead of turning a legal save into a bare 413.
+func TestWorstCaseTextBodiesFitTheGlobalCap(t *testing.T) {
+	cases := []struct {
+		name  string
+		proto any
+	}{
+		{"mentor profile save", models.SaveProfileRequest{}},
+		{"admin mentor profile update", models.AdminMentorProfileUpdateRequest{}},
+		{"admin moderation return", models.AdminMentorReturnRequest{}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := worstCaseJSON(t, tc.proto, nil)
+
+			router := gin.New()
+			router.Use(BodySizeLimitMiddleware(DefaultMaxBodyBytes))
+			router.POST("/save", bindHandler(tc.proto, nil))
+
+			code, msg := postJSON(t, router, "/save", body)
+			require.Equalf(t, http.StatusOK, code,
+				"the worst body legal under every tag is %d bytes against the %d-byte cap: %s",
+				len(body), DefaultMaxBodyBytes, msg)
+		})
+	}
+}
+
+// TestPhotoAtTheAdvertisedLimitFitsTheImageBodyCap is the assertion whose
+// absence let three numbers disagree: the form advertises 10 MB, the server
+// accepts 10 MB decoded (s3storage.MaxImageBytes) and the body reader used to
+// stop at 10 MiB — but the photo travels base64 inside JSON, so a 10 MB file is
+// ~13.3 MB on the wire. An 8-10 MB photo therefore passed the form's check and
+// would have passed ValidateImage, and died at the body reader with a generic
+// 413 instead of the friendly PhotoRejectedError.
+//
+// So this sends a photo of EXACTLY the advertised size, encoded the way the
+// browser encodes it, alongside every other field at its worst case, and follows
+// it all the way back out to the decoded bytes the size validator sees.
+func TestPhotoAtTheAdvertisedLimitFitsTheImageBodyCap(t *testing.T) {
+	// Content is irrelevant here — only the size is under test; the pixel bounds
+	// are pkg/imageclass's job.
+	photo := make([]byte, s3storage.MaxImageBytes)
+	dataURL := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(photo)
+
+	cases := []struct {
+		name  string
+		proto any
+		image func(bound any) string
+	}{
+		{
+			name:  "mentor registration",
+			proto: models.RegisterMentorRequest{},
+			image: func(bound any) string {
+				return bound.(*models.RegisterMentorRequest).ProfilePicture.Image
+			},
+		},
+		{
+			name:  "profile picture upload",
+			proto: models.UploadProfilePictureRequest{},
+			image: func(bound any) string {
+				return bound.(*models.UploadProfilePictureRequest).Image
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := worstCaseJSON(t, tc.proto, map[string]string{"image": dataURL})
+
+			var bound any
+			router := gin.New()
+			router.Use(BodySizeLimitMiddleware(DefaultMaxBodyBytes))
+			router.POST("/upload", BodySizeLimitMiddleware(MaxImageBodyBytes),
+				bindHandler(tc.proto, func(v any) { bound = v }))
+
+			code, msg := postJSON(t, router, "/upload", body)
+			require.Equalf(t, http.StatusOK, code,
+				"a %d-byte photo is %d bytes of request against the %d-byte cap: %s",
+				s3storage.MaxImageBytes, len(body), MaxImageBodyBytes, msg)
+
+			// And what arrived is the whole photo, not a truncated one the size
+			// validator would then wave through.
+			decoded, err := s3storage.DecodeImageData(tc.image(bound))
+			require.NoError(t, err)
+			assert.Equal(t, s3storage.MaxImageBytes, len(decoded))
+			assert.NoError(t, s3storage.ValidateImageSize(decoded),
+				"the body cap must not admit a photo the server then refuses, nor refuse one it would accept")
+		})
+	}
+}
+
+// TestUploadPathFitsTheContainerMemoryBudget is the cost of the cap above.
+// MaxImageBodyBytes is per request; what the container pays is that times the
+// requests allowed to be resident, plus the decode budget on top — and the
+// decode budget is NOT reduced by admitting bigger bodies, so the two add.
+func TestUploadPathFitsTheContainerMemoryBudget(t *testing.T) {
+	// infra/docker-compose.yml: backend mem_limit 512m, GOMEMLIMIT=400MiB.
+	const containerBytes int64 = 512 << 20
+	const goMemLimit int64 = 400 << 20
+
+	// An admitted upload retains its body string, the JSON decoder's buffer and
+	// the base64-decoded image (0.75x the body) until it returns: ~2.75x, rounded
+	// up because none of the three is freed early.
+	const residentPerUpload = 3
+
+	// Resident payloads get the same quarter of the container that
+	// imageclass.DecodeBudgetBytes gets (TestDecodeBudgetFitsContainer). That is
+	// the constraint the cap and the slot count trade against each other: 14 MiB
+	// x 4 in flight is 168 MiB and over the share, 14 MiB x 3 is 126 MiB and just
+	// inside it.
+	payloads := MaxImageBodyBytes * residentPerUpload * MaxUploadsInFlight
+	require.LessOrEqualf(t, payloads, containerBytes/4,
+		"resident upload payloads are %d bytes (%d-byte body x%d resident x%d in flight), over the %d-byte quarter of a %d-byte container",
+		payloads, MaxImageBodyBytes, residentPerUpload, MaxUploadsInFlight, containerBytes/4, containerBytes)
+
+	// And the two halves of the upload budget add: bounding the decode does
+	// nothing about the payload holding it, so they are resident together.
+	peak := payloads + int64(imageclass.DecodeBudgetBytes)
+	require.LessOrEqualf(t, peak, goMemLimit*3/4,
+		"the upload path peaks at %d bytes (payloads plus a %d-byte decode budget) against the %d bytes of GOMEMLIMIT it may claim; the rest is the runtime, the pgx pool and every non-upload request",
+		peak, int64(imageclass.DecodeBudgetBytes), goMemLimit*3/4)
 }

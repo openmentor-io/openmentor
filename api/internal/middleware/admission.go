@@ -17,9 +17,10 @@ import (
 // It is what the big-body endpoints need: a request that has been admitted holds
 // its whole JSON body plus the base64-decoded image while it talks to S3, so the
 // resident cost is the product of the payload cap and the in-flight count.
-// Measured on the 10 MiB picture endpoints, one in-flight upload retains ~31 MiB
-// (the body string, the JSON decoder's buffer, the decoded image), so 20 of them
-// is ~620 MiB in a 512 MiB container.
+// Measured on the picture endpoints, one in-flight upload retains ~3x its body
+// (the body string, the JSON decoder's buffer, the decoded image), so the burst
+// of 20 the rate limiters allow is ~840 MiB in a 512 MiB container. The slot
+// count is MaxUploadsInFlight, which is sized against MaxImageBodyBytes.
 //
 // The slot is taken BEFORE the handler runs, which is the point: a shed request
 // has never had its body read, so a waiter costs a goroutine and nothing else.

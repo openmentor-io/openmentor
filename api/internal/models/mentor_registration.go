@@ -27,7 +27,11 @@ type RegisterMentorRequest struct {
 	ProfilePicture ProfilePictureData `json:"profilePicture" binding:"required"`
 
 	// Security
-	CaptchaToken string `json:"captchaToken" binding:"required,min=20"`
+	// max=2048 is Cloudflare's documented ceiling for a Turnstile response
+	// token. Without it this field is the one unbounded string on the route, so
+	// the body cap arithmetic behind middleware.MaxImageBodyBytes could not be
+	// closed — the photo would be sized against a field with no size.
+	CaptchaToken string `json:"captchaToken" binding:"required,min=20,max=2048"`
 }
 
 // ProfilePictureData represents the profile picture upload data

@@ -3,6 +3,7 @@ import Image from 'next/image'
 import { useForm, Controller } from 'react-hook-form'
 import Wysiwyg from './Wysiwyg'
 import filters from '@/config/filters'
+import { MAX_IMAGE_FILE_BYTES, MAX_IMAGE_FILE_LABEL } from '@/config/uploads'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch, faQuestionCircle } from '@fortawesome/free-solid-svg-icons'
 import { Tooltip } from 'react-tooltip'
@@ -169,10 +170,10 @@ export default function ProfileForm({
       return
     }
 
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024 // 10MB
-    if (file.size > maxSize) {
-      setImageError('The file size must not exceed 10 MB.')
+    // The limit is the RAW file; the request that carries it is ~4/3 bigger
+    // because the photo goes out base64-encoded inside JSON. See config/uploads.
+    if (file.size > MAX_IMAGE_FILE_BYTES) {
+      setImageError(`The file size must not exceed ${MAX_IMAGE_FILE_LABEL}.`)
       return
     }
 
@@ -257,7 +258,7 @@ export default function ProfileForm({
           <Tooltip id="photo-tip" place="right">
             <span>
               Upload your profile photo. JPEG, PNG, and WebP formats are supported. The maximum file
-              size is 10 MB.
+              size is {MAX_IMAGE_FILE_LABEL}.
               <br />
               This feature is still experimental. If something goes wrong, drop us a line at
               hello@openmentor.io.

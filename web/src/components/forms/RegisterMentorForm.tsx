@@ -5,6 +5,7 @@ import { useForm, Controller } from 'react-hook-form'
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import Wysiwyg from './Wysiwyg'
 import filters from '@/config/filters'
+import { MAX_IMAGE_FILE_BYTES, MAX_IMAGE_FILE_LABEL } from '@/config/uploads'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCircleNotch, faQuestionCircle } from '@fortawesome/free-solid-svg-icons'
 import { Tooltip } from 'react-tooltip'
@@ -212,10 +213,10 @@ export default function RegisterMentorForm({
       return
     }
 
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024 // 10MB
-    if (file.size > maxSize) {
-      setImageError('The file size must not exceed 10 MB.')
+    // The limit is the RAW file; the request that carries it is ~4/3 bigger
+    // because the photo goes out base64-encoded inside JSON. See config/uploads.
+    if (file.size > MAX_IMAGE_FILE_BYTES) {
+      setImageError(`The file size must not exceed ${MAX_IMAGE_FILE_LABEL}.`)
       return
     }
 
@@ -611,7 +612,7 @@ export default function RegisterMentorForm({
                 </label>
 
                 <p className="meta-mono mb-0 mt-2 text-[10px] text-ink-mute">
-                  JPEG · PNG · WebP · max 10 MB
+                  JPEG · PNG · WebP · max {MAX_IMAGE_FILE_LABEL}
                 </p>
 
                 {selectedImage && (

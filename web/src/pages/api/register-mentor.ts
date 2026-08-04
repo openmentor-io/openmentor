@@ -31,11 +31,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
 
 export default withObservability(handler)
 
-// Increase body size limit to 10MB to accommodate profile picture uploads
+// The photo arrives base64-encoded inside JSON (FileReader.readAsDataURL), so
+// this is NOT the advertised file size: it must carry MAX_IMAGE_FILE_BYTES at
+// ~4/3 plus the rest of the form. Next needs a static literal here, so the value
+// is duplicated from MAX_IMAGE_REQUEST_BODY in @/config/uploads and checked by
+// config/__tests__/uploads.test.ts.
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '10mb',
+      sizeLimit: '14mb',
     },
   },
 }
