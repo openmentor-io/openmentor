@@ -266,6 +266,14 @@ error). Three cautions about that endpoint family:
   mentor. If you genuinely need the notification resent, fix the row's state
   first, or send the mail by hand.
 
+  **One exception, once per request: requests announced BEFORE `H3` deploys.**
+  The old write never stamped `status_changed_at`, so a request it already
+  announced and whose mentor has not acted still reads as unclaimed — the first
+  post-deploy `POST /jobs/new-request-watcher` against it wins the claim and
+  re-sends all three announcement emails. It self-heals from there (that claim
+  holds, and any mentor action stamps the column anyway), so there is nothing to
+  repair — but don't replay a pre-deploy `pending` request expecting a no-op.
+
 ### 5. Email the affected people
 
 From their side the product was broken: they filled in a registration form,
