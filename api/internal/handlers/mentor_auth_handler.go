@@ -105,8 +105,20 @@ func (h *MentorAuthHandler) VerifyLogin(c *gin.Context) {
 }
 
 // Logout handles POST /api/v1/auth/mentor/logout
-// Clears the session cookie
+// Clears the session cookie AND revokes every session issued for this mentor.
+//
+// Clearing the cookie alone left a copy of it — taken off a shared machine, or
+// captured earlier — valid for the rest of its 24 hours (D58). The revocation is
+// best effort: a mentor asking to be logged out gets their cookie cleared and a
+// 200 even if the bump fails, because the alternative is an error page that
+// leaves them looking logged in.
 func (h *MentorAuthHandler) Logout(c *gin.Context) {
+	if cookie, err := c.Cookie(middleware.MentorSessionCookieName); err == nil {
+		if revokeErr := h.service.RevokeSession(c.Request.Context(), cookie); revokeErr != nil {
+			attachError(c, revokeErr)
+		}
+	}
+
 	middleware.ClearSessionCookie(
 		c,
 		h.service.GetCookieDomain(),

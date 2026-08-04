@@ -144,20 +144,31 @@ func (s *AdminAuthService) VerifyLogin(ctx context.Context, token string) (*mode
 		return nil, "", ErrAdminJWTSecretNotSet
 	}
 
-	moderator, tokenExp, err := s.moderatorRepo.GetByLoginToken(ctx, token)
+	// SECURITY (H1): one atomic UPDATE consumes the token, checks the expiry and
+	// returns the row; the privileged session is minted only from that row. The
+	// old shape read by token, compared the expiry in Go and cleared with a second
+	// UPDATE whose failure it logged before minting a session anyway — so two
+	// concurrent clicks on one admin link produced two 24-hour admin sessions, and
+	// a transient DB error left a privileged link reusable.
+	moderator, err := s.moderatorRepo.ConsumeLoginToken(ctx, token)
 	if err != nil {
+		outcome := "invalid_token"
+		if !errors.Is(err, repository.ErrTokenNotConsumable) {
+			outcome = outcomeConsumeFailed
+		}
 		s.tracker.Track(ctx, analytics.EventAdminAuthLoginVerified, analytics.SystemDistinctID("api"), map[string]interface{}{
-			"outcome": "invalid_token",
+			"outcome": outcome,
 		})
+		if outcome == outcomeConsumeFailed {
+			logger.Error("Admin login verification failed to consume the token", logger.RedactedError(err))
+			return nil, "", fmt.Errorf("failed to verify admin login token: %w", err)
+		}
 		return nil, "", ErrAdminInvalidLoginToken
 	}
-	if time.Now().After(tokenExp) {
-		s.tracker.Track(ctx, analytics.EventAdminAuthLoginVerified, analytics.ModeratorDistinctID(moderator.ID), map[string]interface{}{
-			"moderator_id": moderator.ID,
-			"outcome":      "expired",
-		})
-		return nil, "", ErrAdminInvalidLoginToken
-	}
+
+	// Checked from the row the UPDATE returned. The token is already spent —
+	// deliberately: a single-use credential presented by an account that may no
+	// longer log in is used up, not handed back.
 	if !moderator.Role.IsValid() {
 		s.tracker.Track(ctx, analytics.EventAdminAuthLoginVerified, analytics.ModeratorDistinctID(moderator.ID), map[string]interface{}{
 			"moderator_id": moderator.ID,
@@ -167,18 +178,13 @@ func (s *AdminAuthService) VerifyLogin(ctx context.Context, token string) (*mode
 		return nil, "", ErrModeratorNotEligible
 	}
 
-	if clearErr := s.moderatorRepo.ClearLoginToken(ctx, moderator.ID); clearErr != nil {
-		logger.Error("Failed to clear admin login token",
-			zap.String("moderator_id", moderator.ID),
-			zap.Error(clearErr))
-	}
-
 	jwtToken, err := s.tokenManager.GenerateTokenWithRole(
 		moderator.ID,
 		0,
 		moderator.Email,
 		moderator.Name,
 		string(moderator.Role),
+		moderator.SessionVersion,
 	)
 	if err != nil {
 		s.tracker.Track(ctx, analytics.EventAdminAuthLoginVerified, analytics.ModeratorDistinctID(moderator.ID), map[string]interface{}{
@@ -206,6 +212,25 @@ func (s *AdminAuthService) VerifyLogin(ctx context.Context, token string) (*mode
 	})
 
 	return session, jwtToken, nil
+}
+
+// RevokeSession invalidates every session issued for the moderator behind
+// sessionToken (D58). Best-effort — see MentorAuthService.RevokeSession.
+func (s *AdminAuthService) RevokeSession(ctx context.Context, sessionToken string) error {
+	if s.tokenManager == nil || sessionToken == "" {
+		return nil
+	}
+	claims, err := s.tokenManager.ValidateAdminToken(sessionToken)
+	if err != nil {
+		return nil
+	}
+	if err := s.moderatorRepo.BumpModeratorSessionVersion(ctx, claims.MentorUUID); err != nil {
+		if errors.Is(err, repository.ErrSessionSubjectGone) {
+			return nil
+		}
+		return fmt.Errorf("failed to revoke admin sessions: %w", err)
+	}
+	return nil
 }
 
 func (s *AdminAuthService) GetSessionTTL() int {

@@ -2,6 +2,7 @@ package worker
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/tokenhash"
 )
 
 func TestNewMentorWatcherHappyPath(t *testing.T) {
@@ -37,6 +39,8 @@ func TestNewMentorWatcherHappyPath(t *testing.T) {
 	assert.Less(t, update.SortOrder, 1000)
 	require.NotNil(t, update.EmailConfirmationToken)
 	assert.NotEmpty(t, *update.EmailConfirmationToken)
+	assert.NotContains(t, *update.EmailConfirmationToken, "mcf_",
+		"the row must hold the HASH, not the token that went into the email (D57)")
 	require.NotNil(t, update.EmailConfirmationExpiresAt)
 	assert.WithinDuration(t, time.Now().Add(24*time.Hour), *update.EmailConfirmationExpiresAt, time.Minute)
 
@@ -46,9 +50,15 @@ func TestNewMentorWatcherHappyPath(t *testing.T) {
 	confirmMsg := env.sender.attempts[0]
 	assert.Equal(t, "john@example.com", confirmMsg.Recipient)
 	assert.Equal(t, "John Doe", confirmMsg.Props["first_name"])
-	assert.Equal(t,
-		"https://openmentor.io/mentor/confirm?token="+*update.EmailConfirmationToken,
-		confirmMsg.Props["confirm_url"])
+	// The emailed link carries the PLAINTEXT token and the row holds its hash:
+	// asserting the relationship rather than either value is what would catch the
+	// row and the email drifting apart, which is the one way this split breaks.
+	emailedToken := strings.TrimPrefix(
+		confirmMsg.Props["confirm_url"].(string),
+		"https://openmentor.io/mentor/confirm?token=")
+	assert.True(t, strings.HasPrefix(emailedToken, "mcf_"), "emailed token = %q", emailedToken)
+	assert.Equal(t, tokenhash.Hash(emailedToken), *update.EmailConfirmationToken,
+		"the emailed token must hash to the value stored on the row")
 
 	// Analytics: success event with duplicates_count.
 	event := env.tracker.last()

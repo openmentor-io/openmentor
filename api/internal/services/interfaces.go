@@ -44,6 +44,7 @@ type RegistrationServiceInterface interface {
 type MentorAuthServiceInterface interface {
 	RequestLogin(ctx context.Context, email string) (*models.RequestLoginResponse, error)
 	VerifyLogin(ctx context.Context, token string) (*models.MentorSession, string, error)
+	RevokeSession(ctx context.Context, sessionToken string) error
 	GetSessionTTL() int
 	GetCookieDomain() string
 	GetCookieSecure() bool
@@ -54,6 +55,7 @@ type MentorAuthServiceInterface interface {
 type AdminAuthServiceInterface interface {
 	RequestLogin(ctx context.Context, email string) (*models.AdminRequestLoginResponse, error)
 	VerifyLogin(ctx context.Context, token string) (*models.AdminSession, string, error)
+	RevokeSession(ctx context.Context, sessionToken string) error
 	GetSessionTTL() int
 	GetCookieDomain() string
 	GetCookieSecure() bool

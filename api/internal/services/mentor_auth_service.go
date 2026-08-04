@@ -20,6 +20,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// outcomeConsumeFailed labels the case a magic link could NOT be spent for a
+// reason other than "no such token" — a database failure, not a bad link. It is
+// deliberately distinct from invalid_token: reporting a DB failure as a bad link
+// sends the mentor off to request another one that fails identically.
+const outcomeConsumeFailed = "consume_failed"
+
 var (
 	ErrMentorNotFound      = errors.New("mentor not found")
 	ErrMentorNotEligible   = errors.New("mentor not eligible for login")
@@ -196,33 +202,39 @@ func (s *MentorAuthService) VerifyLogin(ctx context.Context, token string) (*mod
 		return nil, "", ErrJWTSecretNotSet
 	}
 
-	// Find mentor by login token
-	// Note: Token validation happens in the SQL WHERE clause (login_token = $1)
-	// If a mentor is returned, the token was valid in the database
-	mentor, tokenExp, err := s.mentorRepo.GetByLoginToken(ctx, token)
+	// SECURITY (H1): consume the token in ONE atomic UPDATE and mint the session
+	// only from the row it returns. The old shape read by token, compared the
+	// expiry in Go, then cleared with a second UPDATE — and logged a failed clear
+	// while minting a session anyway, so two concurrent clicks produced two
+	// 24-hour sessions and a transient DB error left the link reusable.
+	//
+	// Consequence worth stating: "expired" and "already used" are no longer
+	// distinguishable, because distinguishing them means reading before writing.
+	// Both are invalid_token; the client sees the same 401 it always did.
+	mentor, err := s.mentorRepo.ConsumeLoginToken(ctx, token)
 	if err != nil {
+		outcome := "invalid_token"
+		if !errors.Is(err, repository.ErrTokenNotConsumable) {
+			outcome = outcomeConsumeFailed
+		}
 		s.tracker.Track(ctx, analytics.EventMentorAuthLoginVerified, analytics.SystemDistinctID("api"), map[string]interface{}{
-			"outcome": "invalid_token",
+			"outcome": outcome,
 		})
-		logger.Warn("Login verification with invalid token", zap.Error(err))
-		metrics.MentorAuthVerifyRequests.WithLabelValues("invalid_token").Inc()
+		metrics.MentorAuthVerifyRequests.WithLabelValues(outcome).Inc()
+		if outcome == outcomeConsumeFailed {
+			// A database failure is NOT an invalid token: reporting it as one sent
+			// the mentor back to request another link that would fail the same way.
+			logger.Error("Login verification failed to consume the token", logger.RedactedError(err))
+			return nil, "", fmt.Errorf("failed to verify login token: %w", err)
+		}
+		logger.Warn("Login verification with an unusable token")
 		return nil, "", ErrInvalidLoginToken
 	}
 
-	// Check expiration
-	if time.Now().After(tokenExp) {
-		s.tracker.Track(ctx, analytics.EventMentorAuthLoginVerified, analytics.MentorDistinctID(mentor.MentorID), map[string]interface{}{
-			"mentor_id": mentor.MentorID,
-			"outcome":   "expired",
-		})
-		logger.Warn("Login token expired",
-			zap.String("mentor_id", mentor.MentorID),
-			zap.Time("expired_at", tokenExp))
-		metrics.MentorAuthVerifyRequests.WithLabelValues("expired").Inc()
-		return nil, "", ErrInvalidLoginToken
-	}
-
-	// Re-check mentor eligibility (status may have changed since token was issued)
+	// Re-check eligibility from the row the UPDATE returned (status may have
+	// changed since the token was issued). The token is already spent at this
+	// point, deliberately: a single-use credential presented by a declined
+	// account is used up, not handed back for another try.
 	if !isLoginEligibleStatus(mentor.Status) {
 		s.tracker.Track(ctx, analytics.EventMentorAuthLoginVerified, analytics.MentorDistinctID(mentor.MentorID), map[string]interface{}{
 			"mentor_id":     mentor.MentorID,
@@ -236,16 +248,8 @@ func (s *MentorAuthService) VerifyLogin(ctx context.Context, token string) (*mod
 		return nil, "", ErrMentorNotEligible
 	}
 
-	// Clear the login token (single-use)
-	if clearErr := s.mentorRepo.ClearLoginToken(ctx, mentor.MentorID); clearErr != nil {
-		logger.Error("Failed to clear login token",
-			zap.String("mentor_id", mentor.MentorID),
-			zap.Error(clearErr))
-		// Continue with login even if clearing fails
-	}
-
 	// Generate JWT session token
-	jwtToken, err := s.tokenManager.GenerateToken(mentor.MentorID, mentor.LegacyID, "", mentor.Name)
+	jwtToken, err := s.tokenManager.GenerateToken(mentor.MentorID, mentor.LegacyID, "", mentor.Name, mentor.SessionVersion)
 	if err != nil {
 		s.tracker.Track(ctx, analytics.EventMentorAuthLoginVerified, analytics.MentorDistinctID(mentor.MentorID), map[string]interface{}{
 			"mentor_id": mentor.MentorID,
@@ -253,7 +257,7 @@ func (s *MentorAuthService) VerifyLogin(ctx context.Context, token string) (*mod
 		})
 		logger.Error("Failed to generate JWT",
 			zap.String("mentor_id", mentor.MentorID),
-			zap.Error(err))
+			logger.RedactedError(err))
 		metrics.MentorAuthVerifyRequests.WithLabelValues("jwt_failed").Inc()
 		return nil, "", fmt.Errorf("failed to generate session: %w", err)
 	}
@@ -284,6 +288,32 @@ func (s *MentorAuthService) VerifyLogin(ctx context.Context, token string) (*mod
 		zap.Duration("duration", time.Since(start)))
 
 	return session, jwtToken, nil
+}
+
+// RevokeSession invalidates every session issued for the mentor behind
+// sessionToken by bumping their session_version (D58).
+//
+// Logout used to only clear the cookie, which leaves a copy of that cookie —
+// taken off a shared machine, or captured before the logout — valid for the rest
+// of its 24 hours. Best-effort by design: a logout must still clear the cookie
+// and answer 200 when this fails, and an unparseable cookie is not an error
+// worth telling the caller about.
+func (s *MentorAuthService) RevokeSession(ctx context.Context, sessionToken string) error {
+	if s.tokenManager == nil || sessionToken == "" {
+		return nil
+	}
+	claims, err := s.tokenManager.ValidateMentorToken(sessionToken)
+	if err != nil {
+		// Nothing to revoke: the cookie was already unusable.
+		return nil
+	}
+	if err := s.mentorRepo.BumpMentorSessionVersion(ctx, claims.MentorUUID); err != nil {
+		if errors.Is(err, repository.ErrSessionSubjectGone) {
+			return nil
+		}
+		return fmt.Errorf("failed to revoke mentor sessions: %w", err)
+	}
+	return nil
 }
 
 // GetSessionTTL returns the session TTL in seconds

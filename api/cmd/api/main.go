@@ -97,6 +97,7 @@ func registerMentorAdminRoutes(
 	mentorProfileHandler *handlers.MentorProfileHandler,
 	usernameHandler *handlers.UsernameHandler,
 	tokenManager *jwt.TokenManager,
+	sessionChecker middleware.MentorSessionChecker,
 ) {
 	// Skip mentor admin routes if JWT is not configured
 	if tokenManager == nil {
@@ -113,11 +114,11 @@ func registerMentorAdminRoutes(
 		middleware.EmailRateLimitMiddleware(authRateLimiter), mentorAuthHandler.RequestLogin)
 	auth.POST("/verify", mentorAuthHandler.VerifyLogin)
 	auth.POST("/logout", mentorAuthHandler.Logout)
-	auth.GET("/session", middleware.MentorSessionMiddleware(tokenManager, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure), mentorAuthHandler.GetSession)
+	auth.GET("/session", middleware.MentorSessionMiddleware(tokenManager, sessionChecker, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure), mentorAuthHandler.GetSession)
 
 	// Mentor admin routes (protected)
 	mentor := router.Group("/api/v1/mentor")
-	mentor.Use(middleware.MentorSessionMiddleware(tokenManager, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure))
+	mentor.Use(middleware.MentorSessionMiddleware(tokenManager, sessionChecker, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure))
 
 	// Request management routes
 	mentor.GET("/requests", mentorRequestsHandler.GetRequests)
@@ -153,6 +154,7 @@ func registerAdminModerationRoutes(
 	adminMentorRequestsHandler *handlers.AdminMentorRequestsHandler,
 	usernameHandler *handlers.UsernameHandler,
 	tokenManager *jwt.TokenManager,
+	sessionChecker middleware.AdminSessionChecker,
 ) {
 
 	if tokenManager == nil {
@@ -166,10 +168,10 @@ func registerAdminModerationRoutes(
 		middleware.EmailRateLimitMiddleware(authRateLimiter), adminAuthHandler.RequestLogin)
 	auth.POST("/verify", adminAuthHandler.VerifyLogin)
 	auth.POST("/logout", adminAuthHandler.Logout)
-	auth.GET("/session", middleware.AdminSessionMiddleware(tokenManager, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure), adminAuthHandler.GetSession)
+	auth.GET("/session", middleware.AdminSessionMiddleware(tokenManager, sessionChecker, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure), adminAuthHandler.GetSession)
 
 	admin := router.Group("/api/v1/admin")
-	admin.Use(middleware.AdminSessionMiddleware(tokenManager, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure))
+	admin.Use(middleware.AdminSessionMiddleware(tokenManager, sessionChecker, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure))
 	admin.GET("/mentors", adminMentorsHandler.ListMentors)
 	admin.GET("/mentors/:id", adminMentorsHandler.GetMentor)
 	admin.POST("/mentors/:id", profileRateLimiter.Middleware(), adminMentorsHandler.UpdateMentor)
@@ -465,10 +467,10 @@ func main() { //nolint:gocyclo
 		mentorConfirmationHandler, usernameHandler)
 
 	// Mentor admin routes (authentication, request management, and profile)
-	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, uploadAdmission, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, usernameHandler, mentorAuthService.GetTokenManager())
+	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, uploadAdmission, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, usernameHandler, mentorAuthService.GetTokenManager(), mentorRepo)
 
 	// Moderator/Admin web moderation routes
-	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, uploadAdmission, adminAuthHandler, adminMentorsHandler, adminMentorRequestsHandler, usernameHandler, adminAuthService.GetTokenManager())
+	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, uploadAdmission, adminAuthHandler, adminMentorsHandler, adminMentorRequestsHandler, usernameHandler, adminAuthService.GetTokenManager(), moderatorRepo)
 
 	// Create HTTP server
 	// SECURITY: Bind to all interfaces for Docker Compose networking
