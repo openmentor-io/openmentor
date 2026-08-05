@@ -1,3 +1,4 @@
+-- phase: expand
 -- Core schema for Postgres migration from Airtable
 
 -- Extensions

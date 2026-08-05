@@ -1,3 +1,4 @@
+-- phase: expand
 -- Retroactive session history carried over from getmentor.dev (DECISIONS D28).
 --
 -- Mentors migrated per D22 arrive with an empty client_requests history even

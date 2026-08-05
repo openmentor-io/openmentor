@@ -1,3 +1,4 @@
+-- phase: expand
 -- Draft mentor-status workflow: registrations start as 'draft' until the
 -- mentor confirms their email; moderators can 'return' a pending profile to
 -- draft with a note. Adds the email-confirmation token columns, the

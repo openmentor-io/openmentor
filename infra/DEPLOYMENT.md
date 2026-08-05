@@ -51,8 +51,23 @@ sections):
 ssh -i /path/to/ssh-key <user>@<vm-ip>
 ```
 
-The VM must have Docker + docker-compose and the monorepo checked out at
-`/opt/openmentor` (compose files live in `/opt/openmentor/infra`).
+The VM must have Docker + docker-compose and the directory
+`/opt/openmentor/infra`, which is where `./deploy.sh infra` rsyncs this `infra/`
+directory (compose files, Alloy config, the backup sidecar build context).
+
+**The VM gets only `infra/`** — there is no monorepo checkout and no git on the
+box. `api/` and `web/` reach it only as built images. So anything that needs a
+file from another directory (a `.down.sql`, a `postgres` image pin, a Grafana
+rule) is either shipped by a deploy from a workstation or pulled out of a
+container image. Runbooks that assumed a checkout were corrected for this; see
+"Rolling back across a migration boundary" below and
+`../docs/runbooks/postgres-16-to-18-upgrade.md`.
+
+There is likewise **no `aws` CLI and no AWS credentials** on the VM: ECR pulls
+use a token minted on the deploying machine and piped in over ssh stdin, and the
+backup bucket's keys live only inside the `openmentor-postgres-backup` container.
+`../docs/runbooks/postgres-backup-restore.md` § "How to reach S3" is the pattern
+for anything that needs the bucket.
 
 Note: when migrating a VM from the pre-monorepo `/opt/openmentor-infra`
 checkout, stop the old stack first
@@ -183,53 +198,126 @@ The pre-H9 single `.env.backup` slot is gone: two overlapping deploys overwrote
 it for each other, so a failed deploy B could "roll back" to deploy A's
 unverified tags.
 
-### Rollback does NOT revert database migrations
+Before any of that it runs a **migration boundary check** and refuses if the
+rollback would cross one — see the next two sections.
 
-Neither `rollback.sh` nor `deploy-remote.sh`'s automatic health-check rollback
-runs down-migrations — they only move image tags. Migrations are designed to be
-backward-compatible with the previous release, so this is normally fine.
+### Migration policy: expand / contract
 
-The exception is a release that **renames or removes** existing data, where the
-older image expects the old shape. `000009_modernise_tags` is the current
-example: rolling back past it leaves a pre-D30 frontend offering tag names the
-database no longer has, so its catalog category filters match nothing. (Profile
-saves are safe — the API rejects a save whose tags all fail to resolve rather
-than wiping them.)
+Every migration in `api/migrations/` declares its phase on its first line, and
+`cd infra && make check` fails without it:
 
-If you must roll back past such a release, apply the down-migration by hand.
-Two constraints make this manual:
+| Marker | Means | Rollback across it |
+|---|---|---|
+| `-- phase: expand` | Only **adds**: tables, columns, indexes, seed rows, widened constraints. An image built before it finds every object it reads, unchanged. | Safe for the *code*. Still blocked by the migrate gate (below), but nothing has to be undone for correctness. |
+| `-- phase: contract` | **Removes or renames** something, or narrows a constraint, so an image built before it can no longer find what it reads. | Not safe. The schema has to move with the image. |
+
+Rules:
+
+1. Every migration ships a `.down.sql`. `infra/rollback-migration-guard-test.sh`
+   enforces it, and a down-migration that is lossy says so in its own header —
+   `000009_modernise_tags.down.sql` restores the tag rows and names but cannot
+   restore mentor associations for the tags it deleted, and
+   `000002_populate_tags.down.sql` cascades away every mentor's tag links.
+2. A migration that removes or renames must be marked `contract`. The guard test
+   greps for destructive SQL and fails a mismarked one (`-- phase-exempt: <why>`
+   is the written escape hatch).
+3. **Contract migrations ship separately from the code change that needs them.**
+   Expand first (add the new shape, and have the code read *both*), deploy, then
+   contract in a later release once nothing reads the old shape. That way the
+   contract release is the only tag with a hard rollback boundary, and it is one
+   that no longer needs the old shape anyway.
+4. Additive-only is no longer the rule. Before the guard existed, any migration
+   at all made `rollback.sh` fail *in the middle* leaving the bad version live,
+   so branches avoided migrations entirely. Now a crossing is refused up front
+   and named, so a `contract` migration is a normal thing to write — under 1–3.
+
+Currently applied: `000001`–`000008` are `expand`, `000009_modernise_tags` is the
+only `contract` migration.
+
+### Rolling back across a migration boundary
+
+`rollback.sh` **refuses** a backend rollback whose target image does not contain
+the migration version the database is at, before it edits `.env`:
+
+```
+❌ REFUSING: this rollback would cross a migration boundary.
+
+   schema_migrations.version              : 9
+   openmentor-backend:abc1234 carries migrations up to: 8
+   Orphaned by the target image           : 000009_modernise_tags[contract]
+```
+
+That is not conservatism. `migrate` shares `BACKEND_IMAGE_TAG` with backend and
+worker, and the migrations are baked into that image, so golang-migrate's
+`versionExists()` looks for version 9 in an image that has only 1–8, prints
+`no migration found for version 9` and exits 1. `depends_on:
+service_completed_successfully` is then never satisfied, `rollback.sh`'s `set -e`
+aborts — and production is left on the version you were rolling back **from**.
+There is nothing safer about trying. The check also refuses a `dirty`
+`schema_migrations` (golang-migrate will not run at all in that state) and a tag
+that is not in the registry. If postgres is unreachable it *warns* instead: that
+is when a rollback must not be blocked.
+
+A frontend-only rollback gets a **warning**, not a refusal, listing the applied
+contract migrations: a frontend tag carries no migrations, so nothing on the VM
+can tell whether it predates them. A pre-D30 frontend offers tag names `000009`
+renamed away, so its catalog category filters match nothing. (Profile saves are
+safe — the API rejects a save whose tags all fail to resolve rather than wiping
+them.) The failure mode is wrong content, not data loss, and blocking a frontend
+rollback mid-incident is worse.
+
+**Neither script ever runs a down-migration.** To cross a boundary deliberately:
 
 - `/app/migrate` in the backend image is a small custom runner that only
-  migrates **up** — it takes no `down` argument, and the image does not ship
-  the `golang-migrate` CLI.
-- Migrations are baked into the image at `/app/migrations`, so once you restore
-  the older tag, the newer `*.down.sql` is no longer on the box. Get it from
-  git (or run this **before** retagging).
-
-Apply the SQL with the `psql` already present in the postgres container, then
-correct the version golang-migrate tracks — it will not notice the change on
-its own:
+  migrates **up** — it takes no `down` argument, and the image does not ship the
+  `golang-migrate` CLI.
+- The VM has **no monorepo checkout** — only `/opt/openmentor/infra`. There is no
+  `api/migrations/` on the box. The `.down.sql` files exist inside the *current*
+  backend image, so pull them out of it before you retag (afterwards that image
+  is no longer the one deployed and the newer file is gone from the box).
 
 ```bash
 cd /opt/openmentor/infra
+BACKEND_TAG=$(grep '^BACKEND_IMAGE_TAG=' .env | cut -d= -f2)
+ECR=$(grep '^ECR_REGISTRY=' .env | cut -d= -f2)
 
-# 1. Apply the down migration (ON_ERROR_STOP so a failure doesn't half-apply)
+# 1. Get the down-migrations out of the running image. docker cp reads a
+#    container that was CREATED and never started, so this needs no shell in
+#    the image and starts nothing.
+CID=$(docker create "$ECR/openmentor-backend:$BACKEND_TAG")
+docker cp "$CID:/app/migrations/." ./migrations-tmp/
+docker rm -f "$CID"
+
+# 2. READ THE HEADER FIRST. "-- phase: contract" plus a LOSSY note means a
+#    restore (../docs/runbooks/postgres-backup-restore.md) is the honest answer,
+#    not this procedure.
+head -20 ./migrations-tmp/000009_modernise_tags.down.sql
+
+# 3. Apply it (ON_ERROR_STOP so a failure doesn't half-apply)
 docker compose exec -T postgres \
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
-  < api/migrations/000009_modernise_tags.down.sql
+  < ./migrations-tmp/000009_modernise_tags.down.sql
 
-# 2. Point schema_migrations at the previous version (here: 9 -> 8)
+# 4. Point schema_migrations at the previous version (here: 9 -> 8). golang-migrate
+#    does not notice the change on its own.
 docker compose exec -T postgres \
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -c "UPDATE schema_migrations SET version = 8, dirty = false;"
+
+rm -rf ./migrations-tmp
+
+# 5. Now the rollback is no longer a crossing, and rollback.sh will run it.
 ```
 
 Verified to round-trip: the next normal deploy re-applies `000009` and returns
 the database to version 9 with the full taxonomy.
 
-Check the migration's own `.down.sql` header first — some are explicitly lossy
-(`000009` restores the tag rows and names, but cannot restore mentor
-associations for the tags it deleted).
+**Known gap.** `deploy-remote.sh`'s *automatic* health-check rollback carries the
+same hazard and has no such guard: if a failed deploy applied a migration first,
+restoring the previous `.env` points `migrate` at an image without it, and the
+auto-rollback fails the same way. It is a narrower window (the deploy that failed
+is the one that just applied the migration, so you know which one), but if an
+auto-rollback dies at the migrate gate, this section is the procedure.
 
 Manual fallback on the VM:
 
