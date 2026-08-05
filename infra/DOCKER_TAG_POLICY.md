@@ -140,8 +140,9 @@ git log --oneline -10
 # Check container image history
 docker images | grep openmentor
 
-# Check the previous tags saved during deployment
-grep IMAGE_TAG /opt/openmentor/infra/.env.backup  # On VM
+# Check the last HEALTH-VERIFIED tags, and the per-deploy snapshots (on the VM)
+grep IMAGE_TAG /opt/openmentor/infra/.env.lastgood
+ls -1t /opt/openmentor/infra/.env.backup.*
 ```
 
 ## Migration Notes

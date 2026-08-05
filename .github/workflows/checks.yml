@@ -14,8 +14,12 @@ name: Checks
 #
 #   web changed        -> lint + type check + tests
 #   api changed        -> golangci-lint + tests
-#   infra changed      -> compose renders + per-service env allowlist + infra tests
-#   runbooks changed   -> shellcheck + the operator diagnostics tests
+#   infra changed      -> compose renders + per-service env allowlist + shellcheck
+#                         + infra tests
+#   migrations changed -> version numbering (duplicates, gaps, merge order),
+#                         then up / down / up again against an ephemeral Postgres
+#   scripts changed    -> shellcheck (every *.sh outside infra/)
+#   runbooks changed   -> the operator diagnostics tests
 #   .github/ changed   -> actionlint + dispatch-input scan
 #   none of the above  -> passes trivially
 #
@@ -56,11 +60,11 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Detect changed areas
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
         with:
           filters: |
             web:
@@ -79,6 +83,12 @@ jobs:
               # has to run it
               - 'grafana/alerting/**'
               - 'grafana/dashboards/**'
+              # deploy-transition-test.sh (part of `make check`) also asserts the
+              # deploy workflow's H9 properties — the production-deploy
+              # concurrency group, no single-slot .env.backup — so a change to it
+              # runs the infra gate. The deploy path is one mechanism split
+              # across two directories.
+              - '.github/workflows/deploy.yml'
               - '.github/workflows/checks.yml'
             workflows:
               - '.github/workflows/**'
@@ -89,6 +99,24 @@ jobs:
               # to run the gate too.
               - 'docs/audit/2026-08-remediation-plan.md'
               - 'api/migrations/**'
+              - '.github/workflows/checks.yml'
+            # Scripts outside infra/ (infra's own are covered by `make check`).
+            # Deliberately as wide as the step's `git ls-files '*.sh'`
+            # enumeration: a narrower list left a script added outside it
+            # ungated until the next push to main. The cost of the overlap is
+            # that an infra-only change re-runs the step over an unchanged file
+            # list, which is seconds.
+            scripts:
+              - '**/*.sh'
+              - '.github/workflows/checks.yml'
+            # The up/down harness is expensive enough (a Postgres container plus
+            # a golang-migrate build) to earn its own narrow filter instead of
+            # riding on every api/ change.
+            migrations:
+              - 'api/migrations/**'
+              - 'api/scripts/migration-test.sh'
+              - 'api/scripts/migration-version-check.sh'
+              - 'api/Makefile'
               - '.github/workflows/checks.yml'
 
       # --- Workflow quick gate ---------------------------------------------
@@ -136,7 +164,7 @@ jobs:
 
       - name: Setup Node.js
         if: steps.filter.outputs.web == 'true' || github.event_name == 'push'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 26.x
           cache: 'npm'
@@ -166,7 +194,7 @@ jobs:
 
       - name: Set up Go
         if: steps.filter.outputs.api == 'true' || github.event_name == 'push'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: '1.26'
           cache-dependency-path: api/go.sum
@@ -202,23 +230,68 @@ jobs:
       # env allowlist and secret-ownership check + the backup sidecar tests.
       # Key names only, never values, so it is safe on a production-shaped env.
       # Runner already has docker compose and jq; nothing else to install.
+      # `make check` includes `make shellcheck` over infra/'s own scripts (H12),
+      # which is why the step below deliberately skips infra/ — one script, one
+      # linter run.
       - name: 'Infra: checks'
         if: steps.filter.outputs.infra == 'true' || github.event_name == 'push'
         working-directory: infra
         run: make check
 
+      # --- Shell scripts outside infra/ ------------------------------------
+
+      # Every tracked *.sh that `make check` does not already cover: the runbook
+      # scripts an operator runs against the LIVE database, api/scripts, and
+      # web's build helper. The file list and the severity live in the script,
+      # which infra/Makefile's shellcheck target also calls (with the other
+      # scope) — same rule as every other gate here: CI runs the checked-in
+      # command, never its own copy of it. `run:` blocks in the workflows
+      # themselves are shellchecked by actionlint above.
+      - name: 'Scripts: shellcheck'
+        if: steps.filter.outputs.scripts == 'true' || steps.filter.outputs.runbooks == 'true' || github.event_name == 'push'
+        run: ./scripts/shellcheck-all.sh outside-infra
+
+      # --- Migration numbering ---------------------------------------------
+
+      # The class git merges CLEANLY and silently: two branches that both add
+      # `000010_*.sql` are different files, so there is no conflict — the merged
+      # tree just has two migrations claiming one version, of which golang-migrate
+      # applies one. Worse, `Up()` only walks FORWARD from the recorded version,
+      # so a migration that merges in BELOW production's current version is never
+      # applied there while every fresh database gets it — a divergence nothing
+      # notices until a query hits the missing column.
+      #
+      # Needs no database, so it runs before the up/down harness and gives its
+      # verdict in a second. The `origin/main` fetch is what the "is this new
+      # migration above main's newest?" comparison reads; actions/checkout only
+      # brings the PR's merge commit.
+      - name: 'API: migration version numbering'
+        if: steps.filter.outputs.migrations == 'true' || github.event_name == 'push'
+        working-directory: api
+        run: |
+          git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+          make migration-check
+
+      # --- Migration up/down apply -----------------------------------------
+
+      # H12: the one property nothing else checks — that the .down.sql files run
+      # and reverse their .up.sql. The Docker smoke test in "CI / API" only ever
+      # migrates UP on an empty database, so this is not a duplicate of it.
+      # Tolerates 000002_populate_tags having no down file yet (it walks down only
+      # to that boundary and says so); the sibling H10 branch adds the file, after
+      # which the same harness covers the full range automatically.
+      - name: 'API: migrations apply up, down and up again'
+        if: steps.filter.outputs.migrations == 'true' || github.event_name == 'push'
+        working-directory: api
+        run: make migration-test
+
       # --- Operator runbook gates ------------------------------------------
       #
       # docs/runbooks/audit-2026-08 holds scripts an operator runs against the
-      # LIVE database, so they get the same treatment as code: shellcheck, plus
-      # tests that pin the safety properties (report file mode, no personal data
-      # on the console, no ambiguous connection, one consistent snapshot).
-
-      - name: 'Runbooks: shellcheck'
-        if: steps.filter.outputs.runbooks == 'true' || github.event_name == 'push'
-        run: |
-          shellcheck docs/runbooks/audit-2026-08/diagnostics.sh \
-                     docs/runbooks/audit-2026-08/diagnostics_test.sh
+      # LIVE database, so they get the same treatment as code: shellcheck (above,
+      # with every other script), plus tests that pin the safety properties
+      # (report file mode, no personal data on the console, no ambiguous
+      # connection, one consistent snapshot).
 
       - name: 'Runbooks: diagnostics tests'
         if: steps.filter.outputs.runbooks == 'true' || github.event_name == 'push'
@@ -251,5 +324,5 @@ jobs:
         run: docker rm -f pg-diagtest || true
 
       - name: No gated changes
-        if: github.event_name == 'pull_request' && steps.filter.outputs.web != 'true' && steps.filter.outputs.api != 'true' && steps.filter.outputs.infra != 'true' && steps.filter.outputs.runbooks != 'true' && steps.filter.outputs.workflows != 'true'
-        run: echo "No web/, api/, infra/, runbook or .github/workflows/ changes detected — nothing to gate."
+        if: github.event_name == 'pull_request' && steps.filter.outputs.web != 'true' && steps.filter.outputs.api != 'true' && steps.filter.outputs.infra != 'true' && steps.filter.outputs.runbooks != 'true' && steps.filter.outputs.workflows != 'true' && steps.filter.outputs.scripts != 'true' && steps.filter.outputs.migrations != 'true'
+        run: echo "No web/, api/, infra/, runbook, script or .github/workflows/ changes detected — nothing to gate."

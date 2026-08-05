@@ -1,8 +1,16 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
+# Dependabot version updates.
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-
+#
+# Every ecosystem the repo actually builds from must be listed here, or its
+# pins go stale silently. The two that were missing:
+#
+#   • github-actions — every `uses:` is pinned to a 40-char commit SHA (H5), and
+#     a SHA never moves. Without this ecosystem those pins would never be
+#     refreshed and the workflows would freeze on whatever action release was
+#     current the day they were pinned. Dependabot rewrites `@<sha> # <tag>`
+#     pairs and keeps the comment accurate.
+#   • /infra/postgres-backup — the backup sidecar's Dockerfile is BUILT on the
+#     VM, so its base image was the one container image nothing watched.
 version: 2
 updates:
   - package-ecosystem: "npm" # See documentation for possible values
@@ -17,9 +25,17 @@ updates:
     directories:
       - "/web"
       - "/api"
+      # Built on the VM by deploy-remote.sh, not pulled from a registry
+      - "/infra/postgres-backup"
     schedule:
       interval: "weekly"
   - package-ecosystem: "docker-compose" # See documentation for possible values
-    directory: "/infra" # Location of package manifests
+    directory: "/infra"
+    schedule:
+      interval: "weekly"
+  # Workflow action pins (SHA + version comment). "/" is where Dependabot looks
+  # for .github/workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
       interval: "weekly"

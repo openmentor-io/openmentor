@@ -536,6 +536,8 @@ echo -e "${BLUE}🔐 Step 7/9: Uploading runtime environment variables...${NC}"
 # Create temporary env file with image tags
 TEMP_ENV_FILE=$(mktemp)
 # Both hold a copy of .env.production, so clean up even on an early exit.
+# shellcheck disable=SC2064 # expand TEMP_ENV_FILE now: it is set on the line
+# above and must not depend on the variable still existing when the trap fires.
 trap "rm -f $TEMP_ENV_FILE $TEMP_ENV_FILE.staging" EXIT
 
 # Copy .env.production and set image tags (untouched services keep their
@@ -560,28 +562,56 @@ if [ "$STAGING" = true ]; then
     mv "$TEMP_ENV_FILE.staging" "$TEMP_ENV_FILE"
 fi
 
-# Preserve the VM's previous .env (previous image tags) BEFORE overwriting
-# it — deploy-remote.sh's auto-rollback restores .env.backup if the health
-# checks fail after convergence.
-ssh "${SSH_OPTS[@]}" \
-    "$_VM_SSH_USER@$_VM_SSH_HOST" \
-    "cd $REMOTE_INFRA_DIR && if [ -f .env ]; then cp .env .env.backup; fi"
-
-# Upload to VM
+# H9: upload to a side file and swap it in under the deploy lock, instead of
+# scp-ing straight over the live .env. Two reasons. A scp that dies halfway used
+# to leave production with a TRUNCATED .env; a rename is atomic. And this is one
+# of the three writers of that file (with the deploy workflow and rollback.sh) —
+# taking the same lock deploy-remote.sh takes keeps the swap out of the middle of
+# somebody else's converge. The rollback target itself is .env.lastgood, which
+# only a health-verified deploy writes; see the header of deploy-remote.sh.
 echo "Uploading .env file to production VM..."
-scp "${SSH_OPTS[@]}" \
+if ! scp "${SSH_OPTS[@]}" \
     "$TEMP_ENV_FILE" \
-    "$_VM_SSH_USER@$_VM_SSH_HOST:$REMOTE_INFRA_DIR/.env"
-
-if [ $? -ne 0 ]; then
+    "$_VM_SSH_USER@$_VM_SSH_HOST:$REMOTE_INFRA_DIR/.env.incoming"; then
     echo -e "${RED}❌ Failed to upload environment file${NC}"
     exit 1
 fi
 
-# Set proper permissions on remote .env file
-ssh "${SSH_OPTS[@]}" \
+if ! ssh "${SSH_OPTS[@]}" \
     "$_VM_SSH_USER@$_VM_SSH_HOST" \
-    "chmod 600 $REMOTE_INFRA_DIR/.env"
+    "bash -s -- $(printf '%q' "$REMOTE_INFRA_DIR")" <<'ENV_SWAP'
+set -e
+cd "$1"
+
+if ! command -v flock >/dev/null 2>&1; then
+    echo "flock (util-linux) is not installed on this VM - refusing to deploy unserialized."
+    exit 1
+fi
+exec 9>>.deploy.lock
+chmod 600 .deploy.lock 2>/dev/null || true
+if ! flock -w "${DEPLOY_LOCK_WAIT:-900}" 9; then
+    echo "Timed out waiting for the deploy lock: another deploy or rollback is converging this VM. Nothing was changed."
+    exit 1
+fi
+
+# Snapshot before the swap; timestamped so a concurrent writer cannot destroy
+# it, pruned to the 5 newest because each one is a copy of every secret.
+if [ -f .env ]; then
+    snapshot=".env.backup.$(date +%s)"
+    cp .env "$snapshot"
+    chmod 600 "$snapshot"
+    # shellcheck disable=SC2012 # fixed prefix, no user-supplied names
+    ls -1t .env.backup.* 2>/dev/null | tail -n +6 | xargs -r rm -f
+    echo "Snapshotted the current .env as $snapshot"
+fi
+
+chmod 600 .env.incoming
+mv .env.incoming .env
+ENV_SWAP
+then
+    echo -e "${RED}❌ Failed to install the uploaded environment file${NC}"
+    exit 1
+fi
 
 echo -e "${GREEN}✅ Environment variables uploaded securely${NC}"
 echo ""
@@ -662,9 +692,15 @@ DEPLOY_EXIT_CODE=0
 # DROPS empty arguments (an empty UP_FLAGS made the remote script read the
 # alloy flag as a compose service name). %q preserves every arg, empty ones
 # included, across the ssh boundary.
+#
+# H9: the last two arguments are the tags step 7 just swapped in. The lock was
+# released when that ssh session exited, so deploy-remote.sh re-checks .env
+# against them under its own lock before pulling — a concurrent writer that
+# reverted the swap fails this deploy loudly instead of getting its own tags
+# deployed under this run's banner.
 ssh "${SSH_OPTS[@]}" \
     "$_VM_SSH_USER@$_VM_SSH_HOST" \
-    "bash -s -- $(printf '%q ' "$UP_FLAGS" "$RESTART_ALLOY" "$REBUILD_BACKUP_SIDECAR")" \
+    "bash -s -- $(printf '%q ' "$UP_FLAGS" "$RESTART_ALLOY" "$REBUILD_BACKUP_SIDECAR" "$FRONTEND_IMAGE_TAG" "$BACKEND_IMAGE_TAG")" \
     < "$SCRIPT_DIR/deploy-remote.sh" \
     || DEPLOY_EXIT_CODE=$?
 

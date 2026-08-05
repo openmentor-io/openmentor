@@ -1,4 +1,4 @@
-.PHONY: help check compose-config env-allowlist backup-tests deploy-tests alert-tests
+.PHONY: help check compose-config env-allowlist shellcheck backup-tests deploy-tests alert-tests
 
 # The fast infra checks, in one place. .github/workflows/checks.yml calls these
 # targets (as web/ and api/ do), so `make check` here runs exactly what the
@@ -14,11 +14,12 @@ help:
 	@echo "  check          - All fast infra checks (what CI runs)"
 	@echo "  compose-config - Validate the prod and dev compose renders"
 	@echo "  env-allowlist  - Per-service env allowlist + secret ownership"
+	@echo "  shellcheck     - shellcheck every script in infra/"
 	@echo "  backup-tests   - postgres-backup sidecar behaviour tests"
 	@echo "  deploy-tests   - blocks the deploy scripts share (.env.runtime, backup gate)"
 	@echo "  alert-tests    - backup alert + panels vs Alloy labels vs sidecar gauges"
 
-check: compose-config env-allowlist backup-tests deploy-tests alert-tests
+check: compose-config env-allowlist shellcheck backup-tests deploy-tests alert-tests
 	@echo "✅ Infra checks passed!"
 
 compose-config:
@@ -30,6 +31,15 @@ compose-config:
 # as an empty one.
 env-allowlist:
 	@./check-service-env.sh --self-test
+
+# These scripts run as root on the production VM and are piped over ssh, where a
+# quoting slip is a live-system incident rather than a stack trace (H12).
+#
+# The file list and the severity live in ../scripts/shellcheck-all.sh, which the
+# merge gate also calls for the scripts OUTSIDE infra/ — one definition, so CI
+# and this target can't drift apart on either.
+shellcheck:
+	@../scripts/shellcheck-all.sh infra
 
 backup-tests:
 	@./postgres-backup/backup-test.sh
