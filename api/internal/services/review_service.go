@@ -61,7 +61,7 @@ func NewReviewService(
 		reviewRepo:      reviewRepo,
 		config:          cfg,
 		httpClient:      httpClient,
-		captchaVerifier: turnstile.NewVerifier(cfg.Turnstile.SecretKey, httpClient),
+		captchaVerifier: newCaptchaVerifier(cfg, httpClient),
 		tracker:         tracker,
 	}
 }
@@ -149,7 +149,7 @@ func (s *ReviewService) SubmitReview(ctx context.Context, requestID string, req 
 	}
 
 	// Verify captcha (Cloudflare Turnstile)
-	if err := s.captchaVerifier.Verify(req.CaptchaToken); err != nil {
+	if err := s.captchaVerifier.Verify(ctx, req.CaptchaToken); err != nil {
 		metrics.ReviewSubmissions.WithLabelValues("captcha_failed").Inc()
 		trackSubmissionOutcome(analytics.AnonymousDistinctID(), "captcha_failed")
 		logger.Warn("Turnstile verification failed for review",

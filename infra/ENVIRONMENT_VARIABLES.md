@@ -165,16 +165,18 @@ enforced by [`check-service-env.sh`](check-service-env.sh). Sensitive keys are
 | **`POSTGRES_USER/PASSWORD/DB`** | | | ● | ● | | | | |
 | `POSTGRES_HOST`, `BACKUP_*` | | | | ● | | | | |
 | **`DATABASE_URL`** | | | | | ● | ● | ● | |
-| `BASE_URL`, `ALLOWED_CORS_ORIGINS`, `DB_WORK_OFFLINE` | | | | | ● | ● | ● | |
+| `BASE_URL` | | | | | | ● | ● | |
+| `ALLOWED_CORS_ORIGINS`, `DB_WORK_OFFLINE` | | | | | | ● | ●³ | |
 | `TRUSTED_PROXIES` | | | | | | ● | | |
-| **`INTERNAL_MENTORS_API`**, **`MENTORS_API_LIST_AUTH_TOKEN`**, **`TURNSTILE_SECRET_KEY`**, **`JWT_SECRET`** | | | | | ○ | ● | ○ | |
+| **`INTERNAL_MENTORS_API`**, **`MENTORS_API_LIST_AUTH_TOKEN`**, **`TURNSTILE_SECRET_KEY`**, **`JWT_SECRET`** | | | | | | ● | | |
+| `TURNSTILE_EXPECTED_HOSTNAME`, `TURNSTILE_EXPECTED_ACTION` | | | | | | ● | | |
 | `JWT_ISSUER`, `SESSION_TTL_HOURS`, `LOGIN_TOKEN_TTL_MINUTES`, `COOKIE_*` | | | | | | ● | | |
-| **`WORKER_AUTH_TOKEN`** | | | | | ○ | ● | ● | |
+| **`WORKER_AUTH_TOKEN`** | | | | | | ● | ● | |
 | `*_TRIGGER_URL` | | | | | | ● | | |
-| **`S3_STORAGE_*`** | | | | | ○ | ● | ○ | |
+| **`S3_STORAGE_*`** | | | | | | ● | | |
 | **`SES_*`**, `MODERATORS_EMAIL`, `DISCORD_MENTORS_PRIVATE_INVITE_LINK`, `DEV_EMAIL_OVERRIDE` | | | | | | | ● | |
 | `WORKER_CRON_ENABLED`, `WORKER_DB_MAX_CONNS`, `HIGHLIGHTED_MENTORS` | | | | | | | ● | |
-| `ANALYTICS_*`, **`POSTHOG_API_KEY`**, `POSTHOG_HOST/ENABLED/CAPTURE_ENDPOINT` | | | | | ○ | ● | ● | |
+| `ANALYTICS_*`, **`POSTHOG_API_KEY`**, `POSTHOG_HOST/ENABLED/CAPTURE_ENDPOINT` | | | | | | ● | ● | |
 | `POSTHOG_DISABLE_GEOIP` | | | | | | ● | ● | |
 | `O11Y_EXPORTER_ENDPOINT` | | ● | | | | ● | ● | |
 | `O11Y_SERVICE_NAMESPACE` | | ● | | | | ● | ● | ● |
@@ -199,12 +201,21 @@ the container OOM-killed. Each value is ~20% under that service's own
 non-heap memory — change one and change the other, or the soft limit lands
 above the hard one and stops doing anything.
 
-○ = passed **only** to satisfy `config.Validate()`. `cmd/migrate` and
-`cmd/worker` call the same `config.Load()` as `cmd/api`, which rejects a missing
-`INTERNAL_MENTORS_API` / `MENTORS_API_LIST_AUTH_TOKEN` / `TURNSTILE_SECRET_KEY`
-/ `JWT_SECRET` / `WORKER_AUTH_TOKEN` / `POSTHOG_API_KEY`. Neither binary reads
-them. Trimming these needs per-binary validation profiles in `api/config` —
-an API change, tracked separately, not something compose can fix.
+³ `DB_WORK_OFFLINE` reaches the worker only as an accepted override; nothing
+implements an offline mode (see M7).
+
+There is no longer a "validation-only" column in this matrix. Every key each
+binary receives is one it reads: `api/config` has a per-binary validation profile
+(`ValidateForAPI` / `ValidateForWorker` / `ValidateForMigrate`, D62), so
+`cmd/migrate` holds `DATABASE_URL` and no credential at all, and `cmd/worker`
+holds no S3, Turnstile, mentors-API or session secret.
+
+That column existed because all three binaries shared one `Validate()`, and the
+coupling was not theoretical: on 2026-08-04 a storage check written for `cmd/api`
+made `migrate` exit 1 and `depends_on: service_completed_successfully` held the
+whole stack in Created (a57aec2). **If a new check makes one binary demand a
+setting it does not read, add it to that binary's profile — do not widen this
+matrix.**
 
 ### Never in any container
 

@@ -55,7 +55,7 @@ func registerAPIRoutes(
 	group.POST("/internal/mentors", generalRateLimiter.Middleware(), middleware.InternalAPIAuthMiddleware(cfg.Auth.InternalMentorsAPI), mentorHandler.GetInternalMentors)
 	group.POST("/contact-mentor", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), contactHandler.ContactMentor)
 	group.POST("/register-mentor", registrationRateLimiter.Middleware(), uploadAdmission.Middleware(),
-		middleware.BodySizeLimitMiddleware(10*1024*1024), registrationHandler.RegisterMentor)
+		middleware.BodySizeLimitMiddleware(middleware.MaxImageBodyBytes), registrationHandler.RegisterMentor)
 	// SECURITY: /logs appends to a file on disk, so it is gated behind the
 	// internal API token (server-to-server only, same as /internal/mentors) to
 	// prevent unauthenticated log injection / disk-fill DoS.
@@ -131,7 +131,7 @@ func registerMentorAdminRoutes(
 	mentor.POST("/profile/status", profileRateLimiter.Middleware(), mentorProfileHandler.UpdateProfileStatus)
 	mentor.POST("/profile/submit", profileRateLimiter.Middleware(), mentorProfileHandler.SubmitProfile)
 	mentor.POST("/profile/picture", profileRateLimiter.Middleware(), uploadAdmission.Middleware(),
-		middleware.BodySizeLimitMiddleware(10*1024*1024), mentorProfileHandler.UploadPicture)
+		middleware.BodySizeLimitMiddleware(middleware.MaxImageBodyBytes), mentorProfileHandler.UploadPicture)
 
 	// Username (public name for the slug) — a DELIBERATELY separate flow from
 	// profile save: changing it is a breaking action (shared links, cached OG
@@ -178,7 +178,7 @@ func registerAdminModerationRoutes(
 	admin.POST("/mentors/:id/return", adminMentorsHandler.ReturnMentor)
 	admin.POST("/mentors/:id/status", adminMentorsHandler.UpdateMentorStatus)
 	admin.POST("/mentors/:id/picture", profileRateLimiter.Middleware(), uploadAdmission.Middleware(),
-		middleware.BodySizeLimitMiddleware(10*1024*1024), adminMentorsHandler.UploadMentorPicture)
+		middleware.BodySizeLimitMiddleware(middleware.MaxImageBodyBytes), adminMentorsHandler.UploadMentorPicture)
 
 	// Username change (admin role only, no cooldown; goes through the same
 	// history/redirect machinery as the mentor flow).
@@ -195,7 +195,7 @@ func registerAdminModerationRoutes(
 
 func main() { //nolint:gocyclo
 	// Load configuration
-	cfg, err := config.Load()
+	cfg, err := config.LoadFor(config.BinaryAPI)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
 		os.Exit(1)
@@ -398,6 +398,13 @@ func main() { //nolint:gocyclo
 	router.Use(otelgin.Middleware(cfg.Observability.ServiceName)) // OpenTelemetry tracing
 	router.Use(middleware.ObservabilityMiddleware())
 	router.Use(middleware.SecurityHeadersMiddleware())
+	// SECURITY: a global body cap, so a route can only be unbounded on purpose.
+	// Before this, every mentor-profile and admin-moderation POST had no cap at
+	// all. Routes needing more re-apply BodySizeLimitMiddleware with their own
+	// value, which REPLACES this one rather than nesting inside it — the three
+	// image routes depend on that, and they keep their AdmissionLimiter,
+	// which bounds a different thing (how many such bodies are resident at once).
+	router.Use(middleware.BodySizeLimitMiddleware(middleware.DefaultMaxBodyBytes))
 
 	// CORS configuration - SECURITY: Only allow specific origins
 	allowedOrigins := cfg.Server.AllowedOrigins
@@ -439,16 +446,16 @@ func main() { //nolint:gocyclo
 	// on token-guessing lookups.
 	confirmResendFloodLimiter := middleware.NewRateLimiter(5, 20) // coarse global cap: ~5/sec, burst 20
 
-	// ONE admission limiter shared by every route that accepts a 10 MiB body
-	// (registration and the two picture uploads), because they share one 512 MiB
-	// container. The rate limiters above cap arrivals per second, not how many
-	// payloads are resident: an admitted upload retains ~31 MiB until it returns
-	// (body string + JSON decoder buffer + the base64-decoded image), so the
-	// burst of 20 those limiters allow is ~620 MiB and the decode semaphore in
-	// pkg/imageclass never gets to help. Four in flight is ~124 MiB, plus the
-	// 128 MiB decode budget, and it is far above real demand — a handful of
-	// uploads a day.
-	uploadAdmission := middleware.NewAdmissionLimiter(4, 5*time.Second)
+	// ONE admission limiter shared by every route that accepts a
+	// middleware.MaxImageBodyBytes body (registration and the two picture
+	// uploads), because they share one 512 MiB container. The rate limiters above
+	// cap arrivals per second, not how many payloads are resident: an admitted
+	// upload retains ~3x its body until it returns (body string + JSON decoder
+	// buffer + the base64-decoded image), so the burst of 20 those limiters allow
+	// is ~840 MiB and the decode semaphore in pkg/imageclass never gets to help.
+	// The slot count, and the arithmetic tying it to the body cap it multiplies,
+	// live next to that cap — see middleware.MaxUploadsInFlight.
+	uploadAdmission := middleware.NewAdmissionLimiter(middleware.MaxUploadsInFlight, 5*time.Second)
 
 	// API routes
 	api := router.Group("/api")

@@ -14,7 +14,7 @@ import (
 
 // countingBody reports how much of the request body was actually read, which is
 // the property the admission limiter exists for: a shed request must not have
-// had its (up to 10 MiB) payload buffered.
+// had its (up to MaxImageBodyBytes) payload buffered.
 type countingBody struct {
 	inner io.Reader
 	read  int

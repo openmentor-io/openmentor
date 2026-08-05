@@ -3,8 +3,6 @@ package services_test
 import (
 	"context"
 	"encoding/base64"
-	"io"
-	"net/http"
 	"runtime"
 	"strings"
 	"testing"
@@ -16,25 +14,6 @@ import (
 	"github.com/openmentor-io/openmentor/api/test/imagefixture"
 )
 
-// captchaFailClient is an httpclient.Client whose Turnstile siteverify response
-// always rejects the token.
-type captchaFailClient struct{}
-
-func (captchaFailClient) Post(_, _ string, _ io.Reader) (*http.Response, error) {
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader(`{"success":false,"error-codes":["invalid-input-response"]}`)),
-	}, nil
-}
-
-func (captchaFailClient) Get(_ string) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
-}
-
-func (captchaFailClient) Do(_ *http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
-}
-
 // TestRegistrationVerifiesCaptchaBeforeTouchingThePhoto pins the order of the
 // two guards. /register-mentor is unauthenticated, and the image decode is by
 // far the most expensive thing it does (tens of megabytes for a payload of a
@@ -42,7 +21,7 @@ func (captchaFailClient) Do(_ *http.Request) (*http.Response, error) {
 // before any of that work is reachable.
 func TestRegistrationVerifiesCaptchaBeforeTouchingThePhoto(t *testing.T) {
 	repo := &recordingRegistrationRepo{}
-	svc := services.NewRegistrationService(repo, &s3storage.StorageClient{}, &config.Config{}, captchaFailClient{}, &capturingTracker{})
+	svc := services.NewRegistrationService(repo, &s3storage.StorageClient{}, &config.Config{}, captchaFail, &capturingTracker{})
 
 	req := &models.RegisterMentorRequest{Name: "John Doe", Email: "john@example.com"}
 	// A legitimate 2000x2000 photo: it passes every validator, so nothing but
@@ -73,7 +52,7 @@ func TestRegistrationVerifiesCaptchaBeforeTouchingThePhoto(t *testing.T) {
 // and an unusable photo, the captcha is what the caller is told about.
 func TestRegistrationRejectsBadCaptchaBeforeBadPhoto(t *testing.T) {
 	repo := &recordingRegistrationRepo{}
-	svc := services.NewRegistrationService(repo, &s3storage.StorageClient{}, &config.Config{}, captchaFailClient{}, &capturingTracker{})
+	svc := services.NewRegistrationService(repo, &s3storage.StorageClient{}, &config.Config{}, captchaFail, &capturingTracker{})
 
 	req := &models.RegisterMentorRequest{Name: "John Doe", Email: "john@example.com"}
 	req.ProfilePicture.Image = base64.StdEncoding.EncodeToString([]byte("not an image at all"))

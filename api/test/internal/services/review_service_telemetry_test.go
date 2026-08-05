@@ -3,8 +3,6 @@ package services_test
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"testing"
 
@@ -53,25 +51,6 @@ func (f *fakeReviewRepo) CreateReview(_ context.Context, requestID, _, _, _ stri
 }
 
 var _ services.ReviewRepository = (*fakeReviewRepo)(nil)
-
-// captchaPassingClient answers Turnstile's siteverify with a success.
-type captchaPassingClient struct{}
-
-func (captchaPassingClient) Post(_, _ string, _ io.Reader) (*http.Response, error) {
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader(`{"success":true}`)),
-		Header:     make(http.Header),
-	}, nil
-}
-
-func (captchaPassingClient) Get(string) (*http.Response, error) {
-	return nil, fmt.Errorf("unexpected GET")
-}
-
-func (captchaPassingClient) Do(*http.Request) (*http.Response, error) {
-	return nil, fmt.Errorf("unexpected Do")
-}
 
 // trackedCall is one analytics.Tracker invocation.
 type trackedCall struct {
@@ -126,7 +105,7 @@ func TestReviewServiceTelemetryOmitsRequestCapability(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			logs := observeServiceLogs(t)
 			tracker := &reviewTracker{}
-			service := services.NewReviewService(tc.repo, &config.Config{}, captchaPassingClient{}, tracker)
+			service := services.NewReviewService(tc.repo, &config.Config{}, captchaOK, tracker)
 
 			//nolint:errcheck // the error paths are the point; telemetry is what is asserted
 			service.CheckReview(context.Background(), reviewCapability)
@@ -168,7 +147,7 @@ func TestReviewServiceAttributesSuccessToMentor(t *testing.T) {
 		reviewID: "review-1",
 	}
 	tracker := &reviewTracker{}
-	service := services.NewReviewService(repo, &config.Config{}, captchaPassingClient{}, tracker)
+	service := services.NewReviewService(repo, &config.Config{}, captchaOK, tracker)
 
 	if _, err := service.SubmitReview(context.Background(), reviewCapability, &models.SubmitReviewRequest{
 		MentorReview: "great session",

@@ -283,41 +283,24 @@ services:
     container_name: openmentor-migrate
     mem_limit: 256m
     command: ["/app/migrate"]
-    # SECURITY (P10): explicit allowlist. cmd/migrate only needs DATABASE_URL,
-    # but it calls the shared config.Load(), whose Validate() rejects a missing
-    # INTERNAL_MENTORS_API / MENTORS_API_LIST_AUTH_TOKEN / TURNSTILE_SECRET_KEY
-    # / JWT_SECRET / WORKER_AUTH_TOKEN / POSTHOG_API_KEY / S3_STORAGE_* (the
-    # last added by P1's fail-fast storage validation, which took prod down on
-    # 2026-08-04: this list predated it, migrate exited 1, and
-    # `depends_on: service_completed_successfully` blocked the whole stack).
-    # They are passed to satisfy validation and nothing else; trimming them
-    # needs a per-binary validation profile in api/config (follow-up, not an
-    # infra change). No SES or observability credentials reach this container.
+    # SECURITY (P10): explicit allowlist — and now the whole of it is what the
+    # binary reads. cmd/migrate applies migrations and exits, so
+    # config.LoadFor(config.BinaryMigrate) validates DATABASE_URL and nothing
+    # else (api/config, D62).
+    #
+    # This list used to carry INTERNAL_MENTORS_API, MENTORS_API_LIST_AUTH_TOKEN,
+    # TURNSTILE_SECRET_KEY, JWT_SECRET, WORKER_AUTH_TOKEN, POSTHOG_API_KEY and
+    # S3_STORAGE_*, every one of them "validation-only", because all three
+    # binaries shared one Validate(). That coupling took production down on
+    # 2026-08-04 (a57aec2): a storage check written for cmd/api made migrate exit
+    # 1, and `depends_on: service_completed_successfully` then held the whole
+    # stack in Created while the site served 404s. No credential of any kind
+    # reaches this container now.
     environment:
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_DIR=/app/logs
       - DATABASE_URL=${DATABASE_URL}
-      - DB_WORK_OFFLINE
-      # validation-only below
-      - S3_STORAGE_ACCESS_KEY
-      - S3_STORAGE_SECRET_KEY
-      - S3_STORAGE_BUCKET
-      - S3_STORAGE_ENDPOINT
-      - S3_STORAGE_REGION
-      - BASE_URL
-      - ALLOWED_CORS_ORIGINS
-      - INTERNAL_MENTORS_API
-      - MENTORS_API_LIST_AUTH_TOKEN
-      - TURNSTILE_SECRET_KEY
-      - JWT_SECRET
-      - WORKER_AUTH_TOKEN
-      - ANALYTICS_PROVIDER
-      - ANALYTICS_EVENT_VERSION
-      - POSTHOG_ENABLED
-      - POSTHOG_API_KEY
-      - POSTHOG_HOST
-      - POSTHOG_CAPTURE_ENDPOINT
     networks:
       - openmentor-network
     depends_on:
@@ -366,6 +349,10 @@ services:
       - INTERNAL_MENTORS_API
       - MENTORS_API_LIST_AUTH_TOKEN
       - TURNSTILE_SECRET_KEY
+      # Optional (H14): pin what siteverify echoes back, so a token solved on
+      # someone else's page cannot be replayed here.
+      - TURNSTILE_EXPECTED_HOSTNAME
+      - TURNSTILE_EXPECTED_ACTION
       - JWT_SECRET
       - JWT_ISSUER
       - SESSION_TTL_HOURS
@@ -428,10 +415,12 @@ services:
     # sends email, so it is the only one holding SES_*. Deliberately absent:
     # the trigger URLs (it *serves* those routes), POSTGRES_PASSWORD, BACKUP_*,
     # GCLOUD_*, CLOUDFLARE_DNS_API_TOKEN, METRICS_AUTH_TOKEN,
-    # GO_API_INTERNAL_TOKEN. S3_STORAGE_* is present only because the shared
-    # config.Load() Validate() requires it in production since P1 — cmd/worker
-    # never touches S3 (same validation-only story as the migrate service; the
-    # per-binary validation profile is the follow-up that removes both).
+    # GO_API_INTERNAL_TOKEN — and, since D62, S3_STORAGE_*, INTERNAL_MENTORS_API,
+    # MENTORS_API_LIST_AUTH_TOKEN, TURNSTILE_SECRET_KEY and JWT_SECRET, which the
+    # worker never read and only held to satisfy the shared Validate()
+    # (config.LoadFor(config.BinaryWorker) now validates the worker's own
+    # contract). ALLOWED_CORS_ORIGINS went with them: the worker serves no
+    # browser.
     environment:
       - GIN_MODE=release
       - WORKER_PORT=8090
@@ -446,13 +435,6 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DB_WORK_OFFLINE
       - BASE_URL # rendered into email links
-      - ALLOWED_CORS_ORIGINS
-      # validation-only (see the allowlist comment above)
-      - S3_STORAGE_ACCESS_KEY
-      - S3_STORAGE_SECRET_KEY
-      - S3_STORAGE_BUCKET
-      - S3_STORAGE_ENDPOINT
-      - S3_STORAGE_REGION
       # Worker itself
       - WORKER_AUTH_TOKEN
       - WORKER_CRON_ENABLED
@@ -484,12 +466,6 @@ services:
       - O11Y_PROFILING_ENDPOINT
       - O11Y_PROFILING_SAMPLE_TYPES
       - O11Y_PROFILING_UPLOAD_INTERVAL_SECONDS
-      # Validation-only (config.Validate() is shared with cmd/api; the worker
-      # reads none of these — see the migrate service comment)
-      - INTERNAL_MENTORS_API
-      - MENTORS_API_LIST_AUTH_TOKEN
-      - TURNSTILE_SECRET_KEY
-      - JWT_SECRET
     networks:
       - openmentor-network
     depends_on:

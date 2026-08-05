@@ -233,14 +233,33 @@ jobs:
 
           docker network create ci-net
 
-          # All three binaries (migrate, api, worker) load the same config,
-          # which hard-requires these vars in production (APP_ENV defaults to
-          # production) — including JWT_SECRET (>=32 chars) and WORKER_AUTH_TOKEN
-          # per the security hardening. Share one env file so they can't drift.
+          # ONE env file per binary, mirroring the per-service allowlists in
+          # infra/docker-compose.yml, because each binary validates only its own
+          # contract (config.LoadFor, D62). A single shared file is what this step
+          # used to do, and it could not have caught the 2026-08-04 outage: the
+          # deployed containers do NOT share an env, so a check that one binary
+          # satisfies only because another's variable happened to be in scope is
+          # exactly the failure mode.
           #
-          # The S3_STORAGE_* block must be COMPLETE or config validation fails
-          # in production; the values are unused here because NewStorageClient
-          # makes no network call and the smoke test uploads nothing.
+          # APP_ENV defaults to production, so every production-gated check applies.
+          # Credential values are placeholders and nothing dials out: the storage
+          # and SES clients make no network call at construction, and the smoke
+          # test uploads nothing and sends nothing.
+
+          # migrate: the DSN, and deliberately nothing else.
+          printf '%s\n' "DATABASE_URL=$DBURL" > ci-migrate.env
+
+          # worker: no S3, no Turnstile, no mentors-API token, no JWT secret.
+          printf '%s\n' \
+            "DATABASE_URL=$DBURL" \
+            'WORKER_AUTH_TOKEN=ci-worker-token' \
+            'SES_REGION=eu-central-1' \
+            'SES_ACCESS_KEY_ID=ci-ses-key-id' \
+            'SES_SECRET_ACCESS_KEY=ci-ses-secret' \
+            > ci-worker.env
+
+          # api: the full public-surface contract, including the event trigger
+          # URLs it fires at the worker (required in production since D62).
           printf '%s\n' \
             "DATABASE_URL=$DBURL" \
             'INTERNAL_MENTORS_API=test-token' \
@@ -253,7 +272,14 @@ jobs:
             'S3_STORAGE_BUCKET=ci-bucket' \
             'S3_STORAGE_ENDPOINT=http://s3.invalid' \
             'S3_STORAGE_REGION=auto' \
-            > ci.env
+            'MENTOR_CREATED_TRIGGER_URL=http://worker:8090/jobs/new-mentor-watcher?mentorId=' \
+            'MENTOR_REQUEST_CREATED_TRIGGER_URL=http://worker:8090/jobs/new-request-watcher?requestId=' \
+            'MENTOR_LOGIN_EMAIL_TRIGGER_URL=http://worker:8090/jobs/mentor-login-email' \
+            'MODERATOR_LOGIN_EMAIL_TRIGGER_URL=http://worker:8090/jobs/moderator-login-email' \
+            'MENTOR_MODERATION_TRIGGER_URL=http://worker:8090/jobs/mentor-moderation-action' \
+            'REQUEST_PROCESS_FINISHED_TRIGGER_URL=http://worker:8090/jobs/request-process-finished?requestId=' \
+            'REVIEW_CREATED_TRIGGER_URL=http://worker:8090/jobs/process-mentee-review?reviewId=' \
+            > ci-api.env
 
           docker run -d --name pg --network ci-net \
             -e POSTGRES_USER=openmentor -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=openmentor \
@@ -270,16 +296,16 @@ jobs:
           done
 
           echo "--- running migrations"
-          docker run --rm --network ci-net --env-file ci.env "$IMAGE" /app/migrate
+          docker run --rm --network ci-net --env-file ci-migrate.env "$IMAGE" /app/migrate
 
           echo "--- starting api"
           docker run -d --name api --network ci-net -p 8081:8081 \
-            --env-file ci.env \
+            --env-file ci-api.env \
             "$IMAGE"
 
           echo "--- starting worker"
           docker run -d --name worker --network ci-net -p 8090:8090 \
-            --env-file ci.env \
+            --env-file ci-worker.env \
             "$IMAGE" /app/worker
 
           wait_for() {
