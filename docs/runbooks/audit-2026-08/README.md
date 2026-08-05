@@ -48,6 +48,13 @@ Everything here is read-only or explicitly guarded. Nothing here changes code.
    that need the owner. §1 and §2 are gated on the diagnostics above, so do them
    after step 1.
 
+5. **[`review-capability-cutover.md`](review-capability-cutover.md)** — the two
+   H4 follow-ups that need production data: neutralising the 12 request ids that
+   already leaked into PostHog (do this soon after the H4 deploy — it is the only
+   remedy left for them), and the later cutover that stops accepting
+   `?request_id=` review links. The cutover is gated on a metric being zero, and
+   its §2 check is the production answer to `D4`, which the H4 PR could not run.
+
 [`diagnostics_test.sh`](diagnostics_test.sh) is not part of the procedure — it is
 the regression suite for the files above, run by `Checks / required-checks`. It
 also pins the operator instructions in the remediation plan against these

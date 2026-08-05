@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/openmentor-io/openmentor/api/internal/repository"
 )
 
 // This file holds the worker's own data access layer. The API's
@@ -16,6 +18,10 @@ import (
 // handlers ported from openmentor-func need raw rows including email,
 // preferred_contact and login token columns. The SQL below mirrors the
 // queries in openmentor-func/lib/utils/db.ts and each function's index.ts.
+//
+// That rationale is about ROW SHAPES. Where a statement has no shape to
+// disagree about, this file calls internal/repository instead of copying it —
+// see CreateReviewInvitation, the one write both sides make.
 
 // JobMentor is the mentor row shape the job handlers need. It mirrors the
 // Mentor class in openmentor-func/lib/data/mentor.ts (PgRowAdapter mapping).
@@ -124,6 +130,11 @@ type JobsRepository interface {
 	GetJobModeratorByID(ctx context.Context, moderatorID string) (*JobModerator, error)
 	GetJobReviewByID(ctx context.Context, reviewID string) (*JobReview, error)
 
+	// CreateReviewInvitation persists a minted review capability (H4). Called
+	// BEFORE the email carrying the raw token is sent, because a token that was
+	// not stored must never be mailed.
+	CreateReviewInvitation(ctx context.Context, requestID, tokenHash string, expiresAt time.Time) error
+
 	// Cron job queries (stage 3, timer-triggered functions).
 	ListMentorsWithStalePendingRequests(ctx context.Context) ([]JobMentor, error)
 	ListStalePendingRequests(ctx context.Context, mentorID string) ([]JobReminderRequest, error)
@@ -139,11 +150,15 @@ type JobsRepository interface {
 // Repository is the pgx-backed JobsRepository implementation.
 type Repository struct {
 	pool *pgxpool.Pool
+	// reviews is borrowed from the API's data access layer for the one statement
+	// both sides issue (CreateReviewInvitation). It is built on the SAME pool, so
+	// nothing about which identity the worker connects as changes.
+	reviews *repository.ReviewRepository
 }
 
 // NewRepository builds the worker's data access layer on the worker DB pool.
 func NewRepository(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool}
+	return &Repository{pool: pool, reviews: repository.NewReviewRepository(pool)}
 }
 
 // GetJobMentorByID fetches a mentor row by uuid.
@@ -742,4 +757,21 @@ func (r *Repository) GetJobReviewByID(ctx context.Context, reviewID string) (*Jo
 		return nil, fmt.Errorf("failed to fetch review %s: %w", reviewID, err)
 	}
 	return &rv, nil
+}
+
+// CreateReviewInvitation stores a minted review capability (H4).
+//
+// It DELEGATES rather than repeating the INSERT: the worker is the minting path,
+// so a second copy here would be the copy that matters, and it had already
+// drifted — the API-side implementation rejects a value that is not a 64-char
+// digest before it reaches the database, this one relied on the CHECK constraint
+// alone. One implementation means the guard, the column list and the
+// append-never-update rule cannot diverge again. Sharing is possible because the
+// method takes and returns nothing shaped by either package: the row shapes that
+// justify the worker's separate data access layer (see the file header) do not
+// apply to an insert of two strings and a timestamp.
+//
+// The pool is the WORKER's, so after H8 this still connects as om_worker.
+func (r *Repository) CreateReviewInvitation(ctx context.Context, requestID, tokenHash string, expiresAt time.Time) error {
+	return r.reviews.CreateReviewInvitation(ctx, requestID, tokenHash, expiresAt)
 }

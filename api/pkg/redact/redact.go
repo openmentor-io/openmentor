@@ -191,12 +191,14 @@ func URL(raw string) string {
 // terminator and a separator, which Path's split already handles and a
 // non-backtracking regexp does not.
 //
-// The URL rules are not enough on their own, so a shape sweep runs after them:
-// see sweepIDs.
+// The URL rules are not enough on their own, so two shape sweeps run after
+// them: see sweepIDs and sweepReviewTokens.
 func Text(raw string) string {
-	// Every rule needs one of these; prose has none of them.
+	// Every URL-shaped rule needs one of these; prose has none of them. The
+	// review-token sweep is checked separately because a token needs none of them
+	// (`rvw_` plus a base64url body can be letters and digits only).
 	if !strings.ContainsAny(raw, "/=-") {
-		return raw
+		return sweepReviewTokens(raw)
 	}
 
 	var b strings.Builder
@@ -214,7 +216,77 @@ func Text(raw string) string {
 		}
 		start = i + 1
 	}
-	return sweepIDs(b.String())
+	return sweepIDs(sweepReviewTokens(b.String()))
+}
+
+// reviewTokenPrefix and reviewTokenLen describe the shape of a review capability
+// minted by pkg/reviewtoken (H4). Duplicated rather than imported so this package
+// stays a dependency-free leaf; a test in pkg/reviewtoken pins the two
+// definitions together.
+const (
+	reviewTokenPrefix = "rvw_"
+	reviewTokenLen    = len(reviewTokenPrefix) + 43 // base64url of 32 bytes
+)
+
+// sweepReviewTokens removes review capability tokens from free-form text.
+//
+// The key-name rules cannot find these on their own: the token only ever reaches
+// the API in a JSON body, so if it does surface in a log line it will be inside a
+// message like `no live invitation for rvw_…` or a driver error quoting the
+// parameter it bound — text with no `key=` pair and no path segment for
+// QueryString or Path to bite on.
+//
+// Dropped outright rather than hashed like a request id: there is nothing to
+// correlate a spent token against, and a hashed form in a log line would be the
+// exact value review_invitations.token_hash is looked up by.
+func sweepReviewTokens(text string) string {
+	if !strings.Contains(text, reviewTokenPrefix) {
+		return text
+	}
+
+	var b strings.Builder
+	copied := 0
+	for i := 0; i+reviewTokenLen <= len(text); i++ {
+		if !strings.HasPrefix(text[i:], reviewTokenPrefix) {
+			continue
+		}
+		// Anchored on the left so `xrvw_…` inside a longer opaque value is not
+		// mistaken for a token start.
+		if i > 0 && isTokenChar(text[i-1]) {
+			continue
+		}
+		if !isTokenBody(text[i+len(reviewTokenPrefix) : i+reviewTokenLen]) {
+			continue
+		}
+		b.WriteString(text[copied:i])
+		b.WriteString(Placeholder)
+		i += reviewTokenLen - 1
+		copied = i + 1
+	}
+	if copied == 0 {
+		return text
+	}
+	b.WriteString(text[copied:])
+	return b.String()
+}
+
+func isTokenBody(body string) bool {
+	for i := 0; i < len(body); i++ {
+		if !isTokenChar(body[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// isTokenChar covers the base64url alphabet, which is also what a `_`-separated
+// prefix is made of.
+func isTokenChar(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_':
+		return true
+	}
+	return false
 }
 
 // sweepIDs replaces every UUID left in the text with a hashed reference. The

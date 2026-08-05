@@ -684,3 +684,118 @@ describe('faro beforeSend', () => {
     expect(item.payload.context.confirmToken).toBe(REDACTED_VALUE)
   })
 })
+
+/**
+ * H4 SENTINELS. The review capability is no longer the request id in a query
+ * string; it is a random token delivered in a URL FRAGMENT. A fragment is never
+ * sent to a server, but `window.location.href` still carries it, and that is what
+ * posthog-js reads for `$current_url` / `$initial_current_url` and rrweb for a
+ * replay's `first_url`. The page clears the fragment before analytics starts;
+ * these tests pin the second line of defence.
+ */
+describe('review capability in a url fragment', () => {
+  const REVIEW_TOKEN = 'rvw_SENTINELtelemetryCapabilityAAAAAAAAAAAAAAAA'
+  const CAPABILITY_LINK = `https://openmentor.io/reviews/new#review_token=${REVIEW_TOKEN}`
+
+  function expectNoToken(rendered: string): void {
+    expect(rendered).not.toContain(REVIEW_TOKEN)
+  }
+
+  it('strips the fragment from a url with no query string', () => {
+    // Regression: redactUrl split on `?` only, so a fragment-only URL went to the
+    // path rule as one long "path" and the token survived intact.
+    const redacted = redactUrl(CAPABILITY_LINK)
+    expectNoToken(redacted)
+    expect(redacted).toBe('https://openmentor.io/reviews/new#review_token=[REDACTED]')
+  })
+
+  it('strips the fragment when a query string already consumed the anchors', () => {
+    // `?a=b#review_token=…` leaves the pair rule no `?` or `&` to anchor on, which
+    // is why `#` is part of its delimiter class.
+    const redacted = redactQueryValues(
+      `https://openmentor.io/reviews/new?utm_source=email#review_token=${REVIEW_TOKEN}`
+    )
+    expectNoToken(redacted)
+    expect(redacted).toContain('utm_source=email')
+  })
+
+  it('scrubs the capability from every posthog url property', () => {
+    const event = redactSensitiveEvent({
+      uuid: 'evt-h4',
+      event: '$pageview',
+      properties: {
+        $current_url: CAPABILITY_LINK,
+        $pathname: '/reviews/new',
+        $referrer: CAPABILITY_LINK,
+        $host: 'openmentor.io',
+      },
+      $set_once: { $initial_current_url: CAPABILITY_LINK },
+    })
+
+    expectNoToken(JSON.stringify(event))
+    // The route survives, so the review funnel still works.
+    expect(event?.properties.$pathname).toBe('/reviews/new')
+    expect(event?.properties.$host).toBe('openmentor.io')
+  })
+
+  it("scrubs the capability from a session replay's first_url and DOM snapshot", () => {
+    const event = redactSensitiveEvent({
+      uuid: 'evt-h4-replay',
+      event: '$snapshot',
+      properties: {
+        $session_id: '0198f0cc-4444-7000-8000-dddddddddddd',
+        $snapshot_data: [
+          { type: 4, data: { href: CAPABILITY_LINK, width: 1280, height: 800 } },
+          {
+            type: 2,
+            data: {
+              node: {
+                childNodes: [
+                  { tagName: 'a', attributes: { href: CAPABILITY_LINK } },
+                  { tagName: 'input', attributes: { type: 'hidden', value: REVIEW_TOKEN } },
+                ],
+              },
+            },
+          },
+        ],
+        $session_recording_start_reason: 'sampling_override',
+      },
+    } as never)
+
+    expectNoToken(JSON.stringify(event))
+    // The SDK's own ids must survive, or replay correlation breaks (D52).
+    expect(event?.properties.$session_id).toBe('0198f0cc-4444-7000-8000-dddddddddddd')
+  })
+
+  it('scrubs the capability from a faro page url and an error message', () => {
+    const item = {
+      type: 'exception',
+      payload: {
+        type: 'TypeError',
+        value: `failed to submit review from ${CAPABILITY_LINK}`,
+      },
+      meta: {
+        page: { url: CAPABILITY_LINK },
+        session: { id: 'FARO-SESSION-2' },
+      },
+    }
+
+    redactFaroItem(item)
+
+    expectNoToken(JSON.stringify(item))
+    expect(item.meta.session.id).toBe('FARO-SESSION-2')
+  })
+
+  it('scrubs the capability from a log record and a span attribute', () => {
+    expectNoToken(String(redactValue(CAPABILITY_LINK, 'url')))
+    expectNoToken(String(redactValue(CAPABILITY_LINK, 'message')))
+    expectNoToken(String(redactValue(REVIEW_TOKEN, 'token')))
+    expectNoToken(String(redactValue(REVIEW_TOKEN, 'review_token')))
+    // A bare token under an innocent key: only the shape rule can find this one.
+    expectNoToken(String(redactValue(REVIEW_TOKEN, 'value')))
+
+    const attributes: Record<string, unknown> = { 'url.full': CAPABILITY_LINK }
+    redactSpanAttributes(attributes)
+    expectNoToken(JSON.stringify(attributes))
+  })
+})

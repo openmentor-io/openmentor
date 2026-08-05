@@ -70,8 +70,13 @@ type MentorRequestsServiceInterface interface {
 	DeclineRequest(ctx context.Context, mentorId string, requestID string, payload *models.DeclineRequestPayload) (*models.MentorClientRequest, error)
 }
 
-// ReviewServiceInterface defines the interface for review service operations
+// ReviewServiceInterface defines the interface for review service operations.
+// The token pair is the H4 capability path; the requestID pair is the legacy path
+// kept alive for the dual-read window and deleted at the cutover.
 type ReviewServiceInterface interface {
+	CheckReviewByToken(ctx context.Context, rawToken string) (*models.ReviewCheckResponse, error)
+	SubmitReviewWithToken(ctx context.Context, rawToken string, req *models.SubmitReviewRequest) (*models.SubmitReviewResponse, error)
+
 	CheckReview(ctx context.Context, requestID string) (*models.ReviewCheckResponse, error)
 	SubmitReview(ctx context.Context, requestID string, req *models.SubmitReviewRequest) (*models.SubmitReviewResponse, error)
 }

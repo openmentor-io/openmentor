@@ -171,7 +171,8 @@ enforced by [`check-service-env.sh`](check-service-env.sh). Sensitive keys are
 | **`INTERNAL_MENTORS_API`**, **`MENTORS_API_LIST_AUTH_TOKEN`**, **`TURNSTILE_SECRET_KEY`**, **`JWT_SECRET`** | | | | | | ● | | |
 | `TURNSTILE_EXPECTED_HOSTNAME`, `TURNSTILE_EXPECTED_ACTION` | | | | | | ● | | |
 | `JWT_ISSUER`, `SESSION_TTL_HOURS`, `LOGIN_TOKEN_TTL_MINUTES`, `COOKIE_*` | | | | | | ● | | |
-| **`WORKER_AUTH_TOKEN`** | | | | | | ● | ● | |
+| `REVIEW_LEGACY_REQUEST_ID_LINKS_ENABLED` (H4 dual-read switch, default `true`) | | | | | | ● | | |
+| **`WORKER_AUTH_TOKEN`** | | | | | ○ | ● | ● | |
 | `*_TRIGGER_URL` | | | | | | ● | | |
 | **`S3_STORAGE_*`** | | | | | | ● | | |
 | **`SES_*`**, `MODERATORS_EMAIL`, `DISCORD_MENTORS_PRIVATE_INVITE_LINK`, `DEV_EMAIL_OVERRIDE` | | | | | | | ● | |

@@ -47,6 +47,10 @@ var (
 	ReviewSubmissions *prometheus.CounterVec
 	ReviewChecks      *prometheus.CounterVec
 	ReviewDuration    prometheus.Histogram
+	// ReviewLegacyLinkUses is the H4 cutover gauge: it counts hits on the
+	// pre-H4 request-id review endpoints. Deleting those endpoints (the contract
+	// step) is gated on this reaching, and staying at, zero.
+	ReviewLegacyLinkUses *prometheus.CounterVec
 
 	// Worker Metrics (background worker binary, cmd/worker)
 	WorkerCronRunsTotal   *prometheus.CounterVec
@@ -269,6 +273,14 @@ func Init(serviceName string) {
 			Help: "Total review eligibility checks",
 		},
 		[]string{"result"},
+	)
+
+	ReviewLegacyLinkUses = factory.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "openmentor_review_legacy_link_uses_total",
+			Help: "Hits on the pre-H4 request-id review endpoints (endpoint: check|submit, outcome: accepted|refused)",
+		},
+		[]string{"endpoint", "outcome"},
 	)
 
 	ReviewDuration = factory.NewHistogram(
