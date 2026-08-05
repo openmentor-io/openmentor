@@ -208,7 +208,7 @@ groups:
           # against the service's mem_limit in docker-compose.yml, and fails when
           # a container is missing, double-counted, or paired with a stale limit.
           #
-          #   805306368 = 768m   536870912 = 512m   268435456 = 256m
+          #   805306368 = 768m   536870912 = 512m   268435456 = 256m   67108864 = 64m
           #
           # openmentor-migrate is deliberately absent: it is a one-shot that runs
           # to completion and exits, so a 15m window over it is meaningless.
@@ -216,7 +216,7 @@ groups:
             relativeTimeRange: { from: 900, to: 0 }
             datasourceUid: grafanacloud-prom
             model:
-              expr: '100 * max by (name) (container_memory_working_set_bytes{name="openmentor-frontend"} / 805306368 or container_memory_working_set_bytes{name=~"openmentor-backend|openmentor-postgres|grafana-alloy"} / 536870912 or container_memory_working_set_bytes{name=~"openmentor-worker|openmentor-postgres-backup|traefik|cadvisor"} / 268435456)'
+              expr: '100 * max by (name) (container_memory_working_set_bytes{name="openmentor-frontend"} / 805306368 or container_memory_working_set_bytes{name=~"openmentor-backend|openmentor-postgres|grafana-alloy"} / 536870912 or container_memory_working_set_bytes{name=~"openmentor-worker|openmentor-postgres-backup|traefik|cadvisor"} / 268435456 or container_memory_working_set_bytes{name="openmentor-docker-socket-proxy"} / 67108864)'
               instant: true
               refId: A
           - refId: B

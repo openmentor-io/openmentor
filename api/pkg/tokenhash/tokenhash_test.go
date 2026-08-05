@@ -38,3 +38,16 @@ func TestIsLegacyPlaintextRejectsADigest(t *testing.T) {
 		}
 	}
 }
+
+// TestHashMatchesSHA256Vectors pins the derivation itself, not just its
+// determinism: the lookup is an indexed equality match against a stored hash,
+// so ANY change to the algorithm invalidates every live magic link. Moved from
+// internal/repository/token_test.go when HashLoginToken became tokenhash.Hash.
+func TestHashMatchesSHA256Vectors(t *testing.T) {
+	if got := Hash("foo"); got != "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae" {
+		t.Errorf("Hash(\"foo\") = %q: the derivation changed — every live magic link is now invalid", got)
+	}
+	if got := Hash(""); got != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+		t.Errorf("Hash(\"\") = %q, want the SHA-256 empty-string digest", got)
+	}
+}

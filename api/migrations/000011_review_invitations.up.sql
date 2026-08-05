@@ -1,3 +1,6 @@
+-- phase: expand
+-- (additive: new table + nullable column; pre-H4 code ignores both, so
+-- rollback may cross it)
 -- H4: move the review capability off client_requests.id.
 --
 -- Before this migration `client_requests.id` WAS the review capability:

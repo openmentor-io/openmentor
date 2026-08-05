@@ -1,3 +1,6 @@
+-- phase: expand
+-- (additive: new columns with defaults + unique indexes on random tokens;
+-- pre-H1 code runs unchanged against this schema, so rollback may cross it)
 -- Session hardening (DECISIONS D57, D58). Additive only: two partial unique
 -- indexes and one NOT NULL column with a default on each identity table, so an
 -- image built before this migration still runs against the schema it creates.

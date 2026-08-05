@@ -232,11 +232,6 @@ set_env_tag() {
 CURRENT_FRONTEND_TAG=\$(grep "^FRONTEND_IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
 CURRENT_BACKEND_TAG=\$(grep "^BACKEND_IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
 echo "Current tags: frontend=\$CURRENT_FRONTEND_TAG backend=\$CURRENT_BACKEND_TAG"
-# H9: a timestamped snapshot, not the single .env.backup slot a concurrent
-# deploy would overwrite. The verified rollback target is .env.lastgood, updated
-# at the bottom of this script when the rolled-back version checks out.
-snapshot_env
-
 # --- H10 migration boundary guard (rollback.sh only) ------------------------
 # NOTE: this block lives in an UNQUOTED here-document, so every expansion is
 # backslash-escaped and it stays free of backticks. bash 3.2 — still /bin/bash
@@ -453,7 +448,11 @@ if [ \$GUARD_RC -ne 0 ]; then
 fi
 # --- end H10 migration boundary guard ---------------------------------------
 
-cp .env .env.backup
+# H9: a timestamped snapshot, not the single .env.backup slot a concurrent
+# deploy would overwrite. The verified rollback target is .env.lastgood, updated
+# at the bottom of this script when the rolled-back version checks out. Runs
+# AFTER the H10 guard so a refused rollback really has written nothing.
+snapshot_env
 
 # Update the per-service image tags in .env (compose reads them from there)
 if [ -n "\$FRONTEND_TARGET_TAG" ]; then

@@ -461,26 +461,6 @@ services:
       # deploying this file changes nothing on its own
       # (../docs/runbooks/database-identities.md).
       - DATABASE_URL=${MIGRATE_DATABASE_URL:-${DATABASE_URL}}
-      - DB_WORK_OFFLINE
-      # validation-only below
-      - S3_STORAGE_ACCESS_KEY
-      - S3_STORAGE_SECRET_KEY
-      - S3_STORAGE_BUCKET
-      - S3_STORAGE_ENDPOINT
-      - S3_STORAGE_REGION
-      - BASE_URL
-      - ALLOWED_CORS_ORIGINS
-      - INTERNAL_MENTORS_API
-      - MENTORS_API_LIST_AUTH_TOKEN
-      - TURNSTILE_SECRET_KEY
-      - JWT_SECRET
-      - WORKER_AUTH_TOKEN
-      - ANALYTICS_PROVIDER
-      - ANALYTICS_EVENT_VERSION
-      - POSTHOG_ENABLED
-      - POSTHOG_API_KEY
-      - POSTHOG_HOST
-      - POSTHOG_CAPTURE_ENDPOINT
     networks:
       - openmentor-network
     depends_on:

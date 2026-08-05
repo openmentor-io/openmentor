@@ -32,7 +32,7 @@ func newTestMentorRepo(pool *pgxpool.Pool) *MentorRepository {
 }
 
 // seedMentor inserts a mentor in the given status and returns its id.
-func seedMentor(t *testing.T, pool *pgxpool.Pool, status, slugSuffix string) string {
+func seedMentorWithStatus(t *testing.T, pool *pgxpool.Pool, status, slugSuffix string) string {
 	t.Helper()
 
 	var id string
@@ -72,7 +72,7 @@ func TestConsumeLoginTokenHasExactlyOneWinner(t *testing.T) {
 	repo := newTestMentorRepo(pool)
 	ctx := context.Background()
 
-	id := seedMentor(t, pool, "active", "race")
+	id := seedMentorWithStatus(t, pool, "active", "race")
 	const token = "mtk_concurrent_verification_probe"
 	require.NoError(t, repo.SetLoginToken(ctx, id, token, time.Now().Add(time.Hour)))
 
@@ -161,7 +161,7 @@ func TestConsumeLoginTokenChecksTheExpiryInSQL(t *testing.T) {
 	repo := newTestMentorRepo(pool)
 	ctx := context.Background()
 
-	id := seedMentor(t, pool, "active", "expired")
+	id := seedMentorWithStatus(t, pool, "active", "expired")
 	const token = "mtk_already_expired"
 	require.NoError(t, repo.SetLoginToken(ctx, id, token, time.Now().Add(-time.Minute)))
 
@@ -184,7 +184,7 @@ func TestLoginTokensAreNeverStoredInPlaintext(t *testing.T) {
 
 	const token = "mtk_plaintext_probe"
 
-	mentorID := seedMentor(t, pool, "active", "hashing")
+	mentorID := seedMentorWithStatus(t, pool, "active", "hashing")
 	require.NoError(t, newTestMentorRepo(pool).SetLoginToken(ctx, mentorID, token, time.Now().Add(time.Hour)))
 
 	modID := seedModerator(t, pool, "moderator", "hashing")
@@ -211,7 +211,7 @@ func TestConsumeConfirmationTokenHasExactlyOneWinner(t *testing.T) {
 	repo := newTestMentorRepo(pool)
 	ctx := context.Background()
 
-	id := seedMentor(t, pool, "draft", "confirm-race")
+	id := seedMentorWithStatus(t, pool, "draft", "confirm-race")
 	const token = "mcf_concurrent_confirmation_probe"
 	setConfirmationToken(t, pool, id, token, time.Now().Add(time.Hour))
 
@@ -253,7 +253,7 @@ func TestRotateConfirmationTokenKillsTheOldLink(t *testing.T) {
 	repo := newTestMentorRepo(pool)
 	ctx := context.Background()
 
-	id := seedMentor(t, pool, "draft", "rotate")
+	id := seedMentorWithStatus(t, pool, "draft", "rotate")
 	const oldToken = "mcf_the_link_they_already_have"
 	const newToken = "mcf_the_link_the_resend_sends"
 	setConfirmationToken(t, pool, id, oldToken, time.Now().Add(time.Hour))
@@ -284,7 +284,7 @@ func TestConfirmationTokensAreStoredHashed(t *testing.T) {
 	repo := newTestMentorRepo(pool)
 	ctx := context.Background()
 
-	id := seedMentor(t, pool, "draft", "confirm-hashing")
+	id := seedMentorWithStatus(t, pool, "draft", "confirm-hashing")
 	const token = "mcf_hashing_probe"
 	// Written the way the resend path writes it, so this covers the real code path
 	// rather than a test fixture's idea of the stored form.
@@ -310,7 +310,7 @@ func TestALegacyPlaintextConfirmationTokenStillWorks(t *testing.T) {
 	repo := newTestMentorRepo(pool)
 	ctx := context.Background()
 
-	id := seedMentor(t, pool, "draft", "legacy")
+	id := seedMentorWithStatus(t, pool, "draft", "legacy")
 	const token = "mcf_issued_before_hashing"
 	setConfirmationToken(t, pool, id, token, time.Now().Add(time.Hour)) // stored verbatim
 
@@ -332,7 +332,7 @@ func TestAStoredConfirmationHashIsNotItselfAToken(t *testing.T) {
 	repo := newTestMentorRepo(pool)
 	ctx := context.Background()
 
-	id := seedMentor(t, pool, "draft", "digest-replay")
+	id := seedMentorWithStatus(t, pool, "draft", "digest-replay")
 	const token = "mcf_digest_replay_probe"
 	setConfirmationTokenViaRotate(t, repo, pool, id, token)
 
@@ -351,7 +351,7 @@ func TestMentorSessionStateAndRevocation(t *testing.T) {
 	repo := newTestMentorRepo(pool)
 	ctx := context.Background()
 
-	id := seedMentor(t, pool, "active", "session-state")
+	id := seedMentorWithStatus(t, pool, "active", "session-state")
 
 	status, version, err := repo.MentorSessionState(ctx, id)
 	require.NoError(t, err)
@@ -400,8 +400,8 @@ func TestTheLoginTokenIndexIsUnique(t *testing.T) {
 	pool := dbtest.Pool(t)
 	ctx := context.Background()
 
-	first := seedMentor(t, pool, "active", "uniq-a")
-	second := seedMentor(t, pool, "active", "uniq-b")
+	first := seedMentorWithStatus(t, pool, "active", "uniq-a")
+	second := seedMentorWithStatus(t, pool, "active", "uniq-b")
 	repo := newTestMentorRepo(pool)
 
 	require.NoError(t, repo.SetLoginToken(ctx, first, "mtk_shared", time.Now().Add(time.Hour)))

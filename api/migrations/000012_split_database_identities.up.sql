@@ -1,3 +1,6 @@
+-- phase: expand
+-- (additive: roles and grants only; every pre-H8 DSN keeps working until an
+-- operator switches it, so rollback may cross it)
 -- Split database identities (SECURITY H8, DECISIONS D67).
 --
 -- Until now migrate, backend and worker all authenticated as POSTGRES_USER —

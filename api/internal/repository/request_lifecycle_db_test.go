@@ -196,20 +196,27 @@ func TestReviewEligibilityFollowsTheRequestState(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, eligible.CanSubmit)
 
-	reviewID, err := reviews.CreateReview(ctx, id, "great session", "good platform", "none")
+	submission, err := reviews.SubmitReviewForRequest(ctx, id, ReviewContent{
+		MentorReview: "great session", PlatformReview: "good platform", Improvements: "none",
+	})
 	require.NoError(t, err)
-	assert.NotEmpty(t, reviewID)
+	assert.NotEmpty(t, submission.ReviewID)
 
 	alreadyReviewed, err := reviews.CheckCanSubmitReview(ctx, id)
 	require.NoError(t, err)
 	assert.False(t, alreadyReviewed.CanSubmit,
 		"the review link is single-use: the LEFT JOIN must see the new row")
 
-	// And the second submission is refused by the UNIQUE constraint, not just by
-	// the check above — the check-then-write gap is otherwise a double review.
-	_, err = reviews.CreateReview(ctx, id, "again", "again", "again")
+	// And the second submission is refused. Since H4, SubmitReviewForRequest
+	// re-checks eligibility inside its transaction, so a sequential resubmit is
+	// refused there (ErrReviewIneligible) before the UNIQUE constraint can fire;
+	// the constraint still backs the concurrent check-then-write race, which
+	// review_invitation_db_test.go exercises with 8 simultaneous callers.
+	_, err = reviews.SubmitReviewForRequest(ctx, id, ReviewContent{
+		MentorReview: "again", PlatformReview: "again", Improvements: "again",
+	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "review already exists")
+	assert.ErrorIs(t, err, ErrReviewIneligible)
 }
 
 // TestReviewJoinsOntoTheRequestRead: the mentor's inbox shows the review text via
@@ -226,7 +233,7 @@ func TestReviewJoinsOntoTheRequestRead(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, got.Review)
 
-	_, err = reviews.CreateReview(ctx, id, "clear and practical", "", "")
+	_, err = reviews.SubmitReviewForRequest(ctx, id, ReviewContent{MentorReview: "clear and practical"})
 	require.NoError(t, err)
 
 	got, err = requests.GetByID(ctx, id)

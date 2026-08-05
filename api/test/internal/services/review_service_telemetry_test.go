@@ -151,7 +151,7 @@ func TestReviewServiceTelemetryOmitsRequestCapability(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			logs := observeServiceLogs(t)
 			tracker := &reviewTracker{}
-			service := services.NewReviewService(tc.repo, legacyEnabledConfig(), captchaPassingClient{}, tracker)
+			service := services.NewReviewService(tc.repo, legacyEnabledConfig(), captchaOK, tracker)
 
 			//nolint:errcheck // the error paths are the point; telemetry is what is asserted
 			service.CheckReview(context.Background(), reviewCapability)
@@ -218,7 +218,7 @@ func TestReviewTokenNeverReachesTelemetry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			logs := observeServiceLogs(t)
 			tracker := &reviewTracker{}
-			service := services.NewReviewService(tc.repo, legacyEnabledConfig(), captchaPassingClient{}, tracker)
+			service := services.NewReviewService(tc.repo, legacyEnabledConfig(), captchaOK, tracker)
 
 			//nolint:errcheck // the error paths are the point; telemetry is what is asserted
 			service.CheckReviewByToken(context.Background(), reviewTokenSentinel)
@@ -271,7 +271,7 @@ func TestReviewTokenPathRevealsNothingForDeadCapability(t *testing.T) {
 				submitErr: repository.ErrReviewTokenInvalid,
 				checkErr:  repository.ErrReviewTokenInvalid,
 			}
-			service := services.NewReviewService(repo, legacyEnabledConfig(), captchaPassingClient{}, &reviewTracker{})
+			service := services.NewReviewService(repo, legacyEnabledConfig(), captchaOK, &reviewTracker{})
 
 			resp, err := service.CheckReviewByToken(context.Background(), token)
 			if !errors.Is(err, services.ErrReviewLinkInvalid) {
@@ -309,7 +309,7 @@ func TestLegacyReviewPathRefusedWhenSwitchedOff(t *testing.T) {
 		reviewID: "review-1",
 	}
 	// The zero value is "off"; config.Load defaults it to on for production.
-	service := services.NewReviewService(repo, &config.Config{}, captchaPassingClient{}, &reviewTracker{})
+	service := services.NewReviewService(repo, &config.Config{}, captchaOK, &reviewTracker{})
 
 	if _, err := service.CheckReview(context.Background(), reviewCapability); !errors.Is(err, services.ErrReviewLegacyPathDisabled) {
 		t.Errorf("CheckReview error = %v, want ErrReviewLegacyPathDisabled", err)
@@ -335,7 +335,7 @@ func TestReviewServiceAttributesSuccessToMentor(t *testing.T) {
 		reviewID: "review-1",
 	}
 	tracker := &reviewTracker{}
-	service := services.NewReviewService(repo, legacyEnabledConfig(), captchaPassingClient{}, tracker)
+	service := services.NewReviewService(repo, legacyEnabledConfig(), captchaOK, tracker)
 
 	if _, err := service.SubmitReviewWithToken(context.Background(), reviewTokenSentinel, &models.SubmitReviewRequest{
 		Token:        reviewTokenSentinel,
