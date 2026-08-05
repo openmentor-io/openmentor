@@ -232,8 +232,7 @@ func (s *ReviewService) SubmitReviewWithToken(ctx context.Context, rawToken stri
 
 	// Verify captcha (Cloudflare Turnstile)
 	if err := s.captchaVerifier.Verify(ctx, req.CaptchaToken); err != nil {
-		metrics.ReviewSubmissions.WithLabelValues("captcha_failed").Inc()
-		trackSubmissionOutcome(analytics.AnonymousDistinctID(), "captcha_failed")
+		track("", "captcha_failed", nil)
 		logger.Warn("Turnstile verification failed for review",
 			zap.String("link_type", reviewLinkTypeToken), logger.RedactedError(err))
 		return &models.SubmitReviewResponse{Success: false, Error: "Captcha verification failed"}, ErrReviewCaptchaFailed
@@ -266,7 +265,7 @@ func (s *ReviewService) SubmitReview(ctx context.Context, requestID string, req 
 	requestRef := redact.ID(requestID)
 	track := s.submissionTracker(ctx, reviewLinkTypeLegacy, req)
 
-	if err := s.captchaVerifier.Verify(req.CaptchaToken); err != nil {
+	if err := s.captchaVerifier.Verify(ctx, req.CaptchaToken); err != nil {
 		track("", "captcha_failed", nil)
 		logger.Warn("Turnstile verification failed for review",
 			zap.String("request_ref", requestRef), logger.RedactedError(err))
