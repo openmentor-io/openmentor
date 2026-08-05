@@ -35,6 +35,11 @@ import (
 // hashed, exactly as production does — the plaintext never reaches the database.
 const loginTokenPlaintext = "nullable-column-test-token"
 
+// futureExpiry keeps the seeded login token consumable. The generic timestamptz
+// filler writes a 2020 date, and ConsumeLoginToken checks the expiry in SQL, so
+// without this override every case would look like an expired link.
+const futureExpiry = "2999-01-01T00:00:00Z"
+
 // seedFullMentor inserts an active mentor with EVERY nullable column populated.
 // Active because FetchAllMentorsFromDB — the catalog, the widest blast radius of
 // the four — only selects active rows.
@@ -52,12 +57,14 @@ func seedFullMentor(t *testing.T, pool *pgxpool.Pool, columns []dbtest.Column, s
 		_, _ = pool.Exec(context.Background(), `DELETE FROM mentors WHERE id = $1`, id)
 	})
 
-	written := dbtest.FillNullable(t, pool, "mentors", columns, id, suffix, nil)
+	written := dbtest.FillNullable(t, pool, "mentors", columns, id, suffix, map[string]string{
+		"login_token_expires_at": futureExpiry,
+	})
 
 	// login_token has to hold a hash rather than the filler text, or
-	// GetByLoginToken could never match the row.
+	// ConsumeLoginToken could never match the row.
 	_, err = pool.Exec(ctx, `UPDATE mentors SET login_token = $1 WHERE id = $2`,
-		HashLoginToken(loginTokenPlaintext), id)
+		HashOneTimeToken(loginTokenPlaintext), id)
 	require.NoError(t, err)
 
 	return id, mentorSlug, written["email"]
@@ -96,20 +103,19 @@ func TestEveryNullableMentorColumnStaysReadable(t *testing.T) {
 				require.Equal(t, id, mentor.MentorID)
 			}
 
-			// Magic-link login. Same shape: only the lookup key itself, and the
-			// expiry the method deliberately rejects as missing, may fail.
-			mentor, _, err = repo.GetByLoginToken(ctx, loginTokenPlaintext)
+			// Magic-link login. The atomic consumption reads only NOT NULL
+			// columns, so the two lookup keys are the only NULLs that may stop it:
+			// no token to match, or no expiry to compare against.
+			consumed, err := repo.ConsumeLoginToken(ctx, loginTokenPlaintext)
 			switch {
-			case errors.Is(err, pgx.ErrNoRows):
-				if column.Name != "login_token" {
-					t.Errorf("GetByLoginToken found no row with %s NULL", column.Name)
+			case errors.Is(err, ErrTokenNotConsumable):
+				if column.Name != "login_token" && column.Name != "login_token_expires_at" {
+					t.Errorf("ConsumeLoginToken found no row with %s NULL", column.Name)
 				}
 			case err != nil:
-				if column.Name != "login_token_expires_at" {
-					t.Errorf("GetByLoginToken with %s NULL: %v", column.Name, err)
-				}
+				t.Errorf("ConsumeLoginToken with %s NULL: %v", column.Name, err)
 			default:
-				require.Equal(t, id, mentor.MentorID)
+				require.Equal(t, id, consumed.MentorID)
 			}
 
 			// Own-profile reads and the slug-history redirect target.

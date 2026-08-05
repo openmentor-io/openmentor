@@ -21,12 +21,15 @@ import (
 	"github.com/openmentor-io/openmentor/api/config"
 	"github.com/openmentor-io/openmentor/api/internal/models"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 )
 
-// The services log through the package-level logger, which only the binaries
-// initialize.
+// The services log through the package-level logger and record Prometheus
+// counters, both of which only the binaries initialize — an uninitialized counter
+// vec is a nil pointer, so a metrics-recording path panics in tests without this.
 func TestMain(m *testing.M) {
 	logger.Log = zap.NewNop()
+	metrics.Init("openmentor-services-test")
 	os.Exit(m.Run())
 }
 
@@ -54,17 +57,35 @@ func (f *fakeConfirmationRepo) GetByConfirmationToken(_ context.Context, token s
 	return nil, nil
 }
 
-func (f *fakeConfirmationRepo) ConfirmMentorEmail(_ context.Context, mentorID string) error {
-	f.confirmed = append(f.confirmed, mentorID)
-	return nil
+// ConsumeConfirmationToken models the atomic consumption: it applies only to a
+// draft row whose window is still open, exactly like the SQL WHERE.
+func (f *fakeConfirmationRepo) ConsumeConfirmationToken(_ context.Context, token string) (bool, error) {
+	mc, found := f.byToken[token]
+	if !found || mc.Status != "draft" || time.Now().After(mc.ExpiresAt) {
+		return false, nil
+	}
+	delete(f.byToken, token)
+	mc.Status = "pending"
+	f.confirmed = append(f.confirmed, mc.MentorID)
+	return true, nil
 }
 
-func (f *fakeConfirmationRepo) SetEmailConfirmation(_ context.Context, mentorID, token string, expiresAt time.Time) error {
-	f.rotations[mentorID] = expiresAt
-	f.byToken[token] = &models.MentorConfirmation{
-		MentorID: mentorID, Status: "draft", ExpiresAt: expiresAt,
+// RotateConfirmationToken models the compare-and-swap: it applies only while the
+// OLD token is still the one on the row.
+func (f *fakeConfirmationRepo) RotateConfirmationToken(
+	_ context.Context, oldToken, newToken string, expiresAt time.Time,
+) (bool, error) {
+
+	mc, found := f.byToken[oldToken]
+	if !found || mc.Status != "draft" {
+		return false, nil
 	}
-	return nil
+	delete(f.byToken, oldToken)
+	f.rotations[mc.MentorID] = expiresAt
+	f.byToken[newToken] = &models.MentorConfirmation{
+		MentorID: mc.MentorID, Status: "draft", ExpiresAt: expiresAt,
+	}
+	return true, nil
 }
 
 func newConfirmationService(repo MentorConfirmationRepository) *MentorConfirmationService {

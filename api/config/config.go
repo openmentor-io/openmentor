@@ -128,7 +128,8 @@ func (c EventTriggerFunctionsConfig) MentorConfirmedTriggerURL() string {
 }
 
 // MentorConfirmEmailTriggerURL is the worker trigger that (re)sends the
-// mentor-confirm-email using the confirmation token stored on the row.
+// mentor-confirm-email. Since D57 the token is hashed on the row, so the caller
+// POSTs the confirm URL in the payload rather than letting the job rebuild it.
 func (c EventTriggerFunctionsConfig) MentorConfirmEmailTriggerURL() string {
 	return c.derivedMentorTriggerURL("mentor-confirm-email")
 }
