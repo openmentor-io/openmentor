@@ -115,13 +115,12 @@ type SortOrderUpdate struct {
 // map "not found" to a 404 without inspecting driver errors.
 type JobsRepository interface {
 	GetJobMentorByID(ctx context.Context, mentorID string) (*JobMentor, error)
-	CountActiveMentorsByEmail(ctx context.Context, email string) (int, error)
+	CountActiveMentorsByEmail(ctx context.Context, email, excludeMentorID string) (int, error)
 	FinalizeNewMentor(ctx context.Context, params FinalizeNewMentorParams) (applied bool, err error)
 	ReleaseNewMentorFinalization(ctx context.Context, params FinalizeNewMentorParams) error
-	SetMentorStatus(ctx context.Context, mentorID, status string) error
 	GetJobRequestByID(ctx context.Context, requestID string) (*JobRequest, error)
 	GetJobRequestWithMentorName(ctx context.Context, requestID string) (*JobRequest, error)
-	SetRequestContactPending(ctx context.Context, requestID, contact string) error
+	SetRequestContactPending(ctx context.Context, requestID, contact string) (applied bool, err error)
 	GetJobModeratorByID(ctx context.Context, moderatorID string) (*JobModerator, error)
 	GetJobReviewByID(ctx context.Context, reviewID string) (*JobReview, error)
 
@@ -132,7 +131,7 @@ type JobsRepository interface {
 	ListStaleInProgressRequests(ctx context.Context, mentorID string) ([]JobReminderRequest, error)
 	ListMentorsToDeactivate(ctx context.Context) ([]JobMentor, error)
 	ListStuckDraftRegistrations(ctx context.Context) ([]JobMentor, error)
-	DeactivateMentor(ctx context.Context, mentorID string) error
+	DeactivateMentor(ctx context.Context, mentorID string) (applied bool, err error)
 	ListActiveMentorIDs(ctx context.Context) ([]string, error)
 	SetSortOrders(ctx context.Context, updates []SortOrderUpdate) error
 }
@@ -175,14 +174,22 @@ func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*Jo
 	return &m, nil
 }
 
-// CountActiveMentorsByEmail counts mentors with the same email and status
+// CountActiveMentorsByEmail counts OTHER mentors with the same email and status
 // 'active'. Mirrors findDuplicates() in new-mentor-watcher/index.ts
 // (SELECT * FROM mentors WHERE email = $1 AND status = 'active').
-func (r *Repository) CountActiveMentorsByEmail(ctx context.Context, email string) (int, error) {
+//
+// excludeMentorID is the registration being finalized. Without it a mentor who is
+// already active counts as their OWN duplicate, so a replayed
+// new-mentor-watcher against a live profile concludes "duplicate" and heads for
+// 'declined'. FinalizeNewMentor's status = 'draft' claim refuses that write
+// today, but the count also decides which email the job sends and feeds the
+// duplicates_count analytics property, so the exclusion belongs here rather than
+// resting on a downstream guard.
+func (r *Repository) CountActiveMentorsByEmail(ctx context.Context, email, excludeMentorID string) (int, error) {
 	var count int
 	err := r.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM mentors WHERE email = $1 AND status = 'active'`,
-		email,
+		`SELECT COUNT(*) FROM mentors WHERE email = $1 AND status = 'active' AND id <> $2`,
+		email, excludeMentorID,
 	).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count duplicate mentors: %w", err)
@@ -292,21 +299,14 @@ func (r *Repository) ReleaseNewMentorFinalization(ctx context.Context, p Finaliz
 	return nil
 }
 
-// SetMentorStatus updates a mentor's status (used by the moderation job's
-// idempotency check when the API's status write is missing/stale).
-// HARD GUARD: a mentor that has ever been activated (activated_at IS NOT
-// NULL) can never be moved back to 'draft'.
-func (r *Repository) SetMentorStatus(ctx context.Context, mentorID, status string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE mentors SET status = $1, updated_at = NOW()
-		 WHERE id = $2 AND NOT ($1 = 'draft' AND activated_at IS NOT NULL)`,
-		status, mentorID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to set mentor %s status: %w", mentorID, err)
-	}
-	return nil
-}
+// There is deliberately NO mentor-status write on this interface. The worker used
+// to carry one for the moderation job's "idempotency" repair, which reconciled
+// the row toward whatever the callback payload said — so a redelivered decline
+// landing after a newer approve flipped a live mentor to 'declined'. The API
+// writes the status before it fires the trigger and aborts if that write fails
+// (internal/services/admin_mentors_service.go), so the worker never had a
+// legitimate reason to write it, and the absence of the method is what keeps that
+// bug from being reintroduced. See MentorModerationAction.
 
 // JobRequest is all plain strings and pgx fails the WHOLE row scan on a NULL in
 // a non-pointer destination, so every nullable column here is COALESCEd — an
@@ -375,20 +375,50 @@ func (r *Repository) GetJobRequestWithMentorName(ctx context.Context, requestID 
 	return &req, nil
 }
 
-// SetRequestContactPending stores the trimmed contact details and moves
-// the request to 'pending'. Mirrors new-request-watcher/index.ts exactly
-// (UPDATE client_requests SET preferred_contact = $1, status = $2 WHERE id = $3 -
-// deliberately no updated_at/status_changed_at touch, matching the func).
-func (r *Repository) SetRequestContactPending(ctx context.Context, requestID, contact string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE client_requests SET preferred_contact = $1, status = 'pending' WHERE id = $2`,
-		contact, requestID,
-	)
+// SetRequestContactPending stores the trimmed contact details and stamps the
+// request as accepted into the 'pending' queue. Mirrors
+// new-request-watcher/index.ts, plus the replay guard the func lacked.
+//
+// applied reports whether this caller claimed the request. It is a ONE-SHOT
+// CLAIM, not a blind write: the caller must not email anyone about a request this
+// returned false for, because the state those emails describe is not the state
+// the row is in.
+//
+// status_changed_at IS NULL is the claim marker, and it needs no new column: the
+// INSERT (internal/repository/client_request_repository.go) creates the row
+// 'pending' with status_changed_at NULL and never sets it, while every later
+// status write goes through UpdateStatus/UpdateDecline, which always stamp it. So
+// a NULL means "no one has moved this request yet" and this UPDATE is what fills
+// it — which makes both failure modes impossible at once:
+//
+//   - A replay after the mentor (or the mentee) moved the request on writes
+//     nothing. Without the guard the blind status = 'pending' silently REOPENED a
+//     declined or completed request, and because it left status_changed_at at the
+//     older transition, the reopened request also read as stale to the reminder
+//     jobs. (updated_at DID move even before this change — trg_client_requests_updated_at
+//     from migration 000001 is a BEFORE UPDATE trigger — so the row was not
+//     entirely traceless, just misleading. It is set explicitly anyway, like every
+//     other write here.)
+//   - A second delivery while the request is still untouched writes nothing
+//     either, so the mentee/mentor/moderator emails go out exactly once.
+//
+// Two concurrent callers therefore produce exactly one winner: Postgres
+// re-evaluates the WHERE against the winner's committed row, whose
+// status_changed_at is no longer NULL.
+func (r *Repository) SetRequestContactPending(ctx context.Context, requestID, contact string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE client_requests
+		SET preferred_contact = $1, status = 'pending',
+			status_changed_at = NOW(), updated_at = NOW()
+		WHERE id = $2
+			AND status = 'pending'
+			AND status_changed_at IS NULL
+	`, contact, requestID)
 	if err != nil {
 		// Id omitted for the same reason as GetJobRequestByID.
-		return fmt.Errorf("failed to update client request: %w", err)
+		return false, fmt.Errorf("failed to update client request: %w", err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 // GetJobModeratorByID fetches a moderator row by uuid.
@@ -607,18 +637,35 @@ func (r *Repository) ListStuckDraftRegistrations(ctx context.Context) ([]JobMent
 	return mentors, nil
 }
 
-// DeactivateMentor sets a mentor's status to 'inactive'. Mirrors the UPDATE
-// in deactivate-pending-mentors/index.ts verbatim (deliberately no
-// updated_at touch, unlike SetMentorStatus).
-func (r *Repository) DeactivateMentor(ctx context.Context, mentorID string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE mentors SET status = 'inactive' WHERE id = $1`,
+// DeactivateMentor sets a mentor's status to 'inactive'. Mirrors the UPDATE in
+// deactivate-pending-mentors/index.ts, plus the guard the func lacked.
+//
+// applied reports whether this caller actually deactivated the mentor; the caller
+// must not send the "your profile was deactivated" email when it is false,
+// because the profile was not deactivated by this run.
+//
+// status = 'active' is what ListMentorsToDeactivate selected on, so re-checking it
+// in the write closes the window between the two: a mentor who is declined,
+// returned to draft or already inactive by the time the loop reaches them is left
+// alone instead of being pulled sideways into 'inactive' — and, since the same
+// predicate drives both, a second overlapping pass over the same list deactivates
+// and emails each mentor exactly once.
+//
+// updated_at is now stamped explicitly, like every other write in this file. The
+// func's "no updated_at touch" was never actually observable: mentors carries
+// trg_mentors_updated_at, a BEFORE UPDATE trigger (migration 000001), so the
+// column moved regardless. What the guard adds is that it stops moving on a
+// write that changes nothing.
+func (r *Repository) DeactivateMentor(ctx context.Context, mentorID string) (bool, error) {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE mentors SET status = 'inactive', updated_at = NOW()
+		 WHERE id = $1 AND status = 'active'`,
 		mentorID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to deactivate mentor %s: %w", mentorID, err)
+		return false, fmt.Errorf("failed to deactivate mentor %s: %w", mentorID, err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 // ListActiveMentorIDs returns the ids of all catalog-visible mentors.

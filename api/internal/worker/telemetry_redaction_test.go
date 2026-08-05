@@ -107,6 +107,9 @@ func TestJobLogsRedactErrorText(t *testing.T) {
 			path: "/jobs/new-request-watcher?requestId=" + workerReviewCapability,
 			inject: func(f *fakeRepo) {
 				f.requests[workerReviewCapability] = finishedRequest("new")
+				// The mentor read now precedes the claim, so it has to succeed
+				// for the update error to be the failure this case exercises.
+				f.mentors["m1"] = testMentor("m1")
 				f.setRequestErr = fmt.Errorf("failed to update client request %s: %w",
 					workerReviewCapability, errors.New("deadlock detected"))
 			},
@@ -170,7 +173,8 @@ func TestRepositoryErrorsDoNotNameTheRequest(t *testing.T) {
 			return err
 		},
 		"SetRequestContactPending": func() error {
-			return repo.SetRequestContactPending(ctx, workerReviewCapability, "@handle")
+			_, err := repo.SetRequestContactPending(ctx, workerReviewCapability, "@handle")
+			return err
 		},
 	}
 

@@ -42,8 +42,19 @@ func (h *Handlers) DeactivatePendingMentors(ctx context.Context) (JobSummary, er
 	summary.MentorsMatched = len(mentors)
 
 	for _, mentor := range mentors {
-		if err := h.repo.DeactivateMentor(ctx, mentor.ID); err != nil {
+		applied, err := h.repo.DeactivateMentor(ctx, mentor.ID)
+		if err != nil {
 			return summary, err
+		}
+		if !applied {
+			// The mentor left 'active' between the listing and this write: a
+			// moderator acted, they deactivated themselves, or an overlapping pass
+			// got there first. Their profile was not deactivated by this run, so the
+			// email announcing that it was would be wrong.
+			summary.MentorsSuperseded++
+			logger.Info("[Deactivate Pending Mentors] Mentor no longer active, skipping",
+				zap.String("mentor_id", mentor.ID))
+			continue
 		}
 		summary.MentorsDeactivated++
 
@@ -65,6 +76,7 @@ func (h *Handlers) DeactivatePendingMentors(ctx context.Context) (JobSummary, er
 	logger.Info("[Deactivate Pending Mentors] Run completed",
 		zap.Int("mentors_matched", summary.MentorsMatched),
 		zap.Int("mentors_deactivated", summary.MentorsDeactivated),
+		zap.Int("mentors_superseded", summary.MentorsSuperseded),
 		zap.Int("emails_sent", summary.EmailsSent),
 		zap.Int("email_failures", summary.EmailFailures),
 	)

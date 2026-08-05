@@ -35,7 +35,7 @@ func TestMentorModerationActionApprove(t *testing.T) {
 	w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody("approve"))
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Empty(t, env.repo.statusUpdates, "status already matches: no double-write")
+	assert.Equal(t, "active", env.repo.mentors["m1"].Status, "the worker writes no mentor status")
 
 	require.Equal(t, []string{"new-mentor-approved"}, env.sender.templates())
 	msg := env.sender.attempts[0]
@@ -59,7 +59,7 @@ func TestMentorModerationActionDecline(t *testing.T) {
 	w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody("decline"))
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Empty(t, env.repo.statusUpdates)
+	assert.Equal(t, "declined", env.repo.mentors["m1"].Status, "the worker writes no mentor status")
 	require.Equal(t, []string{"new-mentor-declined"}, env.sender.templates())
 	assert.Equal(t, "John Doe", env.sender.attempts[0].Props["first_name"])
 }
@@ -74,7 +74,7 @@ func TestMentorModerationActionReturn(t *testing.T) {
 	w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody("return"))
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Empty(t, env.repo.statusUpdates, "status already matches: no double-write")
+	assert.Equal(t, "draft", env.repo.mentors["m1"].Status, "the worker writes no mentor status")
 
 	require.Equal(t, []string{"new-mentor-returned"}, env.sender.templates())
 	msg := env.sender.attempts[0]
@@ -90,30 +90,47 @@ func TestMentorModerationActionReturn(t *testing.T) {
 	assert.Equal(t, "return", event.props["action"])
 }
 
-func TestMentorModerationActionReturnRepairsStaleStatus(t *testing.T) {
-	// A replayed 'return' trigger against a row still 'pending' repairs
-	// the status to draft (the repository write is guarded in SQL against
-	// ever-activated mentors) and still sends the email.
-	env := newModerationEnv("pending")
-	env.repo.mentors["m1"].ModerationNote = "Fix the photo."
+// TestMentorModerationActionIsSupersededByNewerState is the H3 defect. The check
+// this replaces was labeled "idempotency" but reconciled the mentor row TOWARD
+// the replayed payload. The row is the source of truth — the API commits the
+// status and only then fires this trigger — so a payload whose outcome the row
+// contradicts describes a decision that is no longer in force.
+//
+// The decline case is the one that mattered: a redelivered (or concurrent, older)
+// decline against a mentor since approved used to set them back to 'declined',
+// removing a live profile from the catalog, and email them a rejection.
+func TestMentorModerationActionIsSupersededByNewerState(t *testing.T) {
+	tests := []struct {
+		name    string
+		action  string
+		current string
+	}{
+		{"stale decline after an approve", "decline", "active"},
+		{"stale approve after a decline", "approve", "declined"},
+		{"stale return after an approve", "return", "active"},
+		{"approve whose expected status never landed", "approve", "pending"},
+	}
 
-	w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody("return"))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newModerationEnv(tt.current)
+			env.repo.mentors["m1"].ModerationNote = "Fix the photo."
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, map[string]string{"m1": "draft"}, env.repo.statusUpdates)
-	assert.Equal(t, []string{"new-mentor-returned"}, env.sender.templates())
-}
+			w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody(tt.action))
 
-func TestMentorModerationActionRepairsStaleStatus(t *testing.T) {
-	// If the API's status write is missing/stale (e.g. replayed trigger),
-	// the worker repairs it, logs a warning and still sends the email.
-	env := newModerationEnv("pending")
+			// 200: a superseded callback is a no-op, and answering an error would
+			// invite exactly the redelivery that caused it.
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Contains(t, w.Body.String(), `"superseded":true`)
+			assert.Empty(t, env.sender.attempts, "a superseded moderation action must email nobody")
+			assert.Equal(t, tt.current, env.repo.mentors["m1"].Status, "the worker must not write mentor status")
 
-	w := env.do(http.MethodPost, "/jobs/mentor-moderation-action", moderationBody("approve"))
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, map[string]string{"m1": "active"}, env.repo.statusUpdates)
-	assert.Equal(t, []string{"new-mentor-approved"}, env.sender.templates())
+			event := env.tracker.last()
+			require.NotNil(t, event)
+			assert.Equal(t, "superseded", event.props["outcome"])
+			assert.Equal(t, tt.action, event.props["action"])
+		})
+	}
 }
 
 func TestMentorModerationActionInvalidPayloads(t *testing.T) {

@@ -26,8 +26,12 @@ type JobSummary struct {
 	EmailsSent     int `json:"emails_sent"`
 	EmailFailures  int `json:"email_failures"`
 
-	// deactivate-pending-mentors only.
+	// deactivate-pending-mentors only. MentorsSuperseded counts mentors the run
+	// listed but did NOT deactivate because they had already left 'active' — the
+	// guarded write's no-op, surfaced so a run that emails nobody is
+	// distinguishable from a run that matched nobody.
 	MentorsDeactivated int `json:"mentors_deactivated,omitempty"`
+	MentorsSuperseded  int `json:"mentors_superseded,omitempty"`
 
 	// finalize-stuck-registrations only.
 	MentorsFinalized int `json:"mentors_finalized,omitempty"`

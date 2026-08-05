@@ -152,7 +152,10 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		return res, errFinalizeMentorNotFound
 	}
 
-	duplicates, err := h.repo.CountActiveMentorsByEmail(ctx, mentor.Email)
+	// mentor.ID is excluded from the count: a mentor who is already active must
+	// not be counted as their OWN duplicate, which is what a replay against a live
+	// profile did before — concluding "duplicate" and heading for 'declined'.
+	duplicates, err := h.repo.CountActiveMentorsByEmail(ctx, mentor.Email, mentor.ID)
 	if err != nil {
 		logger.Error("[New Mentor] Failed to check duplicates", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		res.ErrorType, res.Message = errTypeDBError, "failed to check duplicates"

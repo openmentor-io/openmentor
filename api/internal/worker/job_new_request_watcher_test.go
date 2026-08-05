@@ -162,6 +162,80 @@ func TestNewRequestWatcherMissingRecords(t *testing.T) {
 	}
 }
 
+// TestNewRequestWatcherReplayEmailsNobody: the callback delivered twice must not
+// announce the same request twice. The claim inside SetRequestContactPending is
+// what decides, so the second call reaches no email and no write.
+func TestNewRequestWatcherReplayEmailsNobody(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentors["m1"] = testMentor("m1")
+	env.repo.requests["r1"] = testRequest("r1", "m1")
+
+	first := env.do(http.MethodPost, "/jobs/new-request-watcher?requestId=r1", nil)
+	require.Equal(t, http.StatusOK, first.Code)
+	require.Len(t, env.sender.attempts, 3)
+
+	second := env.do(http.MethodPost, "/jobs/new-request-watcher?requestId=r1", nil)
+
+	// 200 with superseded: a replay is acknowledged, not retried.
+	assert.Equal(t, http.StatusOK, second.Code)
+	assert.Contains(t, second.Body.String(), `"superseded":true`)
+	assert.Len(t, env.sender.attempts, 3, "a replayed callback must email nobody a second time")
+	assert.Equal(t, 1, env.repo.requestClaims["r1"], "the request may be claimed exactly once")
+
+	event := env.tracker.last()
+	require.NotNil(t, event)
+	assert.Equal(t, analytics.EventNewRequestWatcherProcessed, event.event)
+	assert.Equal(t, "superseded", event.props["outcome"])
+	assert.Equal(t, "system:worker", event.distinctID, "no mentor is involved in a no-op")
+}
+
+// TestNewRequestWatcherAdvancedRequestEmailsNobody is the same guard for the
+// worse case: the request has already been declined or completed, so the blind
+// status = 'pending' write would have REOPENED it and then told the mentee, the
+// mentor and the moderators that a new request was waiting.
+func TestNewRequestWatcherAdvancedRequestEmailsNobody(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentors["m1"] = testMentor("m1")
+	env.repo.requests["r1"] = testRequest("r1", "m1")
+	env.repo.requestAlreadyClaimed = true
+
+	w := env.do(http.MethodPost, "/jobs/new-request-watcher?requestId=r1", nil)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, env.sender.attempts)
+	assert.Empty(t, env.repo.requestUpdates, "no write for a request that has moved on")
+}
+
+// TestNewRequestWatcherMentorFetchErrorLeavesRequestClaimable pins the ORDER of
+// the two steps: the mentor fetch is a pure read and must happen before the
+// claim. With it after, a transient DB error there answered 503 having already
+// burned the claim, so every later replay hit the superseded branch and the
+// three announcement emails were lost until an operator hand-repaired
+// status_changed_at.
+func TestNewRequestWatcherMentorFetchErrorLeavesRequestClaimable(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentors["m1"] = testMentor("m1")
+	env.repo.requests["r1"] = testRequest("r1", "m1")
+	env.repo.mentorErr = errDBDown
+
+	first := env.do(http.MethodPost, "/jobs/new-request-watcher?requestId=r1", nil)
+
+	require.Equal(t, http.StatusServiceUnavailable, first.Code)
+	assert.Empty(t, env.sender.attempts, "nothing was announced, so nothing may have been claimed")
+	assert.Equal(t, 0, env.repo.requestClaims["r1"], "a failed read must not consume the one-shot claim")
+	assert.Empty(t, env.repo.requestUpdates, "no write for a call that could not read the mentor")
+
+	// The transient failure clears; the replay is the retry the 503 asked for.
+	env.repo.mentorErr = nil
+	second := env.do(http.MethodPost, "/jobs/new-request-watcher?requestId=r1", nil)
+
+	assert.Equal(t, http.StatusOK, second.Code)
+	assert.NotContains(t, second.Body.String(), `"superseded":true`)
+	assert.Equal(t, []string{"new-request", "new-request-mentor", "new-request-moderator"}, env.sender.templates(),
+		"the replay must still announce the request")
+	assert.Equal(t, 1, env.repo.requestClaims["r1"])
+}
+
 func TestNewRequestWatcherEmailFailureResilience(t *testing.T) {
 	env := newJobsTestEnv()
 	env.repo.mentors["m1"] = testMentor("m1")
