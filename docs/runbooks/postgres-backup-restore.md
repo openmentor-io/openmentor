@@ -194,17 +194,36 @@ docker run --rm -v openmentor-postgres-data:/from -v openmentor-postgres-data-ol
 docker volume rm openmentor-postgres-data
 docker volume create openmentor-postgres-data
 
-# 4. Start an empty postgres (initializes from POSTGRES_* in .env) and restore
+# 4. Start an empty postgres (initializes from POSTGRES_* in .env) and restore.
+#    SECURITY (H8): the dump carries `OWNER TO om_migrate` / GRANTs for om_api,
+#    om_worker, om_backup and om_monitor_ro, and pg_dump does NOT carry roles.
+#    Into a FRESH cluster, create them FIRST by applying that migration to the
+#    empty database (verified: it is fine on an empty schema, and the restore
+#    then reports 0 errors). Skip this and pg_restore prints ~23
+#    `role "om_migrate" does not exist` errors and STILL EXITS 0 — the data lands,
+#    owned by the restoring superuser with no om_* grants, so the restore looks
+#    successful and the app then cannot connect:
 docker compose up -d postgres           # wait for (healthy) in `docker compose ps`
+docker exec -i openmentor-postgres psql -U openmentor -d openmentor -v ON_ERROR_STOP=1 \
+    < ../api/migrations/000012_split_database_identities.up.sql
 docker cp /tmp/restore.dump openmentor-postgres:/tmp/restore.dump
 docker exec openmentor-postgres \
     pg_restore -U openmentor -d openmentor --clean --if-exists /tmp/restore.dump
 docker exec openmentor-postgres rm /tmp/restore.dump
+#    In a hurry, or restoring somewhere the roles are irrelevant (the drill in
+#    section (c)): `pg_restore --no-owner --no-privileges` instead, which makes
+#    everything owned by the restoring superuser. Do NOT do that on production —
+#    it silently puts the app back on superuser-owned tables.
 
-# 5. Recreate the monitoring role (pg_dump captures one database, not roles;
-#    the app role comes from POSTGRES_USER, extra roles must be recreated)
+# 5. Re-set the role passwords and recreate the monitoring role (pg_dump captures
+#    one database, not roles; the app role comes from POSTGRES_USER).
+#    docs/runbooks/database-identities.md step 1 is the same procedure.
 docker exec -it openmentor-postgres psql -U openmentor -c \
-    "CREATE USER grafana_monitoring WITH PASSWORD '...'; GRANT pg_monitor TO grafana_monitoring; GRANT CONNECT ON DATABASE openmentor TO grafana_monitoring;"
+    "CREATE USER grafana_monitoring WITH PASSWORD '...'; GRANT pg_monitor TO grafana_monitoring; GRANT pg_read_all_stats TO grafana_monitoring; GRANT om_monitor_ro TO grafana_monitoring; GRANT CONNECT ON DATABASE openmentor TO grafana_monitoring;"
+docker exec -it openmentor-postgres psql -U openmentor -d openmentor -c \
+    "ALTER ROLE om_migrate LOGIN; ALTER ROLE om_api LOGIN; ALTER ROLE om_worker LOGIN; ALTER ROLE om_backup LOGIN;"
+# then \password om_migrate / om_api / om_worker / om_backup in an interactive
+# psql, so no cleartext reaches the server log or the process list
 
 # 6. Bring the stack back and verify
 docker compose up -d
@@ -217,7 +236,7 @@ docker volume rm openmentor-postgres-data-old
 
 Notes:
 
-- `pg_dump -Fc` dumps a single database (`openmentor`), not roles. Recreate extra roles (step 5) — the app role `openmentor` is created by the container from `POSTGRES_USER`.
+- `pg_dump -Fc` dumps a single database (`openmentor`), not roles. Recreate extra roles (steps 4-5) — the app role `openmentor` is created by the container from `POSTGRES_USER`, and `om_*` come from migration `000012`.
 - `pg_restore --clean --if-exists` also works into a non-empty DB (e.g. rolling back a bad data migration without recreating the volume) — steps 2, 4(restore), 6 only.
 
 ## (b) Full VM-snapshot restore (Hetzner)
@@ -253,6 +272,15 @@ docker run -d --name pg-drill --network none \
 until docker exec pg-drill pg_isready -U openmentor -q; do sleep 1; done
 docker cp /tmp/restore.dump pg-drill:/tmp/drill.dump
 docker exec pg-drill pg_restore -U openmentor -d openmentor /tmp/drill.dump
+# 2. Throwaway postgres of the same major version
+docker run -d --name pg-drill -e POSTGRES_USER=openmentor \
+    -e POSTGRES_PASSWORD=drill -e POSTGRES_DB=openmentor postgres:16.14-alpine
+docker cp /tmp/drill.dump pg-drill:/tmp/drill.dump
+# --no-owner --no-privileges: the drill only proves the DATA restores, and the
+# om_* roles (H8) do not exist in a throwaway cluster. Without these flags every
+# owner/GRANT line errors and the exit code hides a real failure.
+docker exec pg-drill pg_restore -U openmentor -d openmentor \
+    --no-owner --no-privileges /tmp/drill.dump
 
 # 4. Sanity queries: row counts and recency
 docker exec pg-drill psql -U openmentor -c "SELECT count(*) FROM mentors;"

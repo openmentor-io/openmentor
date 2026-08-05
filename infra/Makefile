@@ -63,3 +63,9 @@ alert-tests:
 # labels it keys on must exist, and its threshold must be reachable (H13).
 alert-fireability-tests:
 	@./alert-fireability-test.sh
+# Applies ../api/migrations to a throwaway postgres container and asserts what
+# each role can and cannot do (SECURITY H8). The checks.yml infra filter covers
+# api/migrations/** so a migration that quietly re-grants the app superuser-ish
+# privileges fails the gate.
+db-identity-tests:
+	@./db-identity-test.sh

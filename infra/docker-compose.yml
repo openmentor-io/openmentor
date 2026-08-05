@@ -3,6 +3,64 @@
 name: openmentor
 
 services:
+  # SECURITY (H7): the filtered Docker API that Traefik's provider talks to.
+  #
+  # Traefik used to get /var/run/docker.sock bind-mounted. `:ro` does NOT make
+  # socket API CALLS read-only — it only stops the container writing to the
+  # socket file — so any RCE in the one process listening on :80/:443 could
+  # POST /containers/create with a host bind mount and become root on the VM.
+  # This haproxy allows the four endpoint groups the docker provider uses and
+  # 403s everything else, POST/PUT/DELETE included (the image defaults every
+  # switch to 0, so the four below are the complete allowlist):
+  #
+  #   VERSION    GET /version  — API-version negotiation on connect
+  #   PING       GET /_ping    — also this container's healthcheck
+  #   CONTAINERS GET /containers/json + /containers/{id}/json — the label and
+  #              network data every router/service is built from
+  #   EVENTS     GET /events   — the watch that repoints a router at the new
+  #              container after a deploy replaces it
+  #
+  # Verified against 30 endpoints: POST /containers/create, /exec, /build,
+  # DELETE, images, networks, volumes, swarm, secrets and info are all 403.
+  # Residual exposure, unavoidable while Traefik discovers containers itself:
+  # GET /containers/{id}/json returns every container's ENVIRONMENT, and GET
+  # /containers/{id}/archive reads files out of any container. That is why this
+  # sits on its OWN network with only traefik attached, instead of on
+  # openmentor-network where the internet-facing frontend could reach it.
+  # Removing even that needs Traefik's file provider (no daemon access at all)
+  # — see DECISIONS D66.
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    # Matches the `openmentor-*` pattern the ContainerHighCPU/ContainerHighMemory
+    # alert rules select on, so the new container is covered by them.
+    container_name: openmentor-docker-socket-proxy
+    restart: always
+    # haproxy idles at ~5 MiB; this is headroom, not a target. Do NOT tighten
+    # it: an OOM kill here 404s the site until traefik reconnects (see below).
+    mem_limit: 64m
+    environment:
+      - CONTAINERS=1
+      - EVENTS=1
+      - PING=1
+      - VERSION=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker-api-network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No read_only: the entrypoint renders haproxy.cfg from a template into
+    # /usr/local/etc/haproxy at start, and a tmpfs over that directory would
+    # hide the template. Nothing on the host is writable from here.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # Traefik reverse proxy for SSL/TLS termination
   # v3.7: negotiates the Docker API version, required for Docker Engine >= 29
   # (v2.10 pins API 1.24 and cannot connect).
@@ -12,8 +70,17 @@ services:
     restart: always
     mem_limit: 256m
     command:
-      - "--api.dashboard=true"
+      # No --api.dashboard: it was never routed, and an unauthenticated API
+      # surface on the process that terminates TLS is a footgun waiting for the
+      # first person who publishes :8080 "just to look".
       - "--providers.docker=true"
+      # SECURITY (H7): the filtered proxy above, never the socket. Traefik
+      # reconnects on its own when the proxy restarts, but while the proxy is
+      # unreachable the docker provider supplies NO configuration and every
+      # request 404s — verified. That makes docker-socket-proxy part of the
+      # serving path: keep `restart: always` on it, and if the site 404s while
+      # `up` is green for every scrape target, look there first.
+      - "--providers.docker.endpoint=tcp://docker-socket-proxy:2375"
       - "--providers.docker.exposedbydefault=false"
       # Only route containers belonging to THIS compose project. The Docker
       # provider watches the whole daemon, not just our stack, so any other
@@ -53,27 +120,73 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      # Uncomment to expose Traefik dashboard (secure it properly!)
-      # - "8080:8080"
+      # No dashboard port: --api.dashboard is gone (H7). If you ever need it for
+      # a debugging session, add the flag AND a router with auth, use
+      # `docker exec`/an SSH tunnel instead of publishing :8080, and remove both
+      # again afterwards.
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik-certificates:/letsencrypt
     networks:
       - openmentor-network
+      - docker-api-network
+    depends_on:
+      # Start order only, deliberately NOT service_healthy: a wrong healthcheck
+      # on the proxy would then keep the only process serving :80/:443 from
+      # starting at all. Traefik retries the provider connection by itself
+      # (verified: proxy started late -> routing came up within seconds).
+      - docker-socket-proxy
+    # SECURITY (H7): root in the image, so cap_drop ALL removes NET_BIND_SERVICE
+    # too — :80/:443 are privileged ports, hence the one cap_add. read_only is
+    # safe because ACME state lives in the traefik-certificates volume.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
 
   # cAdvisor for container resource monitoring
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.55.1
     container_name: cadvisor
     mem_limit: 256m
+    # SECURITY (H7): the host root filesystem is GONE from this list. `/:/rootfs:ro`
+    # let a read-only bug in cAdvisor reach /opt/openmentor/infra/.env, /etc/shadow
+    # and ~deploy/.ssh; it also produced dozens of junk `container_fs_*{device=
+    # "/rootfs/..."}` series. Verified locally: the om-database-infra "Host
+    # Filesystem Usage" panel (sum by (device) container_fs_usage_bytes{id="/"})
+    # keeps its root-partition series without it, because the /var/lib/docker
+    # mount below is on the same filesystem — true on this single-disk VM, NOT
+    # true if /var/lib/docker is ever moved to its own volume.
+    #
+    # /var/run is narrowed from the whole runtime directory to the two sockets
+    # cAdvisor opens. BOTH are required: v0.55's docker factory builds a
+    # containerd client, and without containerd.sock it fails to register, which
+    # silently costs every `name=` and `container_label_*` label — i.e. both
+    # cAdvisor alert rules (noDataState: OK) and the Container CPU/Memory panels.
+    # Confirm the containerd socket path on the VM BEFORE deploying and the
+    # labels after; see ../docs/runbooks/container-hardening.md.
+    #
+    # This container still holds a root-equivalent docker socket. Mount trimming
+    # cannot change that, and a filtering proxy cannot either while the docker
+    # factory needs containerd — the fix is replacing cAdvisor, not re-plumbing
+    # it (DECISIONS D66).
     volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
     networks:
       - openmentor-network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
 
 
   # Next.js Frontend
@@ -134,6 +247,15 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    # SECURITY (H7): the image already drops to uid 1001, so nothing here needs
+    # a capability. No read_only: `node server.js` writes Next's runtime cache
+    # under /app/.next/cache, and a tmpfs over it would shadow what the build
+    # put there — that needs exercising against the real image, not a guess on
+    # the internet-facing container.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - frontend-logs:/app/logs
     healthcheck:
@@ -213,6 +335,23 @@ services:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - openmentor-network
+    # SECURITY (H7): the entrypoint starts as root to fix up the data directory
+    # and then drops to the postgres user, which needs exactly these five —
+    # CHOWN/FOWNER/DAC_OVERRIDE for $PGDATA, SETUID/SETGID for the su-exec.
+    # Verified against postgres:16.14-alpine both on a fresh initdb and on a
+    # restart over an existing data directory. No read_only: postgres writes its
+    # unix socket to /var/run/postgresql and temp files to /tmp, and this is the
+    # one container where getting it wrong is a database outage.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openmentor} -d ${POSTGRES_DB:-openmentor}"]
       interval: 10s
@@ -234,8 +373,14 @@ services:
     mem_limit: 256m
     environment:
       - POSTGRES_HOST=postgres
-      - POSTGRES_USER=${POSTGRES_USER:-openmentor}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      # SECURITY (H8): dumps only need SELECT, so this reads BACKUP_POSTGRES_*
+      # when .env defines them (om_backup, which holds pg_read_all_data and
+      # nothing else) and otherwise falls back to the bootstrap superuser it
+      # used before. The fallback is what makes the switch a per-service
+      # operator step rather than a flag day — see
+      # ../docs/runbooks/database-identities.md.
+      - POSTGRES_USER=${BACKUP_POSTGRES_USER:-${POSTGRES_USER:-openmentor}}
+      - POSTGRES_PASSWORD=${BACKUP_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD}}
       - POSTGRES_DB=${POSTGRES_DB:-openmentor}
       - BACKUP_TIME=${BACKUP_TIME:-03:30}
       - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
@@ -259,6 +404,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # SECURITY (H7): runs as root but needs no capability — both destinations
+    # are volumes it owns. read_only with a tmpfs /tmp verified against the real
+    # image (pg_dump writes into /backups, aws-cli buffers in /tmp).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
     healthcheck:
       # The daemon loop swallows per-run failures on purpose (a transient
       # error must not kill the sidecar), so staleness of the success marker
@@ -300,13 +455,46 @@ services:
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_DIR=/app/logs
-      - DATABASE_URL=${DATABASE_URL}
+      # SECURITY (H8): om_migrate owns the schema and can run DDL; it is not a
+      # superuser, so it cannot COPY ... FROM PROGRAM. Falls back to the
+      # bootstrap-superuser DSN until an operator sets MIGRATE_DATABASE_URL, so
+      # deploying this file changes nothing on its own
+      # (../docs/runbooks/database-identities.md).
+      - DATABASE_URL=${MIGRATE_DATABASE_URL:-${DATABASE_URL}}
+      - DB_WORK_OFFLINE
+      # validation-only below
+      - S3_STORAGE_ACCESS_KEY
+      - S3_STORAGE_SECRET_KEY
+      - S3_STORAGE_BUCKET
+      - S3_STORAGE_ENDPOINT
+      - S3_STORAGE_REGION
+      - BASE_URL
+      - ALLOWED_CORS_ORIGINS
+      - INTERNAL_MENTORS_API
+      - MENTORS_API_LIST_AUTH_TOKEN
+      - TURNSTILE_SECRET_KEY
+      - JWT_SECRET
+      - WORKER_AUTH_TOKEN
+      - ANALYTICS_PROVIDER
+      - ANALYTICS_EVENT_VERSION
+      - POSTHOG_ENABLED
+      - POSTHOG_API_KEY
+      - POSTHOG_HOST
+      - POSTHOG_CAPTURE_ENDPOINT
     networks:
       - openmentor-network
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"  # Run once and exit
+    # SECURITY (H7): uid 1001 in the image; no capability is needed by a static
+    # Go binary. read_only is left off for the same reason as backend/worker —
+    # it cannot be exercised here, and this container gates the whole stack via
+    # service_completed_successfully.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - backend-logs:/app/logs
 
@@ -334,7 +522,12 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_DIR=/app/logs
       - SERVICE_INSTANCE_ID=${HOSTNAME}
-      - DATABASE_URL=${DATABASE_URL}
+      # SECURITY (H8): om_api — DML on the application tables and nothing else.
+      # No COPY ... FROM PROGRAM, no pg_read_file, no CREATE ROLE, no DDL, so a
+      # SQL injection here stops at the data instead of reaching the container.
+      # Falls back to the existing DSN until an operator sets API_DATABASE_URL
+      # (../docs/runbooks/database-identities.md).
+      - DATABASE_URL=${API_DATABASE_URL:-${DATABASE_URL}}
       - DB_WORK_OFFLINE
       - BASE_URL
       - ALLOWED_CORS_ORIGINS
@@ -395,6 +588,16 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    # SECURITY (H7): uid 1001 in the image, so no capability is required.
+    # read_only is deliberately NOT set: the Go binary writes logs to a volume,
+    # but multipart profile-image uploads spill to /tmp, and the api/web images
+    # only exist in ECR — that combination cannot be exercised here, and this is
+    # a live site. Adding `read_only: true` + `tmpfs: [/tmp]` is the follow-up
+    # once it can be run against the real image.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - backend-logs:/app/logs
     healthcheck:
@@ -435,7 +638,11 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_DIR=/app/logs
       - SERVICE_INSTANCE_ID=${HOSTNAME}
-      - DATABASE_URL=${DATABASE_URL}
+      # SECURITY (H8): om_worker — its own DML-only identity, so a compromised
+      # worker cannot be told apart from the API at the connection level and
+      # neither can escalate. Falls back to the existing DSN until an operator
+      # sets WORKER_DATABASE_URL (../docs/runbooks/database-identities.md).
+      - DATABASE_URL=${WORKER_DATABASE_URL:-${DATABASE_URL}}
       - DB_WORK_OFFLINE
       - BASE_URL # rendered into email links
       # Worker itself
@@ -474,6 +681,12 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    # SECURITY (H7): see backend — same image, same uid 1001, same reason
+    # read_only is a follow-up rather than part of this change.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - worker-logs:/app/logs
     healthcheck:
@@ -546,6 +759,21 @@ services:
         condition: service_healthy
       worker:
         condition: service_healthy
+    # SECURITY (H7): DAC_OVERRIDE is not optional here and cap_drop: [ALL] alone
+    # breaks Alloy outright — the image runs as root while /var/lib/alloy/data
+    # is `drwxrwx--- alloy alloy`, so without it the very first mkdir in the
+    # data volume fails and the container exits 1 ("failed to create the
+    # remotecfg service"). Verified against v1.18.0 with the real config.alloy,
+    # including read_only.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+    read_only: true
+    tmpfs:
+      - /tmp
 
 networks:
   openmentor-network:
@@ -555,6 +783,17 @@ networks:
     # 1. Only frontend exposed via Traefik
     # 2. Backend, Worker and Alloy have no port mappings
     # 3. Traefik configured with proper routing rules
+
+  # SECURITY (H7): traefik <-> docker-socket-proxy only. The filtered API still
+  # answers GET /containers/{id}/json, which returns every container's
+  # environment — so it must NOT be reachable from openmentor-network, where the
+  # internet-facing frontend lives. `internal: true` also denies the proxy any
+  # egress; it cannot steal traefik's default route (Docker never takes a
+  # gateway from an internal network), so ACME/Cloudflare traffic is unaffected.
+  docker-api-network:
+    name: openmentor-docker-api
+    driver: bridge
+    internal: true
 
 volumes:
   traefik-certificates:
