@@ -20,7 +20,7 @@ export function safeHttpUrl(value: string | null | undefined): string | null {
   }
 }
 
-// Mirrors urlUnsafeChars in api/internal/models/validation.go, widened with
+// Mirrors unsafeChars in api/pkg/safeurl/safeurl.go, widened with
 // the ASCII control bytes net/url rejects outright. Wider is the safe
 // direction: a value this rejects but the API would accept only costs the user
 // a field error.
@@ -35,7 +35,8 @@ const httpsAuthority = /^https:\/\/([^/?#]*)/i
 
 /**
  * isValidCalendarUrl mirrors the API's `https_url` binding tag
- * (api/internal/models/validation.go) for the optional calendar-link field.
+ * (api/pkg/safeurl.IsHTTPS, registered as the tag in
+ * api/internal/models/validation.go) for the optional calendar-link field.
  * Empty passes because the field is `omitempty` on all three request structs.
  *
  * It must stay at least as strict as the tag: a value the browser accepts but

@@ -9,16 +9,24 @@ anything already written to PostHog, Loki or Tempo is still there, and every
 token that was live during that window should be treated as disclosed to
 whoever has read access to those systems.
 
-**Pair this with the `JWT_SECRET` rotation.** Rotating `JWT_SECRET` invalidates
-every issued session cookie; the statements below invalidate every one-time
-login and confirmation token. Doing them in one maintenance window means users
-are signed out and asked to request a fresh link ONCE. Doing them separately
-disrupts the same people twice, for the same incident.
+**Signing out every session no longer needs a `JWT_SECRET` rotation.** Since D58
+each identity carries a `session_version` that issued tokens are checked against,
+so `UPDATE mentors SET session_version = session_version + 1` (and the same on
+`moderators`) invalidates every live cookie with no config change, no deploy and
+no restart. Prefer that: rotating the secret was declined precisely because of the
+disruption it causes (D56), and it invalidates the *same* set of sessions. Do it in
+the same maintenance window as the statements below, so the people affected are
+asked to request a fresh link ONCE rather than twice for one incident.
+
+Note the one thing a version bump does not cover: sessions minted before D58 carry
+no version claim and are grandfathered for one deploy, so if the incident window
+predates that deploy, a `JWT_SECRET` rotation is still the only way to reach them.
 
 Order of operations:
 
 1. Deploy the P14 containment change (so new tokens are not re-leaked).
-2. Rotate `JWT_SECRET`: change it in `infra/.env.production`, then
+2. Sign every session out — normally the `session_version` bump above. Only if the
+   incident predates the D58 deploy, rotate `JWT_SECRET`: change it in `infra/.env.production`, then
    `./deploy.sh infra`. **Not** `infra/.env.runtime` — P10 deleted that file, and
    each service now receives `JWT_SECRET` through its own `environment:`
    allowlist. See [`secret-rotation.md`](secret-rotation.md) § 6, which also
@@ -33,7 +41,7 @@ Order of operations:
 | Mentor magic-link token | `mentors.login_token` + `login_token_expires_at` | Pending login links stop working; mentor requests a new one from `/mentor/login` |
 | Moderator/admin magic-link token | `moderators.login_token` + `login_token_expires_at` | Same, from `/admin/login` |
 | Mentor email-confirmation token | `mentors.email_confirmation_token` + `email_confirmation_expires_at` | See the warnings below — do NOT blindly NULL these, and do not rotate expired ones |
-| Session cookies (JWT) | not in the database | Invalidated by the `JWT_SECRET` rotation, not by SQL |
+| Session cookies (JWT) | `mentors.session_version` / `moderators.session_version` | Bumping the counter invalidates every issued cookie (D58); a `JWT_SECRET` rotation is only needed for sessions minted before that deploy |
 
 ## Procedure
 
@@ -80,47 +88,74 @@ UPDATE moderators
 
 -- 3. Email-confirmation tokens — ROTATE the LIVE ones, do not clear, and do not
 --    touch the expired ones. See the two warnings below.
+--
+--    SINCE D57 CONFIRMATION TOKENS ARE HASHED AT REST. The column holds
+--    encode(sha256(token), 'hex'); the token itself exists only in the email.
+--    So this statement generates a plaintext, stores its DIGEST, and keeps the
+--    plaintext in the scratch table — step 5 mails it, and nothing else can
+--    recover it. Writing a plaintext token into the column (as this runbook used
+--    to) would silently undo the hashing for every row it touched.
+--
 --    Two gen_random_uuid() values (PG13+, CSPRNG-backed) give 64 hex characters;
 --    the "mcf_" prefix matches what generateConfirmationToken emits. The expiry
 --    is reset to the application's own 24h window (confirmationTokenTTL): a
 --    rotated token is only delivered by the resend in step 5, so it has to be
 --    valid when that email arrives, not on the old schedule.
 --
---    The rotated ids are recorded in a scratch table because step 5 has to mail
---    every one of them and NOTHING in the row identifies them afterwards. The
---    site stays live during this, and both normal paths — registration and
---    ResendConfirmation — set the same 24h window, so any mentor arriving after
---    this statement looks identical to a rotated one. Selecting on a future
---    expiry would mail confirmation links to unrelated people and destroy the
---    incident's scope. This table is operator scratch state, not part of the
---    migration sequence; step 6 drops it.
+--    The rotated ids are recorded because step 5 has to mail every one of them
+--    and NOTHING in the row identifies them afterwards. The site stays live
+--    during this, and both normal paths — registration and ResendConfirmation —
+--    set the same 24h window, so any mentor arriving after this statement looks
+--    identical to a rotated one. Selecting on a future expiry would mail
+--    confirmation links to unrelated people and destroy the incident's scope.
+--    This table is operator scratch state, not part of the migration sequence.
+--
+--    UNLIKE THE PREVIOUS VERSION OF THIS RUNBOOK, THE SCRATCH TABLE HOLDS LIVE
+--    TOKENS. That is the price of hashing at rest and it is why step 6 drops the
+--    table as soon as the resends have gone out: for the length of the incident
+--    response it is a credential store, so keep it in the database (never in a
+--    file or a terminal scrollback) and do not leave it behind.
 CREATE TABLE IF NOT EXISTS ops_confirmation_rotation (
   mentor_id  uuid PRIMARY KEY,
   status     text        NOT NULL,
+  token      text        NOT NULL,
   rotated_at timestamptz NOT NULL DEFAULT now()
 );
+REVOKE ALL ON ops_confirmation_rotation FROM PUBLIC;
 
-WITH rotated AS (
-  UPDATE mentors
-     SET email_confirmation_token = 'mcf_' || replace(gen_random_uuid()::text, '-', '')
-                                           || replace(gen_random_uuid()::text, '-', ''),
-         email_confirmation_expires_at = now() + interval '24 hours',
-         updated_at = now()
+WITH minted AS (
+  SELECT id, status,
+         'mcf_' || replace(gen_random_uuid()::text, '-', '')
+                || replace(gen_random_uuid()::text, '-', '') AS token
+    FROM mentors
    WHERE email_confirmation_token IS NOT NULL
      AND email_confirmation_expires_at > now()
-  RETURNING id, status
+), rotated AS (
+  UPDATE mentors m
+     SET email_confirmation_token = encode(sha256(k.token::bytea), 'hex'),
+         email_confirmation_expires_at = now() + interval '24 hours',
+         updated_at = now()
+    FROM minted k
+   WHERE m.id = k.id
+  RETURNING m.id, k.status, k.token
 )
-INSERT INTO ops_confirmation_rotation (mentor_id, status)
-SELECT id, status FROM rotated
+INSERT INTO ops_confirmation_rotation (mentor_id, status, token)
+SELECT id, status, token FROM rotated
 RETURNING mentor_id, status;
 
 -- 4. Verify against the recorded set, not against a timestamp predicate: every
 --    row it names carries a token the application will accept, and the count
 --    matches confirmation_tokens_still_valid from step 0.
-SELECT count(*)                                                         AS rotated,
-       count(*) FILTER (WHERE m.email_confirmation_token LIKE 'mcf_%')  AS rotated_shape_ok,
-       count(*) FILTER (WHERE m.email_confirmation_expires_at > now())  AS rotated_live,
-       count(*) FILTER (WHERE r.status = 'draft')                       AS rotated_draft
+--
+--    rotated_hashed is the check that matters most: a row whose column still
+--    matches the plaintext means the hashing was bypassed.
+SELECT count(*)                                                              AS rotated,
+       count(*) FILTER (WHERE r.token LIKE 'mcf_%')                          AS rotated_shape_ok,
+       count(*) FILTER (WHERE m.email_confirmation_token
+                             = encode(sha256(r.token::bytea), 'hex'))        AS rotated_hashed,
+       count(*) FILTER (WHERE m.email_confirmation_token = r.token)          AS rotated_plaintext_BAD,
+       count(*) FILTER (WHERE m.email_confirmation_expires_at > now())       AS rotated_live,
+       count(*) FILTER (WHERE r.status = 'draft')                            AS rotated_draft
   FROM ops_confirmation_rotation r
   JOIN mentors m ON m.id = r.mentor_id;
 
@@ -158,23 +193,33 @@ the expiry check before touching the row. Hence the
 ### Step 5: deliver the rotated tokens
 
 A rotated token is only useful to the mentor once it is emailed to them. After
-COMMIT, re-send the confirmation email for each rotated **draft** mentor by
-invoking the worker job that reads the fresh token off the row. The list is the
-one step 3 recorded — read it back, do not re-derive it:
+COMMIT, re-send the confirmation email for each rotated **draft** mentor. The list
+is the one step 3 recorded — read it back, do not re-derive it.
 
-```sql
-SELECT mentor_id FROM ops_confirmation_rotation WHERE status = 'draft';
-```
+Since D57 the worker cannot read a working link off the row (the row holds a
+digest), so the confirm URL goes in the job's PAYLOAD, the same way the
+magic-link login URL always has. That means the plaintext token has to travel
+from the scratch table into the request:
 
 ```bash
-# One call per mentor id, from inside the worker container (curl is present in
-# the runtime image). WORKER_AUTH_TOKEN is read from the container's own
-# environment — never paste it on the command line, where it lands in shell
-# history and in the audit log.
-docker compose exec -T worker sh -lc \
-  'curl -sS -X POST -H "X-Worker-Token: $WORKER_AUTH_TOKEN" \
-     "http://localhost:${WORKER_PORT:-8090}/jobs/mentor-confirm-email?mentorId=<MENTOR_ID>"'
+# Runs entirely inside the containers, so no token is ever printed to a terminal
+# or stored in shell history. WORKER_AUTH_TOKEN comes from the worker's own
+# environment. BASE_URL must match the site the mentors use.
+docker compose exec -T postgres psql -U openmentor -d openmentor -At -F'|' -c \
+  "SELECT mentor_id, token FROM ops_confirmation_rotation WHERE status = 'draft'" \
+| docker compose exec -T worker sh -lc '
+    while IFS="|" read -r id token; do
+      curl -sS -o /dev/null -w "%{http_code} $id\n" -X POST \
+        -H "X-Worker-Token: $WORKER_AUTH_TOKEN" -H "Content-Type: application/json" \
+        -d "{\"type\":\"mentor_confirm_email\",\"mentor_id\":\"$id\",\"confirm_url\":\"${BASE_URL:-https://openmentor.io}/mentor/confirm?token=$token\"}" \
+        "http://localhost:${WORKER_PORT:-8090}/jobs/mentor-confirm-email"
+    done'
 ```
+
+Every line must report `200`. A `409` means the job found no usable link — which
+after D57 is what happens if you call it WITHOUT a `confirm_url` against a hashed
+row, and is the job deliberately refusing to email a digest as if it were a
+token.
 
 Do NOT reconstruct the list from a timestamp predicate. "Every draft mentor whose
 confirmation token expires in the future" is NOT the set step 3 touched: the site
@@ -193,9 +238,9 @@ explicitly; do not skip it by accident.
 
 ### Step 6: drop the scratch table
 
-`ops_confirmation_rotation` holds no tokens, but it is a list of who was caught in
-the incident. Drop it once every resend in step 5 has gone out and the incident is
-closed:
+`ops_confirmation_rotation` holds LIVE confirmation tokens (see step 3) as well as
+the list of who was caught in the incident. Drop it as soon as every resend in
+step 5 has reported 200 — not "once the incident is closed":
 
 ```sql
 DROP TABLE ops_confirmation_rotation;

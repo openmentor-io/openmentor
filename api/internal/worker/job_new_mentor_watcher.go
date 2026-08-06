@@ -17,6 +17,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/email"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/slug"
+	"github.com/openmentor-io/openmentor/api/pkg/tokenhash"
 )
 
 // confirmationTokenTTL is the validity window of the email confirmation
@@ -152,7 +153,10 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		return res, errFinalizeMentorNotFound
 	}
 
-	duplicates, err := h.repo.CountActiveMentorsByEmail(ctx, mentor.Email)
+	// mentor.ID is excluded from the count: a mentor who is already active must
+	// not be counted as their OWN duplicate, which is what a replay against a live
+	// profile did before — concluding "duplicate" and heading for 'declined'.
+	duplicates, err := h.repo.CountActiveMentorsByEmail(ctx, mentor.Email, mentor.ID)
 	if err != nil {
 		logger.Error("[New Mentor] Failed to check duplicates", zap.String("mentor_id", mentorID), logger.RedactedError(err))
 		res.ErrorType, res.Message = errTypeDBError, "failed to check duplicates"
@@ -176,7 +180,13 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 	// A fresh (non-duplicate) registration gets a single-use email
 	// confirmation token: the mentor stays 'draft' until they click the
 	// link. Duplicates are declined and get no token.
-	var confirmToken *string
+	//
+	// Two values, deliberately: the PLAINTEXT goes into the email and the HASH
+	// into the row (D57), the same split login tokens have always used. The
+	// plaintext exists only in this function and the outgoing message; nothing can
+	// read it back out of the database, which is the point.
+	var confirmPlaintext string
+	var confirmTokenHash *string
 	var confirmExpiresAt *time.Time
 	if res.Status == mentorStatusDraft {
 		token, tokenErr := generateConfirmationToken()
@@ -186,7 +196,9 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 			return res, tokenErr
 		}
 		expiresAt := time.Now().Add(confirmationTokenTTL)
-		confirmToken = &token
+		confirmPlaintext = token
+		hashed := tokenhash.Hash(token)
+		confirmTokenHash = &hashed
 		confirmExpiresAt = &expiresAt
 	}
 
@@ -204,7 +216,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 		Slug:                           mentor.Slug,
 		Status:                         res.Status,
 		SortOrder:                      rand.IntN(1000), //nolint:gosec // G404: cosmetic catalog shuffle, not a security decision
-		EmailConfirmationToken:         confirmToken,
+		EmailConfirmationToken:         confirmTokenHash,
 		EmailConfirmationExpiresAt:     confirmExpiresAt,
 		ExpectedEmailConfirmationToken: mentor.EmailConfirmationToken,
 	}
@@ -235,7 +247,7 @@ func (h *Handlers) finalizeNewMentor(ctx context.Context, mentorID string) (fina
 			Recipient:    mentor.Email,
 			Props: map[string]interface{}{
 				"first_name":  mentor.Name,
-				"confirm_url": h.baseURL + "/mentor/confirm?token=" + *confirmToken,
+				"confirm_url": h.baseURL + "/mentor/confirm?token=" + confirmPlaintext,
 			},
 		})
 	} else {

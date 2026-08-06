@@ -46,8 +46,12 @@ Full-stack via Compose: see [`infra/README.md`](infra/README.md).
 |---|---|---|
 | `Checks` | every PR | The one **required** branch-protection check (`Checks / required-checks`) — runs quick gates for whatever changed, passes trivially otherwise |
 | `CI / Web` | changes under `web/` | lint, typecheck, tests, production build |
-| `CI / API` | changes under `api/` | race tests + coverage floor, gofmt/staticcheck, gosec, full Docker smoke test (postgres → migrate → api → worker) |
-| `Deploy` | manual dispatch | builds both images from one SHA, ships the stack to the VM with health-checked rollback |
+| `CI / API` | changes under `api/` | race tests + coverage floor, gosec → SARIF in the Security tab plus a gate on HIGH findings outside `api/gosec-baseline.txt`, full Docker smoke test (postgres → migrate → api → worker) |
+| `Deploy` | manual dispatch | builds both images from one SHA, ships the stack to the VM with health-checked rollback; serialized (`production-deploy` concurrency group + a VM-side `flock`) |
+
+Every `uses:` is pinned to a commit SHA (Dependabot's `github-actions` ecosystem
+refreshes them), and the merge gate keeps every fast check exclusively — see the
+header of `.github/workflows/checks.yml`.
 
 ## Contributing
 

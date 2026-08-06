@@ -1,3 +1,4 @@
+-- phase: expand
 -- Insert values for tags
 
 INSERT INTO tags (id, name)

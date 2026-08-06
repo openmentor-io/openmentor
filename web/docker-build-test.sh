@@ -13,8 +13,13 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# Source the .env file
-export $(cat .env | grep -v '^#' | xargs)
+# Export every KEY=value in .env. `set -a` beats the old
+# `export $(cat .env | ...)`: no word-splitting on values that contain spaces,
+# and nothing lands in the process table.
+set -a
+# shellcheck source=/dev/null # a developer's runtime .env, not a repo file
+. ./.env
+set +a
 
 echo "Building Docker image (multi-stage version)..."
 docker build -f Dockerfile \

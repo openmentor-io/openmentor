@@ -164,15 +164,21 @@ func ValidateImageContent(imageBytes []byte) error {
 	return nil
 }
 
-// maxImageBytes caps the COMPRESSED payload. It bounds transfer and storage
+// MaxImageBytes caps the COMPRESSED payload. It bounds transfer and storage
 // only: compressed size says nothing about decoded size (a few KB can declare
 // gigapixels), so imageclass.CheckBounds is the real memory guard.
-const maxImageBytes = 10 * 1024 * 1024 // 10MB
+//
+// Exported because it is the number the whole system advertises: the upload
+// forms in web/ promise exactly this ("maximum size is 10 MB", see
+// web/src/config/uploads.ts), and middleware.MaxImageBodyBytes has to be big
+// enough to carry it base64-encoded inside JSON. Those three numbers disagreed
+// until TestPhotoAtTheAdvertisedLimitFitsTheImageBodyCap tied them together.
+const MaxImageBytes = 10 * 1024 * 1024 // 10 MiB
 
 // ValidateImageSize validates the compressed payload size.
 func ValidateImageSize(imageBytes []byte) error {
-	if len(imageBytes) > maxImageBytes {
-		return fmt.Errorf("file too large: %d bytes (max %d bytes)", len(imageBytes), maxImageBytes)
+	if len(imageBytes) > MaxImageBytes {
+		return fmt.Errorf("file too large: %d bytes (max %d bytes)", len(imageBytes), MaxImageBytes)
 	}
 	return nil
 }

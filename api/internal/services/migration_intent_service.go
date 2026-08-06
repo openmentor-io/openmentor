@@ -43,7 +43,7 @@ func NewMigrationIntentService(
 	}
 	return &MigrationIntentService{
 		repo:            repo,
-		captchaVerifier: turnstile.NewVerifier(cfg.Turnstile.SecretKey, httpClient),
+		captchaVerifier: newCaptchaVerifier(cfg, httpClient),
 		tracker:         tracker,
 	}
 }
@@ -61,7 +61,7 @@ func (s *MigrationIntentService) ScheduleMigration(ctx context.Context, req *mod
 		})
 	}
 
-	if err := s.captchaVerifier.Verify(req.CaptchaToken); err != nil {
+	if err := s.captchaVerifier.Verify(ctx, req.CaptchaToken); err != nil {
 		track("captcha_failed")
 		logger.Warn("Turnstile verification failed for migration intent", zap.Error(err))
 		return &models.ScheduleMigrationResponse{

@@ -27,14 +27,16 @@ jest.mock('@/lib/go-api-client', () => {
 import handler from '@/pages/api/reviews/check'
 
 const REQUEST_ID = '1b0c9e42-a072-47ed-8ce9-edd306874ec9'
+// Fabricated, shaped like a real H4 capability. Never a live token.
+const REVIEW_TOKEN = 'rvw_SENTINELbffCheckCapabilityAAAAAAAAAAAAAAAAA'
 
 describe('api/reviews/check', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
 
-  it('returns 405 for non-GET requests', async () => {
-    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({ method: 'POST' })
+  it('returns 405 for non-POST requests', async () => {
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({ method: 'GET' })
 
     await handler(req, res)
 
@@ -42,8 +44,8 @@ describe('api/reviews/check', () => {
     expect(res._getJSONData()).toEqual({ error: 'Method not allowed' })
   })
 
-  it('returns 400 without a request id', async () => {
-    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({ method: 'GET', query: {} })
+  it('returns 400 without a token or a request id', async () => {
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({ method: 'POST', body: {} })
 
     await handler(req, res)
 
@@ -51,23 +53,60 @@ describe('api/reviews/check', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('forwards the check to the Go API and returns its response', async () => {
+  // SECURITY (H4): the capability must reach the Go API in the BODY. A URL would
+  // put it in this route's access log, the upstream's url.path and the span.
+  it('forwards the token to the Go API in the request body, never the URL', async () => {
     mockRequest.mockResolvedValue({ canSubmit: true, mentorName: 'Jane Doe' })
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
-      method: 'GET',
-      query: { request_id: REQUEST_ID },
+      method: 'POST',
+      body: { token: REVIEW_TOKEN },
+    })
+
+    await handler(req, res)
+
+    expect(mockRequest).toHaveBeenCalledWith('POST', '/api/v1/reviews/check', {
+      body: { token: REVIEW_TOKEN },
+    })
+    const [, upstreamPath] = mockRequest.mock.calls[0]
+    expect(upstreamPath).not.toContain(REVIEW_TOKEN)
+    expect(res.statusCode).toBe(200)
+    expect(res._getJSONData()).toEqual({ canSubmit: true, mentorName: 'Jane Doe' })
+  })
+
+  // Dual-read: links already sitting in mentees' inboxes keep working until the
+  // cutover.
+  it('still forwards a legacy request id to the legacy endpoint', async () => {
+    mockRequest.mockResolvedValue({ canSubmit: true, mentorName: 'Jane Doe' })
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: 'POST',
+      body: { requestId: REQUEST_ID },
     })
 
     await handler(req, res)
 
     expect(mockRequest).toHaveBeenCalledWith('GET', `/api/v1/reviews/${REQUEST_ID}/check`)
     expect(res.statusCode).toBe(200)
-    expect(res._getJSONData()).toEqual({ canSubmit: true, mentorName: 'Jane Doe' })
   })
 
-  // An expired or unknown token is a 404 upstream; the page renders that
-  // message. A blanket 500 turned every such link into "we could not verify".
+  it('prefers the token when both are present', async () => {
+    mockRequest.mockResolvedValue({ canSubmit: true })
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: 'POST',
+      body: { token: REVIEW_TOKEN, requestId: REQUEST_ID },
+    })
+
+    await handler(req, res)
+
+    expect(mockRequest).toHaveBeenCalledWith('POST', '/api/v1/reviews/check', {
+      body: { token: REVIEW_TOKEN },
+    })
+  })
+
+  // An expired or spent token is a 404 upstream; the page renders that message. A
+  // blanket 500 turned every such link into "we could not verify".
   it('forwards an upstream 404 to the client', async () => {
     const { HttpError } = jest.requireActual('@/lib/go-api-client')
     mockRequest.mockRejectedValue(
@@ -75,8 +114,8 @@ describe('api/reviews/check', () => {
     )
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
-      method: 'GET',
-      query: { request_id: REQUEST_ID },
+      method: 'POST',
+      body: { token: REVIEW_TOKEN },
     })
 
     await handler(req, res)
@@ -92,8 +131,8 @@ describe('api/reviews/check', () => {
     )
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
-      method: 'GET',
-      query: { request_id: REQUEST_ID },
+      method: 'POST',
+      body: { token: REVIEW_TOKEN },
     })
 
     await handler(req, res)

@@ -14,7 +14,7 @@ import (
 )
 
 // rotatingConfirmationRepo is the confirmation flow's row: a token is looked up
-// by value, and SetEmailConfirmation REPLACES it — which is exactly what a
+// by value, and RotateConfirmationToken REPLACES it — which is exactly what a
 // resend does, so the token a mentor holds after one resend is not the token
 // they submitted.
 type rotatingConfirmationRepo struct {
@@ -41,21 +41,30 @@ func (r *rotatingConfirmationRepo) GetByConfirmationToken(_ context.Context, tok
 	}, nil
 }
 
-func (r *rotatingConfirmationRepo) ConfirmMentorEmail(_ context.Context, _ string) error {
+func (r *rotatingConfirmationRepo) ConsumeConfirmationToken(_ context.Context, token string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if token == "" || token != r.token || r.status != "draft" || time.Now().After(r.expiresAt) {
+		return false, nil
+	}
 	r.status = "pending"
 	r.token = ""
-	return nil
+	return true, nil
 }
 
-func (r *rotatingConfirmationRepo) SetEmailConfirmation(_ context.Context, _, token string, expiresAt time.Time) error {
+func (r *rotatingConfirmationRepo) RotateConfirmationToken(
+	_ context.Context, oldToken, newToken string, expiresAt time.Time,
+) (bool, error) {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.token = token
+	if oldToken == "" || oldToken != r.token || r.status != "draft" {
+		return false, nil
+	}
+	r.token = newToken
 	r.expiresAt = expiresAt
 	r.rotations++
-	return nil
+	return true, nil
 }
 
 func (r *rotatingConfirmationRepo) currentToken() string {

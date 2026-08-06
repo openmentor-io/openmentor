@@ -9,6 +9,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 	"github.com/openmentor-io/openmentor/api/pkg/email"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/tokenhash"
 )
 
 // MentorConfirmed handles /jobs/mentor-confirmed?mentorId= — fired by the
@@ -84,15 +85,36 @@ func (h *Handlers) MentorConfirmed(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "mentorId": mentor.ID})
 }
 
-// MentorConfirmEmail handles /jobs/mentor-confirm-email?mentorId= — fired
-// by the API's confirmation resend endpoint after it stored a fresh token
-// on the mentor row. It (re)sends the mentor-confirm-email message with
-// the confirmation link.
+// mentorConfirmEmailPayload mirrors the JSON the API's confirmation resend flow
+// POSTs (internal/services/mentor_confirmation_service.go).
+//
+// The confirm URL is in the PAYLOAD because confirmation tokens are hashed at
+// rest (D57): the row holds a digest, so this job can no longer rebuild a working
+// link from it. Same shape the magic-link login has always used.
+type mentorConfirmEmailPayload struct {
+	Type       string `json:"type"`
+	MentorID   string `json:"mentor_id"`
+	ConfirmURL string `json:"confirm_url"`
+}
+
+// MentorConfirmEmail handles /jobs/mentor-confirm-email — fired by the API's
+// confirmation resend endpoint after it rotated the token on the mentor row. It
+// (re)sends the mentor-confirm-email message with the confirmation link.
+//
+// mentorId may arrive as a query param (the pre-D57 GET form) or in the JSON
+// body; the query param wins so a redelivered old-style call still resolves the
+// mentor.
 func (h *Handlers) MentorConfirmEmail(c *gin.Context) {
 	ctx := c.Request.Context()
 	const job = "mentor-confirm-email"
 
+	var payload mentorConfirmEmailPayload
+	_ = c.ShouldBindJSON(&payload) //nolint:errcheck // an empty body is the legacy GET form, handled below
+
 	mentorID := c.Query("mentorId")
+	if mentorID == "" {
+		mentorID = payload.MentorID
+	}
 	if mentorID == "" {
 		h.track(ctx, analytics.EventMentorConfirmEmailSent, analytics.SystemDistinctID("worker"), map[string]interface{}{
 			"outcome": "missing_mentor_id",
@@ -121,8 +143,18 @@ func (h *Handlers) MentorConfirmEmail(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "mentor not found"})
 		return
 	}
-	if mentor.EmailConfirmationToken == "" {
-		logger.Warn("[Mentor Confirm Email] Mentor has no confirmation token", zap.String("mentor_id", mentorID))
+	confirmURL := payload.ConfirmURL
+	if confirmURL == "" && tokenhash.IsLegacyPlaintext(mentor.EmailConfirmationToken) {
+		// Pre-D57 row: the stored token IS the token, so a link can still be built
+		// from it. Delete this branch with the rest of the legacy handling once no
+		// unhashed token can be outstanding (24h after the deploy) — issue #80.
+		confirmURL = h.baseURL + "/mentor/confirm?token=" + mentor.EmailConfirmationToken
+	}
+	if confirmURL == "" {
+		// Refuse rather than email a hash: a link built from the stored digest
+		// would look fine and fail on click, and the mentor's own retry is the
+		// cheaper recovery.
+		logger.Warn("[Mentor Confirm Email] No usable confirmation link for this mentor", zap.String("mentor_id", mentorID))
 		h.track(ctx, analytics.EventMentorConfirmEmailSent, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id": mentorID,
 			"outcome":   "no_confirmation_token",
@@ -136,7 +168,7 @@ func (h *Handlers) MentorConfirmEmail(c *gin.Context) {
 		Recipient:    mentor.Email,
 		Props: map[string]interface{}{
 			"first_name":  mentor.Name,
-			"confirm_url": h.baseURL + "/mentor/confirm?token=" + mentor.EmailConfirmationToken,
+			"confirm_url": confirmURL,
 		},
 	})
 	if sendErr != nil {

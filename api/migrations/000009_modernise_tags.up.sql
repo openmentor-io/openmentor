@@ -1,3 +1,4 @@
+-- phase: contract
 -- Modernise the mentor tag taxonomy (DECISIONS D30).
 --
 -- The tag set was inherited from getmentor.dev and reflects the 2018-era

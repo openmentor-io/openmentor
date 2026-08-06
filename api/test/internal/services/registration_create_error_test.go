@@ -26,7 +26,7 @@ func registrationRequest() *models.RegisterMentorRequest {
 // "something went wrong".
 func TestRegisterMentorReportsTakenUsername(t *testing.T) {
 	repo := &recordingRegistrationRepo{createErr: repository.ErrSlugTaken}
-	svc := services.NewRegistrationService(repo, nil, &config.Config{}, captchaOKClient{}, &capturingTracker{})
+	svc := services.NewRegistrationService(repo, nil, &config.Config{}, captchaOK, &capturingTracker{})
 
 	resp, err := svc.RegisterMentor(context.Background(), registrationRequest())
 
@@ -46,7 +46,7 @@ func TestRegisterMentorReportsTakenUsername(t *testing.T) {
 func TestRegisterMentorKeepsDatabaseErrorCause(t *testing.T) {
 	dbErr := errors.New("connection refused")
 	repo := &recordingRegistrationRepo{createErr: dbErr}
-	svc := services.NewRegistrationService(repo, nil, &config.Config{}, captchaOKClient{}, &capturingTracker{})
+	svc := services.NewRegistrationService(repo, nil, &config.Config{}, captchaOK, &capturingTracker{})
 
 	resp, err := svc.RegisterMentor(context.Background(), registrationRequest())
 

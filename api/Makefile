@@ -1,4 +1,4 @@
-.PHONY: help build build-migrate build-worker run run-worker test test-coverage test-race lint docker-build docker-run clean fmt fmt-check vet security ci pre-commit install-tools migrate migrate-build
+.PHONY: help build build-migrate build-worker run run-worker test test-coverage test-race lint docker-build docker-run clean fmt fmt-check vet security security-sarif-gate migration-test migration-check ci pre-commit install-tools migrate migrate-build
 
 # Pinned so `make lint` locally and the lint job in CI resolve to the SAME
 # linter build. .github/workflows/ci-api.yml reads this value out of this file
@@ -29,6 +29,9 @@ help:
 	@echo "  fmt            - Format code"
 	@echo "  fmt-check      - Check code formatting"
 	@echo "  security       - Run security scanner (gosec)"
+	@echo "  security-sarif-gate - Gate a gosec SARIF report on new HIGH findings"
+	@echo "  migration-test - Apply every migration up, then down, then up again"
+	@echo "  migration-check - Migration version numbering (duplicates, gaps, order)"
 	@echo "  ci             - Run all CI checks"
 	@echo "  pre-commit     - Run pre-commit checks"
 	@echo "  install-tools  - Install development tools"
@@ -179,6 +182,32 @@ security:
 		exit 1; \
 	fi
 
+
+# Gate a gosec SARIF report against the reviewed HIGH-finding baseline (H6).
+# "CI / API -> Security Checks" calls exactly this target, so the local and CI
+# verdicts cannot diverge. SARIF defaults to the path the gosec action writes
+# (repo root) as seen from api/.
+#
+# Produce the report first:
+#   gosec -no-fail -fmt sarif -out ../results.sarif ./...
+SARIF ?= ../results.sarif
+security-sarif-gate:
+	@./scripts/gosec-sarif-gate.sh "$(SARIF)"
+
+# Apply every migration up, down and up again against a throwaway Postgres
+# (H12). "Checks / required-checks" calls this target, so the gate and a local
+# run are the same command. Needs docker, or MIGRATION_TEST_DATABASE_URL
+# pointing at an EMPTY throwaway database.
+migration-test:
+	@./scripts/migration-test.sh
+
+# Migration NUMBERING, which nothing else checks and git cannot: two branches
+# adding `000010_*.sql` are different files, so they merge without a conflict
+# into a duplicate version — or into an out-of-order one that Up() never applies
+# to a database already past it. Needs no database; "Checks / required-checks"
+# calls this same target.
+migration-check:
+	@./scripts/migration-version-check.sh
 
 # Run all CI checks — mirrors the gating jobs in .github/workflows/ci-api.yml.
 #

@@ -114,13 +114,16 @@ const QUERY_PAIR_PATTERNS: Record<string, string> = {
 /**
  * `key=value` pairs whose key looks sensitive, in any casing and with the
  * separator written literally or percent-encoded. The leading delimiter is `?`,
- * `&`, whitespace or the start of the string: `?`/`&` for a URL, start-of-string
- * because a bare `url.query` span attribute has no `?`, and whitespace so a
- * token embedded in free text (`Error: rejected login_token=<jwt>`) is caught
- * too — this runs over every winston `message`.
+ * `&`, `#`, whitespace or the start of the string: `?`/`&` for a URL query, `#`
+ * for a URL FRAGMENT — H4 delivers the review capability as
+ * `/reviews/new#review_token=…`, and in `…?a=b#review_token=…` there is no
+ * `?`/`&` left for the regex to anchor on. Start-of-string because a bare
+ * `url.query` span attribute has no `?`, and whitespace so a token embedded in
+ * free text (`Error: rejected login_token=<jwt>`) is caught too — this runs over
+ * every winston `message`.
  */
 const SENSITIVE_QUERY_PAIR = new RegExp(
-  `(^|[?&\\s])((?:[^=&\\s]*(?:${SENSITIVE_KEY_PARTS.map(
+  `(^|[?&#\\s])((?:[^=&\\s]*(?:${SENSITIVE_KEY_PARTS.map(
     (part) => QUERY_PAIR_PATTERNS[part] ?? part
   ).join('|')})[^=&\\s]*|${SENSITIVE_WHOLE_KEYS.join('|')})=)([^&\\s"'\\\\]*)`,
   'gi'
@@ -166,29 +169,62 @@ export function redactPathIds(value: string): string {
 }
 
 /**
- * Both rules that are safe over a string of unknown shape. Free-form strings
- * need the PATH rule too, not just the query rule: `GoApiClient.request` builds
+ * A review capability minted by `api/pkg/reviewtoken`: the `rvw_` prefix plus 43
+ * base64url characters. Duplicated here rather than shared, because the Go and
+ * TypeScript sides cannot import each other; `api/pkg/reviewtoken` has a test
+ * pinning its own constants against `api/pkg/redact`'s copy, and
+ * `telemetry-redaction.test.ts` pins this one against the same shape.
+ *
+ * Needed as a SHAPE rule because the token can appear with no `key=` in front of
+ * it and no `/` around it: session replay serializes DOM attribute values
+ * verbatim, so a token in an `input[value]` or a `data-` attribute reaches
+ * `$snapshot_data` as a bare string under an innocent key. The page deliberately
+ * keeps the token out of the DOM; this is the backstop for when someone forgets.
+ */
+const REVIEW_TOKEN = /(^|[^A-Za-z0-9_-])rvw_[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/g
+
+/** Removes review capability tokens wherever they appear in a string. */
+export function redactReviewTokens(value: string): string {
+  if (!value.includes('rvw_')) return value
+  return value.replace(REVIEW_TOKEN, `$1${REDACTED}`)
+}
+
+/**
+ * Every rule that is safe over a string of unknown shape. Free-form strings need
+ * the PATH rule too, not just the query rule: `GoApiClient.request` builds
  * `Go API request timeout after 10000ms: /api/v1/reviews/<uuid>/check`, and that
  * message plus its stack go to Loki through `logError` with no `key=` anywhere
- * for the query rule to bite on. Both rules are anchored (a `?`/`&`/whitespace
- * delimiter, a leading `/`), so a bare id under an innocent key stays readable.
+ * for the query rule to bite on. All three rules are anchored (a
+ * `?`/`&`/`#`/whitespace delimiter, a leading `/`, a non-token character), so a
+ * bare id under an innocent key stays readable.
  */
 export function redactFreeText(value: string): string {
-  return redactPathIds(redactQueryValues(value))
+  return redactReviewTokens(redactPathIds(redactQueryValues(value)))
 }
 
 /**
  * Turns a URL into something loggable: id-bearing path segments become `:id`,
  * sensitive query values are replaced. The origin (if any) is kept.
+ *
+ * The fragment is split off before the path rules run. Without that, a URL with
+ * no query string at all — `/reviews/new#review_token=…`, the H4 capability link
+ * — would be handed to `redactPathIds` as one long "path", where the query-pair
+ * rule never runs and the token survives intact.
  */
 export function redactUrl(url: string | undefined): string {
   if (!url) return ''
 
-  const queryStart = url.indexOf('?')
-  const path = queryStart === -1 ? url : url.slice(0, queryStart)
-  const query = queryStart === -1 ? '' : url.slice(queryStart)
+  const hashStart = url.indexOf('#')
+  const base = hashStart === -1 ? url : url.slice(0, hashStart)
+  const fragment = hashStart === -1 ? '' : url.slice(hashStart)
 
-  return redactPathIds(path) + redactQueryValues(query)
+  const queryStart = base.indexOf('?')
+  const path = queryStart === -1 ? base : base.slice(0, queryStart)
+  const query = queryStart === -1 ? '' : base.slice(queryStart)
+
+  return redactReviewTokens(
+    redactPathIds(path) + redactQueryValues(query) + redactQueryValues(fragment)
+  )
 }
 
 /**

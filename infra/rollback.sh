@@ -16,9 +16,11 @@ set -e
 # Options:
 #   --yes, -y    skip the confirmation prompt
 #
-# The script edits the tags in /opt/openmentor/infra/.env on the VM (keeping
-# a .env.backup), pulls, re-converges with `docker compose up -d` and runs
-# the same health checks as deploy.sh.
+# The script edits the tags in /opt/openmentor/infra/.env on the VM (snapshotting
+# the previous one as .env.backup.<epoch>), pulls, re-converges with
+# `docker compose up -d` and runs the same health checks as deploy.sh. It holds
+# the same .deploy.lock a deploy holds, and promotes .env.lastgood when the
+# rolled-back version passes those checks — see the header of deploy-remote.sh.
 # ============================================================================
 
 RED='\033[0;31m'
@@ -130,6 +132,92 @@ BACKEND_TARGET_TAG="$BACKEND_TARGET_TAG"
 # The monorepo's infra/ directory lives at $REMOTE_INFRA_DIR on the VM
 cd $REMOTE_INFRA_DIR
 
+# The block below is byte-identical to the one in deploy-remote.sh (modulo this
+# file's heredoc escaping) and is extracted from both by
+# deploy-transition-test.sh; keep them in sync.
+# --- H9 deploy serialization (mirrored in deploy-remote.sh + rollback.sh) ----
+# NOTE: rollback.sh embeds this block in an UNQUOTED here-document, so every
+# expansion is backslash-escaped there. deploy-transition-test.sh pushes that
+# copy through a heredoc and requires the result to equal this one byte for
+# byte, so keep the block free of backticks and of any other backslash.
+#
+# NOTE: if/elif, not case, and every paren in CODE balanced — bash 3.2 (still
+# /bin/bash on macOS, where rollback.sh runs) finds the end of the \$( ) around
+# its here-document by counting parens in the body.
+#
+# WHY: three writers converge the same compose project and rewrite the same
+# .env — this script (driven by CI and by deploy.sh) and rollback.sh. The
+# deploy workflow's concurrency group serializes CI against itself only; an
+# operator running deploy.sh or rollback.sh from a workstation is invisible to
+# it. Two overlapping runs interleaved a pull/up with the other's .env edit,
+# and each left the other's UNVERIFIED tags as the rollback target.
+#
+# The lock is fd 9 on a file in this directory, released whenever the shell
+# exits — so a killed deploy cannot wedge the next one. A missing flock is fatal
+# on purpose: warn-and-continue would silently restore the unserialized
+# behaviour this exists to remove.
+acquire_deploy_lock() {
+    if ! command -v flock >/dev/null 2>&1; then
+        echo "❌ flock (util-linux) is not installed on this VM — refusing to deploy unserialized."
+        exit 1
+    fi
+    exec 9>>.deploy.lock
+    chmod 600 .deploy.lock 2>/dev/null || true
+    if ! flock -w "\${DEPLOY_LOCK_WAIT:-900}" 9; then
+        echo "❌ Timed out waiting for the deploy lock (.deploy.lock in this directory):"
+        echo "   another deploy or rollback is converging this VM. Nothing was changed."
+        exit 1
+    fi
+    echo "🔒 Holding the deploy lock"
+}
+
+# Snapshot .env before changing it: timestamped, never a single slot, so no
+# writer can destroy another's. Pruned to the 5 newest — each file is a copy of
+# every production secret.
+snapshot_env() {
+    if [ -f .env ]; then
+        snapshot=".env.backup.\$(date +%s)"
+        cp .env "\$snapshot"
+        chmod 600 "\$snapshot"
+        # shellcheck disable=SC2012 # fixed prefix, no user-supplied names
+        ls -1t .env.backup.* 2>/dev/null | tail -n +6 | xargs -r rm -f
+        echo "   Snapshotted the current .env as \$snapshot"
+    fi
+}
+
+# Promote the running .env to the verified rollback target. Called ONLY after
+# every application health check has passed — that is the whole point: a tag
+# that was merely attempted must never become something to roll back TO.
+promote_env_lastgood() {
+    cp .env .env.lastgood
+    chmod 600 .env.lastgood
+    echo "   .env.lastgood updated (this version is now the rollback target)"
+}
+
+# Where an auto-rollback restores from, most trustworthy first: the last
+# verified .env, then the newest snapshot, then the pre-H9 single slot (which
+# only the first deploy after this change can still need). Prints nothing when
+# there is no candidate at all.
+rollback_env_source() {
+    if [ -f .env.lastgood ]; then
+        echo .env.lastgood
+        return 0
+    fi
+    # shellcheck disable=SC2012 # fixed prefix, no user-supplied names
+    newest=\$(ls -1t .env.backup.* 2>/dev/null | head -1)
+    if [ -n "\$newest" ]; then
+        echo "\$newest"
+        return 0
+    fi
+    if [ -f .env.backup ]; then
+        echo .env.backup
+    fi
+}
+# --- end H9 deploy serialization --------------------------------------------
+
+# Serialize against a deploy converging this same VM (H9).
+acquire_deploy_lock
+
 # Replace-or-append a KEY=value in .env
 set_env_tag() {
     local key="\$1" value="\$2"
@@ -144,7 +232,227 @@ set_env_tag() {
 CURRENT_FRONTEND_TAG=\$(grep "^FRONTEND_IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
 CURRENT_BACKEND_TAG=\$(grep "^BACKEND_IMAGE_TAG=" .env 2>/dev/null | cut -d'=' -f2 || echo "unknown")
 echo "Current tags: frontend=\$CURRENT_FRONTEND_TAG backend=\$CURRENT_BACKEND_TAG"
-cp .env .env.backup
+# --- H10 migration boundary guard (rollback.sh only) ------------------------
+# NOTE: this block lives in an UNQUOTED here-document, so every expansion is
+# backslash-escaped and it stays free of backticks. bash 3.2 — still /bin/bash
+# on macOS, where rollback.sh is run — finds the end of the enclosing \$( ) by
+# counting parens in the body, so no "case" here and every paren in CODE must
+# balance. rollback-migration-guard-test.sh pushes this block back through a
+# here-document and runs it against stubbed docker, so it tests the shipped text.
+#
+# WHY: migrate shares BACKEND_IMAGE_TAG with backend and worker (one image) and
+# the migrations are baked in at /app/migrations. Point that tag at a build
+# older than the applied schema version and golang-migrate's versionExists()
+# cannot find the current version in the image's source: it fails with "no
+# migration found for version N", migrate exits 1,
+# depends_on: service_completed_successfully is never satisfied, and this
+# script's set -e aborts — leaving production on the version being rolled back
+# FROM. Refusing before .env is touched is the only outcome that leaves the VM
+# where it was.
+#
+# This guard never applies a down-migration. 000009_modernise_tags.down.sql
+# cannot restore the mentor associations its up-migration cascaded away, so that
+# call belongs to a human with the runbook open.
+GUARD_DIR=\$(mktemp -d)
+POSTGRES_USER_GUARD=\$(grep "^POSTGRES_USER=" .env | cut -d'=' -f2)
+POSTGRES_DB_GUARD=\$(grep "^POSTGRES_DB=" .env | cut -d'=' -f2)
+ECR_REGISTRY_GUARD=\$(grep "^ECR_REGISTRY=" .env | cut -d'=' -f2)
+
+SCHEMA_ROW=\$(docker exec openmentor-postgres psql \
+    -U "\${POSTGRES_USER_GUARD:-openmentor}" -d "\${POSTGRES_DB_GUARD:-openmentor}" \
+    -t -A -F'|' -c "SELECT version, dirty FROM schema_migrations" 2>/dev/null | head -1)
+SCHEMA_VERSION=\${SCHEMA_ROW%%|*}
+SCHEMA_DIRTY=\${SCHEMA_ROW##*|}
+
+# The image's /app/migrations, read with "docker cp" from a container that is
+# CREATED and never started: the runtime image ships no shell we want to depend
+# on for this, and docker cp reads a created container's filesystem fine.
+# The trailing /. is what makes docker cp write the CONTENTS into \$2.
+migrations_from_image() {
+    mkdir -p "\$2"
+    GUARD_CID=\$(docker create "\$1" 2>/dev/null) || return 1
+    GUARD_CP_RC=0
+    docker cp "\$GUARD_CID:/app/migrations/." "\$2" >/dev/null 2>&1 || GUARD_CP_RC=1
+    docker rm -f "\$GUARD_CID" >/dev/null 2>&1 || true
+    return \$GUARD_CP_RC
+}
+
+# Highest migration version a directory of *.up.sql files carries, leading
+# zeros stripped so [ -gt ] compares it as a decimal.
+max_migration_in() {
+    ls "\$1" 2>/dev/null | grep '\.up\.sql' | cut -c1-6 | sort -n | tail -1 | sed 's/^0*//'
+}
+
+# Contract-phase migrations that are already APPLIED. Read from the running
+# backend's image, which by definition contains every version the database is at.
+applied_contract_migrations() {
+    for up in "\$GUARD_DIR/current"/*.up.sql; do
+        if [ ! -f "\$up" ]; then continue; fi
+        GUARD_V=\$(basename "\$up" | cut -c1-6 | sed 's/^0*//')
+        if [ -z "\$GUARD_V" ]; then continue; fi
+        if [ "\$GUARD_V" -gt "\${SCHEMA_VERSION:-0}" ]; then continue; fi
+        if grep -q '^-- phase: contract' "\$up"; then
+            printf ' %s' "\$(basename "\$up" .up.sql)"
+        fi
+    done
+    return 0
+}
+
+migrations_from_image "\${ECR_REGISTRY_GUARD}/openmentor-backend:\${CURRENT_BACKEND_TAG}" \
+    "\$GUARD_DIR/current" || true
+
+check_migration_boundary() {
+    if [ -z "\$BACKEND_TARGET_TAG" ] || [ "\$BACKEND_TARGET_TAG" = "\$CURRENT_BACKEND_TAG" ]; then
+        return 0
+    fi
+    if [ -z "\$SCHEMA_VERSION" ]; then
+        echo "⚠️  Could not read schema_migrations from openmentor-postgres, so the"
+        echo "   migration boundary is UNVERIFIED. Expected when postgres is down —"
+        echo "   which is also when you least want a rollback blocked, so this is not"
+        echo "   a refusal. If the converge then dies at the migrate gate with 'no"
+        echo "   migration found for version N', that was the boundary: follow"
+        echo "   DEPLOYMENT.md 'Rolling back across a migration boundary'."
+        return 0
+    fi
+    if [ "\$SCHEMA_DIRTY" = "t" ]; then
+        echo "❌ REFUSING: schema_migrations reports the database DIRTY at version \$SCHEMA_VERSION."
+        echo "   golang-migrate refuses to run at all in that state ('Dirty database"
+        echo "   version \$SCHEMA_VERSION'), so this rollback would die at the migrate gate"
+        echo "   whatever tag it carries. Resolve the half-applied migration first:"
+        echo "   infra/DEPLOYMENT.md, 'Rolling back across a migration boundary'."
+        return 1
+    fi
+
+    TARGET_IMAGE="\${ECR_REGISTRY_GUARD}/openmentor-backend:\${BACKEND_TARGET_TAG}"
+    echo "🔎 Checking the migration boundary (schema is at version \$SCHEMA_VERSION)..."
+    # This fires on ANY pull failure, not just a missing tag, and the old message
+    # only named the tag — which sends an operator hunting for a tag that exists
+    # while the actual fault is ECR or the network. docker's own error strings
+    # are not a reliable discriminator (an expired ECR token and a deleted tag
+    # both surface as "denied"/"repository does not exist"), so instead of
+    # guessing we (a) print what docker actually said and (b) use the one signal
+    # that IS conclusive: a tag sitting in the local cache provably exists.
+    if ! GUARD_PULL_ERR=\$(docker pull "\$TARGET_IMAGE" 2>&1); then
+        echo "❌ REFUSING: cannot pull \$TARGET_IMAGE. Nothing has been changed."
+        echo "   docker said: \$(printf '%s\n' "\$GUARD_PULL_ERR" | tail -1)"
+        if docker image inspect "\$TARGET_IMAGE" >/dev/null 2>&1; then
+            echo "   That tag IS in this VM's local image cache, so it EXISTS."
+            echo "   The registry or the network is what is unreachable — do not go"
+            echo "   looking for a missing tag. Check ECR reachability and the token"
+            echo "   (deploy-remote.sh/rollback.sh pipe a fresh one in over ssh stdin;"
+            echo "   the VM itself has no aws CLI and no AWS credentials)."
+        else
+            echo "   It is also not in the local cache, so this is one of two things"
+            echo "   and docker's message cannot reliably tell them apart:"
+            echo "     * the tag is gone — ECR lifecycle keeps only the last ~20 images; or"
+            echo "     * ECR is unreachable / the pushed token has expired."
+            echo "   From a workstation, 'aws ecr describe-images --repository-name"
+            echo "   openmentor-backend' settles the first; pulling any known-good tag"
+            echo "   settles the second."
+        fi
+        echo "   Either way the rollback could not have completed: the converge below"
+        echo "   runs 'docker compose pull' under set -e and needs the very registry"
+        echo "   access this probe just failed. That compose pull is the real gate —"
+        echo "   this check only moves the failure to before .env is rewritten."
+        return 1
+    fi
+    if ! migrations_from_image "\$TARGET_IMAGE" "\$GUARD_DIR/target"; then
+        echo "⚠️  Could not read /app/migrations out of \$TARGET_IMAGE, so the boundary"
+        echo "   is UNVERIFIED. Continuing; see DEPLOYMENT.md if migrate then fails."
+        return 0
+    fi
+    TARGET_MAX=\$(max_migration_in "\$GUARD_DIR/target")
+    if [ -z "\$TARGET_MAX" ]; then
+        echo "⚠️  \$TARGET_IMAGE ships no *.up.sql under /app/migrations — boundary"
+        echo "   UNVERIFIED. Continuing."
+        return 0
+    fi
+    if [ "\$SCHEMA_VERSION" -le "\$TARGET_MAX" ]; then
+        echo "✅ Migration boundary OK: the target image ships migrations up to \$TARGET_MAX,"
+        echo "   the database is at \$SCHEMA_VERSION, so migrate will find its version."
+        return 0
+    fi
+
+    # Everything between the target's highest version and the applied one is
+    # only in the CURRENT image; the target predates those files by definition.
+    GUARD_ORPHANS=""
+    GUARD_CONTRACTS=""
+    for up in "\$GUARD_DIR/current"/*.up.sql; do
+        if [ ! -f "\$up" ]; then continue; fi
+        GUARD_V=\$(basename "\$up" | cut -c1-6 | sed 's/^0*//')
+        if [ -z "\$GUARD_V" ]; then continue; fi
+        if [ "\$GUARD_V" -le "\$TARGET_MAX" ]; then continue; fi
+        if [ "\$GUARD_V" -gt "\$SCHEMA_VERSION" ]; then continue; fi
+        GUARD_PHASE=\$(grep -m1 '^-- phase:' "\$up" | sed 's/^-- phase: *//')
+        GUARD_ORPHANS="\$GUARD_ORPHANS \$(basename "\$up" .up.sql)[\${GUARD_PHASE:-unmarked}]"
+        if [ "\$GUARD_PHASE" != "expand" ]; then
+            GUARD_CONTRACTS="\$GUARD_CONTRACTS \$(basename "\$up" .up.sql)"
+        fi
+    done
+
+    echo "❌ REFUSING: this rollback would cross a migration boundary."
+    echo ""
+    echo "   schema_migrations.version              : \$SCHEMA_VERSION"
+    echo "   openmentor-backend:\$BACKEND_TARGET_TAG carries migrations up to: \$TARGET_MAX"
+    echo "   Orphaned by the target image           :\${GUARD_ORPHANS:- <could not read the running image>}"
+    echo ""
+    echo "   Why a refusal and not a warning: migrate shares this tag, so"
+    echo "   golang-migrate would look for version \$SCHEMA_VERSION in an image that"
+    echo "   does not contain it, print 'no migration found for version"
+    echo "   \$SCHEMA_VERSION' and exit 1. service_completed_successfully then never"
+    echo "   completes, set -e aborts this script, and production is left on the"
+    echo "   version you are rolling back FROM. There is nothing safer about trying."
+    echo ""
+    if [ -n "\$GUARD_CONTRACTS" ]; then
+        echo "   Contract-phase migrations in the way:\$GUARD_CONTRACTS"
+        echo "   Those removed or renamed something the target build still reads, so the"
+        echo "   schema has to move with the image. Read each .down.sql header first —"
+        echo "   some are explicitly lossy and a restore is the honest answer instead."
+    else
+        echo "   Every orphaned migration is expand-phase, so the target build runs"
+        echo "   correctly against today's schema and nothing has to be undone for"
+        echo "   correctness. Only the migrate gate is in the way."
+    fi
+    echo ""
+    echo "   Do this instead — infra/DEPLOYMENT.md, section"
+    echo "   'Rolling back across a migration boundary' — then re-run this script."
+    echo "   Nothing has been changed — .env still reads frontend=\$CURRENT_FRONTEND_TAG"
+    echo "   backend=\$CURRENT_BACKEND_TAG, and no .env.backup was written."
+    return 1
+}
+
+# A frontend tag carries no migrations, so nothing on the VM can decide whether
+# it predates an applied contract migration. Warn, do not refuse: the failure
+# mode is wrong content (a pre-D30 build asks for tag names 000009 renamed away,
+# so its catalog filters match nothing), not data loss or a failed converge —
+# and a frontend rollback is often the fix being reached for mid-incident.
+warn_frontend_schema_skew() {
+    if [ -z "\$FRONTEND_TARGET_TAG" ] || [ -z "\$SCHEMA_VERSION" ]; then return 0; fi
+    GUARD_SKEW=\$(applied_contract_migrations)
+    if [ -z "\$GUARD_SKEW" ]; then return 0; fi
+    echo "⚠️  Frontend rollback vs applied contract migrations:\$GUARD_SKEW"
+    echo "   If \$FRONTEND_TARGET_TAG was built before those, it renders against a"
+    echo "   schema that no longer has what it asks for. Not a refusal — but if the"
+    echo "   catalog comes back with empty category filters, this is why."
+    return 0
+}
+
+GUARD_RC=0
+check_migration_boundary || GUARD_RC=1
+if [ \$GUARD_RC -eq 0 ]; then
+    warn_frontend_schema_skew
+fi
+rm -rf "\$GUARD_DIR"
+if [ \$GUARD_RC -ne 0 ]; then
+    exit 1
+fi
+# --- end H10 migration boundary guard ---------------------------------------
+
+# H9: a timestamped snapshot, not the single .env.backup slot a concurrent
+# deploy would overwrite. The verified rollback target is .env.lastgood, updated
+# at the bottom of this script when the rolled-back version checks out. Runs
+# AFTER the H10 guard so a refused rollback really has written nothing.
+snapshot_env
 
 # Update the per-service image tags in .env (compose reads them from there)
 if [ -n "\$FRONTEND_TARGET_TAG" ]; then
@@ -310,6 +618,11 @@ elif [ "\$BACKUP_RC" -eq 2 ]; then
 fi
 
 if [ \$HEALTH_OK -eq 1 ]; then
+    # H9: the rolled-back version just passed every application health check, so
+    # it becomes the verified target a later failed deploy reverts to. Without
+    # this, the next auto-rollback would aim at the version this rollback was
+    # run to escape.
+    promote_env_lastgood
     if [ \$BACKUP_UNHEALTHY -eq 1 ]; then
         echo "✅ Rollback successful — images rolled back, app health checks passed"
         echo "❌ ...but the postgres-backup sidecar is UNHEALTHY (see above). Exiting 2:"
@@ -320,7 +633,8 @@ if [ \$HEALTH_OK -eq 1 ]; then
     exit 0
 else
     echo "❌ Rollback health checks failed!"
-    echo "Previous .env preserved as .env.backup in $REMOTE_INFRA_DIR"
+    echo "The .env this rollback replaced is the newest .env.backup.* in $REMOTE_INFRA_DIR;"
+    echo ".env.lastgood still points at the last version that passed its health checks."
     exit 1
 fi
 REMOTE_SCRIPT

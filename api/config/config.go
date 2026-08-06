@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
+
+	"github.com/openmentor-io/openmentor/api/pkg/safeurl"
 )
 
 const (
@@ -24,6 +26,7 @@ type Config struct {
 	Analytics     AnalyticsConfig
 	PostHog       PostHogConfig
 	Turnstile     TurnstileConfig
+	Review        ReviewConfig
 	EventTriggers EventTriggerFunctionsConfig
 	Logging       LoggingConfig
 	Observability ObservabilityConfig
@@ -83,8 +86,31 @@ type PostHogConfig struct {
 	DisableGeoIP    bool
 }
 
+// TurnstileConfig configures the Cloudflare Turnstile captcha that gates every
+// public write. ExpectedHostname/ExpectedAction are optional: siteverify echoes
+// the hostname the widget was solved on and the action it was rendered with, and
+// pinning them is what stops a token farmed on an attacker's own page — or
+// harvested from a different form — being replayed here. Empty means "accept
+// whatever Cloudflare reports", which is the pre-existing behavior.
 type TurnstileConfig struct {
-	SecretKey string
+	SecretKey        string
+	ExpectedHostname string
+	ExpectedAction   string
+}
+
+// ReviewConfig holds the H4 dual-read switch.
+type ReviewConfig struct {
+	// LegacyRequestIDLinksEnabled keeps the pre-H4 review endpoints alive:
+	// GET /api/v1/reviews/:requestId/check and POST /api/v1/reviews/:requestId,
+	// which authorize on client_requests.id itself.
+	//
+	// It defaults to TRUE because turning it off breaks every "leave a review"
+	// link already sitting in a mentee's inbox. Flipping it to false is the H4
+	// CUTOVER and is an operator decision gated on
+	// openmentor_review_legacy_link_uses_total having been zero for longer than
+	// reviewtoken.TTL — see
+	// docs/runbooks/audit-2026-08/review-capability-cutover.md.
+	LegacyRequestIDLinksEnabled bool
 }
 
 type EventTriggerFunctionsConfig struct {
@@ -118,7 +144,8 @@ func (c EventTriggerFunctionsConfig) MentorConfirmedTriggerURL() string {
 }
 
 // MentorConfirmEmailTriggerURL is the worker trigger that (re)sends the
-// mentor-confirm-email using the confirmation token stored on the row.
+// mentor-confirm-email. Since D57 the token is hashed on the row, so the caller
+// POSTs the confirm URL in the payload rather than letting the job rebuild it.
 func (c EventTriggerFunctionsConfig) MentorConfirmEmailTriggerURL() string {
 	return c.derivedMentorTriggerURL("mentor-confirm-email")
 }
@@ -184,8 +211,61 @@ type EmailConfig struct {
 	DiscordInviteLink  string // invite URL for the private mentors' Discord
 }
 
-// Load reads configuration from environment variables
+// Binary names one of the three binaries built from this module. Each has a
+// DIFFERENT production configuration contract, and conflating them is a live
+// outage this repo has already had: a57aec2 had to hand S3 credentials to
+// cmd/migrate and cmd/worker — neither of which touches object storage — purely
+// because all three called one shared Validate() that had grown an S3 check.
+// The deploy that discovered this served 404s until the credentials were added.
+type Binary string
+
+const (
+	// BinaryAPI is cmd/api: the public HTTP surface.
+	BinaryAPI Binary = "api"
+	// BinaryWorker is cmd/worker: cron plus the internal job endpoints.
+	BinaryWorker Binary = "worker"
+	// BinaryMigrate is cmd/migrate: applies migrations and exits.
+	BinaryMigrate Binary = "migrate"
+)
+
+// LoadFor reads configuration from the environment and validates it against the
+// contract the given binary actually requires. Every binary's main() must use
+// this rather than Load, so that a check added for one binary can never make
+// another binary's container refuse to start.
+func LoadFor(binary Binary) (*Config, error) {
+	cfg := load()
+
+	var err error
+	switch binary {
+	case BinaryAPI:
+		err = cfg.ValidateForAPI()
+	case BinaryWorker:
+		err = cfg.ValidateForWorker()
+	case BinaryMigrate:
+		err = cfg.ValidateForMigrate()
+	default:
+		err = fmt.Errorf("unknown binary %q: cannot pick a configuration contract", binary)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// Load reads configuration from environment variables and applies only the
+// checks that hold for EVERY binary. Prefer LoadFor: this entry point exists
+// for tooling and tests that need a populated Config without committing to one
+// binary's contract.
 func Load() (*Config, error) {
+	cfg := load()
+	if err := cfg.validateShared(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// load reads the environment into a Config without validating anything.
+func load() *Config {
 	v := viper.New()
 
 	// Set defaults
@@ -212,6 +292,11 @@ func Load() (*Config, error) {
 	v.SetDefault("POSTHOG_ENABLED", false)
 	v.SetDefault("POSTHOG_HOST", "https://eu.i.posthog.com")
 	v.SetDefault("POSTHOG_DISABLE_GEOIP", true)
+
+	// H4 dual-read: the pre-H4 request-id review links stay accepted by default.
+	// Defaulting this to false would break every review link already in a
+	// mentee's inbox the moment this ships.
+	v.SetDefault("REVIEW_LEGACY_REQUEST_ID_LINKS_ENABLED", true)
 
 	// Worker defaults (background worker binary, cmd/worker)
 	v.SetDefault("WORKER_PORT", "8090")
@@ -301,7 +386,12 @@ func Load() (*Config, error) {
 			DisableGeoIP:    v.GetBool("POSTHOG_DISABLE_GEOIP"),
 		},
 		Turnstile: TurnstileConfig{
-			SecretKey: v.GetString("TURNSTILE_SECRET_KEY"),
+			SecretKey:        v.GetString("TURNSTILE_SECRET_KEY"),
+			ExpectedHostname: strings.TrimSpace(v.GetString("TURNSTILE_EXPECTED_HOSTNAME")),
+			ExpectedAction:   strings.TrimSpace(v.GetString("TURNSTILE_EXPECTED_ACTION")),
+		},
+		Review: ReviewConfig{
+			LegacyRequestIDLinksEnabled: v.GetBool("REVIEW_LEGACY_REQUEST_ID_LINKS_ENABLED"),
 		},
 		EventTriggers: EventTriggerFunctionsConfig{
 			MentorCreatedTriggerURL:          v.GetString("MENTOR_CREATED_TRIGGER_URL"),
@@ -359,23 +449,28 @@ func Load() (*Config, error) {
 		},
 	}
 
-	// Validate required fields
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-
-	return cfg, nil
+	return cfg
 }
 
-// Validate checks if required configuration values are set
-func (c *Config) Validate() error {
+// validateShared holds the checks that are true of all three binaries, because
+// they cover values all three read (the database DSN) or a self-inflicted
+// misconfiguration of a shared subsystem. Everything else belongs to exactly one
+// binary's profile below.
+func (c *Config) validateShared() error {
 	if err := c.validateDatabaseConfig(); err != nil {
 		return err
 	}
-	if err := c.validateAuthConfig(); err != nil {
+	return c.validateAnalyticsConfig()
+}
+
+// ValidateForAPI enforces cmd/api's production contract: it serves the public
+// HTTP surface, mints and reads sessions, uploads to object storage, verifies
+// captchas and fires the worker's event triggers.
+func (c *Config) ValidateForAPI() error {
+	if err := c.validateShared(); err != nil {
 		return err
 	}
-	if err := c.validateAnalyticsConfig(); err != nil {
+	if err := c.validateAuthConfig(); err != nil {
 		return err
 	}
 	if err := c.validateTurnstileConfig(); err != nil {
@@ -387,7 +482,13 @@ func (c *Config) Validate() error {
 	if err := c.validateSessionConfig(); err != nil {
 		return err
 	}
-	if err := c.validateWorkerConfig(); err != nil {
+	// The API is the CALLER of the worker's /jobs endpoints, so it needs the
+	// shared token to sign those calls; the worker needs the same value to
+	// check them. Both profiles therefore require it, and migrate does not.
+	if err := c.validateWorkerAuthToken(); err != nil {
+		return err
+	}
+	if err := c.validateEventTriggerConfig(); err != nil {
 		return err
 	}
 	if err := c.validateS3StorageConfig(); err != nil {
@@ -396,14 +497,68 @@ func (c *Config) Validate() error {
 	return c.validateProfilingConfig()
 }
 
+// ValidateForWorker enforces cmd/worker's production contract: it sends every
+// transactional email and serves the internal /jobs endpoints. It never touches
+// object storage, the mentors API tokens, Turnstile or the session secret —
+// requiring those was the a57aec2 defect.
+func (c *Config) ValidateForWorker() error {
+	if err := c.validateShared(); err != nil {
+		return err
+	}
+	if c.Worker.Port == "" {
+		return fmt.Errorf("WORKER_PORT is required")
+	}
+	if err := c.validateWorkerAuthToken(); err != nil {
+		return err
+	}
+	if err := c.validateWorkerBaseURL(); err != nil {
+		return err
+	}
+	if err := c.validateEmailConfig(); err != nil {
+		return err
+	}
+	return c.validateProfilingConfig()
+}
+
+// ValidateForMigrate enforces cmd/migrate's contract, which is one value: the
+// DSN. It applies migrations and exits — it holds no HTTP server, no email
+// sender, no storage client and no session key.
+//
+// DATABASE_URL is required unconditionally here, unlike the shared check:
+// DB_WORK_OFFLINE cannot make migrations run against nothing, so honoring it
+// would only turn a missing DSN into a silent no-op deploy.
+func (c *Config) ValidateForMigrate() error {
+	if strings.TrimSpace(c.Database.URL) == "" {
+		return fmt.Errorf("DATABASE_URL is required to run migrations")
+	}
+	return nil
+}
+
 // minJWTSecretLength is the minimum accepted JWT_SECRET length in bytes. A
 // short secret makes the HS256 signature brute-forceable offline, which would
 // let an attacker forge mentor AND moderator sessions (one secret signs both).
 const minJWTSecretLength = 32
 
-// validateSessionConfig enforces JWT_SECRET presence/length in production.
+// maxSessionTTLHours caps SESSION_TTL_HOURS at 30 days. The tokens are
+// stateless HS256 bearers with no revocation list, so the TTL *is* the only
+// bound on a stolen cookie's usefulness.
+const maxSessionTTLHours = 24 * 30
+
+// maxLoginTokenTTLMinutes caps LOGIN_TOKEN_TTL_MINUTES at two hours. A
+// magic-link token sits in an inbox — and in whatever scanned it in transit —
+// for its whole lifetime.
+const maxLoginTokenTTLMinutes = 120
+
+// validateSessionConfig enforces the mentor/moderator session contract:
+// JWT_SECRET presence and length, both TTLs inside sane bounds, and a Secure
+// cookie in production.
+//
 // In non-production an empty secret is allowed (auth routes self-disable with
 // a warning), but a set-but-too-short secret is always rejected.
+//
+// The TTL bounds exist because viper turns a typo into a number without
+// complaint: SESSION_TTL_HOURS=24h parses as 0, which mints already-expired
+// sessions and locks every mentor out of the portal with no error anywhere.
 func (c *Config) validateSessionConfig() error {
 	secret := c.MentorSession.JWTSecret
 	if c.IsProduction() && secret == "" {
@@ -412,17 +567,155 @@ func (c *Config) validateSessionConfig() error {
 	if secret != "" && len(secret) < minJWTSecretLength {
 		return fmt.Errorf("JWT_SECRET must be at least %d characters", minJWTSecretLength)
 	}
+
+	if h := c.MentorSession.SessionTTLHours; h < 1 || h > maxSessionTTLHours {
+		return fmt.Errorf("SESSION_TTL_HOURS must be between 1 and %d, got %d", maxSessionTTLHours, h)
+	}
+	if m := c.MentorSession.LoginTokenTTLMinutes; m < 1 || m > maxLoginTokenTTLMinutes {
+		return fmt.Errorf("LOGIN_TOKEN_TTL_MINUTES must be between 1 and %d, got %d",
+			maxLoginTokenTTLMinutes, m)
+	}
+	if c.MentorSession.JWTIssuer == "" {
+		return fmt.Errorf("JWT_ISSUER is required (it is checked when a session is verified)")
+	}
+
+	// A session cookie sent over plain http is readable by anything on the
+	// path, and the API is only ever reached through Traefik's TLS in
+	// production. COOKIE_SECURE defaults to true, so this only fires when
+	// someone has explicitly turned it off.
+	if c.IsProduction() && !c.MentorSession.CookieSecure {
+		return fmt.Errorf("COOKIE_SECURE must not be disabled in production")
+	}
 	return nil
 }
 
-// validateWorkerConfig enforces WORKER_AUTH_TOKEN in production so the
+// validateWorkerAuthToken enforces WORKER_AUTH_TOKEN in production so the
 // worker's /jobs/* endpoints (email dispatch, moderation actions) can never
-// fail open to an unauthenticated caller on the internal network.
-func (c *Config) validateWorkerConfig() error {
+// fail open to an unauthenticated caller on the internal network. Required by
+// the API too, which is the caller that has to present it.
+func (c *Config) validateWorkerAuthToken() error {
 	if c.IsProduction() && c.Worker.AuthToken == "" {
 		return fmt.Errorf("WORKER_AUTH_TOKEN is required in production")
 	}
 	return nil
+}
+
+// validateWorkerBaseURL checks the one server setting the worker reads:
+// BASE_URL, which it renders into every email link (login magic links, review
+// invitations). A relative or javascript: value here would ship in mail to
+// mentors and mentees, so the scheme/host rule that guards mentor-supplied URLs
+// guards this one too.
+func (c *Config) validateWorkerBaseURL() error {
+	if c.Server.BaseURL == "" {
+		return fmt.Errorf("BASE_URL is required (it is rendered into every email link)")
+	}
+	if c.IsProduction() && !safeurl.IsHTTPS(c.Server.BaseURL) {
+		return fmt.Errorf("BASE_URL must be an absolute https URL with a host in production")
+	}
+	return nil
+}
+
+// validateEmailConfig enforces the worker's SES contract. Same shape as
+// validateS3StorageConfig and for the same reason: pkg/email only builds a real
+// SESv2 client when the credentials are present, so a half-configured sender
+// boots green and then silently drops every mentor's login link.
+//
+// DEV_EMAIL_OVERRIDE is rejected in production outright — it reroutes ALL
+// recipients to one mailbox, so leaving a staging value in a production .env
+// would send mentors' magic links to a developer instead of the mentors.
+func (c *Config) validateEmailConfig() error {
+	missing := missingSettings([]setting{
+		{"SES_REGION", c.Email.SESRegion},
+		{"SES_ACCESS_KEY_ID", c.Email.SESAccessKeyID},
+		{"SES_SECRET_ACCESS_KEY", c.Email.SESSecretAccessKey},
+	})
+	switch {
+	case len(missing) == 3 && c.IsProduction():
+		return fmt.Errorf("SES email delivery is required in production: %s", strings.Join(missing, ", "))
+	case len(missing) > 0 && len(missing) < 3:
+		return fmt.Errorf("SES email delivery is partially configured: %s must also be set",
+			strings.Join(missing, ", "))
+	}
+
+	if strings.TrimSpace(c.Email.ModeratorsEmail) == "" {
+		return fmt.Errorf("MODERATORS_EMAIL is required (moderation notifications have no other recipient)")
+	}
+	if c.IsProduction() && strings.TrimSpace(c.Email.DevEmailOverride) != "" {
+		return fmt.Errorf("DEV_EMAIL_OVERRIDE must be empty in production: it reroutes every recipient")
+	}
+	if link := strings.TrimSpace(c.Email.DiscordInviteLink); link != "" && !safeurl.IsHTTPS(link) {
+		return fmt.Errorf("DISCORD_MENTORS_PRIVATE_INVITE_LINK must be an absolute https URL with a host")
+	}
+	return nil
+}
+
+// mentorCreatedTriggerJob is the path segment derivedMentorTriggerURL rewrites.
+// Two further triggers (mentor-confirmed, mentor-confirm-email) are derived from
+// MENTOR_CREATED_TRIGGER_URL by substituting it, and derivation returns "" —
+// i.e. "skip the trigger" — when the segment is absent. So a MENTOR_CREATED URL
+// pointing at any other job silently disables the mentor confirmation emails.
+const mentorCreatedTriggerJob = "new-mentor-watcher"
+
+// validateEventTriggerConfig checks the fire-and-forget worker triggers the API
+// calls. They are dialed over the internal Docker network as
+// http://worker:8090/jobs/..., so http is allowed — but the scheme allowlist
+// still matters, and a production deploy missing one of them loses a whole email
+// path with nothing but a debug log to show for it.
+//
+// MENTOR_UPDATED_TRIGGER_URL is deliberately unset (the worker serves no such
+// job), so it is optional-but-well-formed rather than required.
+func (c *Config) validateEventTriggerConfig() error {
+	required := []setting{
+		{"MENTOR_CREATED_TRIGGER_URL", c.EventTriggers.MentorCreatedTriggerURL},
+		{"MENTOR_REQUEST_CREATED_TRIGGER_URL", c.EventTriggers.MentorRequestCreatedTriggerURL},
+		{"MENTOR_LOGIN_EMAIL_TRIGGER_URL", c.EventTriggers.MentorLoginEmailTriggerURL},
+		{"MODERATOR_LOGIN_EMAIL_TRIGGER_URL", c.EventTriggers.ModeratorLoginEmailTriggerURL},
+		{"MENTOR_MODERATION_TRIGGER_URL", c.EventTriggers.MentorModerationTriggerURL},
+		{"REQUEST_PROCESS_FINISHED_TRIGGER_URL", c.EventTriggers.RequestProcessFinishedTriggerURL},
+		{"REVIEW_CREATED_TRIGGER_URL", c.EventTriggers.ReviewCreatedTriggerURL},
+	}
+	if c.IsProduction() {
+		if missing := missingSettings(required); len(missing) > 0 {
+			return fmt.Errorf("event trigger URLs are required in production: %s",
+				strings.Join(missing, ", "))
+		}
+	}
+
+	optional := make([]setting, 0, len(required)+1)
+	optional = append(optional, required...)
+	optional = append(optional, setting{"MENTOR_UPDATED_TRIGGER_URL", c.EventTriggers.MentorUpdatedTriggerURL})
+	for _, s := range optional {
+		value := strings.TrimSpace(s.value)
+		if value != "" && !safeurl.IsHTTPOrHTTPS(value) {
+			return fmt.Errorf("%s must be an absolute http(s) URL with a host", s.name)
+		}
+	}
+
+	created := c.EventTriggers.MentorCreatedTriggerURL
+	if created != "" && !strings.Contains(created, mentorCreatedTriggerJob) {
+		return fmt.Errorf("MENTOR_CREATED_TRIGGER_URL must contain %q: the mentor-confirmed and "+
+			"mentor-confirm-email triggers are derived from it by substituting that path segment",
+			mentorCreatedTriggerJob)
+	}
+	return nil
+}
+
+// setting pairs an env var NAME with its value. Only the name is ever put in an
+// error message — several of these are secrets.
+type setting struct {
+	name  string
+	value string
+}
+
+// missingSettings returns the NAMES of the settings that are blank.
+func missingSettings(settings []setting) []string {
+	var missing []string
+	for _, s := range settings {
+		if strings.TrimSpace(s.value) == "" {
+			missing = append(missing, s.name)
+		}
+	}
+	return missing
 }
 
 // validateS3StorageConfig enforces a COMPLETE object storage configuration.
@@ -433,10 +726,7 @@ func (c *Config) validateWorkerConfig() error {
 // empty block is allowed (uploads self-disable and the photo paths reject with
 // ErrUploadsUnavailable), but a PARTIAL block is always a typo.
 func (c *Config) validateS3StorageConfig() error {
-	settings := []struct {
-		name  string
-		value string
-	}{
+	settings := []setting{
 		{"S3_STORAGE_ACCESS_KEY", c.S3Storage.AccessKeyID},
 		{"S3_STORAGE_SECRET_KEY", c.S3Storage.SecretAccessKey},
 		{"S3_STORAGE_BUCKET", c.S3Storage.BucketName},
@@ -444,12 +734,7 @@ func (c *Config) validateS3StorageConfig() error {
 		{"S3_STORAGE_REGION", c.S3Storage.Region},
 	}
 
-	var missing []string
-	for _, setting := range settings {
-		if strings.TrimSpace(setting.value) == "" {
-			missing = append(missing, setting.name)
-		}
-	}
+	missing := missingSettings(settings)
 
 	switch {
 	case len(missing) == 0:
@@ -508,6 +793,12 @@ func (c *Config) validateTurnstileConfig() error {
 	if c.Turnstile.SecretKey == "" {
 		return fmt.Errorf("TURNSTILE_SECRET_KEY is required")
 	}
+	// A hostname with a scheme or a path never matches what siteverify echoes
+	// back (a bare host), so it would reject every captcha instead of pinning
+	// one — a total outage of every public write, configured silently.
+	if h := c.Turnstile.ExpectedHostname; h != "" && strings.ContainsAny(h, ":/ ") {
+		return fmt.Errorf("TURNSTILE_EXPECTED_HOSTNAME must be a bare hostname, not a URL")
+	}
 	return nil
 }
 
@@ -517,6 +808,11 @@ func (c *Config) validateServerConfig() error {
 	}
 	if c.Server.BaseURL == "" {
 		return fmt.Errorf("BASE_URL is required")
+	}
+	// The API renders BASE_URL into review links and redirect targets, so it is
+	// held to the same scheme/host rule as a mentor-supplied URL.
+	if c.IsProduction() && !safeurl.IsHTTPS(c.Server.BaseURL) {
+		return fmt.Errorf("BASE_URL must be an absolute https URL with a host in production")
 	}
 	if len(c.Server.AllowedOrigins) == 0 {
 		return fmt.Errorf("ALLOWED_CORS_ORIGINS is required")

@@ -30,6 +30,15 @@ requests, and the percentage.
 | A small count (tens) | Ship the new token in one migration and **reissue** those invitations, invalidating the old links. Simpler and safer than a dual-read window: a mentee whose old link stops working gets a fresh email. |
 | A large count (dev showed **138 of 141 = 98 %**) | A clean cutover would silently break almost every outstanding invitation. Do a proper expand → dual-read → cutover → contract sequence. That complexity is earned at that scale, and not before. |
 
+**Status (2026-08-04): H4 has shipped, and it took the second row** — the
+expand → dual-read sequence, which is correct at either scale, because D4 could
+not be run against production first. So this question is no longer a blocker for
+the *redesign*; it is now the gate on the **cutover** (contracting away the
+`?request_id=` path), together with a Prometheus counter that measures legacy
+usage directly in production. The procedure, the exact query and the two
+conditions that must hold are in
+[`review-capability-cutover.md`](review-capability-cutover.md) §2.
+
 **Related, and larger than it looks.** The same UUID is emitted to PostHog as a
 `distinct_id` (`request:<uuid>`) from **26 call sites in 6 producer files** — not
 just review submission but the contact form, mentor request status updates and

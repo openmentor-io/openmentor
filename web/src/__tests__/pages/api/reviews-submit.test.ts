@@ -27,8 +27,18 @@ jest.mock('@/lib/go-api-client', () => {
 import handler from '@/pages/api/reviews/submit'
 
 const REQUEST_ID = '1b0c9e42-a072-47ed-8ce9-edd306874ec9'
+// Fabricated, shaped like a real H4 capability. Never a live token.
+const REVIEW_TOKEN = 'rvw_SENTINELbffSubmitCapabilityAAAAAAAAAAAAAAAA'
 
 function validBody(): Record<string, string> {
+  return {
+    token: REVIEW_TOKEN,
+    mentorReview: 'Great session, very practical advice.',
+    captchaToken: 'valid-token',
+  }
+}
+
+function legacyBody(): Record<string, string> {
   return {
     requestId: REQUEST_ID,
     mentorReview: 'Great session, very practical advice.',
@@ -50,12 +60,39 @@ describe('api/reviews/submit', () => {
     expect(res._getJSONData()).toEqual({ error: 'Method not allowed' })
   })
 
-  it('forwards the review to the Go API and returns its response', async () => {
+  // SECURITY (H4): the capability goes upstream in the BODY, to a CONSTANT URL.
+  it('forwards the token in the body to a constant upstream URL', async () => {
     mockRequest.mockResolvedValue({ success: true, reviewId: 'rev-1' })
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: 'POST',
       body: validBody(),
+    })
+
+    await handler(req, res)
+
+    expect(mockRequest).toHaveBeenCalledWith('POST', '/api/v1/reviews/submit', {
+      body: {
+        token: REVIEW_TOKEN,
+        mentorReview: 'Great session, very practical advice.',
+        platformReview: '',
+        improvements: '',
+        captchaToken: 'valid-token',
+      },
+    })
+    const [, upstreamPath] = mockRequest.mock.calls[0]
+    expect(upstreamPath).not.toContain(REVIEW_TOKEN)
+    expect(res.statusCode).toBe(200)
+    expect(res._getJSONData()).toEqual({ success: true, reviewId: 'rev-1' })
+  })
+
+  // Dual-read: a link already in a mentee's inbox still submits.
+  it('still forwards a legacy request id to the legacy endpoint', async () => {
+    mockRequest.mockResolvedValue({ success: true, reviewId: 'rev-1' })
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: 'POST',
+      body: legacyBody(),
     })
 
     await handler(req, res)
@@ -69,7 +106,17 @@ describe('api/reviews/submit', () => {
       },
     })
     expect(res.statusCode).toBe(200)
-    expect(res._getJSONData()).toEqual({ success: true, reviewId: 'rev-1' })
+  })
+
+  it('rejects a submission with neither a token nor a request id', async () => {
+    const body = validBody()
+    delete body.token
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({ method: 'POST', body })
+
+    await handler(req, res)
+
+    expect(mockRequest).not.toHaveBeenCalled()
+    expect(res.statusCode).toBe(400)
   })
 
   it('rejects a missing review text locally', async () => {

@@ -13,6 +13,7 @@ import {
 } from '@/components/admin-moderation'
 import Wysiwyg from '@/components/forms/Wysiwyg'
 import filters from '@/config/filters'
+import { MAX_IMAGE_FILE_BYTES, MAX_IMAGE_FILE_LABEL } from '@/config/uploads'
 import type {
   AdminMentorDetails,
   AdminMentorProfileUpdateRequest,
@@ -444,9 +445,10 @@ function MentorModerationEditContent(): JSX.Element {
       return
     }
 
-    const maxSize = 10 * 1024 * 1024
-    if (file.size > maxSize) {
-      setActionError('Image size should not exceed 10MB')
+    // The limit is the RAW file; the request that carries it is ~4/3 bigger
+    // because the photo goes out base64-encoded inside JSON. See config/uploads.
+    if (file.size > MAX_IMAGE_FILE_BYTES) {
+      setActionError(`Image size should not exceed ${MAX_IMAGE_FILE_LABEL}`)
       return
     }
 

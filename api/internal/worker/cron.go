@@ -54,6 +54,16 @@ type CronJob struct {
 // tick fires, so it is the one job registered with SkipIfRunning: two passes over
 // the same replay set only race each other for the same rows. The daily/weekly
 // jobs have no such margin.
+//
+// It stays the only one, deliberately. The wrapper covers scheduled ticks ONLY —
+// POST /jobs/cron/<name> bypasses it — so it can never be what makes a job safe to
+// run twice; that is the job of the row-level guards on the writes themselves
+// (FinalizeNewMentor, DeactivateMentor, SetRequestContactPending). With those in
+// place an overlapping pass of deactivate-pending-mentors deactivates and emails
+// each mentor exactly once, so adding the wrapper to a weekly job whose runs
+// cannot overlap in the first place would only add a way for a tick to be dropped.
+// randomize-sort-order's writes are a cosmetic full-catalog shuffle where a
+// concurrent pass simply wins, which needs no guard at all.
 func (h *Handlers) CronJobs() []CronJob {
 	return []CronJob{
 		{Name: "sessions-watcher", Schedule: "0 30 8 * * *", Run: h.SessionsWatcher},

@@ -10,6 +10,12 @@ import (
 
 // Client defines an interface for making HTTP requests
 // This allows for easy mocking and testing of HTTP calls
+//
+// Use Do, with a request built from a context. Post and Get cannot carry one, so
+// a call made through them ignores the caller's deadline and cancellation —
+// which is how turnstile.Verify came to hold a request goroutine (and its
+// admission slot and DB connection) for the client's full 30s timeout after the
+// browser had already gone away. No production code uses them.
 type Client interface {
 	Post(url, contentType string, body io.Reader) (*http.Response, error)
 	Get(url string) (*http.Response, error)

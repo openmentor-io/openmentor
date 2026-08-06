@@ -32,6 +32,15 @@ permissions:
   id-token: write
   contents: read
 
+# SECURITY (H9): production has one compose project, one .env and one rollback
+# target, so two runs of this workflow must never overlap — the second run's
+# .env edit would land while the first is still converging, and its backup
+# would capture the first's unverified tags. Queue instead of cancel:
+# cancelling mid-converge leaves the VM half-deployed with no health verdict.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
 env:
   # AWS ECR (D19): registry host (<account-id>.dkr.ecr.<region>.amazonaws.com)
   # comes from the ECR_REGISTRY secret, set by the private provisioning
@@ -81,10 +90,14 @@ jobs:
           VM_SSH_HOST: ${{ secrets.VM_SSH_HOST }}
           VM_SSH_USER: ${{ secrets.VM_SSH_USER }}
           VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          # SECURITY (H5): required, not optional. The sync step below refuses
+          # to keyscan, so an unset host key must die here — before any
+          # credential is minted — rather than at the first ssh.
+          VM_SSH_HOST_KEY: ${{ secrets.VM_SSH_HOST_KEY }}
         run: |
           missing=()
           for name in DOMAIN ECR_REGISTRY AWS_REGION AWS_CI_ROLE_ARN \
-                      VM_SSH_HOST VM_SSH_USER VM_SSH_KEY; do
+                      VM_SSH_HOST VM_SSH_USER VM_SSH_KEY VM_SSH_HOST_KEY; do
             if [ -z "${!name}" ]; then missing+=("$name"); fi
           done
           if [ "${#missing[@]}" -gt 0 ]; then
@@ -101,22 +114,22 @@ jobs:
     if: github.event.inputs.service == 'frontend' || github.event.inputs.service == 'both'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
 
       - name: Build and push frontend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: ./web
           file: ./web/Dockerfile
@@ -148,22 +161,22 @@ jobs:
     if: github.event.inputs.service == 'backend' || github.event.inputs.service == 'both'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
 
       - name: Build and push backend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: ./api
           file: ./api/Dockerfile
@@ -188,9 +201,9 @@ jobs:
     needs: [validate-inputs, build-frontend, build-backend]
     # A single-service deploy leaves the OTHER build 'skipped', so success()
     # can't be used here. Requiring "at least one success AND neither failed"
-    # is what keeps a failed build's never-pushed tag out of the VM's .env,
-    # where the next deploy's `cp .env .env.backup` would make it the rollback
-    # target.
+    # is what keeps a failed build's never-pushed tag out of the VM's .env at
+    # all — the .env.lastgood scheme (H9) keeps such a tag from becoming a
+    # rollback target, but it still must not be deployed.
     if: >-
       !cancelled()
       && needs.validate-inputs.result == 'success'
@@ -209,7 +222,7 @@ jobs:
       VM_SSH_HOST: ${{ secrets.VM_SSH_HOST }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # The VM used to `git pull` a separate infrastructure repo in
       # /opt/openmentor/infra. In the monorepo the compose files live in
@@ -230,17 +243,18 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          # SECURITY (H2): prefer a pinned host key over trust-on-first-use.
-          # Set the VM_SSH_HOST_KEY secret to the VM's public host key
-          # (`ssh-keyscan -H <host>` output, run once from a trusted network)
-          # so an ephemeral runner can't be MITM'd on first contact. Falls back
-          # to keyscan with a warning until the secret is populated.
-          if [ -n "$VM_SSH_HOST_KEY" ]; then
-            printf '%s\n' "$VM_SSH_HOST_KEY" >> ~/.ssh/known_hosts
-          else
-            echo "::warning::VM_SSH_HOST_KEY not set - falling back to ssh-keyscan (trust-on-first-use). Pin the host key to remove MITM risk."
-            ssh-keyscan -p 22 -H "$VM_SSH_HOST" >> ~/.ssh/known_hosts
+          # SECURITY (H5, was H2): the host key is PINNED, and a missing pin is
+          # fatal. The keyscan fallback this replaces was trust-on-first-use
+          # over the very connection it was authenticating: an ephemeral runner
+          # asked the network who the VM is, then handed that answer VM_SSH_KEY
+          # and an ECR token. VM_SSH_HOST_KEY holds `ssh-keyscan -H <host>`
+          # output captured once from a trusted network; the preflight job
+          # already refused to start without it, so this is the second gate.
+          if [ -z "$VM_SSH_HOST_KEY" ]; then
+            echo "::error::VM_SSH_HOST_KEY is not set. Refusing to ssh-keyscan the host we are about to hand a deploy key to. Populate the secret with 'ssh-keyscan -H <VM_SSH_HOST>' output taken from a trusted network."
+            exit 1
           fi
+          printf '%s\n' "$VM_SSH_HOST_KEY" >> ~/.ssh/known_hosts
 
           rsync -az --checksum --itemize-changes \
             --exclude '.env' \
@@ -265,10 +279,14 @@ jobs:
       # tag lines already resolved; the workflow instead edits the tag lines
       # of the VM's existing .env in place. Only the deployed service's tag
       # is updated (FRONTEND_IMAGE_TAG / BACKEND_IMAGE_TAG, matching
-      # infra/deploy.sh); the other keeps its currently deployed tag. The
-      # previous .env is preserved as .env.backup FIRST so deploy-remote.sh's
-      # auto-rollback can restore the previous tags. Uses the SSH key written
-      # by the sync step.
+      # infra/deploy.sh); the other keeps its currently deployed tag. Uses the
+      # SSH key written by the sync step.
+      #
+      # H9: this is one of the three writers of the VM's .env (with
+      # infra/deploy.sh and infra/rollback.sh). All three take the same flock and
+      # snapshot .env under a timestamp; the auto-rollback target is
+      # .env.lastgood, which only a health-verified deploy writes. The scheme is
+      # documented once in the header of infra/deploy-remote.sh.
       - name: Set image tags on VM
         run: |
           ssh -i ~/.ssh/deploy_key -p 22 \
@@ -279,8 +297,26 @@ jobs:
           TAG="$2"
           cd /opt/openmentor/infra
 
-          # Backup the current .env (previous image tags) for rollback
-          if [ -f .env ]; then cp .env .env.backup; else touch .env; fi
+          # H9: the deploy lock, held for the .env edit only — deploy-remote.sh
+          # retakes it for the converge. Without it a tag edit can land in the
+          # middle of another writer's converge and get deployed by it. The gap
+          # between the two holds is covered by the tag assertion in
+          # deploy-remote.sh: the converge refuses to run if .env no longer
+          # carries the tags written here.
+          exec 9>>.deploy.lock
+          if ! flock -w 900 9; then
+            echo "::error::Timed out waiting for /opt/openmentor/infra/.deploy.lock — another deploy or rollback is in progress on the VM. Nothing was changed."
+            exit 1
+          fi
+
+          # H9: a timestamped snapshot, not the single .env.backup slot two
+          # overlapping deploys used to overwrite for each other. Pruned so
+          # copies of production secrets do not accumulate.
+          if [ ! -f .env ]; then touch .env; chmod 600 .env; fi
+          ts=$(date +%s)
+          cp .env ".env.backup.$ts"
+          chmod 600 ".env.backup.$ts"
+          ls -1t .env.backup.* 2>/dev/null | tail -n +6 | xargs -r rm -f
 
           # Replace-or-append a KEY=value in .env
           set_env_tag() {
@@ -300,7 +336,7 @@ jobs:
           TAG_SCRIPT
 
       - name: Configure AWS credentials (mint ECR token for the VM)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
@@ -338,9 +374,26 @@ jobs:
           RESTART_ALLOY: ${{ steps.sync.outputs.restart_alloy }}
           REBUILD_BACKUP: ${{ steps.sync.outputs.rebuild_backup }}
         run: |
+          # H9: the tag edit above ran in its own ssh session, so its flock was
+          # released before this converge takes one — the deploy is two critical
+          # sections, and a workstation deploy.sh can rewrite .env in between
+          # (it builds a full .env from tags it read earlier, unlocked). Hand the
+          # tags THIS run set to deploy-remote.sh, which re-checks .env against
+          # them under the lock before pulling: a lost update then fails loudly
+          # instead of deploying another writer's tags under this run's TAG.
+          # Only the service(s) this run deploys are claimed — the other keeps
+          # whatever tag the VM already had, which this run does not know.
+          EXPECTED_FRONTEND_TAG=""
+          EXPECTED_BACKEND_TAG=""
+          if [ "$SERVICE" = "frontend" ] || [ "$SERVICE" = "both" ]; then
+            EXPECTED_FRONTEND_TAG="$TAG"
+          fi
+          if [ "$SERVICE" = "backend" ] || [ "$SERVICE" = "both" ]; then
+            EXPECTED_BACKEND_TAG="$TAG"
+          fi
           ssh -i ~/.ssh/deploy_key -p 22 \
             "$VM_SSH_USER@$VM_SSH_HOST" \
-            "bash -s -- $(printf '%q ' "--remove-orphans" "$RESTART_ALLOY" "$REBUILD_BACKUP")" \
+            "bash -s -- $(printf '%q ' "--remove-orphans" "$RESTART_ALLOY" "$REBUILD_BACKUP" "$EXPECTED_FRONTEND_TAG" "$EXPECTED_BACKEND_TAG")" \
             < infra/deploy-remote.sh
 
       # Mandatory and fatal: deploy-remote.sh only probes container loopback, so
@@ -406,7 +459,7 @@ jobs:
               echo "**Troubleshooting**:"
               echo "1. Check workflow logs above"
               echo "2. SSH to VM and run: \`docker compose logs\`"
-              echo "3. Consider rolling back: \`./rollback.sh <previous-sha>\` from a workstation, or on the VM: \`cp .env.backup .env && docker compose up -d\`"
+              echo "3. Consider rolling back: \`./rollback.sh <previous-sha>\` from a workstation, or on the VM: \`cp .env.lastgood .env && docker compose up -d\` (.env.lastgood is the last health-verified .env; \`ls -1t .env.backup.*\` holds the older snapshots)"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 

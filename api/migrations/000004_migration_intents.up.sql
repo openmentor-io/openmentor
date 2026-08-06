@@ -1,3 +1,4 @@
+-- phase: expand
 -- Migration intents: getmentor.dev mentors opt in to having their profile
 -- migrated (via the public /migrate page). The migration tooling
 -- (infra/migration/migrate-mentors.sh --from-intents) consumes pending rows

@@ -55,7 +55,7 @@ func registerAPIRoutes(
 	group.POST("/internal/mentors", generalRateLimiter.Middleware(), middleware.InternalAPIAuthMiddleware(cfg.Auth.InternalMentorsAPI), mentorHandler.GetInternalMentors)
 	group.POST("/contact-mentor", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), contactHandler.ContactMentor)
 	group.POST("/register-mentor", registrationRateLimiter.Middleware(), uploadAdmission.Middleware(),
-		middleware.BodySizeLimitMiddleware(10*1024*1024), registrationHandler.RegisterMentor)
+		middleware.BodySizeLimitMiddleware(middleware.MaxImageBodyBytes), registrationHandler.RegisterMentor)
 	// SECURITY: /logs appends to a file on disk, so it is gated behind the
 	// internal API token (server-to-server only, same as /internal/mentors) to
 	// prevent unauthenticated log injection / disk-fill DoS.
@@ -70,7 +70,20 @@ func registerAPIRoutes(
 	group.POST("/mentors/confirm/resend", confirmResendFloodLimiter.Middleware(), middleware.BodySizeLimitMiddleware(10*1024),
 		mentorConfirmationHandler.Resend)
 
-	// Review routes (public - uses captcha for protection)
+	// Review routes (public - captcha plus a single-use capability token).
+	//
+	// H4: the capability lives in the request BODY, so both URLs are constants —
+	// nothing capability-bearing reaches url.path, url.query, an access log line
+	// or PostHog's $current_url. `check` is a POST for exactly that reason, even
+	// though it only reads.
+	group.POST("/reviews/check", generalRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(4*1024), reviewHandler.CheckReviewByToken)
+	group.POST("/reviews/submit", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), reviewHandler.SubmitReviewWithToken)
+
+	// LEGACY review routes: these authorize on client_requests.id itself, which is
+	// the vulnerability H4 replaces. They stay registered for the dual-read window
+	// so links already in mentees' inboxes keep working, and refuse with 410 once
+	// REVIEW_LEGACY_REQUEST_ID_LINKS_ENABLED is off. Delete them at the cutover
+	// (docs/runbooks/audit-2026-08/review-capability-cutover.md).
 	group.GET("/reviews/:requestId/check", generalRateLimiter.Middleware(), reviewHandler.CheckReview)
 	group.POST("/reviews/:requestId", contactRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), reviewHandler.SubmitReview)
 
@@ -97,6 +110,7 @@ func registerMentorAdminRoutes(
 	mentorProfileHandler *handlers.MentorProfileHandler,
 	usernameHandler *handlers.UsernameHandler,
 	tokenManager *jwt.TokenManager,
+	sessionChecker middleware.MentorSessionChecker,
 ) {
 	// Skip mentor admin routes if JWT is not configured
 	if tokenManager == nil {
@@ -113,17 +127,26 @@ func registerMentorAdminRoutes(
 		middleware.EmailRateLimitMiddleware(authRateLimiter), mentorAuthHandler.RequestLogin)
 	auth.POST("/verify", mentorAuthHandler.VerifyLogin)
 	auth.POST("/logout", mentorAuthHandler.Logout)
-	auth.GET("/session", middleware.MentorSessionMiddleware(tokenManager, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure), mentorAuthHandler.GetSession)
+	auth.GET("/session", middleware.MentorSessionMiddleware(tokenManager, sessionChecker,
+		cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure, middleware.LiveCheckOnMutations),
+		mentorAuthHandler.GetSession)
 
 	// Mentor admin routes (protected)
 	mentor := router.Group("/api/v1/mentor")
-	mentor.Use(middleware.MentorSessionMiddleware(tokenManager, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure))
+	mentor.Use(middleware.MentorSessionMiddleware(tokenManager, sessionChecker,
+		cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure, middleware.LiveCheckOnMutations))
 
-	// Request management routes
-	mentor.GET("/requests", mentorRequestsHandler.GetRequests)
-	mentor.GET("/requests/:id", mentorRequestsHandler.GetRequestByID)
-	mentor.POST("/requests/:id/status", mentorRequestsHandler.UpdateStatus)
-	mentor.POST("/requests/:id/decline", mentorRequestsHandler.DeclineRequest)
+	// Request management routes. Their OWN group, on the stricter scope: every
+	// response here carries mentee personal data (name, email, preferred contact,
+	// message body), so a revoked, logged-out or declined mentor has to lose READ
+	// access at once — not keep it for the rest of the cookie's 24 hours (D58).
+	requests := router.Group("/api/v1/mentor/requests")
+	requests.Use(middleware.MentorSessionMiddleware(tokenManager, sessionChecker,
+		cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure, middleware.LiveCheckOnEveryRequest))
+	requests.GET("", mentorRequestsHandler.GetRequests)
+	requests.GET("/:id", mentorRequestsHandler.GetRequestByID)
+	requests.POST("/:id/status", mentorRequestsHandler.UpdateStatus)
+	requests.POST("/:id/decline", mentorRequestsHandler.DeclineRequest)
 
 	// Profile routes
 	mentor.GET("/profile", mentorProfileHandler.GetProfile)
@@ -131,7 +154,7 @@ func registerMentorAdminRoutes(
 	mentor.POST("/profile/status", profileRateLimiter.Middleware(), mentorProfileHandler.UpdateProfileStatus)
 	mentor.POST("/profile/submit", profileRateLimiter.Middleware(), mentorProfileHandler.SubmitProfile)
 	mentor.POST("/profile/picture", profileRateLimiter.Middleware(), uploadAdmission.Middleware(),
-		middleware.BodySizeLimitMiddleware(10*1024*1024), mentorProfileHandler.UploadPicture)
+		middleware.BodySizeLimitMiddleware(middleware.MaxImageBodyBytes), mentorProfileHandler.UploadPicture)
 
 	// Username (public name for the slug) — a DELIBERATELY separate flow from
 	// profile save: changing it is a breaking action (shared links, cached OG
@@ -153,6 +176,7 @@ func registerAdminModerationRoutes(
 	adminMentorRequestsHandler *handlers.AdminMentorRequestsHandler,
 	usernameHandler *handlers.UsernameHandler,
 	tokenManager *jwt.TokenManager,
+	sessionChecker middleware.AdminSessionChecker,
 ) {
 
 	if tokenManager == nil {
@@ -166,10 +190,10 @@ func registerAdminModerationRoutes(
 		middleware.EmailRateLimitMiddleware(authRateLimiter), adminAuthHandler.RequestLogin)
 	auth.POST("/verify", adminAuthHandler.VerifyLogin)
 	auth.POST("/logout", adminAuthHandler.Logout)
-	auth.GET("/session", middleware.AdminSessionMiddleware(tokenManager, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure), adminAuthHandler.GetSession)
+	auth.GET("/session", middleware.AdminSessionMiddleware(tokenManager, sessionChecker, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure), adminAuthHandler.GetSession)
 
 	admin := router.Group("/api/v1/admin")
-	admin.Use(middleware.AdminSessionMiddleware(tokenManager, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure))
+	admin.Use(middleware.AdminSessionMiddleware(tokenManager, sessionChecker, cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure))
 	admin.GET("/mentors", adminMentorsHandler.ListMentors)
 	admin.GET("/mentors/:id", adminMentorsHandler.GetMentor)
 	admin.POST("/mentors/:id", profileRateLimiter.Middleware(), adminMentorsHandler.UpdateMentor)
@@ -178,7 +202,7 @@ func registerAdminModerationRoutes(
 	admin.POST("/mentors/:id/return", adminMentorsHandler.ReturnMentor)
 	admin.POST("/mentors/:id/status", adminMentorsHandler.UpdateMentorStatus)
 	admin.POST("/mentors/:id/picture", profileRateLimiter.Middleware(), uploadAdmission.Middleware(),
-		middleware.BodySizeLimitMiddleware(10*1024*1024), adminMentorsHandler.UploadMentorPicture)
+		middleware.BodySizeLimitMiddleware(middleware.MaxImageBodyBytes), adminMentorsHandler.UploadMentorPicture)
 
 	// Username change (admin role only, no cooldown; goes through the same
 	// history/redirect machinery as the mentor flow).
@@ -195,7 +219,7 @@ func registerAdminModerationRoutes(
 
 func main() { //nolint:gocyclo
 	// Load configuration
-	cfg, err := config.Load()
+	cfg, err := config.LoadFor(config.BinaryAPI)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
 		os.Exit(1)
@@ -398,6 +422,13 @@ func main() { //nolint:gocyclo
 	router.Use(otelgin.Middleware(cfg.Observability.ServiceName)) // OpenTelemetry tracing
 	router.Use(middleware.ObservabilityMiddleware())
 	router.Use(middleware.SecurityHeadersMiddleware())
+	// SECURITY: a global body cap, so a route can only be unbounded on purpose.
+	// Before this, every mentor-profile and admin-moderation POST had no cap at
+	// all. Routes needing more re-apply BodySizeLimitMiddleware with their own
+	// value, which REPLACES this one rather than nesting inside it — the three
+	// image routes depend on that, and they keep their AdmissionLimiter,
+	// which bounds a different thing (how many such bodies are resident at once).
+	router.Use(middleware.BodySizeLimitMiddleware(middleware.DefaultMaxBodyBytes))
 
 	// CORS configuration - SECURITY: Only allow specific origins
 	allowedOrigins := cfg.Server.AllowedOrigins
@@ -439,16 +470,16 @@ func main() { //nolint:gocyclo
 	// on token-guessing lookups.
 	confirmResendFloodLimiter := middleware.NewRateLimiter(5, 20) // coarse global cap: ~5/sec, burst 20
 
-	// ONE admission limiter shared by every route that accepts a 10 MiB body
-	// (registration and the two picture uploads), because they share one 512 MiB
-	// container. The rate limiters above cap arrivals per second, not how many
-	// payloads are resident: an admitted upload retains ~31 MiB until it returns
-	// (body string + JSON decoder buffer + the base64-decoded image), so the
-	// burst of 20 those limiters allow is ~620 MiB and the decode semaphore in
-	// pkg/imageclass never gets to help. Four in flight is ~124 MiB, plus the
-	// 128 MiB decode budget, and it is far above real demand — a handful of
-	// uploads a day.
-	uploadAdmission := middleware.NewAdmissionLimiter(4, 5*time.Second)
+	// ONE admission limiter shared by every route that accepts a
+	// middleware.MaxImageBodyBytes body (registration and the two picture
+	// uploads), because they share one 512 MiB container. The rate limiters above
+	// cap arrivals per second, not how many payloads are resident: an admitted
+	// upload retains ~3x its body until it returns (body string + JSON decoder
+	// buffer + the base64-decoded image), so the burst of 20 those limiters allow
+	// is ~840 MiB and the decode semaphore in pkg/imageclass never gets to help.
+	// The slot count, and the arithmetic tying it to the body cap it multiplies,
+	// live next to that cap — see middleware.MaxUploadsInFlight.
+	uploadAdmission := middleware.NewAdmissionLimiter(middleware.MaxUploadsInFlight, 5*time.Second)
 
 	// API routes
 	api := router.Group("/api")
@@ -465,10 +496,10 @@ func main() { //nolint:gocyclo
 		mentorConfirmationHandler, usernameHandler)
 
 	// Mentor admin routes (authentication, request management, and profile)
-	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, uploadAdmission, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, usernameHandler, mentorAuthService.GetTokenManager())
+	registerMentorAdminRoutes(router, cfg, mentorAuthRateLimiter, profileRateLimiter, uploadAdmission, mentorAuthHandler, mentorRequestsHandler, mentorProfileHandler, usernameHandler, mentorAuthService.GetTokenManager(), mentorRepo)
 
 	// Moderator/Admin web moderation routes
-	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, uploadAdmission, adminAuthHandler, adminMentorsHandler, adminMentorRequestsHandler, usernameHandler, adminAuthService.GetTokenManager())
+	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, uploadAdmission, adminAuthHandler, adminMentorsHandler, adminMentorRequestsHandler, usernameHandler, adminAuthService.GetTokenManager(), moderatorRepo)
 
 	// Create HTTP server
 	// SECURITY: Bind to all interfaces for Docker Compose networking

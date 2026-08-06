@@ -85,7 +85,16 @@ func (h *AdminAuthHandler) VerifyLogin(c *gin.Context) {
 	})
 }
 
+// Logout clears the admin session cookie and revokes every session issued for
+// this moderator — see MentorAuthHandler.Logout for why the cookie alone is not
+// enough, which matters more for a privileged session (D58).
 func (h *AdminAuthHandler) Logout(c *gin.Context) {
+	if cookie, err := c.Cookie(middleware.AdminSessionCookieName); err == nil {
+		if revokeErr := h.service.RevokeSession(c.Request.Context(), cookie); revokeErr != nil {
+			attachError(c, revokeErr)
+		}
+	}
+
 	middleware.ClearAdminSessionCookie(
 		c,
 		h.service.GetCookieDomain(),

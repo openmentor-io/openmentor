@@ -148,6 +148,23 @@ Other useful targets: `make build` (all three binaries), `make test`,
 test-race + gosec), `make docker-build`. The full dev stack (frontend +
 api + worker + postgres) lives in `openmentor-infra/docker-compose.dev.yml`.
 
+### Writing a migration: expand / contract
+
+Every file in `migrations/` declares its phase on line 1 and ships a `.down.sql`:
+
+- `-- phase: expand` — only adds (tables, columns, indexes, seed rows, widened
+  constraints). An image built before it still finds everything it reads.
+- `-- phase: contract` — removes or renames something, or narrows a constraint,
+  so an image built before it can no longer find what it reads. Ship it in a
+  *later* release than the code change that stops needing the old shape.
+
+`infra/rollback.sh` reads these markers out of the deployed image to tell an
+operator whether a rollback can cross a boundary, so an unmarked or mismarked
+migration silently degrades a production safety check —
+`cd infra && make check` fails on both, and on a missing `.down.sql`. Full policy
+and the manual crossing procedure: `infra/DEPLOYMENT.md`, "Migration policy:
+expand / contract".
+
 ## Testing & CI
 
 ```bash

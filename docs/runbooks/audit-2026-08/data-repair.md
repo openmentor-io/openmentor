@@ -246,13 +246,33 @@ docker exec openmentor-worker sh -c '
 ```
 
 It returns the job's `JobSummary` as JSON (HTTP 500 with a partial summary on
-error). Two cautions about that endpoint family:
+error). Three cautions about that endpoint family:
 
 - **`randomize-sort-order` will not fix a D1 row.** It selects
   `WHERE status = 'active'` (`ListActiveMentorIDs`), so a stuck `draft` or an
   imported `inactive` row is never touched. Don't reach for it.
 - **`update-status-reminder` and `deactivate-pending-mentors` send email** (and
   the latter deactivates mentors). Do not trigger them to "see if it works".
+- **Since `H3`, a manual trigger against an entity that has moved on is a
+  no-op, not a redo.** Every worker write is a guarded claim, so
+  `POST /jobs/new-mentor-watcher` on a mentor who is no longer `draft`,
+  `POST /jobs/new-request-watcher` on a request that has already been processed
+  or advanced past its first `pending`, `POST /jobs/mentor-moderation-action`
+  whose action the mentor's current status contradicts, and a
+  `deactivate-pending-mentors` pass over a mentor who left `active` all answer
+  **200 with `"superseded":true`** (or count into `mentors_superseded`), write
+  nothing and email nobody. That is the intended answer, not a failure — it is
+  what stops a replay from reopening a closed request or delisting a live
+  mentor. If you genuinely need the notification resent, fix the row's state
+  first, or send the mail by hand.
+
+  **One exception, once per request: requests announced BEFORE `H3` deploys.**
+  The old write never stamped `status_changed_at`, so a request it already
+  announced and whose mentor has not acted still reads as unclaimed — the first
+  post-deploy `POST /jobs/new-request-watcher` against it wins the claim and
+  re-sends all three announcement emails. It self-heals from there (that claim
+  holds, and any mentor action stamps the column anyway), so there is nothing to
+  repair — but don't replay a pre-deploy `pending` request expecting a no-op.
 
 ### 5. Email the affected people
 

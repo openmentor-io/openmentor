@@ -37,8 +37,8 @@ const confirmationTokenTTL = 24 * time.Hour
 // confirmation flow. *repository.MentorRepository satisfies it.
 type MentorConfirmationRepository interface {
 	GetByConfirmationToken(ctx context.Context, token string) (*models.MentorConfirmation, error)
-	ConfirmMentorEmail(ctx context.Context, mentorID string) error
-	SetEmailConfirmation(ctx context.Context, mentorID, token string, expiresAt time.Time) error
+	ConsumeConfirmationToken(ctx context.Context, token string) (applied bool, err error)
+	RotateConfirmationToken(ctx context.Context, oldToken, newToken string, expiresAt time.Time) (applied bool, err error)
 }
 
 var _ MentorConfirmationRepository = (*repository.MentorRepository)(nil)
@@ -122,12 +122,25 @@ func (s *MentorConfirmationService) ConfirmEmail(ctx context.Context, token stri
 		return false, ErrConfirmationTokenExpired
 	}
 
-	if err := s.mentorRepo.ConfirmMentorEmail(ctx, mentor.MentorID); err != nil {
+	// SECURITY (H1): the transition and the clearing of the single-use token are
+	// ONE conditional UPDATE keyed on the token that was just read, so two
+	// concurrent clicks produce exactly one draft -> pending transition and exactly
+	// one notification. The lookup above still classifies the three outcomes the
+	// web client branches on; it no longer authorizes the write.
+	applied, err := s.mentorRepo.ConsumeConfirmationToken(ctx, token)
+	if err != nil {
 		s.track(ctx, mentor.MentorID, mentor.Status, "update_failed")
 		logger.Error("Failed to confirm mentor email",
-			zap.Error(err),
+			logger.RedactedError(err),
 			zap.String("mentor_id", mentor.MentorID))
 		return false, fmt.Errorf("failed to confirm email")
+	}
+	if !applied {
+		// Somebody else consumed the token between the read and this write (a
+		// double-clicked link, or a moderator action). Same answer as finding the
+		// mentor already past draft: idempotent success, and NO second trigger.
+		s.track(ctx, mentor.MentorID, mentor.Status, "already")
+		return true, nil
 	}
 
 	// The mentor-confirmed worker job sends the "application in review"
@@ -177,22 +190,51 @@ func (s *MentorConfirmationService) ResendConfirmation(ctx context.Context, toke
 		return false, fmt.Errorf("failed to resend confirmation email")
 	}
 
-	if err := s.mentorRepo.SetEmailConfirmation(ctx, mentor.MentorID, freshToken, time.Now().Add(confirmationTokenTTL)); err != nil {
+	// The rotation is a compare-and-swap on the token that was read, so the fresh
+	// token replaces the old one in a single write: the previous link stops working
+	// at the same instant the new one starts. applied=false means the row moved
+	// under us, and then the fresh token was NEVER STORED — emailing it would hand
+	// the mentor a link that is dead on arrival, which is the whole reason the send
+	// is gated on the claim (same rule as the worker's FinalizeNewMentor).
+	applied, err := s.mentorRepo.RotateConfirmationToken(ctx, token, freshToken, time.Now().Add(confirmationTokenTTL))
+	if err != nil {
 		s.track(ctx, mentor.MentorID, mentor.Status, "resend_update_failed")
 		logger.Error("Failed to store fresh confirmation token",
-			zap.Error(err),
+			logger.RedactedError(err),
 			zap.String("mentor_id", mentor.MentorID))
 		return false, fmt.Errorf("failed to resend confirmation email")
 	}
+	if !applied {
+		s.track(ctx, mentor.MentorID, mentor.Status, "resend_superseded")
+		logger.Info("Confirmation resend lost the race for the row; nothing was emailed",
+			zap.String("mentor_id", mentor.MentorID))
+		return false, ErrConfirmationTokenInvalid
+	}
 
-	// The mentor-confirm-email worker job reads the fresh token from the
-	// row and re-sends the mentor-confirm-email message.
-	trigger.CallAsync(ctx, s.config.EventTriggers.MentorConfirmEmailTriggerURL(), mentor.MentorID, s.config.Worker.AuthToken, s.httpClient)
+	// The worker cannot read the token back any more — it is hashed at rest (D57) —
+	// so the confirm URL travels in the trigger payload, exactly like the magic-link
+	// login URL already does. The mentor id stays in the URL: these trigger URLs end
+	// in "?mentorId=" by convention (see derivedMentorTriggerURL), and keeping that
+	// means the job's own resolution order does not change, only the link source.
+	if triggerURL := s.config.EventTriggers.MentorConfirmEmailTriggerURL(); triggerURL != "" {
+		trigger.CallAsyncWithPayload(ctx, triggerURL+mentor.MentorID, map[string]interface{}{
+			"type":        "mentor_confirm_email",
+			"mentor_id":   mentor.MentorID,
+			"confirm_url": s.confirmURL(freshToken),
+		}, s.config.Worker.AuthToken, s.httpClient)
+	}
 
 	s.track(ctx, mentor.MentorID, mentor.Status, "resent")
 	logger.Info("Mentor confirmation email resent",
 		zap.String("mentor_id", mentor.MentorID))
 	return false, nil
+}
+
+// confirmURL builds the link that goes into the confirmation email. It must match
+// the web route the frontend serves (web/src/pages/mentor/confirm.tsx) and the
+// URL the worker's new-mentor-watcher builds for the first send.
+func (s *MentorConfirmationService) confirmURL(token string) string {
+	return s.config.Server.BaseURL + "/mentor/confirm?token=" + token
 }
 
 // resendLimitKey namespaces the bucket so a mentor id can never collide with

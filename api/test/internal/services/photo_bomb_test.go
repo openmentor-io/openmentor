@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"io"
-	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/openmentor-io/openmentor/api/config"
@@ -16,25 +13,6 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
 	"github.com/openmentor-io/openmentor/api/test/imagefixture"
 )
-
-// captchaOKClient is an httpclient.Client whose Turnstile siteverify response
-// always succeeds, so registration tests reach the code under test.
-type captchaOKClient struct{}
-
-func (captchaOKClient) Post(_, _ string, _ io.Reader) (*http.Response, error) {
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader(`{"success":true}`)),
-	}, nil
-}
-
-func (captchaOKClient) Get(_ string) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
-}
-
-func (captchaOKClient) Do(_ *http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
-}
 
 // bombBase64 is the wire form of an upload: base64, as the JSON endpoints take
 // it. 10000x10000 is ~12 KiB encoded and ~95 MiB decoded.
@@ -65,7 +43,7 @@ func unreachableStorage(t *testing.T) *s3storage.StorageClient {
 // The bomb must now be refused before any DB write.
 func TestRegistrationRejectsDecompressionBomb(t *testing.T) {
 	repo := &recordingRegistrationRepo{}
-	svc := services.NewRegistrationService(repo, &s3storage.StorageClient{}, &config.Config{}, captchaOKClient{}, &capturingTracker{})
+	svc := services.NewRegistrationService(repo, &s3storage.StorageClient{}, &config.Config{}, captchaOK, &capturingTracker{})
 
 	req := &models.RegisterMentorRequest{Name: "John Doe", Email: "john@example.com"}
 	req.ProfilePicture.Image = bombBase64(t)
@@ -86,7 +64,7 @@ func TestRegistrationRejectsDecompressionBomb(t *testing.T) {
 
 func TestRegistrationAcceptsOrdinaryPhoto(t *testing.T) {
 	repo := &recordingRegistrationRepo{}
-	svc := services.NewRegistrationService(repo, unreachableStorage(t), &config.Config{}, captchaOKClient{}, &capturingTracker{})
+	svc := services.NewRegistrationService(repo, unreachableStorage(t), &config.Config{}, captchaOK, &capturingTracker{})
 
 	req := &models.RegisterMentorRequest{Name: "John Doe", Email: "john@example.com"}
 	req.ProfilePicture.Image = photoDataURI(t)

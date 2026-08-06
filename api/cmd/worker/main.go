@@ -31,8 +31,10 @@ import (
 
 // nolint:gocyclo // wiring: config -> pools -> handlers -> scheduler, read top to bottom.
 func main() {
-	// Load configuration (same config package as the API)
-	cfg, err := config.Load()
+	// Load configuration and validate it against the WORKER contract only:
+	// cmd/worker holds no S3, Turnstile, mentors-API or session credential, and
+	// requiring those is what took the 2026-08-04 deploy down (a57aec2).
+	cfg, err := config.LoadFor(config.BinaryWorker)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
 		os.Exit(1)

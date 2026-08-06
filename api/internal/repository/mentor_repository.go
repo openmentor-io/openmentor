@@ -161,7 +161,14 @@ func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId
 	return models.ScanMentor(row)
 }
 
-// allowedUpdateColumns defines the columns that can be updated via the Update method
+// allowedUpdateColumns defines the columns that can be updated via the Update
+// method.
+//
+// updated_at is deliberately NOT a member: Update always appends
+// `updated_at = NOW()` itself, so accepting it from a caller built
+// `SET updated_at = $1, updated_at = NOW()`, which Postgres rejects outright
+// ("multiple assignments to same column") — a 500 on a save. Rejecting the
+// column name says so instead.
 var allowedUpdateColumns = map[string]bool{
 	"name":              true,
 	"email":             true,
@@ -177,16 +184,23 @@ var allowedUpdateColumns = map[string]bool{
 	"slug":              true,
 	"status":            true,
 	"photo_style":       true,
-	"updated_at":        true,
 }
 
-// Update updates a mentor in PostgreSQL
+// Update updates a mentor in PostgreSQL.
+//
+// An empty updates map is a no-op rather than an error: it used to build
+// `UPDATE mentors SET , updated_at = NOW() WHERE ...` — a syntax error — so a
+// caller whose diff came out empty got a failed save instead of nothing to do.
 func (r *MentorRepository) Update(ctx context.Context, mentorId string, updates map[string]interface{}) error {
 	// Validate all keys against allowlist to prevent SQL injection
 	for key := range updates {
 		if !allowedUpdateColumns[key] {
 			return fmt.Errorf("invalid column name: %s", key)
 		}
+	}
+
+	if len(updates) == 0 {
+		return nil
 	}
 
 	// Build dynamic UPDATE query
@@ -427,100 +441,9 @@ func (r *MentorRepository) GetByEmail(ctx context.Context, email string) (*model
 	return models.ScanMentor(row)
 }
 
-// GetByLoginToken retrieves a mentor by login token
-// GetByLoginToken finds a mentor by their login token
-// Note: Returns the token parameter for backwards compatibility, but it's not used for validation
-// The SQL WHERE clause (login_token = $1) is the actual security check
-//
-// This is the one mentor read with no COALESCE: its hand-rolled scan already
-// takes every nullable column through a pointer, which is the other half of the
-// rule stated on mentorSelect. The nullable-column test drives this path too, so
-// that stays a checked fact rather than a claim.
-func (r *MentorRepository) GetByLoginToken(ctx context.Context, token string) (*models.Mentor, time.Time, error) {
-	query := `
-		SELECT id, airtable_id, legacy_id, slug, name, job_title, workplace, about, details,
-			competencies, experience, price, status, '' as tags, calendar_url,
-			sort_order, created_at, 0 as mentee_count, login_token_expires_at
-		FROM mentors
-		WHERE login_token = $1
-		LIMIT 1
-	`
-
-	// SECURITY: tokens are stored hashed (L1); look up by hash.
-	row := r.pool.QueryRow(ctx, query, HashLoginToken(token))
-
-	var mentor models.Mentor
-	var tagsStr *string
-	var airtableID *string
-	var job, workplace, about, description, competencies *string
-	var experience, price *string
-	var calendarURL *string
-	var sortOrder *int
-	var expiresAt *time.Time
-
-	err := row.Scan(
-		&mentor.MentorID,
-		&airtableID,
-		&mentor.LegacyID,
-		&mentor.Slug,
-		&mentor.Name,
-		&job,
-		&workplace,
-		&about,
-		&description,
-		&competencies,
-		&experience,
-		&price,
-		&mentor.Status,
-		&tagsStr,
-		&calendarURL,
-		&sortOrder,
-		&mentor.CreatedAt,
-		&mentor.MenteeCount,
-		&expiresAt,
-	)
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-
-	mentor.AirtableID = airtableID
-	mentor.SessionsCount = mentor.MenteeCount
-	if job != nil {
-		mentor.Job = *job
-	}
-	if workplace != nil {
-		mentor.Workplace = *workplace
-	}
-	if about != nil {
-		mentor.About = *about
-	}
-	if description != nil {
-		mentor.Description = *description
-	}
-	if competencies != nil {
-		mentor.Competencies = *competencies
-	}
-	if experience != nil {
-		mentor.Experience = *experience
-	}
-	if price != nil {
-		mentor.Price = *price
-	}
-	if calendarURL != nil {
-		mentor.CalendarURL = *calendarURL
-	}
-	if sortOrder != nil {
-		mentor.SortOrder = *sortOrder
-	}
-	if expiresAt == nil {
-		return nil, time.Time{}, fmt.Errorf("login token has no expiry")
-	}
-
-	// Return the token that was used to find this mentor (already validated by SQL query)
-	return &mentor, *expiresAt, nil
-}
-
-// SetLoginToken sets the login token for a mentor
+// SetLoginToken sets the login token for a mentor. Consumption is a single
+// atomic UPDATE — see ConsumeLoginToken in session.go; there is deliberately no
+// read-by-token and no separate clear.
 func (r *MentorRepository) SetLoginToken(ctx context.Context, mentorId string, token string, exp time.Time) error {
 	query := `
 		UPDATE mentors
@@ -528,18 +451,7 @@ func (r *MentorRepository) SetLoginToken(ctx context.Context, mentorId string, t
 		WHERE id = $3
 	`
 	// SECURITY: store the hash, never the plaintext token (L1).
-	_, err := r.pool.Exec(ctx, query, HashLoginToken(token), exp, mentorId)
-	return err
-}
-
-// ClearLoginToken clears the login token for a mentor
-func (r *MentorRepository) ClearLoginToken(ctx context.Context, mentorId string) error {
-	query := `
-		UPDATE mentors
-		SET login_token = NULL, login_token_expires_at = NULL, updated_at = NOW()
-		WHERE id = $1
-	`
-	_, err := r.pool.Exec(ctx, query, mentorId)
+	_, err := r.pool.Exec(ctx, query, HashOneTimeToken(token), exp, mentorId)
 	return err
 }
 
@@ -781,34 +693,29 @@ func (r *MentorRepository) ReturnMentorToDraft(ctx context.Context, mentorID, no
 	return nil
 }
 
-// SetEmailConfirmation stores a fresh email confirmation token and expiry.
-func (r *MentorRepository) SetEmailConfirmation(ctx context.Context, mentorID, token string, expiresAt time.Time) error {
-	query := `
-		UPDATE mentors
-		SET email_confirmation_token = $1, email_confirmation_expires_at = $2, updated_at = NOW()
-		WHERE id = $3
-	`
-	_, err := r.pool.Exec(ctx, query, token, expiresAt, mentorID)
-	if err != nil {
-		return fmt.Errorf("failed to set email confirmation token: %w", err)
-	}
-	return nil
-}
-
 // GetByConfirmationToken looks a mentor up by email confirmation token
-// (expired tokens included — the caller decides between confirm and
-// resend). Returns (nil, nil) when no row matches.
+// (expired tokens included — the caller decides between confirm and resend).
+// Returns (nil, nil) when no row matches.
+//
+// This read CLASSIFIES; it does not authorize. Both callers follow it with the
+// atomic compare-and-swap in session.go, which is what makes the state change
+// exactly-once. Keeping the read is what preserves the invalid / expired /
+// already three-way answer the web client branches on.
 func (r *MentorRepository) GetByConfirmationToken(ctx context.Context, token string) (*models.MentorConfirmation, error) {
+	hash, legacy := confirmationTokenArgs(token)
 	query := `
 		SELECT id, name, COALESCE(email::text, ''), status,
 			COALESCE(email_confirmation_expires_at, to_timestamp(0))
 		FROM mentors
-		WHERE email_confirmation_token = $1
+		WHERE ` + confirmationTokenPredicate(1, 2) + `
 		LIMIT 1
 	`
 
 	var mc models.MentorConfirmation
-	err := r.pool.QueryRow(ctx, query, token).Scan(
+	// SECURITY (D57): confirmation tokens are stored hashed like login tokens;
+	// match by hash, with the pre-D57 plaintext fallback described on
+	// confirmationTokenArgs.
+	err := r.pool.QueryRow(ctx, query, hash, legacy).Scan(
 		&mc.MentorID, &mc.Name, &mc.Email, &mc.Status, &mc.ExpiresAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -818,27 +725,6 @@ func (r *MentorRepository) GetByConfirmationToken(ctx context.Context, token str
 		return nil, fmt.Errorf("failed to fetch mentor by confirmation token: %w", err)
 	}
 	return &mc, nil
-}
-
-// ConfirmMentorEmail finishes email confirmation: draft -> pending, the
-// single-use token is cleared.
-func (r *MentorRepository) ConfirmMentorEmail(ctx context.Context, mentorID string) error {
-	query := `
-		UPDATE mentors
-		SET status = 'pending',
-			email_confirmation_token = NULL,
-			email_confirmation_expires_at = NULL,
-			updated_at = NOW()
-		WHERE id = $1
-	`
-	commandTag, err := r.pool.Exec(ctx, query, mentorID)
-	if err != nil {
-		return fmt.Errorf("failed to confirm mentor email: %w", err)
-	}
-	if commandTag.RowsAffected() == 0 {
-		return fmt.Errorf("mentor with ID %s not found", mentorID)
-	}
-	return nil
 }
 
 // applyFilters applies filtering options to a mentor list

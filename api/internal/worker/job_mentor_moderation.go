@@ -18,13 +18,13 @@ import (
 // Division of labor with the API (documented per stage-2 spec):
 //   - The API's admin service (internal/services/admin_mentors_service.go)
 //     sets the mentor status itself (approve -> active, decline -> declined)
-//     BEFORE firing MENTOR_MODERATION_TRIGGER_URL. The func app's handler
-//     also contained an updateStatus() helper, but it was dead code - the
-//     shipped handler never wrote status, it only sent the email.
-//   - The worker therefore does NOT normally write status. To be idempotent
-//     against races/replays it verifies the mentor's status matches the
-//     action's expected outcome and only writes it (with a warning log)
-//     when it does not.
+//     BEFORE firing MENTOR_MODERATION_TRIGGER_URL, and returns WITHOUT firing
+//     when that write fails. The func app's handler also contained an
+//     updateStatus() helper, but it was dead code - the shipped handler never
+//     wrote status, it only sent the email.
+//   - The worker therefore never writes status at all (JobsRepository carries no
+//     method for it). The mentor's CURRENT status is the replay guard instead:
+//     see the check around expectedStatus below.
 func (h *Handlers) MentorModerationAction(c *gin.Context) {
 	ctx := c.Request.Context()
 	const job = "mentor-moderation-action"
@@ -82,10 +82,20 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 		return
 	}
 
-	// Idempotency check: the API already wrote the status before firing the
-	// trigger. Repair it (and warn) only if it doesn't match the action.
-	// (For 'return' the repair write is guarded in SQL: it never moves an
-	// ever-activated mentor back to draft.)
+	// REPLAY GUARD. The row, not the payload, decides. The API committed the
+	// status before it fired this trigger, so a mentor whose status no longer
+	// matches this action's outcome has been moved on by something newer — a
+	// second moderator, the mentor's own profile toggle, or this very callback
+	// arriving twice with the older of two decisions. The email that belongs to
+	// this payload would then describe a decision that is no longer in force, so
+	// it is dropped and nothing is written.
+	//
+	// This used to be the opposite: labeled "idempotency", it reconciled the row
+	// TOWARD the payload, so a redelivered decline landing after an approve
+	// declined a live mentor and emailed them a rejection. The trade for dropping
+	// the repair is that a status change racing a legitimate decision by
+	// milliseconds costs that mentor their notification email, which is a warning
+	// log and a resend — not a mentor removed from the catalog.
 	expectedStatus := mentorStatusActive
 	switch payload.Action {
 	case moderationActionDecline:
@@ -94,20 +104,18 @@ func (h *Handlers) MentorModerationAction(c *gin.Context) {
 		expectedStatus = mentorStatusDraft
 	}
 	if mentor.Status != expectedStatus {
-		logger.Warn("[Mentor Moderation Action] Mentor status does not match moderation action; updating",
+		logger.Warn("[Mentor Moderation Action] Mentor status no longer matches this moderation action; skipping notification",
 			zap.String("mentor_id", mentor.ID),
 			zap.String("action", payload.Action),
 			zap.String("current_status", mentor.Status),
 			zap.String("expected_status", expectedStatus),
 		)
-		if err := h.repo.SetMentorStatus(ctx, mentor.ID, expectedStatus); err != nil {
-			logger.Error("[Mentor Moderation Action] Failed to update mentor status",
-				zap.String("mentor_id", mentor.ID), logger.RedactedError(err))
-			trackOutcome("error", true)
-			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "Failed to update mentor status"})
-			return
-		}
-		mentor.Status = expectedStatus
+		// 200: a superseded callback is a no-op, and a retry would find the same
+		// state. Answering an error would invite exactly the redelivery that
+		// caused this.
+		trackOutcome("superseded", true)
+		c.JSON(http.StatusOK, gin.H{"success": true, "superseded": true})
+		return
 	}
 
 	if sendErr := h.sendEmail(ctx, job, h.moderationEmail(payload.Action, mentor)); sendErr != nil {

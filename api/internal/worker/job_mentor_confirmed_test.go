@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/tokenhash"
 )
 
 func TestMentorConfirmedHappyPath(t *testing.T) {
@@ -32,8 +33,8 @@ func TestMentorConfirmedHappyPath(t *testing.T) {
 	assert.Equal(t, "john@example.com", mentorMsg.Recipient)
 	assert.Equal(t, "John Doe", mentorMsg.Props["first_name"])
 
-	// No status writes: the API already moved draft -> pending.
-	assert.Empty(t, env.repo.statusUpdates)
+	// No status writes: the API already moved draft -> pending (and the worker
+	// repository carries no mentor-status write at all).
 	assert.Empty(t, env.repo.finalized)
 
 	event := env.tracker.last()
@@ -87,14 +88,19 @@ func TestMentorConfirmedEmailFailureResilience(t *testing.T) {
 	assert.Equal(t, "email_send_failed", event.props["error_type"])
 }
 
-func TestMentorConfirmEmailHappyPath(t *testing.T) {
+// TestMentorConfirmEmailUsesThePayloadLink: confirmation tokens are hashed at
+// rest (D57), so the row cannot yield a working link any more and the URL travels
+// in the trigger payload — the same way the magic-link login URL always has.
+func TestMentorConfirmEmailUsesThePayloadLink(t *testing.T) {
 	env := newJobsTestEnv()
 	mentor := testMentor("m1")
 	mentor.Status = "draft"
-	mentor.EmailConfirmationToken = "mcf_fresh_token"
+	mentor.EmailConfirmationToken = tokenhash.Hash("mcf_fresh_token")
 	env.repo.mentors["m1"] = mentor
 
-	w := env.do(http.MethodPost, "/jobs/mentor-confirm-email?mentorId=m1", nil)
+	body := `{"type":"mentor_confirm_email","mentor_id":"m1",` +
+		`"confirm_url":"https://openmentor.io/mentor/confirm?token=mcf_fresh_token"}`
+	w := env.do(http.MethodPost, "/jobs/mentor-confirm-email", []byte(body))
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -108,6 +114,45 @@ func TestMentorConfirmEmailHappyPath(t *testing.T) {
 	require.NotNil(t, event)
 	assert.Equal(t, analytics.EventMentorConfirmEmailSent, event.event)
 	assert.Equal(t, "success", event.props["outcome"])
+}
+
+// TestMentorConfirmEmailAcceptsALegacyPlaintextRow is the one-deploy transition:
+// a row written before D57 still holds the token verbatim, so a call that arrives
+// without a payload link can still build a working one. Delete with the rest of
+// the legacy handling.
+func TestMentorConfirmEmailAcceptsALegacyPlaintextRow(t *testing.T) {
+	env := newJobsTestEnv()
+	mentor := testMentor("m1")
+	mentor.Status = "draft"
+	mentor.EmailConfirmationToken = "mcf_written_before_hashing"
+	env.repo.mentors["m1"] = mentor
+
+	w := env.do(http.MethodPost, "/jobs/mentor-confirm-email?mentorId=m1", nil)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, env.sender.attempts, 1)
+	assert.Equal(t, "https://openmentor.io/mentor/confirm?token=mcf_written_before_hashing",
+		env.sender.attempts[0].Props["confirm_url"])
+}
+
+// TestMentorConfirmEmailRefusesToEmailAHash: with no payload link and a HASHED
+// row there is no way to build a working link, and emailing the digest would
+// produce a link that looks fine and fails on click.
+func TestMentorConfirmEmailRefusesToEmailAHash(t *testing.T) {
+	env := newJobsTestEnv()
+	mentor := testMentor("m1")
+	mentor.Status = "draft"
+	mentor.EmailConfirmationToken = tokenhash.Hash("mcf_whatever")
+	env.repo.mentors["m1"] = mentor
+
+	w := env.do(http.MethodPost, "/jobs/mentor-confirm-email?mentorId=m1", nil)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Empty(t, env.sender.attempts, "a hash must never be emailed as a link")
+
+	event := env.tracker.last()
+	require.NotNil(t, event)
+	assert.Equal(t, "no_confirmation_token", event.props["outcome"])
 }
 
 func TestMentorConfirmEmailWithoutToken(t *testing.T) {

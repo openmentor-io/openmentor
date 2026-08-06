@@ -174,8 +174,10 @@ Do this deliberately:
    **once** rather than twice.
 3. Announce it to the moderators beforehand — they will be logged out mid-task
    otherwise.
-4. Minimum 32 bytes: `config.Validate()` rejects anything shorter, and the API
-   refuses to start (not just refuses logins).
+4. Minimum 32 bytes: `config.ValidateForAPI()` rejects anything shorter, and the
+   API refuses to start (not just refuses logins). Since D62 only the backend
+   holds `JWT_SECRET` — migrate and worker no longer need it, so there is
+   nothing to rotate there.
 
 ```bash
 openssl rand -base64 48    # comfortably over the 32-byte floor
@@ -198,7 +200,8 @@ Once all six groups are done:
   disable the old one.
 - On the VM, confirm no stale full-secret copy remains:
   `ls -la /opt/openmentor/infra/.env*` should show `.env` (mode 600),
-  `.env.backup`, and **no** `.env.runtime`. If that file is still there the VM
+  `.env.lastgood`, up to five `.env.backup.<epoch>` snapshots — all mode 600 —
+  and **no** `.env.runtime`. If that file is still there the VM
   has not yet received the P10 `docker-compose.yml`: run `./deploy.sh infra`,
   which is the deploy that removes it (`infra/DEPLOYMENT.md`).
 - Record the date and which groups were rotated in the ops tracker.

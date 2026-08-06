@@ -110,7 +110,11 @@ func TestDecodeBudgetFitsContainer(t *testing.T) {
 	const containerBytes = 512 << 20
 	const decodeShare = containerBytes / 4
 
-	peak := int64(MaxDecodeBytes) * maxConcurrentDecodes
+	peak := int64(DecodeBudgetBytes)
+	if peak != int64(MaxDecodeBytes)*maxConcurrentDecodes {
+		t.Fatalf("DecodeBudgetBytes = %d, want %d: the exported budget must stay the product it claims to be",
+			peak, int64(MaxDecodeBytes)*maxConcurrentDecodes)
+	}
 	if peak > decodeShare {
 		t.Errorf("decode budget is %d bytes (%d B x %d concurrent), over the %d-byte share of a %d-byte container",
 			peak, int64(MaxDecodeBytes), maxConcurrentDecodes, decodeShare, containerBytes)

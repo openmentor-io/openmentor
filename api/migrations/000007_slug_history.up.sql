@@ -1,3 +1,4 @@
+-- phase: expand
 -- Custom usernames (D29): mentors can change their slug. Old slugs live here
 -- and 301-redirect to the mentor's current profile. Policy: at most the 2 most
 -- recent old slugs per mentor are kept (older rows are deleted and the slug is
