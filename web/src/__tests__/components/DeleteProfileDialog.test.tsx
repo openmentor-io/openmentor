@@ -64,13 +64,19 @@ describe('DeleteProfileDialog', () => {
     expect(confirmButton()).toBeEnabled()
   })
 
-  it('confirms only once the username matches', async () => {
+  it('confirms only once the username matches, passing the typed value through', async () => {
     const props = renderDialog()
 
-    fireEvent.change(screen.getByLabelText(/to confirm/i), { target: { value: USERNAME } })
+    // A case variant the gate accepts but that differs from the canonical
+    // username — the callback must receive it verbatim, because callers send
+    // it to the server as the confirmation.
+    fireEvent.change(screen.getByLabelText(/to confirm/i), {
+      target: { value: 'ANNA-Petrova-42' },
+    })
     fireEvent.click(confirmButton())
 
     await waitFor(() => expect(props.onConfirm).toHaveBeenCalledTimes(1))
+    expect(props.onConfirm).toHaveBeenCalledWith('ANNA-Petrova-42')
   })
 
   it('surfaces the failure inside the dialog and stays open', async () => {

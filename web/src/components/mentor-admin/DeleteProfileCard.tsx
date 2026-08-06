@@ -36,13 +36,16 @@ export default function DeleteProfileCard({
 }: DeleteProfileCardProps): JSX.Element {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
-  const onConfirm = async (): Promise<void> => {
+  const onConfirm = async (typedUsername: string): Promise<void> => {
     try {
+      // Send what the mentor TYPED, not the username prop: the server verifies
+      // the confirmation, and posting the canonical value would reduce its
+      // check to rubber-stamping a value the client already knew.
       const response = await fetch('/api/mentor/profile/delete', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username: typedUsername }),
       })
 
       const data = await response.json().catch(() => null)

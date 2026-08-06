@@ -64,9 +64,11 @@ type Handlers struct {
 
 	// Profile purge (D70): WORKER_PROFILE_PURGE_CRON schedules the job,
 	// WORKER_PROFILE_PURGE_RETENTION_DAYS decides how long a deleted profile
-	// survives before it is erased. Both validated at boot
-	// (config.ValidateForWorker) — a zero retention here would mean "erase
-	// everything deleted", so it must never arrive as an unparsed default.
+	// survives before it is erased. Deliberately NOT validated at boot
+	// (config.ValidateForWorker explains why) — instead NewHandlers substitutes
+	// the documented defaults for a missing or nonsensical value, and the purge
+	// repository refuses a non-positive retention outright, so a zero can never
+	// be read as "erase everything deleted".
 	profilePurgeCron          string
 	profilePurgeRetentionDays int
 

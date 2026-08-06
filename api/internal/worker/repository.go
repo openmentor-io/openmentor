@@ -410,10 +410,18 @@ func (r *Repository) GetJobRequestByID(ctx context.Context, requestID string) (*
 // SELECT cr.*, m.name AS mentor_name FROM client_requests cr
 // JOIN mentors m ON m.id = cr.mentor_id WHERE cr.id = $1 (inner join: a
 // request whose mentor row is gone reads as "not found", like the func).
+//
+// The join carries the same deleted_at guard as GetJobMentorByID (D70): this is
+// the one job path that reaches a mentor WITHOUT that lookup, and skipping the
+// guard here would let a trigger retried after the deletion mint a fresh review
+// invitation and mail the mentee a link naming the deleted mentor. The link
+// would die at the eligibility check, but the email itself is exactly what the
+// deletion lockout exists to stop — and the unspendable invitation row would
+// pollute the outstanding-invitation count the H4 cutover is gated on (D4).
 func (r *Repository) GetJobRequestWithMentorName(ctx context.Context, requestID string) (*JobRequest, error) {
 	query := `SELECT ` + jobRequestColumns + `, m.name AS mentor_name
 		FROM client_requests cr
-		JOIN mentors m ON m.id = cr.mentor_id
+		JOIN mentors m ON m.id = cr.mentor_id AND m.deleted_at IS NULL
 		WHERE cr.id = $1`
 
 	var req JobRequest

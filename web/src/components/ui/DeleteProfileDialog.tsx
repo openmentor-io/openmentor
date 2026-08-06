@@ -24,8 +24,13 @@ import { faCircleNotch, faTimes, faTriangleExclamation } from '@fortawesome/free
 interface DeleteProfileDialogProps {
   isOpen: boolean
   onClose: () => void
-  /** Runs the delete. Rejecting shows the error inside the dialog. */
-  onConfirm: () => Promise<void>
+  /**
+   * Runs the delete. Rejecting shows the error inside the dialog. Receives the
+   * value the user actually typed, so the caller sends THAT to the server and
+   * the server-side confirmation check verifies the human's input rather than
+   * a canonical value the client already knows.
+   */
+  onConfirm: (typedUsername: string) => Promise<void>
   /** The username the confirmation input must match. */
   username: string
   /** Dialog heading. */
@@ -92,7 +97,7 @@ export default function DeleteProfileDialog({
     setIsSubmitting(true)
     setError(null)
     try {
-      await onConfirm()
+      await onConfirm(typed)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete the profile')
       setIsSubmitting(false)

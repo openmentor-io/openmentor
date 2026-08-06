@@ -67,6 +67,25 @@ describe('DeleteProfileCard', () => {
     )
   })
 
+  // The server verifies the confirmation, so the request must carry what the
+  // mentor TYPED — sending the canonical username prop would reduce the
+  // server-side check to confirming a value the client already knew.
+  it('sends the typed value verbatim, not the username prop', async () => {
+    const fetchMock = mockFetchResponse(true, { success: true })
+    render(<DeleteProfileCard username={USERNAME} onDeleted={jest.fn()} />)
+
+    openDialogAndConfirm('  ANNA-Petrova-42  ')
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/mentor/profile/delete',
+        expect.objectContaining({
+          body: JSON.stringify({ username: '  ANNA-Petrova-42  ' }),
+        })
+      )
+    )
+  })
+
   it('surfaces the server message and does not report a deletion that failed', async () => {
     mockFetchResponse(false, { error: 'The username you entered does not match your profile' })
     const onDeleted = jest.fn()

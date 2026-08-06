@@ -118,6 +118,14 @@ func (r *MentorRepository) SoftDeleteMentor(ctx context.Context, mentorID string
 // Review invitations revoked by the delete stay revoked. They were mailed for
 // sessions that ended before the profile disappeared, and un-revoking a bearer
 // capability is not something a restore should silently do.
+//
+// Known edge: deletion frees the profile's email (the uniqueness index from
+// 000001 is scoped to status = 'active'), so the person may have re-registered
+// in the meantime. The restore itself always succeeds — the profile comes back
+// 'inactive', outside the index — but toggling it to 'active' while the new
+// registration is also active hits the unique index and surfaces as an untyped
+// 500 on the status change. Rare and admin-driven, so it is documented rather
+// than handled; the fix at that point is deactivating one of the two profiles.
 func (r *MentorRepository) RestoreMentor(ctx context.Context, mentorID string) error {
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE mentors

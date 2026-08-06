@@ -447,13 +447,15 @@ function MentorModerationEditContent(): JSX.Element {
     }
   }
 
-  const onDeleteProfile = async (): Promise<void> => {
+  const onDeleteProfile = async (typedUsername: string): Promise<void> => {
     if (!mentor) return
     setActionError(null)
     // The dialog surfaces whatever this throws, so let the server's message
     // through: a username mismatch and an already-deleted profile are both
-    // things the admin can act on.
-    const updated = await deleteModerationMentor(mentor.mentorId, mentor.slug)
+    // things the admin can act on. The TYPED value goes to the server — the
+    // confirmation check must verify the admin's input, not mentor.slug echoed
+    // back to itself.
+    const updated = await deleteModerationMentor(mentor.mentorId, typedUsername)
     setMentor(updated)
     setIsDeleteDialogOpen(false)
     // Every other action is now refused, so collapse any open action UI rather
