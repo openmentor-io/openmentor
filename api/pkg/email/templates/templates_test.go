@@ -36,6 +36,14 @@ var expectedTemplates = map[string][]string{
 	// sent by the getmentor->openmentor migration tooling through the
 	// worker's /jobs/profile-migrated endpoint.
 	"profile-migrated": {"first_name", "mentor_profile_url"},
+
+	// Profile deletion (D70). Both are sent for a mentor-initiated AND an
+	// admin-initiated action. profile-deleted takes retention_days from
+	// WORKER_PROFILE_PURGE_RETENTION_DAYS rather than hardcoding "30 days", so
+	// changing the window cannot leave the email telling people the wrong
+	// deadline for asking us to undo it.
+	"profile-deleted":  {"first_name", "retention_days"},
+	"profile-restored": {"first_name", "login_url"},
 }
 
 func TestRegistryCompleteness(t *testing.T) {

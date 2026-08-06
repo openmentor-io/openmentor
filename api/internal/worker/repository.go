@@ -42,6 +42,10 @@ type JobMentor struct {
 	// registration email confirmation token.
 	ModerationNote         string
 	EmailConfirmationToken string
+	// DeletedAt is set only by GetJobMentorByIDIncludingDeleted — the ordinary
+	// lookup filters deleted profiles out, so it is always nil there (D70).
+	// The deletion-notice jobs use it as their replay guard.
+	DeletedAt *time.Time
 }
 
 // JobRequest is the client_requests row shape the job handlers need,
@@ -121,6 +125,7 @@ type SortOrderUpdate struct {
 // map "not found" to a 404 without inspecting driver errors.
 type JobsRepository interface {
 	GetJobMentorByID(ctx context.Context, mentorID string) (*JobMentor, error)
+	GetJobMentorByIDIncludingDeleted(ctx context.Context, mentorID string) (*JobMentor, error)
 	CountActiveMentorsByEmail(ctx context.Context, email, excludeMentorID string) (int, error)
 	FinalizeNewMentor(ctx context.Context, params FinalizeNewMentorParams) (applied bool, err error)
 	ReleaseNewMentorFinalization(ctx context.Context, params FinalizeNewMentorParams) error
@@ -180,14 +185,36 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 // paths instead of adding a deletion check to eight handlers, where the ninth
 // would be the one that gets forgotten.
 func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*JobMentor, error) {
+	return r.fetchJobMentor(ctx, mentorID, false)
+}
+
+// GetJobMentorByIDIncludingDeleted is the ONE deliberate exception to the filter
+// above: it returns the mentor whether or not the profile is deleted.
+//
+// Exactly two callers may use it — the profile-deleted and profile-restored
+// notices (D70) — because those emails are ABOUT the deletion, so refusing to
+// load a deleted profile would make the confirmation unsendable. Anything else
+// that wants a mentor wants to act on a live one and must use GetJobMentorByID.
+// It is a separate method rather than a boolean on the existing one so that
+// "email a deleted mentor" is a decision somebody typed out, and so the callers
+// are one grep away.
+func (r *Repository) GetJobMentorByIDIncludingDeleted(ctx context.Context, mentorID string) (*JobMentor, error) {
+	return r.fetchJobMentor(ctx, mentorID, true)
+}
+
+func (r *Repository) fetchJobMentor(ctx context.Context, mentorID string, includeDeleted bool) (*JobMentor, error) {
+	deletionGuard := "AND deleted_at IS NULL"
+	if includeDeleted {
+		deletionGuard = ""
+	}
 	query := `
 		SELECT id, legacy_id, name, COALESCE(email::text, ''), status,
 			COALESCE(preferred_contact, ''), COALESCE(slug, ''), COALESCE(job_title, ''),
 			COALESCE(workplace, ''), COALESCE(price, ''), COALESCE(calendar_url, ''),
-			COALESCE(moderation_note, ''), COALESCE(email_confirmation_token, '')
+			COALESCE(moderation_note, ''), COALESCE(email_confirmation_token, ''),
+			deleted_at
 		FROM mentors
-		WHERE id = $1 AND deleted_at IS NULL
-	`
+		WHERE id = $1 ` + deletionGuard
 
 	var m JobMentor
 	err := r.pool.QueryRow(ctx, query, mentorID).Scan(
@@ -195,6 +222,7 @@ func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*Jo
 		&m.PreferredContact, &m.Slug, &m.JobTitle,
 		&m.Workplace, &m.Price, &m.CalendarURL,
 		&m.ModerationNote, &m.EmailConfirmationToken,
+		&m.DeletedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

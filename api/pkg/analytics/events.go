@@ -62,6 +62,10 @@ const (
 	// erases for good (D70) — the irreversible half of profile deletion, and
 	// the only record that the rows ever existed once it has run.
 	EventMentorProfilePurged = "mentor_profile_purged"
+	// EventMentorProfileRestored is the worker's restore-confirmation email.
+	// The delete confirmation reuses EventMentorProfileDeleted, which the API
+	// also emits — the "notified" property tells the two apart.
+	EventMentorProfileRestored = "mentor_profile_restored"
 
 	// Migration tooling events (getmentor.dev -> openmentor.io imports).
 	// EventMentorProfileMigrated fires from the worker's

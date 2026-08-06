@@ -22,6 +22,7 @@ import (
 // fakeRepo is an in-memory JobsRepository with error injection.
 type fakeRepo struct {
 	mentors            map[string]*JobMentor
+	deletedMentors     map[string]*JobMentor
 	requests           map[string]*JobRequest
 	requestsWithMentor map[string]*JobRequest
 	moderators         map[string]*JobModerator
@@ -102,9 +103,15 @@ func newFakeRepo() *fakeRepo {
 		staleProgressRequests: map[string][]JobReminderRequest{},
 		purgeErrs:             map[string]error{},
 		purgeCounts:           map[string]PurgeCounts{},
+		deletedMentors:        map[string]*JobMentor{},
 	}
 }
 
+// The fake mirrors the real split: `mentors` holds live profiles and is what
+// GetJobMentorByID can see, `deletedMentors` holds deleted ones and is visible
+// only through the …IncludingDeleted variant. Keeping them in separate maps is
+// what makes "this job would not have found a deleted mentor" a fact a test can
+// assert rather than a comment.
 func (f *fakeRepo) GetJobMentorByID(_ context.Context, mentorID string) (*JobMentor, error) {
 	if f.mentorErr != nil {
 		return nil, f.mentorErr
@@ -114,6 +121,17 @@ func (f *fakeRepo) GetJobMentorByID(_ context.Context, mentorID string) (*JobMen
 		return &copied, nil
 	}
 	return nil, nil
+}
+
+func (f *fakeRepo) GetJobMentorByIDIncludingDeleted(ctx context.Context, mentorID string) (*JobMentor, error) {
+	if f.mentorErr != nil {
+		return nil, f.mentorErr
+	}
+	if m, ok := f.deletedMentors[mentorID]; ok {
+		copied := *m
+		return &copied, nil
+	}
+	return f.GetJobMentorByID(ctx, mentorID)
 }
 
 func (f *fakeRepo) CountActiveMentorsByEmail(_ context.Context, _, _ string) (int, error) {

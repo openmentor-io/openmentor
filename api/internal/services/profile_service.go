@@ -416,6 +416,13 @@ func (s *ProfileService) DeleteProfileByMentorId(ctx context.Context, mentorID, 
 		return fmt.Errorf("failed to delete profile")
 	}
 
+	// Confirm the deletion by email. Fired AFTER the delete commits, like every
+	// other trigger here: a confirmation for a deletion that failed is worse
+	// than no confirmation. Fire-and-forget — the mentor's profile is deleted
+	// whether or not the email goes out, so a trigger failure must not turn a
+	// completed deletion into an error the client will retry.
+	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileDeletedTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
+
 	track("success", map[string]interface{}{
 		"deleted_by":          "mentor",
 		"from_status":         mentor.Status,

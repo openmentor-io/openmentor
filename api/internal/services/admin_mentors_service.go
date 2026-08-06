@@ -485,6 +485,12 @@ func (s *AdminMentorsService) DeleteMentor(
 		return nil, err
 	}
 
+	// Same confirmation email the mentor's own deletion sends. An admin deleting
+	// someone's profile is exactly the case where the mentor most needs to be
+	// told — they did not press the button and would otherwise discover it by
+	// finding their login broken.
+	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileDeletedTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
+
 	track("success", map[string]interface{}{
 		"from_status":         mentor.Status,
 		"invitations_revoked": invitationsRevoked,
@@ -524,6 +530,12 @@ func (s *AdminMentorsService) RestoreMentor(
 		track("restore_failed")
 		return nil, err
 	}
+
+	// Tell the mentor their profile is back — they were told it was deleted, so
+	// leaving the reversal unannounced means their last word on the subject is
+	// wrong. It also matters practically: the profile comes back INACTIVE, so
+	// there is something for them to do.
+	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileRestoredTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
 
 	track("success")
 	return s.mentorRepo.GetForModerationByID(ctx, mentorID)

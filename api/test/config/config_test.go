@@ -453,10 +453,17 @@ func TestDerivedMentorTriggerURLsFollowTheValidatedOne(t *testing.T) {
 		triggers.MentorConfirmedTriggerURL())
 	assert.Equal(t, "http://worker:8090/jobs/mentor-confirm-email?mentorId=",
 		triggers.MentorConfirmEmailTriggerURL())
+	// Profile deletion confirmations (D70) ride the same derivation.
+	assert.Equal(t, "http://worker:8090/jobs/profile-deleted?mentorId=",
+		triggers.ProfileDeletedTriggerURL())
+	assert.Equal(t, "http://worker:8090/jobs/profile-restored?mentorId=",
+		triggers.ProfileRestoredTriggerURL())
 
 	triggers.MentorCreatedTriggerURL = "http://worker:8090/jobs/something-else"
 	assert.Empty(t, triggers.MentorConfirmedTriggerURL(),
 		"derivation silently yields no trigger, which is why the validator rejects the input")
+	assert.Empty(t, triggers.ProfileDeletedTriggerURL())
+	assert.Empty(t, triggers.ProfileRestoredTriggerURL())
 }
 
 func TestConfig_ValidateS3Storage(t *testing.T) {

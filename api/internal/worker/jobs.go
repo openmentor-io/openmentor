@@ -172,6 +172,10 @@ func (s *Server) RegisterJobRoutes(h *Handlers) {
 	s.RegisterHandler("/process-mentee-review", h.ProcessMenteeReview, "POST", "GET")
 	s.RegisterHandler("/request-process-finished", h.RequestProcessFinished, "GET")
 	s.RegisterHandler("/profile-migrated", h.ProfileMigrated)
+	// Profile deletion confirmations (D70), fired by the API for both the
+	// mentor-initiated and the admin-initiated action.
+	s.RegisterHandler("/profile-deleted", h.ProfileDeleted)
+	s.RegisterHandler("/profile-restored", h.ProfileRestored)
 }
 
 // sendEmail sends one message, recording metrics and logging failures.

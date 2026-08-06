@@ -150,6 +150,23 @@ func (c EventTriggerFunctionsConfig) MentorConfirmEmailTriggerURL() string {
 	return c.derivedMentorTriggerURL("mentor-confirm-email")
 }
 
+// ProfileDeletedTriggerURL / ProfileRestoredTriggerURL are the worker triggers
+// that confirm a profile deletion and its reversal to the mentor (D70). Both
+// fire for a mentor-initiated AND an admin-initiated action — the mentor is
+// told what happened to their profile either way, and who pressed the button is
+// not a difference the recipient cares about.
+//
+// Two derived endpoints rather than one with an action in the payload: they are
+// distinct emails with distinct replay guards (deleted_at set vs cleared), and
+// deriving them costs no new env var.
+func (c EventTriggerFunctionsConfig) ProfileDeletedTriggerURL() string {
+	return c.derivedMentorTriggerURL("profile-deleted")
+}
+
+func (c EventTriggerFunctionsConfig) ProfileRestoredTriggerURL() string {
+	return c.derivedMentorTriggerURL("profile-restored")
+}
+
 type LoggingConfig struct {
 	Level string
 	Dir   string
