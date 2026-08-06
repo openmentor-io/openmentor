@@ -57,6 +57,13 @@ var (
 	WorkerCronRunDuration *prometheus.HistogramVec
 	WorkerEmailSendsTotal *prometheus.CounterVec
 
+	// Profile retention purge (D70). The cron metrics above say whether the
+	// sweep RAN; these say whether it worked. See their definitions in Init.
+	ProfilePurgeProfilesTotal        *prometheus.CounterVec
+	ProfilePurgeLastSuccessTimestamp prometheus.Gauge
+	ProfilePurgeFirstStartTimestamp  prometheus.Gauge
+	ProfilePurgeMaxAge               prometheus.Gauge
+
 	// Infrastructure Metrics
 	GoRoutines prometheus.Gauge
 	HeapAlloc  prometheus.Gauge
@@ -317,6 +324,54 @@ func Init(serviceName string) {
 			Help: "Total number of transactional email send attempts from worker jobs",
 		},
 		[]string{"template", "outcome"}, // outcome: success | error
+	)
+
+	// Profile retention purge (D70). openmentor_worker_cron_runs_total already
+	// says whether the SWEEP ran, but it cannot say whether the sweep did
+	// anything: PurgeDeletedProfiles deliberately returns nil when individual
+	// profiles fail, so one bad row does not abort the backlog behind it — and
+	// that made a run where EVERY profile failed indistinguishable from a
+	// healthy one at the cron level. These four exist to close that gap, and
+	// their shape mirrors the postgres-backup gauges because ProfilePurgeStale
+	// mirrors DatabaseBackupStale.
+	ProfilePurgeProfilesTotal = factory.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "openmentor_profile_purge_profiles_total",
+			Help: "Deleted profiles the retention sweep acted on, by outcome",
+		},
+		// outcome: purged (erased for good) | skipped (restored between the
+		// listing and the write, so the guard refused it) | failed (errored;
+		// retried on the next pass)
+		[]string{"outcome"},
+	)
+
+	ProfilePurgeLastSuccessTimestamp = factory.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "openmentor_profile_purge_last_success_timestamp_seconds",
+			Help: "Unix timestamp of the last retention sweep that completed with no failures",
+		},
+	)
+
+	// ProfilePurgeFirstStartTimestamp gives a freshly started worker one grace
+	// window before the staleness rule can fire, without ever claiming a sweep
+	// that has not happened — exactly the role
+	// openmentor_db_backup_first_start_timestamp_seconds plays for backups.
+	ProfilePurgeFirstStartTimestamp = factory.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "openmentor_profile_purge_first_start_timestamp_seconds",
+			Help: "Unix timestamp at which this worker process started, for the purge staleness grace window",
+		},
+	)
+
+	// ProfilePurgeMaxAge is PUBLISHED rather than hardcoded in the alert so
+	// that retuning WORKER_PROFILE_PURGE_CRON moves the threshold with it. It
+	// is derived from the schedule itself (two firing intervals), not from a
+	// second env var that could disagree with it.
+	ProfilePurgeMaxAge = factory.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "openmentor_profile_purge_max_age_seconds",
+			Help: "How stale the last successful retention sweep may be before it is considered broken",
+		},
 	)
 
 	// Infrastructure Metrics

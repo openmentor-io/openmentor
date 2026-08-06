@@ -454,6 +454,7 @@ func (s *AdminMentorsService) DeleteMentor(
 			properties[key] = value
 		}
 		s.tracker.Track(ctx, analytics.EventAdminMentorDeleted, analytics.ModeratorDistinctID(session.ModeratorID), properties)
+		annotateDeletionSpan(ctx, deletionActionDelete, deletionInitiatorAdmin, mentorID, outcome)
 	}
 
 	if session.Role != models.ModeratorRoleAdmin {
@@ -491,7 +492,7 @@ func (s *AdminMentorsService) DeleteMentor(
 	// finding their login broken.
 	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileDeletedTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
 
-	track("success", map[string]interface{}{
+	track(outcomeSuccess, map[string]interface{}{
 		"from_status":         mentor.Status,
 		"invitations_revoked": invitationsRevoked,
 	})
@@ -515,6 +516,7 @@ func (s *AdminMentorsService) RestoreMentor(
 			"target_mentor_id": mentorID,
 			"outcome":          outcome,
 		})
+		annotateDeletionSpan(ctx, deletionActionRestore, deletionInitiatorAdmin, mentorID, outcome)
 	}
 
 	if session.Role != models.ModeratorRoleAdmin {
@@ -537,7 +539,7 @@ func (s *AdminMentorsService) RestoreMentor(
 	// there is something for them to do.
 	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileRestoredTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
 
-	track("success")
+	track(outcomeSuccess)
 	return s.mentorRepo.GetForModerationByID(ctx, mentorID)
 }
 

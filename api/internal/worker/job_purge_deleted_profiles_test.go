@@ -6,7 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/openmentor-io/openmentor/api/config"
+	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 )
 
 func purgeEnv(retentionDays int) *jobsTestEnv {
@@ -196,4 +202,120 @@ func TestEmptyPurgeCronFallsBackToTheDefaultSchedule(t *testing.T) {
 	if !found {
 		t.Fatal("purge-deleted-profiles is not registered as a cron job")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Observability (D70)
+// ---------------------------------------------------------------------------
+
+// The gap this closes: PurgeDeletedProfiles returns nil even when individual
+// profiles fail, so openmentor_worker_cron_runs_total records "success" for a
+// sweep that erased nothing. The freshness gauge is what tells those apart, so
+// a failed sweep must NOT advance it.
+func TestPurgeFreshnessGaugeOnlyAdvancesOnACleanSweep(t *testing.T) {
+	metrics.Init("test")
+	due := PurgeableProfile{MentorID: "m1", DeletedAt: time.Now().Add(-40 * 24 * time.Hour)}
+
+	t.Run("a sweep with failures leaves the gauge behind", func(t *testing.T) {
+		metrics.ProfilePurgeLastSuccessTimestamp.Set(0)
+		env := purgeEnv(30)
+		env.repo.purgeableProfiles = []PurgeableProfile{due}
+		env.repo.purgeErrs["m1"] = errors.New("lock timeout")
+
+		summary, err := env.handlers.PurgeDeletedProfiles(context.Background())
+		require.NoError(t, err, "the run still succeeds, which is exactly why the gauge matters")
+		require.Equal(t, 1, summary.PurgeFailures)
+
+		assert.Zero(t, gaugeValue(t, metrics.ProfilePurgeLastSuccessTimestamp),
+			"a sweep that failed every profile must not count as a successful sweep")
+	})
+
+	t.Run("a clean sweep advances it", func(t *testing.T) {
+		metrics.ProfilePurgeLastSuccessTimestamp.Set(0)
+		env := purgeEnv(30)
+		env.repo.purgeableProfiles = []PurgeableProfile{due}
+
+		_, err := env.handlers.PurgeDeletedProfiles(context.Background())
+		require.NoError(t, err)
+
+		assert.InDelta(t, float64(time.Now().Unix()), gaugeValue(t, metrics.ProfilePurgeLastSuccessTimestamp), 60)
+	})
+
+	// The normal night. Treating "nothing due" as staleness would page every
+	// deployment that simply has no deleted profiles.
+	t.Run("an empty sweep advances it too", func(t *testing.T) {
+		metrics.ProfilePurgeLastSuccessTimestamp.Set(0)
+		env := purgeEnv(30)
+
+		_, err := env.handlers.PurgeDeletedProfiles(context.Background())
+		require.NoError(t, err)
+
+		assert.InDelta(t, float64(time.Now().Unix()), gaugeValue(t, metrics.ProfilePurgeLastSuccessTimestamp), 60)
+	})
+}
+
+func TestPurgeCountsEveryProfileOutcome(t *testing.T) {
+	metrics.Init("test")
+	env := purgeEnv(30)
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	env.repo.purgeableProfiles = []PurgeableProfile{
+		{MentorID: "ok", DeletedAt: old},
+		{MentorID: "restored", DeletedAt: old},
+		{MentorID: "boom", DeletedAt: old},
+	}
+	env.repo.purgeErrs["restored"] = ErrProfileNotPurgeable
+	env.repo.purgeErrs["boom"] = errors.New("lock timeout")
+
+	_, err := env.handlers.PurgeDeletedProfiles(context.Background())
+	require.NoError(t, err)
+
+	assert.Equal(t, 1.0, counterValue(t, purgeOutcomePurged))
+	assert.Equal(t, 1.0, counterValue(t, purgeOutcomeSkipped))
+	assert.Equal(t, 1.0, counterValue(t, purgeOutcomeFailed))
+}
+
+// The alert subtracts this gauge instead of comparing against a literal, so it
+// has to track the configured schedule rather than a hardcoded nightly guess.
+func TestPurgeMaxAgeGaugeFollowsTheConfiguredSchedule(t *testing.T) {
+	metrics.Init("test")
+
+	for _, tt := range []struct {
+		name     string
+		schedule string
+		wantSecs float64
+	}{
+		{"nightly", "0 15 3 * * *", 2 * 24 * 60 * 60},
+		{"twice daily", "0 0 3,15 * * *", 2 * 12 * 60 * 60},
+		{"hourly", "0 0 * * * *", 2 * 60 * 60},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newJobsTestEnvWithConfig(func(cfg *config.Config) {
+				cfg.Worker.ProfilePurgeCron = tt.schedule
+			})
+			_, err := NewCron(env.handlers)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantSecs, gaugeValue(t, metrics.ProfilePurgeMaxAge),
+				"max age must be two firing intervals of the configured schedule")
+			assert.InDelta(t, float64(time.Now().Unix()),
+				gaugeValue(t, metrics.ProfilePurgeFirstStartTimestamp), 60,
+				"the grace window anchors at boot")
+		})
+	}
+}
+
+func gaugeValue(t *testing.T, g prometheus.Gauge) float64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, g.Write(&m))
+	return m.GetGauge().GetValue()
+}
+
+func counterValue(t *testing.T, outcome string) float64 {
+	t.Helper()
+	var m dto.Metric
+	c, err := metrics.ProfilePurgeProfilesTotal.GetMetricWithLabelValues(outcome)
+	require.NoError(t, err)
+	require.NoError(t, c.(prometheus.Metric).Write(&m))
+	return m.GetCounter().GetValue()
 }

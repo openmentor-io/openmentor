@@ -48,6 +48,16 @@ prometheus.scrape "yc_go_worker" {
       environment = coalesce(sys.env("APP_ENV"), "production"),
       service_name = coalesce(sys.env("O11Y_WORKER_SERVICE_NAME"), "openmentor-worker"),
       namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
+      // Per-VM identity, for the same reason the backup gauges carry it (D70):
+      // ProfilePurgeStale evaluates the retention sweep PER DEPLOYMENT, and
+      // none of the labels above can carry that. `./deploy.sh --staging`
+      // uploads the same .env.production, so a staging worker remote-writes to
+      // this tenant with an identical environment and service_name, and
+      // `instance` is Alloy's own container id (Docker's HOSTNAME), which
+      // changes on every recreate. Without this, a global max() over the purge
+      // gauges lets a healthy staging sweep hold the rule Normal while
+      // production stops erasing data it has promised to erase.
+      deployment  = coalesce(sys.env("DEPLOYMENT_NAME"), "production"),
     },
   ]
   forward_to      = [prometheus.remote_write.grafana_cloud.receiver]

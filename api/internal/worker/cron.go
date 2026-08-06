@@ -82,7 +82,7 @@ func (h *Handlers) CronJobs() []CronJob {
 		// and two passes over the same list would race each other for rows that
 		// one of them has already erased.
 		{
-			Name: "purge-deleted-profiles", Schedule: h.profilePurgeCron,
+			Name: purgeDeletedProfilesJob, Schedule: h.profilePurgeCron,
 			Run: h.PurgeDeletedProfiles, SkipIfRunning: true,
 		},
 	}
@@ -90,17 +90,23 @@ func (h *Handlers) CronJobs() []CronJob {
 
 // NewCron builds the scheduler and registers every job in CronJobs.
 func NewCron(h *Handlers) (*Cron, error) {
-	c := &Cron{
-		// Azure NCRONTAB expressions include a seconds field, so use a
-		// seconds-aware parser and keep the expressions verbatim.
-		cron: cron.New(cron.WithParser(cron.NewParser(
-			cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
-		))),
-	}
+	// Azure NCRONTAB expressions include a seconds field, so use a
+	// seconds-aware parser and keep the expressions verbatim.
+	parser := cron.NewParser(
+		cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
+	)
+	c := &Cron{cron: cron.New(cron.WithParser(parser))}
 
 	for _, job := range h.CronJobs() {
+		schedule, err := parser.Parse(job.Schedule)
+		if err != nil {
+			return nil, err
+		}
 		if _, err := c.cron.AddJob(job.Schedule, scheduledJob(job)); err != nil {
 			return nil, err
+		}
+		if job.Name == purgeDeletedProfilesJob {
+			publishPurgeFreshnessGauges(schedule, time.Now())
 		}
 		logger.Info("Registered cron job",
 			zap.String("job", job.Name),
@@ -109,6 +115,37 @@ func NewCron(h *Handlers) (*Cron, error) {
 	}
 
 	return c, nil
+}
+
+// publishPurgeFreshnessGauges arms the ProfilePurgeStale alert at boot (D70).
+//
+// The staleness threshold is DERIVED from the schedule rather than configured
+// separately: two firing intervals, measured off the parsed schedule itself. So
+// retuning WORKER_PROFILE_PURGE_CRON moves the alert with it and the two can
+// never disagree — the property DatabaseBackupStale gets by publishing
+// openmentor_db_backup_max_age_seconds instead of hardcoding a duration.
+//
+// Two intervals, not one: a single missed sweep means data outlives its window
+// by one night, which is not worth waking anybody for. Two consecutive misses
+// means the job is not running, which is.
+//
+// Both gauges are published only when the scheduler actually registers the job.
+// With WORKER_CRON_ENABLED=false nothing is published at all, and the companion
+// ProfilePurgePipelineAbsent rule fires — which is the correct answer, because a
+// worker with cron off is not enforcing retention.
+func publishPurgeFreshnessGauges(schedule cron.Schedule, now time.Time) {
+	first := schedule.Next(now)
+	interval := schedule.Next(first).Sub(first)
+
+	metrics.ProfilePurgeMaxAge.Set((2 * interval).Seconds())
+	// Not a claim that a sweep happened — it is the "we only just started"
+	// grace window, and the alert prefers last_success whenever that is set.
+	metrics.ProfilePurgeFirstStartTimestamp.Set(float64(now.Unix()))
+
+	logger.Info("Profile purge freshness gauges published",
+		zap.Duration("schedule_interval", interval),
+		zap.Duration("max_age", 2*interval),
+	)
 }
 
 // scheduledJob turns one CronJob into the cron.Job the scheduler runs, applying

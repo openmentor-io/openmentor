@@ -3,11 +3,30 @@ package worker
 import (
 	"context"
 	"errors"
+	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+)
+
+// purgeDeletedProfilesJob is the cron job name. Named because NewCron matches
+// on it to publish this job's freshness gauges, and a literal there that
+// drifted from the registration would silently disarm ProfilePurgeStale.
+const purgeDeletedProfilesJob = "purge-deleted-profiles"
+
+// Purge outcome labels, shared by the metric and the per-profile span so a
+// dashboard filter and a trace filter mean the same thing.
+const (
+	purgeOutcomePurged  = "purged"
+	purgeOutcomeSkipped = "skipped"
+	purgeOutcomeFailed  = "failed"
 )
 
 // PurgeDeletedProfiles is the irreversible half of profile deletion (D70): it
@@ -32,7 +51,7 @@ import (
 // that one profile, not abort a backlog of them. The run reports the failures
 // and the next night retries them.
 func (h *Handlers) PurgeDeletedProfiles(ctx context.Context) (JobSummary, error) {
-	const job = "purge-deleted-profiles"
+	const job = purgeDeletedProfilesJob
 	summary := JobSummary{Job: job}
 
 	profiles, err := h.repo.ListPurgeableProfiles(ctx, h.profilePurgeRetentionDays)
@@ -42,6 +61,11 @@ func (h *Handlers) PurgeDeletedProfiles(ctx context.Context) (JobSummary, error)
 	summary.MentorsMatched = len(profiles)
 
 	if len(profiles) == 0 {
+		// Still a successful sweep: the purge ran, looked, and correctly found
+		// nothing due. This is the normal night, so it MUST advance the
+		// freshness gauge — otherwise every deployment with no deleted profiles
+		// would page for staleness within a day.
+		h.recordSweepOutcome(ctx, summary)
 		logger.Info("[Purge Deleted Profiles] Nothing past the retention window",
 			zap.Int("retention_days", h.profilePurgeRetentionDays),
 		)
@@ -54,24 +78,51 @@ func (h *Handlers) PurgeDeletedProfiles(ctx context.Context) (JobSummary, error)
 	)
 
 	for _, profile := range profiles {
+		// One span per profile. The sweep is normally empty, so this is cheap —
+		// and when it is not empty it is exactly the view an operator wants: which
+		// profile was slow, which one errored, and the SQL underneath it (otelpgx
+		// nests the transaction's statements in here).
+		ctx, span := otel.Tracer("internal/worker").Start(ctx, "purge.profile",
+			trace.WithAttributes(
+				attribute.String("mentor.id", profile.MentorID),
+				attribute.String("purge.deleted_at", profile.DeletedAt.Format(time.RFC3339)),
+			))
+
 		counts, purgeErr := h.repo.PurgeProfile(ctx, profile.MentorID, h.profilePurgeRetentionDays)
 		if purgeErr != nil {
 			// Restored between the listing and the write: the guard worked, so
 			// this is an expected outcome and not a failure of the run.
 			if errors.Is(purgeErr, ErrProfileNotPurgeable) {
 				summary.ProfilesSkipped++
+				metrics.ProfilePurgeProfilesTotal.WithLabelValues(purgeOutcomeSkipped).Inc()
+				span.SetAttributes(attribute.String("purge.outcome", purgeOutcomeSkipped))
+				span.End()
 				logger.Info("[Purge Deleted Profiles] Profile no longer eligible, skipping",
 					zap.String("mentor_id", profile.MentorID),
 				)
 				continue
 			}
 			summary.PurgeFailures++
+			metrics.ProfilePurgeProfilesTotal.WithLabelValues(purgeOutcomeFailed).Inc()
+			span.SetAttributes(attribute.String("purge.outcome", purgeOutcomeFailed))
+			span.RecordError(purgeErr)
+			span.SetStatus(codes.Error, purgeOutcomeFailed)
+			span.End()
 			logger.Error("[Purge Deleted Profiles] Failed to purge profile",
 				zap.String("mentor_id", profile.MentorID),
 				logger.RedactedError(purgeErr),
 			)
 			continue
 		}
+
+		metrics.ProfilePurgeProfilesTotal.WithLabelValues(purgeOutcomePurged).Inc()
+		span.SetAttributes(
+			attribute.String("purge.outcome", purgeOutcomePurged),
+			attribute.Int("purge.requests_erased", counts.Requests),
+			attribute.Int("purge.reviews_erased", counts.Reviews),
+			attribute.Int("purge.invitations_erased", counts.Invitations),
+		)
+		span.End()
 
 		summary.ProfilesPurged++
 		summary.RequestsPurged += counts.Requests
@@ -101,6 +152,8 @@ func (h *Handlers) PurgeDeletedProfiles(ctx context.Context) (JobSummary, error)
 		)
 	}
 
+	h.recordSweepOutcome(ctx, summary)
+
 	logger.Info("[Purge Deleted Profiles] Retention sweep finished",
 		zap.Int("profiles_purged", summary.ProfilesPurged),
 		zap.Int("profiles_skipped", summary.ProfilesSkipped),
@@ -114,6 +167,36 @@ func (h *Handlers) PurgeDeletedProfiles(ctx context.Context) (JobSummary, error)
 	// and the failures are retried on the next pass. Returning an error here
 	// would mark the whole sweep failed in the metrics and tell an operator
 	// nothing about which profile was the problem — the per-profile log line
-	// above does that. The count is in the summary the manual trigger returns.
+	// above does that.
+	//
+	// That decision is why recordSweepOutcome exists: openmentor_worker_cron_runs_total
+	// takes its outcome from this return value, so without it a sweep in which
+	// every profile failed would be counted a success.
 	return summary, nil
+}
+
+// recordSweepOutcome publishes what the sweep achieved to the metrics the
+// ProfilePurgeStale alert reads, and to the enclosing cron span.
+//
+// The freshness gauge only advances on a CLEAN sweep. A run with failures is
+// not "recent enough" — it is the failure mode the alert exists to catch — so
+// leaving the timestamp behind is what eventually pages someone. A sweep that
+// found nothing to do IS clean and does advance it: the purge working correctly
+// on an empty backlog is the normal night, and treating it as staleness would
+// page every deployment that has no deleted profiles.
+func (h *Handlers) recordSweepOutcome(ctx context.Context, summary JobSummary) {
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(
+		attribute.Int("purge.profiles_matched", summary.MentorsMatched),
+		attribute.Int("purge.profiles_purged", summary.ProfilesPurged),
+		attribute.Int("purge.profiles_skipped", summary.ProfilesSkipped),
+		attribute.Int("purge.failures", summary.PurgeFailures),
+		attribute.Int("purge.retention_days", h.profilePurgeRetentionDays),
+	)
+
+	if summary.PurgeFailures > 0 {
+		span.SetStatus(codes.Error, "purge sweep had failures")
+		return
+	}
+	metrics.ProfilePurgeLastSuccessTimestamp.Set(float64(time.Now().Unix()))
 }

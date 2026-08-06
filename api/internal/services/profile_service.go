@@ -371,6 +371,8 @@ func (s *ProfileService) SubmitProfileByMentorId(ctx context.Context, mentorID s
 // should not be told otherwise; that leniency costs nothing, because typing the
 // right name in the wrong case is not the accident this guard exists to catch.
 func (s *ProfileService) DeleteProfileByMentorId(ctx context.Context, mentorID, confirmUsername string) error {
+	// One closure feeds BOTH sinks, so an outcome cannot be tracked in
+	// analytics and missing from the trace (or spelled differently in each).
 	track := func(outcome string, extra map[string]interface{}) {
 		properties := map[string]interface{}{
 			"mentor_id": mentorID,
@@ -380,6 +382,7 @@ func (s *ProfileService) DeleteProfileByMentorId(ctx context.Context, mentorID, 
 			properties[key] = value
 		}
 		s.tracker.Track(ctx, analytics.EventMentorProfileDeleted, analytics.MentorDistinctID(mentorID), properties)
+		annotateDeletionSpan(ctx, deletionActionDelete, deletionInitiatorMentor, mentorID, outcome)
 	}
 
 	// IncludeDeleted so an already-deleted profile is reported as such rather
@@ -423,8 +426,8 @@ func (s *ProfileService) DeleteProfileByMentorId(ctx context.Context, mentorID, 
 	// completed deletion into an error the client will retry.
 	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileDeletedTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
 
-	track("success", map[string]interface{}{
-		"deleted_by":          "mentor",
+	track(outcomeSuccess, map[string]interface{}{
+		"deleted_by":          deletionInitiatorMentor,
 		"from_status":         mentor.Status,
 		"invitations_revoked": invitationsRevoked,
 	})
