@@ -90,6 +90,11 @@ func (m *MockProfileService) SubmitProfileByMentorId(ctx context.Context, mentor
 	return args.Error(0)
 }
 
+func (m *MockProfileService) DeleteProfileByMentorId(ctx context.Context, mentorId string, confirmUsername string) error {
+	args := m.Called(ctx, mentorId, confirmUsername)
+	return args.Error(0)
+}
+
 // newProfileStatusRouter builds a test router for the status endpoint.
 // When session is non-nil, it is injected into the request context the same
 // way MentorSessionMiddleware does after validating the session cookie.

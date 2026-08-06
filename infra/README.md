@@ -203,6 +203,9 @@ Highlights:
 - `S3_STORAGE_*` / `NEXT_PUBLIC_S3_STORAGE_*` — AWS S3 profile images (D15)
 - `SES_*`, `MODERATORS_EMAIL`, `DEV_EMAIL_OVERRIDE` — AWS SES email via the worker (D1)
 - `WORKER_AUTH_TOKEN`, `WORKER_CRON_ENABLED`, `*_TRIGGER_URL` — API→worker wiring
+- `WORKER_PROFILE_PURGE_RETENTION_DAYS`, `WORKER_PROFILE_PURGE_CRON` — how long a
+  deleted profile stays restorable before the worker erases it, and when that
+  sweep runs (D70)
 - `JWT_SECRET`, `INTERNAL_MENTORS_API`/`GO_API_INTERNAL_TOKEN` — auth
 - `GCLOUD_*`, `O11Y_*` — Grafana Cloud observability
 - `ANALYTICS_PROVIDER`, `POSTHOG_*`, `NEXT_PUBLIC_POSTHOG_*` — product analytics

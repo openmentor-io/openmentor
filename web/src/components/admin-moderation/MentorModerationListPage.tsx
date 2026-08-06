@@ -7,6 +7,7 @@ import type { MentorModerationFilter, AdminMentorListItem } from '@/types'
 import { useAdminAuth } from './AdminAuthContext'
 import { AdminLayout } from './AdminLayout'
 import { moderationStatusBadgeClass } from './utils'
+import { formatDate } from '@/components/mentor-admin'
 import { getModerationMentors } from '@/lib/admin-moderation-api'
 
 const PAGE_SIZE = 50
@@ -70,11 +71,19 @@ export function MentorModerationListPage({
 
   const filteredMentors = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
-    const sorted = [...mentors].sort((a, b) =>
-      status === 'pending'
-        ? new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    )
+    // Pending is a queue, so oldest first. Deleted sorts by WHEN IT WAS DELETED
+    // rather than when the profile was created — an admin looking here is
+    // almost always after something that just went, and creation date says
+    // nothing about that.
+    const sorted = [...mentors].sort((a, b) => {
+      if (status === 'pending') {
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      }
+      if (status === 'deleted') {
+        return new Date(b.deletedAt ?? b.createdAt).getTime() - new Date(a.deletedAt ?? a.createdAt).getTime()
+      }
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    })
     if (!query) return sorted
 
     return sorted.filter((mentor) => {
@@ -134,7 +143,7 @@ export function MentorModerationListPage({
 
       {!isLoading && !error && pageItems.length === 0 && (
         <div className="rounded-card border border-line bg-white p-6 text-sm text-ink-soft">
-          No mentors found.
+          {status === 'deleted' ? 'No deleted profiles.' : 'No mentors found.'}
         </div>
       )}
 
@@ -154,7 +163,17 @@ export function MentorModerationListPage({
                   <p className="my-0 text-sm text-ink-soft">{mentor.email}</p>
                   <p className="my-0 text-sm text-ink-mute">{mentor.contact}</p>
                 </div>
-                <span className={moderationStatusBadgeClass(mentor.status)}>{mentor.status}</span>
+                {/* A deleted profile's status is 'inactive' (deletion is the
+                    timestamp, not a status), so showing the status pill here
+                    would label the whole tab "inactive". Show the deletion
+                    instead — that is what this row is. */}
+                {mentor.deletedAt ? (
+                  <span className="inline-flex items-center rounded-full bg-danger/10 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.05em] text-danger">
+                    deleted {formatDate(mentor.deletedAt)}
+                  </span>
+                ) : (
+                  <span className={moderationStatusBadgeClass(mentor.status)}>{mentor.status}</span>
+                )}
               </div>
               <div className="mt-3 text-sm text-ink">
                 <p className="my-0">

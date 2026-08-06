@@ -26,6 +26,7 @@ type ProfileServiceInterface interface {
 	UploadPictureByMentorId(ctx context.Context, mentorId string, req *models.UploadProfilePictureRequest) (string, error)
 	SetProfileStatusByMentorId(ctx context.Context, mentorId string, status string) error
 	SubmitProfileByMentorId(ctx context.Context, mentorId string) error
+	DeleteProfileByMentorId(ctx context.Context, mentorId string, confirmUsername string) error
 }
 
 // MentorConfirmationServiceInterface defines the public email-confirmation
@@ -90,6 +91,8 @@ type AdminMentorsServiceInterface interface {
 	ReturnMentor(ctx context.Context, session *models.AdminSession, mentorID string, reason string) (*models.AdminMentorDetails, error)
 	UpdateMentorStatus(ctx context.Context, session *models.AdminSession, mentorID string, status string) (*models.AdminMentorDetails, error)
 	UploadMentorPicture(ctx context.Context, session *models.AdminSession, mentorID string, req *models.UploadProfilePictureRequest) (string, error)
+	DeleteMentor(ctx context.Context, session *models.AdminSession, mentorID string, confirmUsername string) (*models.AdminMentorDetails, error)
+	RestoreMentor(ctx context.Context, session *models.AdminSession, mentorID string) (*models.AdminMentorDetails, error)
 }
 
 // AdminRequestsServiceInterface defines admin access to the requests a mentor

@@ -160,6 +160,36 @@ export interface AdminMentorReturnRequest {
 }
 
 // ============================================================
+// Profile deletion (D70)
+// ============================================================
+
+/**
+ * Mentor deleting their own profile
+ * (POST /api/mentor/profile/delete — session auth).
+ *
+ * `username` is the value retyped into the confirm dialog. The API checks it
+ * against the session's own profile, so it confirms intent; it never selects
+ * which profile is deleted.
+ */
+export interface DeleteProfileRequest {
+  username: string
+}
+
+export interface DeleteProfileResponse {
+  success: boolean
+  error?: string
+}
+
+/**
+ * Admin deleting a mentor's profile
+ * (POST /api/admin/mentors/:id/delete). `username` is the TARGET profile's
+ * username, retyped by the admin.
+ */
+export interface AdminMentorDeleteRequest {
+  username: string
+}
+
+// ============================================================
 // End of draft-workflow types
 // ============================================================
 

@@ -29,7 +29,7 @@ function LoginForm(): JSX.Element {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitSuccess, setSubmitSuccess] = useState(false)
   const [sentEmail, setSentEmail] = useState('')
-  const { expired, callback_error } = router.query
+  const { expired, callback_error, deleted } = router.query
 
   const {
     register,
@@ -104,6 +104,19 @@ function LoginForm(): JSX.Element {
 
       <div className="relative mx-auto w-full max-w-[440px]">
         <div className="animate-rise-in rounded-[20px] border border-line bg-white p-7 shadow-[0_20px_50px_-24px_rgba(19,42,82,0.22)] sm:p-10">
+          {/* Landing here after deleting your own profile (D70). Says the
+              delete worked and, importantly, that signing in again will not
+              bring it back — otherwise the login form right below reads as an
+              invitation to do exactly that. */}
+          {deleted === '1' && (
+            <div className="mb-5 rounded-field border border-line bg-surface p-3.5">
+              <p className="my-0 text-sm text-ink">
+                Your profile has been deleted and you have been signed out. Requesting a new login
+                link will not restore it — contact us if this was a mistake.
+              </p>
+            </div>
+          )}
+
           {/* Session expired message */}
           {expired === 'true' && (
             <div className="mb-5 rounded-field border border-line bg-surface p-3.5">

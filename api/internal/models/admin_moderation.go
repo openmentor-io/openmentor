@@ -62,12 +62,18 @@ const (
 	MentorModerationFilterPending  MentorModerationFilter = "pending"
 	MentorModerationFilterApproved MentorModerationFilter = "approved"
 	MentorModerationFilterDeclined MentorModerationFilter = "declined"
+	// MentorModerationFilterDeleted is the admin-only tab of deleted profiles
+	// (D70). It is not a status group like the other three — it selects on
+	// deleted_at, which is why the service routes it to its own repository
+	// method instead of through resolveStatuses.
+	MentorModerationFilterDeleted MentorModerationFilter = "deleted"
 )
 
 func (f MentorModerationFilter) IsValid() bool {
 	return f == MentorModerationFilterPending ||
 		f == MentorModerationFilterApproved ||
-		f == MentorModerationFilterDeclined
+		f == MentorModerationFilterDeclined ||
+		f == MentorModerationFilterDeleted
 }
 
 type AdminMentorListItem struct {
@@ -81,6 +87,9 @@ type AdminMentorListItem struct {
 	Price            string    `json:"price"`
 	Status           string    `json:"status"`
 	CreatedAt        time.Time `json:"createdAt"`
+	// DeletedAt is set only on rows from the admin-only "Deleted" tab (D70);
+	// every status tab excludes deleted profiles, so it is nil there.
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 }
 
 type AdminMentorDetails struct {
@@ -109,6 +118,10 @@ type AdminMentorDetails struct {
 	// ActivatedAt is set on the first approve; once set the mentor can
 	// never be returned to draft.
 	ActivatedAt *time.Time `json:"activatedAt,omitempty"`
+	// DeletedAt marks a deleted profile (D70). Non-nil means every moderation
+	// action except Restore is refused, and only an admin may see this payload
+	// at all.
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 	// RequestsCount is the total number of mentee requests this mentor has
 	// received (all statuses) — drives the "Requests (N)" entry point.
 	RequestsCount int       `json:"requestsCount"`
@@ -165,6 +178,14 @@ type AdminMentorStatusUpdateRequest struct {
 // moderation action (pending -> draft).
 type AdminMentorReturnRequest struct {
 	Reason string `json:"reason" binding:"required,max=2000"`
+}
+
+// AdminMentorDeleteRequest carries the typed confirmation for an admin-side
+// profile deletion: the admin must retype the TARGET mentor's username, so the
+// destructive action names the profile it destroys rather than relying on which
+// page the click came from. Same length bound as a slug.
+type AdminMentorDeleteRequest struct {
+	Username string `json:"username" binding:"required,max=64"`
 }
 
 type AdminModerationTriggerPayload struct {

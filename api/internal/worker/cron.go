@@ -74,6 +74,17 @@ func (h *Handlers) CronJobs() []CronJob {
 			Name: "finalize-stuck-registrations", Schedule: "0 */10 * * * *",
 			Run: h.FinalizeStuckRegistrations, SkipIfRunning: true,
 		},
+		// The only job whose schedule is configuration rather than a literal
+		// (WORKER_PROFILE_PURGE_CRON): it erases data irreversibly, so an
+		// operator must be able to move or effectively pause it without a
+		// deploy. SkipIfRunning because a backlog — the first pass after this
+		// ships, or after a retention change — can outlast a nightly interval,
+		// and two passes over the same list would race each other for rows that
+		// one of them has already erased.
+		{
+			Name: "purge-deleted-profiles", Schedule: h.profilePurgeCron,
+			Run: h.PurgeDeletedProfiles, SkipIfRunning: true,
+		},
 	}
 }
 

@@ -70,7 +70,17 @@ type fakeRepo struct {
 	deactivateErr         error
 	listActiveErr         error
 	setSortOrdersErr      error
-	deactivated           []string
+	// purge-deleted-profiles (D70). purgeAttempts records every PurgeProfile
+	// call including the ones that error, so a test can tell "not attempted"
+	// from "attempted and failed"; purged records only the successes.
+	purgeableProfiles  []PurgeableProfile
+	listPurgeableErr   error
+	purgeErrs          map[string]error
+	purgeCounts        map[string]PurgeCounts
+	purgeAttempts      []string
+	purged             []string
+	purgeRetentionDays []int
+	deactivated        []string
 	// notActive are mentors the guarded DeactivateMentor write finds no longer
 	// 'active', so it reports that nothing was deactivated.
 	notActive             map[string]bool
@@ -90,6 +100,8 @@ func newFakeRepo() *fakeRepo {
 		notActive:             map[string]bool{},
 		stalePendingRequests:  map[string][]JobReminderRequest{},
 		staleProgressRequests: map[string][]JobReminderRequest{},
+		purgeErrs:             map[string]error{},
+		purgeCounts:           map[string]PurgeCounts{},
 	}
 }
 
@@ -276,6 +288,24 @@ func (f *fakeRepo) SetSortOrders(_ context.Context, updates []SortOrderUpdate) e
 	}
 	f.sortOrderTransactions = append(f.sortOrderTransactions, append([]SortOrderUpdate(nil), updates...))
 	return nil
+}
+
+func (f *fakeRepo) ListPurgeableProfiles(_ context.Context, retentionDays int) ([]PurgeableProfile, error) {
+	f.purgeRetentionDays = append(f.purgeRetentionDays, retentionDays)
+	if f.listPurgeableErr != nil {
+		return nil, f.listPurgeableErr
+	}
+	return append([]PurgeableProfile(nil), f.purgeableProfiles...), nil
+}
+
+func (f *fakeRepo) PurgeProfile(_ context.Context, mentorID string, retentionDays int) (PurgeCounts, error) {
+	f.purgeAttempts = append(f.purgeAttempts, mentorID)
+	f.purgeRetentionDays = append(f.purgeRetentionDays, retentionDays)
+	if err := f.purgeErrs[mentorID]; err != nil {
+		return PurgeCounts{}, err
+	}
+	f.purged = append(f.purged, mentorID)
+	return f.purgeCounts[mentorID], nil
 }
 
 // fakeEmailSender records every send attempt (including failed ones, to

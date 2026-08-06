@@ -2,7 +2,10 @@ import type { RequestStatus } from './mentor-requests'
 
 export type ModeratorRole = 'moderator' | 'admin'
 
-export type MentorModerationFilter = 'pending' | 'approved' | 'declined'
+// 'deleted' is the admin-only tab of deleted profiles (D70). Unlike the other
+// three it is not a status group: deletion is the deletedAt timestamp, and a
+// deleted profile's status is 'inactive'.
+export type MentorModerationFilter = 'pending' | 'approved' | 'declined' | 'deleted'
 
 // 'draft' — returned for edits (moderationNote) or awaiting email confirmation
 export type MentorModerationStatus = 'draft' | 'pending' | 'active' | 'inactive' | 'declined'
@@ -27,6 +30,8 @@ export interface AdminMentorListItem {
   price: string
   status: MentorModerationStatus
   createdAt: string
+  /** Set only on rows from the admin-only "Deleted" tab (D70). */
+  deletedAt?: string | null
 }
 
 export interface AdminMentorDetails {
@@ -53,6 +58,11 @@ export interface AdminMentorDetails {
   photoStyle?: string
   /** Set on first approve; once set the mentor can never be returned to draft. */
   activatedAt?: string | null
+  /**
+   * Set when the profile is deleted (D70). Non-null means every moderation
+   * action except Restore is refused, and only an admin can see this payload.
+   */
+  deletedAt?: string | null
   /** Total mentee requests received (all statuses) — drives the "Requests (N)" button. */
   requestsCount: number
   createdAt: string

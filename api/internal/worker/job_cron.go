@@ -36,6 +36,18 @@ type JobSummary struct {
 	// finalize-stuck-registrations only.
 	MentorsFinalized int `json:"mentors_finalized,omitempty"`
 
+	// purge-deleted-profiles only (D70). ProfilesSkipped counts profiles that
+	// stopped qualifying between the listing and the write (an admin restore);
+	// PurgeFailures counts erasures that errored and will be retried next pass.
+	// Both are surfaced so a run that erases nothing is distinguishable from a
+	// run that matched nothing.
+	ProfilesPurged    int `json:"profiles_purged,omitempty"`
+	ProfilesSkipped   int `json:"profiles_skipped,omitempty"`
+	PurgeFailures     int `json:"purge_failures,omitempty"`
+	RequestsPurged    int `json:"requests_purged,omitempty"`
+	ReviewsPurged     int `json:"reviews_purged,omitempty"`
+	InvitationsPurged int `json:"invitations_purged,omitempty"`
+
 	// randomize-sort-order only.
 	SortOrdersRandomized int `json:"sort_orders_randomized,omitempty"`
 	HighlightedPinned    int `json:"highlighted_pinned,omitempty"`

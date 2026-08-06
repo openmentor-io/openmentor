@@ -23,7 +23,7 @@ const reviewTokenHashLen = 64
 var (
 	// ErrReviewTokenInvalid means no spendable invitation matched the hash.
 	//
-	// ONE error covers absent, already-consumed and expired on purpose: telling
+	// ONE error covers absent, already-consumed, revoked and expired on purpose: telling
 	// those apart would tell a caller whether a token ever existed and whether the
 	// request behind it is real, which is exactly the disclosure H4 removes. The
 	// service turns this into a single generic message with no mentor name.
@@ -80,12 +80,17 @@ type eligibility struct {
 	legacyRevoked bool
 }
 
+// The mentor join carries `m.deleted_at IS NULL`: a request whose mentor has
+// deleted their profile (D70) yields NO row, so both entry points report the
+// same dead-capability answer they report for an unknown request — without the
+// mentor's name. This covers the LEGACY request-id path too, which carries no
+// invitation row to revoke.
 const eligibilityQuery = `
 	SELECT cr.status, m.id AS mentor_id, m.name AS mentor_name,
 		cr.review_legacy_link_revoked_at IS NOT NULL AS legacy_revoked,
 		EXISTS(SELECT 1 FROM reviews rv WHERE rv.client_request_id = cr.id) AS has_review
 	FROM client_requests cr
-	JOIN mentors m ON m.id = cr.mentor_id
+	JOIN mentors m ON m.id = cr.mentor_id AND m.deleted_at IS NULL
 	WHERE cr.id = $1
 `
 
@@ -148,7 +153,8 @@ func (r *ReviewRepository) CheckCanSubmitReviewByToken(ctx context.Context, toke
 	var requestID string
 	err := r.pool.QueryRow(ctx, `
 		SELECT client_request_id FROM review_invitations
-		WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+		WHERE token_hash = $1 AND consumed_at IS NULL AND revoked_at IS NULL
+			AND expires_at > now()
 	`, tokenHash).Scan(&requestID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrReviewTokenInvalid
@@ -218,7 +224,8 @@ func (r *ReviewRepository) SubmitReviewWithToken(ctx context.Context, tokenHash 
 	var requestID string
 	err = tx.QueryRow(ctx, `
 		UPDATE review_invitations SET consumed_at = now()
-		WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+		WHERE token_hash = $1 AND consumed_at IS NULL AND revoked_at IS NULL
+			AND expires_at > now()
 		RETURNING client_request_id
 	`, tokenHash).Scan(&requestID)
 	if errors.Is(err, pgx.ErrNoRows) {

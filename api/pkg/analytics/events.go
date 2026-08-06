@@ -25,6 +25,12 @@ const (
 	EventMentorEmailConfirmed     = "mentor_email_confirmed"
 	EventMentorProfileResubmitted = "mentor_profile_resubmitted"
 
+	// EventMentorProfileDeleted fires when a mentor deletes their OWN profile
+	// from the portal (D70). The admin-initiated deletion is a separate event
+	// so the two are countable apart — "how many mentors left" and "how many
+	// profiles did we remove" are different questions.
+	EventMentorProfileDeleted = "mentor_profile_deleted"
+
 	EventAdminMentorModerationAction = "admin_mentor_moderation_action"
 	EventAdminMentorStatusUpdated    = "admin_mentor_status_updated"
 	EventAdminMentorProfileUpdated   = "admin_mentor_profile_updated"
@@ -32,6 +38,10 @@ const (
 	// EventAdminMentorReturned fires when a moderator returns a pending
 	// profile to draft with a reviewer note.
 	EventAdminMentorReturned = "admin_mentor_returned"
+	// EventAdminMentorDeleted / EventAdminMentorRestored track admin-initiated
+	// profile deletion and its only reversal (D70). Both are admin-role-only.
+	EventAdminMentorDeleted  = "admin_mentor_deleted"
+	EventAdminMentorRestored = "admin_mentor_restored"
 	// EventAdminRequestStatusUpdated fires when an admin overrides the status
 	// of a mentee request from the moderation panel — including moves out of
 	// a terminal status, which the mentor's own inbox cannot do.
@@ -48,6 +58,10 @@ const (
 	EventRequestProcessFinishedNotified = "request_process_finished_notified"
 	EventMentorPendingRequestsReminded  = "mentor_pending_requests_reminded"
 	EventMentorStatusUpdateReminded     = "mentor_status_update_reminded"
+	// EventMentorProfilePurged fires once per profile the retention sweep
+	// erases for good (D70) — the irreversible half of profile deletion, and
+	// the only record that the rows ever existed once it has run.
+	EventMentorProfilePurged = "mentor_profile_purged"
 
 	// Migration tooling events (getmentor.dev -> openmentor.io imports).
 	// EventMentorProfileMigrated fires from the worker's

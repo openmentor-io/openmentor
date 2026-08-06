@@ -630,6 +630,8 @@ services:
       - WORKER_CRON_ENABLED
       - WORKER_DB_MAX_CONNS
       - HIGHLIGHTED_MENTORS
+      - WORKER_PROFILE_PURGE_CRON
+      - WORKER_PROFILE_PURGE_RETENTION_DAYS
       # Transactional email (AWS SES v2)
       - SES_REGION
       - SES_ACCESS_KEY_ID

@@ -27,6 +27,7 @@ import {
   ProfileVisibilityCard,
   ShareProfileCard,
   UsernameCard,
+  DeleteProfileCard,
 } from '@/components/mentor-admin'
 import { ProfileForm, Notification, NoIndexHead, AuthGateScreen } from '@/components'
 import { useRouter } from 'next/router'
@@ -165,6 +166,15 @@ function ProfileEditContent(): JSX.Element {
   const onVisibilityChange = (status: 'active' | 'inactive'): void => {
     setMentor((current) => (current ? { ...current, status } : current))
     setShowVisibilitySuccess(true)
+  }
+
+  // The delete revoked this session server-side, so there is nothing left to
+  // render here and every request from this page would now 401. Send the mentor
+  // to the login screen, which is the honest state: they no longer have an
+  // account to come back to. A full navigation rather than router.replace so no
+  // stale profile state survives in memory.
+  const onProfileDeleted = (): void => {
+    window.location.assign('/mentor/login?deleted=1')
   }
 
   const onSubmitForReview = async (): Promise<void> => {
@@ -417,6 +427,18 @@ function ProfileEditContent(): JSX.Element {
                 tempImagePreview={tempImagePreview}
               />
             </div>
+
+            {/* Danger zone — LAST on the page. It is the only control here whose
+                result the mentor cannot undo, so nothing they might want should
+                sit below it. Needs a slug: a draft profile that has not been
+                finalised yet has nothing to type into the confirm box. */}
+            {mentor.slug && (
+              <DeleteProfileCard
+                username={mentor.slug}
+                canHideInstead={isApproved}
+                onDeleted={onProfileDeleted}
+              />
+            )}
           </div>
         )}
 

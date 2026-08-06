@@ -28,8 +28,12 @@ import {
   updateModerationMentorStatus,
   uploadModerationMentorPicture,
   changeModerationMentorUsername,
+  deleteModerationMentor,
+  restoreModerationMentor,
   ApiError,
 } from '@/lib/admin-moderation-api'
+import { DeleteProfileDialog } from '@/components'
+import { formatDateTime } from '@/components/mentor-admin'
 import { imageLoader } from '@/lib/image-loader'
 import { isValidCalendarUrl } from '@/lib/safe-url'
 import {
@@ -43,9 +47,13 @@ type PictureState = 'idle' | 'loading' | 'success' | 'error'
 
 const RETURN_REASON_MAX = 2000
 
-function getBackLink(status: AdminMentorDetails['status']): string {
-  if (status === 'pending' || status === 'draft') return '/admin/mentors/pending'
-  if (status === 'declined') return '/admin/mentors/declined'
+function getBackLink(mentor: AdminMentorDetails): string {
+  // Deleted first: a deleted profile's status is 'inactive' (deletion is the
+  // deletedAt timestamp, not a status), so a status-only check would send an
+  // admin back to Approved — a list this profile is not in.
+  if (mentor.deletedAt) return '/admin/mentors/deleted'
+  if (mentor.status === 'pending' || mentor.status === 'draft') return '/admin/mentors/pending'
+  if (mentor.status === 'declined') return '/admin/mentors/declined'
   return '/admin/mentors/approved'
 }
 
@@ -258,6 +266,10 @@ function MentorModerationEditContent(): JSX.Element {
   const [confirmingDecline, setConfirmingDecline] = useState(false)
   const [isDeclining, setIsDeclining] = useState(false)
 
+  // Profile deletion + restore (D70)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isRestoring, setIsRestoring] = useState(false)
+
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       router.replace('/admin/login')
@@ -435,6 +447,36 @@ function MentorModerationEditContent(): JSX.Element {
     }
   }
 
+  const onDeleteProfile = async (): Promise<void> => {
+    if (!mentor) return
+    setActionError(null)
+    // The dialog surfaces whatever this throws, so let the server's message
+    // through: a username mismatch and an already-deleted profile are both
+    // things the admin can act on.
+    const updated = await deleteModerationMentor(mentor.mentorId, mentor.slug)
+    setMentor(updated)
+    setIsDeleteDialogOpen(false)
+    // Every other action is now refused, so collapse any open action UI rather
+    // than leaving a form that can only fail.
+    setShowReturnForm(false)
+    setConfirmingDecline(false)
+  }
+
+  const onRestoreProfile = async (): Promise<void> => {
+    if (!mentor || isRestoring) return
+    setIsRestoring(true)
+    setActionError(null)
+    try {
+      const updated = await restoreModerationMentor(mentor.mentorId)
+      setMentor(updated)
+      setFormData(buildFormData(updated))
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to restore the profile')
+    } finally {
+      setIsRestoring(false)
+    }
+  }
+
   const handleImageSelect = (event: ChangeEvent<HTMLInputElement>): void => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -517,7 +559,7 @@ function MentorModerationEditContent(): JSX.Element {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-4">
               <Link
-                href={getBackLink(mentor.status)}
+                href={getBackLink(mentor)}
                 className="text-sm font-semibold text-brand-cobalt transition-colors duration-120 hover:text-brand-navy"
               >
                 ← Back to list
@@ -543,9 +585,55 @@ function MentorModerationEditContent(): JSX.Element {
                   Requests ({mentor.requestsCount})
                 </Link>
               )}
-              <span className={moderationStatusBadgeClass(mentor.status)}>{mentor.status}</span>
+              {mentor.deletedAt ? (
+                <span className="inline-flex items-center rounded-full bg-danger/10 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.05em] text-danger">
+                  deleted
+                </span>
+              ) : (
+                <span className={moderationStatusBadgeClass(mentor.status)}>{mentor.status}</span>
+              )}
             </div>
           </div>
+
+          {/* Deleted profile: what an admin can and cannot do from here. This
+              is the only page in the product that shows a deleted profile at
+              all, so it has to say why everything else is missing. */}
+          {mentor.deletedAt && (
+            <div className="rounded-panel border border-l-4 border-line border-l-danger bg-white p-5">
+              <div className="font-display text-[13px] font-extrabold uppercase tracking-[0.03em] text-danger">
+                Profile deleted
+              </div>
+              <p className="my-0 mt-2 text-sm leading-relaxed text-ink">
+                Deleted on {formatDateTime(mentor.deletedAt)}. The public page returns 404, the
+                mentor cannot log in and receives no login links, and their outstanding review
+                invitations were cancelled.
+              </p>
+              <p className="my-0 mt-2 text-[13px] text-ink-soft">
+                No moderation action works on a deleted profile. Restoring brings it back as{' '}
+                <strong>inactive</strong> — hidden from the catalog, with the mentor able to log in
+                again — from where you or they can publish it. Once the retention window closes,
+                the profile and all its requests and reviews are erased permanently and this page
+                stops existing.
+              </p>
+              {session?.role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={onRestoreProfile}
+                  disabled={isRestoring}
+                  className="button mt-4 disabled:opacity-50"
+                >
+                  {isRestoring ? (
+                    <>
+                      <FontAwesomeIcon icon={faCircleNotch} className="mr-2 animate-spin" />
+                      Restoring...
+                    </>
+                  ) : (
+                    'Restore profile'
+                  )}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Reviewer note on a returned (draft) profile */}
           {mentor.status === 'draft' && mentor.moderationNote && (
@@ -563,66 +651,71 @@ function MentorModerationEditContent(): JSX.Element {
             </div>
           )}
 
-          {/* Moderation actions: approve / return for edits / decline */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button type="button" onClick={onApprove} className="button">
-              Approve
-            </button>
-
-            {mentor.status === 'pending' && (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowReturnForm((value) => !value)
-                  setReturnError(null)
-                  setConfirmingDecline(false)
-                }}
-                className="button-secondary"
-                aria-expanded={showReturnForm}
-              >
-                Return for edits…
+          {/* Moderation actions: approve / return for edits / decline.
+              Hidden entirely on a deleted profile — the API refuses all of
+              them with a 409, so rendering buttons that can only fail would be
+              a worse answer than the banner above. */}
+          {!mentor.deletedAt && (
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button type="button" onClick={onApprove} className="button">
+                Approve
               </button>
-            )}
 
-            {confirmingDecline ? (
-              <span className="inline-flex items-center gap-2">
+              {mentor.status === 'pending' && (
                 <button
                   type="button"
-                  onClick={onDecline}
-                  disabled={isDeclining}
-                  className="button-destructive disabled:opacity-50"
+                  onClick={() => {
+                    setShowReturnForm((value) => !value)
+                    setReturnError(null)
+                    setConfirmingDecline(false)
+                  }}
+                  className="button-secondary"
+                  aria-expanded={showReturnForm}
                 >
-                  {isDeclining ? (
-                    <>
-                      <FontAwesomeIcon icon={faCircleNotch} className="mr-2 animate-spin" />
-                      Declining...
-                    </>
-                  ) : (
-                    'Confirm decline'
-                  )}
+                  Return for edits…
                 </button>
+              )}
+
+              {confirmingDecline ? (
+                <span className="inline-flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onDecline}
+                    disabled={isDeclining}
+                    className="button-destructive disabled:opacity-50"
+                  >
+                    {isDeclining ? (
+                      <>
+                        <FontAwesomeIcon icon={faCircleNotch} className="mr-2 animate-spin" />
+                        Declining...
+                      </>
+                    ) : (
+                      'Confirm decline'
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDecline(false)}
+                    disabled={isDeclining}
+                    className="button-ghost"
+                  >
+                    Cancel
+                  </button>
+                </span>
+              ) : (
                 <button
                   type="button"
-                  onClick={() => setConfirmingDecline(false)}
-                  disabled={isDeclining}
-                  className="button-ghost"
+                  onClick={() => {
+                    setConfirmingDecline(true)
+                    setShowReturnForm(false)
+                  }}
+                  className="button-destructive"
                 >
-                  Cancel
+                  Decline…
                 </button>
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setConfirmingDecline(true)
-                  setShowReturnForm(false)
-                }}
-                className="button-destructive"
-              >
-                Decline…
-              </button>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {confirmingDecline && (
             <p className="my-0 text-sm text-ink-soft">
@@ -693,8 +786,8 @@ function MentorModerationEditContent(): JSX.Element {
             </div>
           )}
 
-          {session?.role === 'admin' && (
-            <div className="flex flex-wrap gap-2.5">
+          {session?.role === 'admin' && !mentor.deletedAt && (
+            <div className="flex flex-wrap items-center gap-2.5">
               <button
                 type="button"
                 onClick={() => onToggleActive('active')}
@@ -708,6 +801,16 @@ function MentorModerationEditContent(): JSX.Element {
                 className="button-secondary"
               >
                 Set inactive
+              </button>
+              {/* Deletion sits apart from the visibility toggles, pushed to the
+                  far end: it is not another way to hide a profile, and it
+                  should not sit adjacent to the buttons that are. */}
+              <button
+                type="button"
+                onClick={() => setIsDeleteDialogOpen(true)}
+                className="button-destructive sm:ml-auto"
+              >
+                Delete profile…
               </button>
             </div>
           )}
@@ -949,6 +1052,30 @@ function MentorModerationEditContent(): JSX.Element {
               </span>
             )}
           </div>
+
+          {/* Same dialog the mentor sees on their own edit page — the typed
+              confirmation is the safety mechanism, and one copy of it means
+              the two cannot drift. Here it asks for the TARGET mentor's
+              username, not the admin's. */}
+          <DeleteProfileDialog
+            isOpen={isDeleteDialogOpen}
+            onClose={() => setIsDeleteDialogOpen(false)}
+            onConfirm={onDeleteProfile}
+            username={mentor.slug}
+            title={`Delete ${mentor.name}'s profile`}
+          >
+            <p className="my-0">
+              <strong className="text-ink">{mentor.name}</strong> ({mentor.email}) will disappear
+              from the site: their page returns 404, they can no longer log in or receive login
+              links, and their outstanding review invitations are cancelled.
+            </p>
+            <p className="my-0 mt-2">
+              You can restore the profile from the Deleted tab until the retention window closes.
+              After that it is erased for good, along with its{' '}
+              {mentor.requestsCount === 1 ? '1 request' : `${mentor.requestsCount} requests`} and
+              their reviews.
+            </p>
+          </DeleteProfileDialog>
         </div>
       )}
     </AdminLayout>

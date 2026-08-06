@@ -145,6 +145,11 @@ type JobsRepository interface {
 	DeactivateMentor(ctx context.Context, mentorID string) (applied bool, err error)
 	ListActiveMentorIDs(ctx context.Context) ([]string, error)
 	SetSortOrders(ctx context.Context, updates []SortOrderUpdate) error
+
+	// Profile purge (D70): list the deleted profiles whose retention window has
+	// closed, then erase one and everything attached to it.
+	ListPurgeableProfiles(ctx context.Context, retentionDays int) ([]PurgeableProfile, error)
+	PurgeProfile(ctx context.Context, mentorID string, retentionDays int) (PurgeCounts, error)
 }
 
 // Repository is the pgx-backed JobsRepository implementation.
@@ -162,7 +167,18 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 // GetJobMentorByID fetches a mentor row by uuid.
-// Mirrors: SELECT * FROM mentors WHERE id = $1 (func app).
+// Mirrors: SELECT * FROM mentors WHERE id = $1 (func app), plus the deletion
+// guard below.
+//
+// A DELETED profile (D70) reads as absent, and that is the single edit that
+// stops the worker emailing a mentor who no longer exists. Every one of the
+// eight jobs that reaches a mentor through this function does so in order to
+// email them or act on their behalf — the login link, the confirmation, the
+// moderation outcome, the new-request notification — and every one of them
+// already branches on a nil mentor, because the row could always have been
+// missing. Filtering HERE therefore reuses eight existing, tested "not found"
+// paths instead of adding a deletion check to eight handlers, where the ninth
+// would be the one that gets forgotten.
 func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*JobMentor, error) {
 	query := `
 		SELECT id, legacy_id, name, COALESCE(email::text, ''), status,
@@ -170,7 +186,7 @@ func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*Jo
 			COALESCE(workplace, ''), COALESCE(price, ''), COALESCE(calendar_url, ''),
 			COALESCE(moderation_note, ''), COALESCE(email_confirmation_token, '')
 		FROM mentors
-		WHERE id = $1
+		WHERE id = $1 AND deleted_at IS NULL
 	`
 
 	var m JobMentor
@@ -547,6 +563,11 @@ func (r *Repository) ListMentorsWithStaleInProgressRequests(ctx context.Context)
 		INNER JOIN client_requests cr ON cr.mentor_id = m.id
 		WHERE
 			m.status != 'declined'
+			-- The only one of the cron mentor queries that needs this spelled
+			-- out: it selects on "not declined" rather than "active", so a
+			-- deleted profile (D70, status 'inactive') would otherwise match and
+			-- be nagged about requests it can no longer see.
+			AND m.deleted_at IS NULL
 			AND cr.status_changed_at < NOW() - INTERVAL '120 hours'
 			AND cr.status IN ('contacted', 'working')
 		GROUP BY m.id, m.name, m.email

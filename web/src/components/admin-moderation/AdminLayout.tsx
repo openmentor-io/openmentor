@@ -24,6 +24,10 @@ export function AdminLayout({ title, children }: AdminLayoutProps): JSX.Element 
   if (session?.role === 'admin') {
     tabs.push({ href: '/admin/mentors/approved', label: 'Approved' })
     tabs.push({ href: '/admin/mentors/declined', label: 'Declined' })
+    // Deleted profiles (D70) — admin only, and last: it is the archive, not a
+    // queue anyone works through. The API enforces the same restriction, so
+    // hiding the tab is presentation, not the access control.
+    tabs.push({ href: '/admin/mentors/deleted', label: 'Deleted' })
   }
 
   const onLogout = async (): Promise<void> => {

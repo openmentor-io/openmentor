@@ -128,3 +128,10 @@ export type {
 
 // Draft-workflow types (mentor submit-for-review + admin return)
 export type { SubmitProfileResponse, AdminMentorReturnRequest } from './api'
+
+// Profile deletion (D70)
+export type {
+  DeleteProfileRequest,
+  DeleteProfileResponse,
+  AdminMentorDeleteRequest,
+} from './api'

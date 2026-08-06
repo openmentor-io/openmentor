@@ -196,6 +196,25 @@ type WorkerConfig struct {
 	// to the top of the catalog. Same env name and comma-split semantics as
 	// the func app (openmentor-func/randomize-sort-order/index.ts).
 	HighlightedMentors string
+
+	// ProfilePurgeCron is the schedule of the purge-deleted-profiles job
+	// (WORKER_PROFILE_PURGE_CRON), in the same 6-field seconds-first NCRONTAB
+	// syntax as every other entry in Handlers.CronJobs. Nightly by default: the
+	// job is cheap when nothing is due, and a daily pass means a profile is
+	// erased within a day of its retention window closing rather than up to a
+	// month later.
+	ProfilePurgeCron string
+
+	// ProfilePurgeRetentionDays is how long a deleted profile is kept before
+	// the purge erases it and everything attached to it
+	// (WORKER_PROFILE_PURGE_RETENTION_DAYS). This is the ONLY window in which a
+	// deletion can still be undone by an admin, so it is a product decision as
+	// much as an operational one.
+	//
+	// 0 is rejected, not treated as "purge immediately": an env var that fails
+	// to parse reads as 0, and a typo must not silently mean "erase every
+	// deleted profile on the next pass".
+	ProfilePurgeRetentionDays int
 }
 
 // EmailConfig configures the transactional email layer (pkg/email).
@@ -303,6 +322,12 @@ func load() *Config {
 	v.SetDefault("WORKER_DB_MAX_CONNS", 5)
 	v.SetDefault("WORKER_CRON_ENABLED", true)
 	v.SetDefault("O11Y_WORKER_SERVICE_NAME", "openmentor-worker")
+	// Profile purge (D70): nightly at 03:15, keep deleted profiles 30 days.
+	// 03:15 stays clear of randomize-sort-order at 01:00 and sessions-watcher
+	// at 08:30 — the purge takes row locks on mentors and client_requests, and
+	// there is no reason for it to contend with a job that emails people.
+	v.SetDefault("WORKER_PROFILE_PURGE_CRON", "0 15 3 * * *")
+	v.SetDefault("WORKER_PROFILE_PURGE_RETENTION_DAYS", 30)
 
 	// Email defaults
 	v.SetDefault("MODERATORS_EMAIL", "moderators@openmentor.io")
@@ -437,6 +462,9 @@ func load() *Config {
 			ServiceName: v.GetString("O11Y_WORKER_SERVICE_NAME"),
 
 			HighlightedMentors: v.GetString("HIGHLIGHTED_MENTORS"),
+
+			ProfilePurgeCron:          v.GetString("WORKER_PROFILE_PURGE_CRON"),
+			ProfilePurgeRetentionDays: v.GetInt("WORKER_PROFILE_PURGE_RETENTION_DAYS"),
 		},
 		Email: EmailConfig{
 			SESRegion:          v.GetString("SES_REGION"),
@@ -508,6 +536,13 @@ func (c *Config) ValidateForWorker() error {
 	if c.Worker.Port == "" {
 		return fmt.Errorf("WORKER_PORT is required")
 	}
+	// WORKER_PROFILE_PURGE_* are deliberately NOT validated here. The worker
+	// sends every transactional email on the platform, and refusing to boot it
+	// over a purge setting it can safely default is the a57aec2 failure mode
+	// again. A missing or nonsensical value instead falls back to the documented
+	// default in worker.NewHandlers, which logs the substitution — and the purge
+	// repository refuses a non-positive retention outright, so the one dangerous
+	// reading ("0 days means erase everything now") is impossible on every path.
 	if err := c.validateWorkerAuthToken(); err != nil {
 		return err
 	}

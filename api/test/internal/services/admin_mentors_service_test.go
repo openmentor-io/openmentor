@@ -23,10 +23,47 @@ type adminMockRepo struct {
 	setStatusCalls map[string]string // mentorID -> status
 	returnErr      error
 	approveErr     error
+
+	// Profile deletion (D70).
+	deletedList        []models.AdminMentorListItem
+	listDeletedCalled  bool
+	softDeleteCalled   bool
+	softDeleteRevoked  int
+	softDeleteErr      error
+	restoreCalled      bool
+	restoreErr         error
+	listForModCalls    [][]string
+	listForModeration  []models.AdminMentorListItem
+	listDeletedErrOnce error
 }
 
 func (m *adminMockRepo) ListForModeration(ctx context.Context, statuses []string) ([]models.AdminMentorListItem, error) {
-	return nil, nil
+	m.listForModCalls = append(m.listForModCalls, statuses)
+	return m.listForModeration, nil
+}
+
+func (m *adminMockRepo) ListDeletedForModeration(ctx context.Context) ([]models.AdminMentorListItem, error) {
+	m.listDeletedCalled = true
+	if m.listDeletedErrOnce != nil {
+		return nil, m.listDeletedErrOnce
+	}
+	return m.deletedList, nil
+}
+
+func (m *adminMockRepo) SoftDeleteMentor(ctx context.Context, mentorID string) (int, error) {
+	if m.softDeleteErr != nil {
+		return 0, m.softDeleteErr
+	}
+	m.softDeleteCalled = true
+	return m.softDeleteRevoked, nil
+}
+
+func (m *adminMockRepo) RestoreMentor(ctx context.Context, mentorID string) error {
+	if m.restoreErr != nil {
+		return m.restoreErr
+	}
+	m.restoreCalled = true
+	return nil
 }
 
 func (m *adminMockRepo) GetForModerationByID(ctx context.Context, mentorID string) (*models.AdminMentorDetails, error) {

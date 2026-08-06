@@ -27,6 +27,16 @@ var ErrProfileStatusNotToggleable = errors.New("only active or inactive profiles
 // profile for review that is not in 'draft' status.
 var ErrProfileNotSubmittable = errors.New("only draft profiles can be submitted for review")
 
+// ErrDeleteConfirmationMismatch is returned when the username typed into the
+// deletion dialog does not match the profile being deleted. It is the whole
+// point of the typed confirmation: an accidental click cannot destroy a
+// profile, because destroying one requires knowing and typing its name.
+var ErrDeleteConfirmationMismatch = errors.New("the username entered does not match this profile")
+
+// ErrProfileAlreadyDeleted is returned when a delete lands on a profile that is
+// already deleted — a double-submitted dialog, or a second tab.
+var ErrProfileAlreadyDeleted = errors.New("this profile has already been deleted")
+
 // ProfileMentorRepository defines the mentor repository methods used by ProfileService.
 // *repository.MentorRepository satisfies this interface.
 type ProfileMentorRepository interface {
@@ -36,6 +46,7 @@ type ProfileMentorRepository interface {
 	UpdateMentorTags(ctx context.Context, mentorID string, tagIDs []string) error
 	TouchUpdatedAt(ctx context.Context, mentorID string) error
 	SetMentorStatus(ctx context.Context, mentorID, status string) error
+	SoftDeleteMentor(ctx context.Context, mentorID string) (int, error)
 }
 
 var _ ProfileMentorRepository = (*repository.MentorRepository)(nil)
@@ -344,4 +355,82 @@ func (s *ProfileService) SubmitProfileByMentorId(ctx context.Context, mentorID s
 		zap.String("mentor_id", mentorID))
 
 	return nil
+}
+
+// DeleteProfileByMentorId is a mentor deleting their own profile (D70).
+//
+// confirmUsername is the value typed into the deletion dialog. It is compared
+// against the SESSION's own mentor row and never used to select one: the
+// profile deleted is always the one behind the session, so a mistyped — or
+// maliciously crafted — value can only fail the delete, never redirect it at
+// somebody else's profile.
+//
+// The comparison is case-insensitive and whitespace-trimmed. Slugs are
+// lowercase by construction, so a mentor who capitalises their own name, or
+// whose phone helpfully capitalises it for them, is confirming correctly and
+// should not be told otherwise; that leniency costs nothing, because typing the
+// right name in the wrong case is not the accident this guard exists to catch.
+func (s *ProfileService) DeleteProfileByMentorId(ctx context.Context, mentorID, confirmUsername string) error {
+	track := func(outcome string, extra map[string]interface{}) {
+		properties := map[string]interface{}{
+			"mentor_id": mentorID,
+			"outcome":   outcome,
+		}
+		for key, value := range extra {
+			properties[key] = value
+		}
+		s.tracker.Track(ctx, analytics.EventMentorProfileDeleted, analytics.MentorDistinctID(mentorID), properties)
+	}
+
+	// IncludeDeleted so an already-deleted profile is reported as such rather
+	// than as a missing mentor — every other read in this service deliberately
+	// cannot see one.
+	mentor, err := s.mentorRepo.GetByMentorId(ctx, mentorID,
+		models.FilterOptions{ShowHidden: true, AllowAnyStatus: true, IncludeDeleted: true})
+	if err != nil {
+		track("mentor_not_found", nil)
+		return apperrors.NotFoundError("mentor")
+	}
+	if mentor.DeletedAt != nil {
+		track("already_deleted", nil)
+		return ErrProfileAlreadyDeleted
+	}
+
+	if !usernameConfirmationMatches(confirmUsername, mentor.Slug) {
+		track("confirmation_mismatch", nil)
+		logger.Warn("Profile deletion rejected: username confirmation did not match",
+			zap.String("mentor_id", mentorID))
+		return ErrDeleteConfirmationMismatch
+	}
+
+	invitationsRevoked, err := s.mentorRepo.SoftDeleteMentor(ctx, mentorID)
+	if err != nil {
+		if errors.Is(err, repository.ErrMentorAlreadyDeleted) {
+			track("already_deleted", nil)
+			return ErrProfileAlreadyDeleted
+		}
+		track("delete_failed", nil)
+		logger.Error("Failed to delete mentor profile",
+			zap.Error(err),
+			zap.String("mentor_id", mentorID))
+		return fmt.Errorf("failed to delete profile")
+	}
+
+	track("success", map[string]interface{}{
+		"deleted_by":          "mentor",
+		"from_status":         mentor.Status,
+		"invitations_revoked": invitationsRevoked,
+	})
+	logger.Info("Mentor profile deleted by its owner",
+		zap.String("mentor_id", mentorID),
+		zap.Int("invitations_revoked", invitationsRevoked))
+
+	return nil
+}
+
+// usernameConfirmationMatches compares a typed confirmation against the
+// profile's username. Shared by the mentor's own deletion and the admin one so
+// the two dialogs cannot come to different conclusions about the same typing.
+func usernameConfirmationMatches(typed, username string) bool {
+	return strings.EqualFold(strings.TrimSpace(typed), strings.TrimSpace(username))
 }
