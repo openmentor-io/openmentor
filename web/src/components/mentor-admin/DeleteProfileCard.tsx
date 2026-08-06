@@ -79,7 +79,7 @@ export default function DeleteProfileCard({
           <p className="my-0 mt-1 text-[13px] leading-normal text-ink-soft">
             Your profile disappears from the site, your login link stops working, and any
             outstanding review invitations are cancelled. This cannot be undone — only an admin can
-            bring a deleted profile back, and after 30 days it is erased for good along with your
+            bring a deleted profile back, and it is eventually erased for good along with your
             requests and reviews.
           </p>
           {canHideInstead && (
@@ -110,8 +110,9 @@ export default function DeleteProfileCard({
           invitations still with your mentees will be cancelled.
         </p>
         <p className="my-0 mt-2">
-          After 30 days your profile and everything attached to it — requests and reviews — are
-          permanently erased.
+          Your profile and everything attached to it — requests and reviews — are then permanently
+          erased. If you change your mind, contact us as soon as possible: once it is erased it
+          cannot be undone.
         </p>
       </DeleteProfileDialog>
     </div>

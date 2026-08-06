@@ -2,7 +2,6 @@ package worker
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -33,15 +32,13 @@ func (h *Handlers) ProfileDeleted(c *gin.Context) {
 		logPrefix:    "[Profile Deleted]",
 		wantDeleted:  true,
 		templateName: "profile-deleted",
-		props: func(h *Handlers, mentor *JobMentor) map[string]interface{} {
-			return map[string]interface{}{
-				"first_name": mentor.Name,
-				// From config, not a literal: the email tells the mentor how long
-				// they have to ask for a restore, and an operator changing
-				// WORKER_PROFILE_PURGE_RETENTION_DAYS must not leave it quoting a
-				// deadline the purge no longer honors.
-				"retention_days": strconv.Itoa(h.profilePurgeRetentionDays),
-			}
+		// Deliberately NO retention window in the props. The email asks the
+		// mentor to reply "as soon as possible" instead of naming a deadline:
+		// the retention period is an internal operational detail, and quoting
+		// it turns a request for a prompt reply into a promise about a date we
+		// would then be held to.
+		props: func(_ *Handlers, mentor *JobMentor) map[string]interface{} {
+			return map[string]interface{}{"first_name": mentor.Name}
 		},
 	})
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/openmentor-io/openmentor/api/config"
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
+	"github.com/openmentor-io/openmentor/api/pkg/email/templates"
 )
 
 // deletedTestMentor is a mentor whose profile carries the deletion marker. It
@@ -40,9 +41,6 @@ func TestProfileDeletedSendsConfirmationToTheDeletedMentor(t *testing.T) {
 	msg := env.sender.attempts[0]
 	assert.Equal(t, "john@example.com", msg.Recipient)
 	assert.Equal(t, "John Doe", msg.Props["first_name"])
-	// The retention window comes from config, so the email cannot promise a
-	// restore deadline the purge does not honor.
-	assert.Equal(t, "30", msg.Props["retention_days"])
 
 	event := env.tracker.last()
 	require.NotNil(t, event)
@@ -51,14 +49,28 @@ func TestProfileDeletedSendsConfirmationToTheDeletedMentor(t *testing.T) {
 	assert.Equal(t, true, event.props["notified"])
 }
 
-func TestProfileDeletedQuotesTheConfiguredRetentionWindow(t *testing.T) {
+// The retention window is internal. The email asks for a prompt reply instead
+// of naming a deadline, so neither the props nor the rendered body may carry
+// it — and the rendering is checked because a literal in the template asset
+// would never show up in the props.
+func TestProfileDeletedDoesNotDiscloseTheRetentionWindow(t *testing.T) {
 	env := deletionEnv(7)
 	env.repo.deletedMentors["m1"] = deletedTestMentor("m1")
 
 	w := env.do(http.MethodPost, "/jobs/profile-deleted?mentorId=m1", nil)
+	require.Equal(t, http.StatusOK, w.Code)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "7", env.sender.attempts[0].Props["retention_days"])
+	msg := env.sender.attempts[0]
+	assert.NotContains(t, msg.Props, "retention_days")
+
+	rendered, err := templates.Render(msg.TemplateName, msg.Props)
+	require.NoError(t, err)
+	for _, part := range []string{rendered.Subject, rendered.HTML, rendered.Text} {
+		assert.NotContains(t, part, "7 days")
+		assert.NotContains(t, part, "30 days")
+		assert.NotRegexp(t, `(?i)\b(kept|retained|erased|deleted)\s+(for|after|within)\s+\d+`, part)
+	}
+	assert.Contains(t, rendered.Text, "as soon as possible")
 }
 
 // The ordinary mentor lookup hides deleted profiles precisely so the worker

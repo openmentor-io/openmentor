@@ -38,11 +38,10 @@ var expectedTemplates = map[string][]string{
 	"profile-migrated": {"first_name", "mentor_profile_url"},
 
 	// Profile deletion (D70). Both are sent for a mentor-initiated AND an
-	// admin-initiated action. profile-deleted takes retention_days from
-	// WORKER_PROFILE_PURGE_RETENTION_DAYS rather than hardcoding "30 days", so
-	// changing the window cannot leave the email telling people the wrong
-	// deadline for asking us to undo it.
-	"profile-deleted":  {"first_name", "retention_days"},
+	// admin-initiated action. profile-deleted deliberately takes NO retention
+	// prop: the window is an internal operational detail, so the email asks for
+	// a prompt reply rather than naming a deadline.
+	"profile-deleted":  {"first_name"},
 	"profile-restored": {"first_name", "login_url"},
 }
 
