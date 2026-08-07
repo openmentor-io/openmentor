@@ -73,6 +73,38 @@ describe('API_ROUTE_LABELS', () => {
   })
 })
 
+/**
+ * The guard that makes "every route carries its own explicit label" true rather
+ * than aspirational: a new route file added without a label, or wrapped with a
+ * label copy-pasted from its sibling, fails here. The type system catches the
+ * first two mistakes (missing argument, undeclared template) at compile time;
+ * this catches the one it cannot see — a valid label on the wrong route.
+ */
+describe('route files pass their own template as the label', () => {
+  const LABEL_CALL = /withObservability\(\s*(['"`])([^'"`]*)\1/
+
+  it.each(ROUTE_FILES.filter((route) => !UNINSTRUMENTED.has(route.template)).map((route) => [route.template, route]))(
+    '%s',
+    (_template, route) => {
+      const match = LABEL_CALL.exec((route as RouteFile).source)
+
+      // No match means either no withObservability call at all, or a label that
+      // is not a literal (a variable, a template with an interpolation) — the
+      // shape C7 exists to forbid.
+      expect(match).not.toBeNull()
+      expect(match?.[2]).toBe((route as RouteFile).template)
+    }
+  )
+
+  it('leaves the documented exemptions uninstrumented', () => {
+    for (const template of UNINSTRUMENTED) {
+      const route = ROUTE_FILES.find((candidate) => candidate.template === template)
+      expect(route).toBeDefined()
+      expect(route?.source).not.toContain('withObservability')
+    }
+  })
+})
+
 describe('assertApiRouteLabel', () => {
   const previousEnv = process.env.NODE_ENV
 

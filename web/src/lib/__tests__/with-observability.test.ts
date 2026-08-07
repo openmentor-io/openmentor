@@ -1,146 +1,14 @@
-import fs from 'fs'
-import path from 'path'
 import type { NextApiRequest, NextApiResponse } from 'next'
 import type { Counter, Gauge, Histogram } from 'prom-client'
-import { normalizeRoute, routeLabel, withObservability } from '@/lib/with-observability'
+import { withObservability } from '@/lib/with-observability'
+import { API_ROUTE_LABELS } from '@/lib/api-routes'
 import register, { activeRequests, httpRequestDuration, httpRequestTotal } from '@/lib/metrics'
 
 const MENTOR_ID = '11111111-1111-1111-1111-111111111111'
 const REQUEST_ID = '1b0c9e42-a072-47ed-8ce9-edd306874ec9'
 
-describe('normalizeRoute', () => {
-  // http_route labels a counter, a histogram and a gauge. Any raw id that
-  // survives here mints a new series per request — unbounded cardinality.
-  it.each([
-    [`/api/admin/mentors/${MENTOR_ID}/requests`, '/api/admin/mentors/:id/requests'],
-    [`/api/admin/mentors/${MENTOR_ID}/requests/${REQUEST_ID}`, '/api/admin/mentors/:id/requests/:id'],
-    [
-      `/api/admin/mentors/${MENTOR_ID}/requests/${REQUEST_ID}/status`,
-      '/api/admin/mentors/:id/requests/:id/status',
-    ],
-    [`/api/admin/mentors/${MENTOR_ID}`, '/api/admin/mentors/:id'],
-    [`/api/admin/mentors/${MENTOR_ID}/approve`, '/api/admin/mentors/:id/approve'],
-    [`/api/admin/mentors/${MENTOR_ID}/username/availability`, '/api/admin/mentors/:id/username/availability'],
-    [`/api/mentor/requests/${REQUEST_ID}`, '/api/mentor/requests/:id'],
-    [`/api/mentor/requests/${REQUEST_ID}/status`, '/api/mentor/requests/:id/status'],
-    [`/api/mentor/requests/${REQUEST_ID}/decline`, '/api/mentor/requests/:id/decline'],
-  ])('normalizes every id segment in %s', (url, expected) => {
-    expect(normalizeRoute(url)).toBe(expected)
-  })
-
-  it('leaves no raw UUID in any admin or mentor request route', () => {
-    const uuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
-    const urls = [
-      `/api/admin/mentors/${MENTOR_ID}/requests/${REQUEST_ID}`,
-      `/api/admin/mentors/${MENTOR_ID}/requests/${REQUEST_ID}/status`,
-      `/api/mentor/requests/${REQUEST_ID}/status`,
-    ]
-    for (const url of urls) {
-      expect(normalizeRoute(url)).not.toMatch(uuid)
-    }
-  })
-
-  it('produces one label for many distinct request ids', () => {
-    const ids = [REQUEST_ID, '00000000-0000-4000-8000-000000000000', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee']
-    const labels = new Set(
-      ids.map((id) => normalizeRoute(`/api/admin/mentors/${MENTOR_ID}/requests/${id}/status`))
-    )
-    expect(labels.size).toBe(1)
-  })
-
-  it('strips the query string', () => {
-    expect(normalizeRoute('/api/admin/mentors?status=pending')).toBe('/api/admin/mentors')
-    expect(normalizeRoute(`/api/admin/mentors/${MENTOR_ID}/requests?status=declined`)).toBe(
-      '/api/admin/mentors/:id/requests'
-    )
-  })
-
-  // The slug rule is for public profile pages; it must not rewrite the fixed
-  // segments of /api/mentor/* routes.
-  it('keeps the slug rule off API routes', () => {
-    expect(normalizeRoute('/api/mentor/requests')).toBe('/api/mentor/requests')
-    expect(normalizeRoute('/api/mentor/profile/picture')).toBe('/api/mentor/profile/picture')
-    expect(normalizeRoute('/mentor/john-doe-42')).toBe('/mentor/:slug')
-    expect(normalizeRoute('/mentor/john-doe-42/contact')).toBe('/mentor/:slug/contact')
-  })
-
-  it('leaves static routes and empty input alone', () => {
-    expect(normalizeRoute('/api/healthcheck')).toBe('/api/healthcheck')
-    expect(normalizeRoute('/api/admin/auth/session')).toBe('/api/admin/auth/session')
-    expect(normalizeRoute('')).toBe('unknown')
-  })
-})
-
-/**
- * Every instrumented route file, as the template normalizeRoute produces for it:
- * a route that drops off the allowlist silently loses its own series, and the
- * dashboards read http_route by name.
- */
-function instrumentedRoutes(): string[] {
-  const root = path.join(process.cwd(), 'src/pages/api')
-  const templates: string[] = []
-
-  const walk = (dir: string): void => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        walk(full)
-        continue
-      }
-      if (!/\.tsx?$/.test(entry.name)) continue
-      if (!fs.readFileSync(full, 'utf8').includes('withObservability(')) continue
-      templates.push(
-        '/api' +
-          full
-            .slice(root.length)
-            .replace(/\.tsx?$/, '')
-            .replace(/\/index$/, '')
-            // [id], [requestId], … all normalize to :id
-            .replace(/\/\[[^\]]+\]/g, '/:id')
-      )
-    }
-  }
-
-  walk(root)
-  return templates.sort()
-}
-
-/** A concrete URL for a route template, with a distinct id per :id segment. */
-function urlFor(template: string): string {
-  let n = 0
-  return template.replace(/:id/g, () => {
-    n += 1
-    return `1b0c9e42-a072-47ed-8ce9-edd30687400${n}`
-  })
-}
-
-describe('routeLabel', () => {
-  it.each(instrumentedRoutes())('labels %s as itself', (template) => {
-    expect(routeLabel(urlFor(template))).toBe(template)
-  })
-
-  it('keeps the query string out of the label', () => {
-    expect(routeLabel('/api/username-availability?u=jane')).toBe('/api/username-availability')
-  })
-
-  it.each([
-    '/api/wp-login.php',
-    '/api/../../etc/passwd',
-    '/api/mentor/profile/../../../admin',
-    '/api/v1/graphql',
-    '/mentor/john-doe-42',
-    '',
-  ])('labels the unrecognised path %s as `other`', (url) => {
-    expect(routeLabel(url)).toBe('other')
-  })
-})
-
 describe('withObservability label cardinality', () => {
-  const handler = withObservability((_req, res) => {
-    res.end()
-  })
-
-  async function call(url: string): Promise<void> {
+  async function call(handler: ReturnType<typeof withObservability>, url: string): Promise<void> {
     // headers/socket are read by logHttpRequest.
     const req = { url, method: 'GET', headers: {}, socket: {} } as unknown as NextApiRequest
     const res = { statusCode: 200, end: () => undefined } as unknown as NextApiResponse
@@ -168,77 +36,113 @@ describe('withObservability label cardinality', () => {
     expect(register.getSingleMetric('http_server_request_total')).toBe(httpRequestTotal)
   })
 
+  it('labels every metric with the declared template, not the request URL', async () => {
+    const handler = withObservability('/api/mentor/requests/:id/status', (_req, res) => {
+      res.end()
+    })
+
+    await call(handler, `/api/mentor/requests/${REQUEST_ID}/status?from=inbox`)
+
+    for (const metric of [httpRequestTotal, httpRequestDuration, activeRequests]) {
+      expect(await routesSeenOn(metric)).toEqual(['/api/mentor/requests/:id/status'])
+    }
+  })
+
   // The metrics are labelled before the handler authenticates anything, so an
-  // unauthenticated flood of unique paths must not mint a series each.
-  it('produces one series for thousands of unique unknown paths', async () => {
+  // unauthenticated flood of unique paths must not mint a series each. Before
+  // C7 these paths were normalized and mapped through an allowlist, so they at
+  // least landed in a shared `other` bucket; now the URL never reaches the
+  // label at all, so they land on the route's own single series.
+  it('produces exactly one series for thousands of unique unknown paths', async () => {
+    const handler = withObservability('/api/healthcheck', (_req, res) => {
+      res.end()
+    })
+
     for (let i = 0; i < 1000; i += 1) {
-      await call(`/api/${i}/not-a-route-${i}?q=${i}`)
+      await call(handler, `/api/${i}/not-a-route-${i}?q=${i}`)
     }
 
-    expect(await routesSeen()).toEqual(['other'])
+    expect(await routesSeen()).toEqual(['/api/healthcheck'])
+    expect(await routesSeenOn(httpRequestDuration)).toEqual(['/api/healthcheck'])
+    expect(await routesSeenOn(activeRequests)).toEqual(['/api/healthcheck'])
   })
 
-  it('still gives real routes their own readable labels', async () => {
-    await call('/api/contact-mentor')
-    await call(`/api/mentor/requests/${REQUEST_ID}/status`)
-    await call(`/api/admin/mentors/${MENTOR_ID}/requests/${REQUEST_ID}`)
-    await call('/api/nope')
-
-    expect(await routesSeen()).toEqual([
-      '/api/admin/mentors/:id/requests/:id',
-      '/api/contact-mentor',
-      '/api/mentor/requests/:id/status',
-      'other',
-    ])
-  })
-
-  // The live vector: a real dynamic route template reached with ids that are not
-  // UUID-shaped (Airtable `rec…` ids, numeric ids). normalizeRoute leaves those
-  // verbatim, so without the allowlist each value is its own series on each of
-  // the three metrics.
+  // The live vector P13 could only partially close: a real dynamic route reached
+  // with ids that are not UUID-shaped (Airtable `rec…` ids, numeric ids). URL
+  // normalization left those verbatim, so each value was its own series on each
+  // of the three metrics until the allowlist folded them into `other`.
   const NON_UUID_ROUTES = [
-    '/api/mentor/requests/<id>',
-    '/api/mentor/requests/<id>/status',
-    '/api/mentor/requests/<id>/decline',
-    '/api/admin/mentors/<id>',
-    '/api/admin/mentors/<id>/requests/<id>/status',
-  ]
+    '/api/mentor/requests/:id',
+    '/api/mentor/requests/:id/status',
+    '/api/mentor/requests/:id/decline',
+    '/api/admin/mentors/:id',
+    '/api/admin/mentors/:id/requests/:id/status',
+  ] as const
 
-  it.each(NON_UUID_ROUTES)(
-    'holds http_route to one series for 500 non-UUID ids on %s',
-    async (template) => {
-      const urls = Array.from({ length: 500 }, (_, i) =>
-        template.replace(/<id>/g, `rec${i}AbCdEfGhIjK`)
-      )
+  it.each(NON_UUID_ROUTES)('holds %s to one series across 500 non-UUID ids', async (template) => {
+    const handler = withObservability(template, (_req, res) => {
+      res.end()
+    })
+    const urls = Array.from({ length: 500 }, (_, i) =>
+      template.replace(/:id/g, `rec${i}AbCdEfGhIjK`)
+    )
 
-      // The premise: without the allowlist each id is its own label value.
-      expect(new Set(urls.map(normalizeRoute)).size).toBe(500)
+    // The premise: 500 distinct URLs, one label.
+    expect(new Set(urls).size).toBe(500)
 
-      for (const url of urls) {
-        await call(url)
-      }
-
-      expect(await routesSeen()).toEqual(['other'])
-      expect(await routesSeenOn(httpRequestDuration)).toEqual(['other'])
-      expect(await routesSeenOn(activeRequests)).toEqual(['other'])
+    for (const url of urls) {
+      await call(handler, url)
     }
-  )
 
-  // Mixed traffic: the ids collapse, the templates keep their own labels, and the
-  // total label set is bounded by the allowlist rather than by the flood.
-  it('bounds the label set when non-UUID ids arrive alongside real traffic', async () => {
+    expect(await routesSeen()).toEqual([template])
+    expect(await routesSeenOn(httpRequestDuration)).toEqual([template])
+    expect(await routesSeenOn(activeRequests)).toEqual([template])
+  })
+
+  // Mixed traffic: the whole label set is bounded by the declared templates,
+  // and each route keeps its own readable series.
+  it('bounds the label set to the declared templates under mixed traffic', async () => {
+    const status = withObservability('/api/mentor/requests/:id/status', (_req, res) => {
+      res.end()
+    })
+    const approve = withObservability('/api/admin/mentors/:id/approve', (_req, res) => {
+      res.end()
+    })
+    const healthcheck = withObservability('/api/healthcheck', (_req, res) => {
+      res.end()
+    })
+
     for (let i = 0; i < 500; i += 1) {
-      await call(`/api/mentor/requests/rec${i}/status`)
-      await call(`/api/admin/mentors/${i}/approve`)
-      await call(`/mentor/mentor-number-${i}`)
+      await call(status, `/api/mentor/requests/rec${i}/status`)
+      await call(approve, `/api/admin/mentors/${i}/approve`)
     }
-    await call('/api/healthcheck')
-    await call(`/api/mentor/requests/${REQUEST_ID}/status`)
+    await call(healthcheck, '/api/healthcheck')
+    await call(status, `/api/mentor/requests/${REQUEST_ID}/status`)
+    await call(approve, `/api/admin/mentors/${MENTOR_ID}/approve`)
 
-    expect(await routesSeen()).toEqual([
+    const seen = await routesSeen()
+    expect(seen).toEqual([
+      '/api/admin/mentors/:id/approve',
       '/api/healthcheck',
       '/api/mentor/requests/:id/status',
-      'other',
     ])
+    // The ceiling, whatever traffic arrives: one series per declared template.
+    expect(seen.length).toBeLessThanOrEqual(API_ROUTE_LABELS.length)
+    expect(seen.every((route) => (API_ROUTE_LABELS as readonly string[]).includes(route))).toBe(true)
+  })
+
+  it('rejects a request-derived label in development', () => {
+    const previous = process.env.NODE_ENV
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'development', configurable: true })
+    try {
+      expect(() =>
+        // The type forbids this; a JS caller or a cast is how it would happen.
+        withObservability(`/api/mentor/requests/${REQUEST_ID}/status` as never, (_req, res) => {
+          res.end()
+        })
+      ).toThrow(/not declared/)
+    } finally {
+      Object.defineProperty(process.env, 'NODE_ENV', { value: previous, configurable: true })
+    }
   })
 })

@@ -22,6 +22,7 @@ import path from 'path'
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { ImageResponse } from 'next/og'
 import logger from '@/lib/logger'
+import { withObservability } from '@/lib/with-observability'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
 import {
   MENTOR_INITIALS_HEX,
@@ -133,7 +134,7 @@ function initials(name: string): string {
     .join('')
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
+async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   const fallback = (): void => {
     res.redirect(302, '/images/banner.png')
   }
@@ -355,3 +356,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     fallback()
   }
 }
+
+export default withObservability('/api/og/mentor', handler)

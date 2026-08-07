@@ -12,121 +12,24 @@ import { assertApiRouteLabel, type ApiRouteLabel } from './api-routes'
 type NextApiHandler = (req: NextApiRequest, res: NextApiResponse) => Promise<void> | void
 
 /**
- * Collapse id segments into route templates
- * (/api/mentor/requests/<uuid>/status -> /api/mentor/requests/:id/status).
+ * Higher-order function that wraps an API route with observability
+ * instrumentation.
  *
- * http_route labels a counter, a histogram and a gauge, so every id-bearing
- * segment has to collapse or one request mints three series. Matched at any
- * depth rather than route by route, so a nested id cannot be missed.
+ * `route` is the metric label, and it is a compile-time literal from
+ * `API_ROUTE_LABELS` — never derived from `req.url` (C7). Two consequences:
+ * `http_route` cardinality equals the number of call sites, so a flood of
+ * unique unauthenticated paths mints no series at all; and the access log line
+ * carries the template rather than the raw URL, which holds the review
+ * `request_id` and the magic-link token in its query string (P14).
  */
-export function normalizeRoute(url: string): string {
-  const path = url.split('?')[0]
-
-  // PostgreSQL UUID (8-4-4-4-12 hex) occupying a whole path segment, anywhere.
-  const normalized = path.replace(
-    /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/gi,
-    '/:id'
-  )
-
-  // Public mentor profile pages (/mentor/<slug>) only: the slug pattern also
-  // matches fixed segments, so unscoped it rewrites /api/mentor/requests/:id
-  // into the nonsense label /api/mentor/:slug/:id.
-  const withSlug = normalized.startsWith('/api/')
-    ? normalized
-    : normalized.replace(/\/mentor\/[a-z0-9-]+(?:\/|$)/, '/mentor/:slug/')
-
-  // Remove trailing slash for consistency
-  return withSlug.replace(/\/$/, '') || 'unknown'
-}
-
-/**
- * Every route template that may appear as an http_route label value.
- *
- * normalizeRoute only collapses UUID-shaped segments, so a dynamic route reached
- * with any other id (an Airtable `rec…`, a numeric id) keeps it verbatim and
- * mints a series per value — and these metrics are labelled before the handler
- * authenticates anything. Mapping through this set caps the label set instead.
- *
- * A route missing from this list still works, it just aggregates into `other`.
- * Add new API routes here; `routeLabel` has a test that fails if you forget.
- */
-const KNOWN_ROUTES = new Set([
-  '/api/admin/auth/logout',
-  '/api/admin/auth/request-login',
-  '/api/admin/auth/session',
-  '/api/admin/auth/verify',
-  '/api/admin/mentors',
-  '/api/admin/mentors/:id',
-  '/api/admin/mentors/:id/approve',
-  '/api/admin/mentors/:id/decline',
-  '/api/admin/mentors/:id/delete',
-  '/api/admin/mentors/:id/picture',
-  '/api/admin/mentors/:id/requests',
-  '/api/admin/mentors/:id/requests/:id',
-  '/api/admin/mentors/:id/requests/:id/status',
-  '/api/admin/mentors/:id/restore',
-  '/api/admin/mentors/:id/return',
-  '/api/admin/mentors/:id/status',
-  '/api/admin/mentors/:id/username',
-  '/api/contact-mentor',
-  '/api/healthcheck',
-  '/api/mentor/auth/logout',
-  '/api/mentor/auth/request-login',
-  '/api/mentor/auth/session',
-  '/api/mentor/auth/verify',
-  '/api/mentor/confirm',
-  '/api/mentor/confirm-resend',
-  '/api/mentor/profile',
-  '/api/mentor/profile/delete',
-  '/api/mentor/profile/picture',
-  '/api/mentor/profile/status',
-  '/api/mentor/profile/submit',
-  '/api/mentor/requests',
-  '/api/mentor/requests/:id',
-  '/api/mentor/requests/:id/decline',
-  '/api/mentor/requests/:id/status',
-  '/api/mentor/username',
-  '/api/register-mentor',
-  '/api/reviews/check',
-  '/api/reviews/submit',
-  '/api/schedule-migration',
-  '/api/username-availability',
-])
-
-/**
- * The http_route label value for a request URL: a known route template, or
- * `other` for anything else. Caps cardinality at len(KNOWN_ROUTES) + 1.
- */
-export function routeLabel(url: string): string {
-  const route = normalizeRoute(url)
-  return KNOWN_ROUTES.has(route) ? route : 'other'
-}
-
-/**
- * Higher-order function that wraps API routes with observability instrumentation.
- *
- * The one-argument form derives `http_route` from `req.url` via `routeLabel`
- * and exists only while the ~40 routes migrate to explicit labels in batches
- * (C7). It is removed once the last route carries its own template.
- */
-export function withObservability(handler: NextApiHandler): NextApiHandler
-export function withObservability(route: ApiRouteLabel, handler: NextApiHandler): NextApiHandler
-export function withObservability(
-  routeOrHandler: ApiRouteLabel | NextApiHandler,
-  maybeHandler?: NextApiHandler
-): NextApiHandler {
-  const declaredRoute = typeof routeOrHandler === 'string' ? routeOrHandler : null
-  const handler = typeof routeOrHandler === 'string' ? (maybeHandler as NextApiHandler) : routeOrHandler
-
-  // At module-import time, so a bad label is a loud dev failure on the first
-  // request to the route rather than a quietly mislabelled series.
-  if (declaredRoute !== null) {
-    assertApiRouteLabel(declaredRoute)
-  }
+export function withObservability(route: ApiRouteLabel, handler: NextApiHandler): NextApiHandler {
+  // Checked at module-import time, so a bad label is a loud dev failure on the
+  // first request to the route rather than a quietly mislabelled series. A JS
+  // caller, or a `as never` cast, is the only way past the type.
+  assertApiRouteLabel(route)
 
   return async (req: NextApiRequest, res: NextApiResponse): Promise<void> => {
     const start = Date.now()
-    const route = declaredRoute ?? routeLabel(req.url || '')
     const method = req.method || 'UNKNOWN'
 
     // Track active requests
@@ -151,8 +54,7 @@ export function withObservability(
       })
       activeRequests.dec({ http_request_method: method, http_route: route })
 
-      // Log the normalized route, never the raw url — it carries the review
-      // request_id and the magic-link token in its query string (P14).
+      // The declared template, never the raw url (see the note above).
       logHttpRequest(req, res, duration * 1000, route) // Convert back to ms for logging
 
       return originalEnd(...args)
