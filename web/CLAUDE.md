@@ -209,7 +209,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   // handler logic
 }
 
-export default withObservability(handler)
+// The route template is the `http_route` metric label and must be a literal
+// declared in src/lib/api-routes.ts — never derived from req.url. Add the new
+// route there first (`/api/…`, every dynamic segment as `:id`); the type, a
+// dev-time assertion and api-routes.test.ts all reject anything else.
+export default withObservability('/api/mentor/example/:id', handler)
 ```
 
 ### Component Props
