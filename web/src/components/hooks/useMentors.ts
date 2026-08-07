@@ -49,6 +49,13 @@ export default function useMentors(
       .split(',')
       .map((t) => t.trim())
 
+    // The haystack is exactly the text the catalog payload carries. `description`
+    // and `about` used to be in here, but the only caller is the homepage, which
+    // fetches with `drop_long_fields: true` — so both were always empty and bio
+    // search never matched anything (C10). Fetching them instead would have put
+    // two more free-text fields per mentor into __NEXT_DATA__ for every visitor,
+    // which is the opposite of C8; `competencies` already carries the skill
+    // keywords people actually type.
     filteredMentors = filteredMentors.filter((mentor) => {
       const searchContent = (
         mentor.name +
@@ -56,10 +63,6 @@ export default function useMentors(
         mentor.job +
         ' ' +
         mentor.workplace +
-        ' ' +
-        (mentor.description || '') +
-        ' ' +
-        (mentor.about || '') +
         ' ' +
         mentor.competencies
       ).toLowerCase()
