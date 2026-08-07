@@ -53,21 +53,38 @@ func (r *MentorRepository) GetAll(ctx context.Context, opts models.FilterOptions
 	return filtered, nil
 }
 
-// GetByID retrieves a mentor by legacy numeric ID
-// Note: O(n) complexity is acceptable as per requirements
+// GetByID retrieves a mentor by legacy numeric ID off mentors_legacy_id_uniq.
+//
+// It used to call GetAll and scan the returned slice: the whole catalog
+// aggregate — every active mentor, their tags and a COUNT(*) subquery per row —
+// materialized to answer a single-row question, on an endpoint rate-limited at
+// 100 r/s (audit C4).
+//
+// The query keeps GetAll's `status = 'active' AND deleted_at IS NULL`
+// predicate rather than resolving any mentor by numeric ID. That is not
+// caution for its own sake: because the old implementation read the catalog,
+// a draft, pending, declined or inactive mentor was NEVER reachable by legacy
+// ID whatever FilterOptions the caller passed, and both callers (the public
+// by-id endpoint and the internal one, which takes its options from a request
+// body) shipped against that behavior.
 func (r *MentorRepository) GetByID(ctx context.Context, id int, opts models.FilterOptions) (*models.Mentor, error) {
-	mentors, err := r.GetAll(ctx, opts)
+	mentor, err := r.fetchMentorByLegacyIDFromDB(ctx, id)
 	if err != nil {
-		return nil, err
-	}
-
-	for _, mentor := range mentors {
-		if mentor.LegacyID == id {
-			return mentor, nil
+		// A dead pool or an unreadable row is not a typo'd URL, and the handler
+		// flattens every error here into a 404 — so say so once, here, the way
+		// GetAll used to.
+		if !IsNoRows(err) {
+			logger.Error("Failed to fetch mentor by legacy ID", zap.Error(err), zap.Int("legacy_id", id))
 		}
+		return nil, fmt.Errorf("mentor with ID %d not found: %w", id, err)
 	}
 
-	return nil, fmt.Errorf("mentor with ID %d not found", id)
+	filtered := r.applySingleMentorFilters(mentor, opts)
+	if filtered == nil {
+		return nil, fmt.Errorf("mentor with ID %d not found or filtered out", id)
+	}
+
+	return filtered, nil
 }
 
 // GetBySlug retrieves a mentor by slug directly from the database.
@@ -151,6 +168,30 @@ const mentorSelect = `
 	LEFT JOIN tags t ON t.id = mt.tag_id
 `
 
+// mentorCatalogQuery is the public catalog read: every active, non-deleted
+// mentor, tags aggregated, ordered for display.
+//
+// deleted_at IS NULL is redundant with status = 'active' today (deletion sets
+// 'inactive'), and stays anyway: this is the query behind the whole public
+// catalog, and it should not depend on a rule enforced elsewhere.
+//
+// A const rather than a local string so a test can EXPLAIN exactly what
+// production runs — the C4 measurement compares this plan against
+// mentorByLegacyIDQuery's.
+const mentorCatalogQuery = mentorSelect + `
+	WHERE m.status = 'active' AND m.deleted_at IS NULL
+	GROUP BY m.id
+	ORDER BY m.sort_order
+`
+
+// mentorByLegacyIDQuery is mentorCatalogQuery narrowed to one row via
+// mentors_legacy_id_uniq. Same visibility predicate, so the two answer the same
+// question about the same set of mentors — see GetByID.
+const mentorByLegacyIDQuery = mentorSelect + `
+	WHERE m.legacy_id = $1 AND m.status = 'active' AND m.deleted_at IS NULL
+	GROUP BY m.id
+`
+
 // fetchMentorByUUIDFromDB retrieves a single mentor by UUID from PostgreSQL
 func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId string) (*models.Mentor, error) {
 	query := mentorSelect + `
@@ -159,6 +200,12 @@ func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId
 	`
 
 	row := r.pool.QueryRow(ctx, query, mentorId)
+	return models.ScanMentor(row)
+}
+
+// fetchMentorByLegacyIDFromDB retrieves a single mentor by legacy numeric ID.
+func (r *MentorRepository) fetchMentorByLegacyIDFromDB(ctx context.Context, id int) (*models.Mentor, error) {
+	row := r.pool.QueryRow(ctx, mentorByLegacyIDQuery, id)
 	return models.ScanMentor(row)
 }
 
@@ -469,16 +516,7 @@ func (r *MentorRepository) SetLoginToken(ctx context.Context, mentorId string, t
 
 // FetchAllMentorsFromDB retrieves all mentors from PostgreSQL for cache population
 func (r *MentorRepository) FetchAllMentorsFromDB(ctx context.Context) ([]*models.Mentor, error) {
-	// deleted_at IS NULL is redundant with status = 'active' today (deletion
-	// sets 'inactive'), and stays anyway: this is the query behind the whole
-	// public catalog, and it should not depend on a rule enforced elsewhere.
-	query := mentorSelect + `
-		WHERE m.status = 'active' AND m.deleted_at IS NULL
-		GROUP BY m.id
-		ORDER BY m.sort_order
-	`
-
-	rows, err := r.pool.Query(ctx, query)
+	rows, err := r.pool.Query(ctx, mentorCatalogQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch mentors: %w", err)
 	}

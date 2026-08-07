@@ -253,7 +253,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 	// Images are keyed by the mentor UUID, not the slug — usernames are
 	// changeable.
 	if photo != nil {
-		s.storageClient.UploadImageAllSizesAsync(ctx, photo.bytes, photo.contentType, mentorID)
+		s.storageClient.UploadProfileImageAsync(ctx, photo.bytes, photo.contentType, mentorID)
 	}
 
 	// 7. Trigger mentor created webhook (non-blocking)

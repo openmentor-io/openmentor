@@ -73,9 +73,12 @@ around the deploy so no photo is missing:
 ## Verifying
 
 ```bash
-# A migrated photo is reachable under the UUID key
+# A migrated photo is reachable under the UUID key. /full is the canonical
+# object — the only size an upload writes since audit C5 (D75) — so it is the
+# one to check; photos that predate that change also still have /large and
+# /small, and a photo uploaded since does not.
 ../db.sh -c "SELECT id, slug FROM mentors WHERE status IN ('active','inactive') LIMIT 5"
-curl -sI https://cdn.openmentor.io/<uuid>/large | head -1   # expect 200
+curl -sI https://cdn.openmentor.io/<uuid>/full | head -1   # expect 200
 ```
 
 Spot-check a couple of profile pages in the browser — images should load, and

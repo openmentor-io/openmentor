@@ -28,10 +28,26 @@ import (
 // brings the profile back without its photo.
 const TrashPrefix = "deleted/"
 
-// imageSizes is every size UploadImageAllSizesBytes stores, and therefore every
-// key the trash moves have to cover. One definition, so an added size cannot be
-// uploaded but left behind on deletion.
+// imageSizes is every size key a mentor's images can exist under, and therefore
+// every key the trash moves and the alias cleanup have to cover. One
+// definition, so a size cannot be written but left behind on deletion.
+//
+// Only canonicalImageSize is written now (audit C5). large and small are
+// byte-identical copies from before that change and exist for every mentor who
+// uploaded a photo earlier, so an erasure that skipped them would not have
+// erased the photo.
 var imageSizes = []string{"full", "large", "small"}
+
+// canonicalImageSize is the single object an upload writes. Every reader
+// resolves to it (web/src/lib/image-loader.ts); the other sizes stay in the key
+// layout so real thumbnails can fill them in later without a URL change.
+const canonicalImageSize = "full"
+
+// imageKey is the {keyBase}/{size} object layout — one definition, shared by the
+// upload, the trash moves and the alias cleanup.
+func imageKey(keyBase, size string) string {
+	return fmt.Sprintf("%s/%s", keyBase, size)
+}
 
 func trashKey(key string) string {
 	return TrashPrefix + key
@@ -42,7 +58,7 @@ func trashKey(key string) string {
 func imageKeys(keyBase string) []string {
 	keys := make([]string, 0, len(imageSizes))
 	for _, size := range imageSizes {
-		keys = append(keys, fmt.Sprintf("%s/%s", keyBase, size))
+		keys = append(keys, imageKey(keyBase, size))
 	}
 	return keys
 }
