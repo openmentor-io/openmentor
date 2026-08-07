@@ -4,7 +4,10 @@ import { sendUpstreamError } from '@/lib/api-proxy'
 import { withObservability } from '@/lib/with-observability'
 import type { MentorModerationFilter } from '@/types'
 
-const ALLOWED_STATUSES: MentorModerationFilter[] = ['pending', 'approved', 'declined']
+// Mirrors models.MentorModerationFilter on the Go side — 'deleted' is the
+// admin-only tab (D70); the Go API enforces the role, this list only decides
+// what is worth forwarding.
+const ALLOWED_STATUSES: MentorModerationFilter[] = ['pending', 'approved', 'declined', 'deleted']
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
