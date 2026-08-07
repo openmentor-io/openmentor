@@ -111,9 +111,21 @@ EXPECTED=(
 
 # No `mapfile`/`readarray`: these scripts have to run under the bash 3.2 that
 # ships on macOS, where neither exists.
+#
+# Comment lines are stripped before matching. Several of these locks are
+# DISCUSSED in comments and tests as well as taken in code — a test that names
+# `pg_try_advisory_lock` in its rationale is not a call site, and counting it as
+# one would make every future explanatory comment a gate failure.
 site_count=0
 while IFS= read -r site; do
     [ -n "$site" ] || continue
+    # `grep -c`, not `grep -q`: under `pipefail` a -q that exits on the first
+    # match SIGPIPEs the sed feeding it, and the pipeline then reports 141 — so
+    # every real call site read as "no match". -c consumes all of sed's output.
+    matches="$(sed -E 's://.*::' "$REPO_ROOT/$site" | grep -cE 'pg_(try_)?advisory(_xact)?_lock' || true)"
+    if [ "$matches" -eq 0 ]; then
+        continue # mentioned only in a comment
+    fi
     site_count=$((site_count + 1))
     found=false
     for expected in "${EXPECTED[@]}"; do
