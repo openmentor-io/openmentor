@@ -137,6 +137,8 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 	// rather than a partial save on a deleted profile (D70).
 	if err := s.mentorRepo.UpdateProfileWithTags(ctx, mentorID, updates, tagIDs); err != nil {
 		if errors.Is(err, repository.ErrMentorNotWritable) {
+			// Counted apart from "error": nothing failed, the profile is gone.
+			metrics.ProfileUpdates.WithLabelValues("already_deleted").Inc()
 			s.tracker.Track(ctx, analytics.EventMentorProfileUpdated, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 				"mentor_id": mentorID,
 				"outcome":   "already_deleted",
