@@ -1,0 +1,72 @@
+{
+  "_comment": [
+    "The email-masking contract, shared by the only two implementations that are",
+    "allowed to exist: redact.Email (Go, this package) and maskEmail",
+    "(web/src/lib/pii.ts). C11 found three implementations of this function and",
+    "the point of consolidating was that two of them could drift without anyone",
+    "noticing — one Go copy is now gone, and this file is what stops the two",
+    "remaining ones diverging. Both languages' tests read it, so a change to the",
+    "rule has to be made here first and then fails on whichever side did not",
+    "follow.",
+    "",
+    "Every address is in an RFC 2606 example domain: no fixture, test output or CI",
+    "log in this repository may carry an address that could belong to a person."
+  ],
+  "cases": [
+    {
+      "why": "the ordinary case: first local character and the whole domain survive",
+      "in": "mentee.person+tag@example.com",
+      "out": "m***@example.com"
+    },
+    {
+      "why": "case is preserved, because the domain is what an operator reads",
+      "in": "MENTEE@Example.COM",
+      "out": "M***@Example.COM"
+    },
+    {
+      "why": "trimmed: a value out of a form or a header carries whitespace",
+      "in": "  mentee@example.com  ",
+      "out": "m***@example.com"
+    },
+    {
+      "why": "a one-character local part has nothing to keep — showing it would show all of it",
+      "in": "a@example.com",
+      "out": "*@example.com"
+    },
+    {
+      "why": "the last @ wins, because a local part may contain a quoted one and a domain may not",
+      "in": "odd@name@example.com",
+      "out": "o***@example.com"
+    },
+    {
+      "why": "not an address: fully masked rather than echoed, since the input could be a token",
+      "in": "not-an-address",
+      "out": "***"
+    },
+    {
+      "why": "no local part is not an address",
+      "in": "@example.com",
+      "out": "***"
+    },
+    {
+      "why": "no domain is not an address",
+      "in": "mentee@",
+      "out": "***"
+    },
+    {
+      "why": "empty stays empty, so an absent field does not become a masked one",
+      "in": "",
+      "out": ""
+    },
+    {
+      "why": "whitespace only is an absent field",
+      "in": "   ",
+      "out": ""
+    },
+    {
+      "why": "idempotent: the same value can pass the masker at the call site and again in the logger",
+      "in": "m***@example.com",
+      "out": "m***@example.com"
+    }
+  ]
+}

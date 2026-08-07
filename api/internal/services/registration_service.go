@@ -13,6 +13,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
 	"github.com/openmentor-io/openmentor/api/pkg/slug"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
@@ -184,7 +185,9 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		if err == nil && tagID != "" {
 			tagIDs = append(tagIDs, tagID)
 		} else {
-			logger.Warn("Tag not found", zap.String("tag_name", tagName))
+			// Attacker-controlled free text: a rejected tag is whatever the form
+			// sent, so it goes through the text rules like any other value.
+			logger.Warn("Tag not found", zap.String("tag_name", redact.Text(tagName)))
 		}
 	}
 
@@ -239,7 +242,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		zap.String("mentor_id", mentorID),
 		zap.Int("legacy_id", legacyID),
 		zap.String("slug", mentorSlug),
-		zap.String("email", req.Email))
+		zap.String("email", redact.Email(req.Email)))
 
 	// Set mentor tags if any were provided
 	if len(tagIDs) > 0 {

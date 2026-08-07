@@ -21,6 +21,7 @@ import (
 
 	"github.com/openmentor-io/openmentor/api/pkg/email/templates"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 )
 
 const (
@@ -147,19 +148,26 @@ func (s *Sender) Send(ctx context.Context, msg Message) (string, error) {
 	resp, err := s.client.SendEmail(ctx, input)
 	duration := time.Since(start)
 	if err != nil {
+		// RedactedError is not optional on this line: SES rejections quote the
+		// destination back ("The following identities failed the check … <the
+		// address>"), so zap.Error would put the address straight back onto the
+		// line the masked field just took it off (C11).
 		logger.Error("SES email send failed",
 			zap.String("template", msg.TemplateName),
-			zap.String("recipient", msg.Recipient),
+			zap.String("recipient", redact.Email(msg.Recipient)),
 			zap.Duration("duration", duration),
-			zap.Error(err),
+			logger.RedactedError(err),
 		)
 		return "", fmt.Errorf("failed to send email via SES: %w", err)
 	}
 
 	messageID := aws.ToString(resp.MessageId)
+	// message_id is what identifies THIS send to SES support; the masked
+	// recipient keeps the domain, which is what deliverability failures are
+	// about (suppression and greylisting are domain-wide, not per-address).
 	logger.Info("SES email sent",
 		zap.String("template", msg.TemplateName),
-		zap.String("recipient", input.Destination.ToAddresses[0]),
+		zap.String("recipient", redact.Email(input.Destination.ToAddresses[0])),
 		zap.String("message_id", messageID),
 		zap.Duration("duration", duration),
 	)

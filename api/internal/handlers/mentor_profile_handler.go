@@ -75,8 +75,7 @@ func (h *MentorProfileHandler) SubmitProfile(c *gin.Context) {
 	}
 
 	logger.Info("Profile submitted for review via session",
-		zap.String("mentor_id", session.MentorID),
-		zap.String("mentor_name", session.Name))
+		zap.String("mentor_id", session.MentorID))
 
 	c.JSON(http.StatusOK, models.SubmitProfileResponse{Success: true, Status: "pending"})
 }
@@ -146,8 +145,7 @@ func (h *MentorProfileHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	logger.Info("Profile updated via session",
-		zap.String("mentor_id", session.MentorID),
-		zap.String("mentor_name", session.Name))
+		zap.String("mentor_id", session.MentorID))
 
 	c.JSON(http.StatusOK, models.SaveProfileResponse{Success: true})
 }
@@ -182,7 +180,6 @@ func (h *MentorProfileHandler) UpdateProfileStatus(c *gin.Context) {
 
 	logger.Info("Profile status updated via session",
 		zap.String("mentor_id", session.MentorID),
-		zap.String("mentor_name", session.Name),
 		zap.String("status", req.Status))
 
 	c.JSON(http.StatusOK, models.UpdateProfileStatusResponse{Success: true, Status: req.Status})
@@ -223,9 +220,7 @@ func (h *MentorProfileHandler) UploadPicture(c *gin.Context) {
 	}
 
 	logger.Info("Profile picture uploaded via session",
-		zap.String("mentor_id", session.MentorID),
-		zap.String("mentor_name", session.Name),
-		zap.String("image_url", imageURL))
+		zap.String("mentor_id", session.MentorID))
 
 	c.JSON(http.StatusOK, models.UploadProfilePictureResponse{
 		Success:  true,

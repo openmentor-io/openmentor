@@ -1,8 +1,18 @@
-// Package redact holds the rules that keep capability-bearing values out of
-// telemetry. A review request_id is a bearer token — anyone holding it can read
-// the mentor's name and submit a review for that mentee/mentor pair — and
-// magic-link/confirmation tokens are login credentials. None of them may reach
-// a log line, a span attribute or an analytics property (P14).
+// Package redact holds the rules that keep capability-bearing values and
+// personal data out of telemetry. A review request_id is a bearer token —
+// anyone holding it can read the mentor's name and submit a review for that
+// mentee/mentor pair — and magic-link/confirmation tokens are login
+// credentials. An email address is not a capability but it is personal data
+// under GDPR and an account-enumeration oracle for anyone with log access
+// (C11). None of them may reach a log line, a span attribute or an analytics
+// property (P14).
+//
+// This is the ONE place those rules live. Call-site helpers were tried first
+// and drifted: before C11 there were three independent email maskers (one in
+// internal/services, one here-shaped-but-absent, one in web/src/lib/pii.ts) and
+// a hand-rolled DSN mask in cmd/migrate that was a blind byte-prefix. The Go
+// half is now this package alone; the TypeScript half is web/src/lib/pii.ts,
+// pinned to the same behavior by the shared fixture in testdata/.
 package redact
 
 import (
@@ -14,6 +24,12 @@ import (
 
 // Placeholder is written in place of a redacted value.
 const Placeholder = "[REDACTED]"
+
+// EmailMask is what an address collapses to when it has no usable local part or
+// domain to keep. It is deliberately NOT Placeholder: a masked address is a
+// value that was handled correctly, and mixing it with the credential
+// placeholder would make the two indistinguishable in Loki.
+const EmailMask = "***"
 
 // sensitiveKeyParts match ANYWHERE in a normalized key. Substring matching is
 // deliberate: an exact-key list let login_token, confirm_token, captchaToken
@@ -195,10 +211,11 @@ func URL(raw string) string {
 // them: see sweepIDs and sweepReviewTokens.
 func Text(raw string) string {
 	// Every URL-shaped rule needs one of these; prose has none of them. The
-	// review-token sweep is checked separately because a token needs none of them
-	// (`rvw_` plus a base64url body can be letters and digits only).
+	// review-token and email sweeps are checked separately because neither needs
+	// any of them (`rvw_` plus a base64url body can be letters and digits only,
+	// and `a@b.co` is letters, digits, `@` and `.`).
 	if !strings.ContainsAny(raw, "/=-") {
-		return sweepReviewTokens(raw)
+		return sweepEmails(sweepReviewTokens(raw))
 	}
 
 	var b strings.Builder
@@ -216,7 +233,10 @@ func Text(raw string) string {
 		}
 		start = i + 1
 	}
-	return sweepIDs(sweepReviewTokens(b.String()))
+	// Emails last: the URL rules above run per token and can hand back a token
+	// with an address still inside it (`?email=a@b.co` keeps its value, because
+	// "email" is not a capability key), and sweepIDs can only ever shorten.
+	return sweepEmails(sweepIDs(sweepReviewTokens(b.String())))
 }
 
 // reviewTokenPrefix and reviewTokenLen describe the shape of a review capability
@@ -350,6 +370,10 @@ func redactTextToken(token string) string {
 	trimmed := strings.TrimRight(token, ".:;!?")
 	suffix := token[len(trimmed):]
 
+	// Before the URL rules, because none of them look at userinfo: a driver that
+	// fails to connect renders the whole DSN it was handed, password included.
+	trimmed = stripURLPassword(trimmed)
+
 	switch {
 	case strings.Contains(trimmed, "?"):
 		return URL(trimmed) + suffix
@@ -360,6 +384,235 @@ func redactTextToken(token string) string {
 		return Path(trimmed) + suffix
 	}
 	return token
+}
+
+// Email masks an address for telemetry: the first character of the local part
+// and the WHOLE domain survive, the rest of the local part does not.
+//
+// # WHY THIS SHAPE, AND WHY NOT ID
+//
+// The domain is kept because it is what an operator actually debugs with — SES
+// bounces, suppression-list entries and greylisting are domain-wide, so
+// `[…]@corp.example` tells you the shape of the failure while carrying no
+// address anyone can mail. The first local character keeps a masked address
+// stable per person, which is what makes "this recipient failed at 12:01 and
+// succeeded at 12:05" answerable from the logs alone.
+//
+// ID is deliberately NOT used on addresses. It is right for a request id — 122
+// bits of entropy make the hash a pure correlation handle — but an email address
+// has almost none against a guessed candidate list, so sha256(address) in Loki
+// is a "confirm this person is a user" oracle for every log reader, which is the
+// enumeration risk C11 exists to remove. Masking loses uniqueness; hashing loses
+// the whole point.
+func Email(address string) string {
+	trimmed := strings.TrimSpace(address)
+	if trimmed == "" {
+		return ""
+	}
+
+	// LastIndex, not Index: a local part may legally contain a quoted `@`, and
+	// the domain never does.
+	at := strings.LastIndex(trimmed, "@")
+	switch {
+	case at <= 0, at == len(trimmed)-1:
+		// No local part or no domain. Not an address, so nothing here is safe to
+		// keep — the input could be anything, including a token.
+		return EmailMask
+	}
+
+	local, domain := trimmed[:at], trimmed[at:]
+	if len(local) == 1 {
+		return "*" + domain
+	}
+	return local[:1] + EmailMask + domain
+}
+
+// sweepEmails masks every address embedded in free-form text. This is the sweep
+// that makes the whole C11 fix hold: a call site can be fixed by hand, but the
+// address also arrives through errors nobody writes by hand — SES quotes the
+// destination it rejected, and Postgres quotes the offending value in a
+// unique-violation DETAIL (`Key (email)=(…) already exists`). Running here means
+// logger.RedactedError and errortracking's redact.Text call both inherit it.
+func sweepEmails(text string) string {
+	if !strings.Contains(text, "@") {
+		return text
+	}
+
+	var b strings.Builder
+	copied := 0
+	for i := 0; i < len(text); i++ {
+		if text[i] != '@' {
+			continue
+		}
+		start := i
+		for start > 0 && isEmailLocalChar(text[start-1]) {
+			start--
+		}
+		end := i + 1
+		for end < len(text) && isEmailDomainChar(text[end]) {
+			end++
+		}
+		// A trailing dot or dash belongs to the sentence, not the domain:
+		// "wrote to a@b.co." and "a@b.co-").
+		for end > i+1 && (text[end-1] == '.' || text[end-1] == '-') {
+			end--
+		}
+		if start == i || !isEmailDomain(text[i+1:end]) {
+			continue
+		}
+		// Do not re-cut an address already masked upstream: Email is idempotent,
+		// but only because `*` is not a local-part character, so `j***@b.co`
+		// never reaches here with a local part to strip.
+		b.WriteString(text[copied:start])
+		b.WriteString(Email(text[start:end]))
+		i = end - 1
+		copied = end
+	}
+	if copied == 0 {
+		return text
+	}
+	b.WriteString(text[copied:])
+	return b.String()
+}
+
+// isEmailDomain requires a dot and an alphabetic TLD. Both are load-bearing
+// against false positives that matter: a Go module path (`example.com/pkg@v1.2.3`
+// — TLD `3`), a docker image tag (`alloy@sha256:…` — no dot after the `@`) and a
+// libpq host with no domain (`user:pw@postgres` — handled by stripURLPassword
+// instead).
+func isEmailDomain(domain string) bool {
+	dot := strings.LastIndexByte(domain, '.')
+	if dot <= 0 || dot == len(domain)-1 {
+		return false
+	}
+	tld := domain[dot+1:]
+	if len(tld) < 2 {
+		return false
+	}
+	for i := 0; i < len(tld); i++ {
+		c := tld[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+			return false
+		}
+	}
+	return true
+}
+
+func isEmailLocalChar(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	case c == '.', c == '_', c == '%', c == '+', c == '-':
+		return true
+	}
+	return false
+}
+
+func isEmailDomainChar(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	case c == '.', c == '-':
+		return true
+	}
+	return false
+}
+
+// DSN returns a loggable form of a database connection string. The scheme, user,
+// host, port and database name survive — the user in particular is worth keeping,
+// because since H8 it names WHICH role the process connected as (om_migrate vs
+// om_backend), which is the first thing to check when a migration is refused.
+// The password does not survive.
+//
+// It parses with net/url rather than slicing bytes. The mask it replaces was
+// `url[:20] + "***"`, which is not a mask at all: it keeps a fixed 20-byte
+// prefix, and `len("postgres://")` is 11, so it leaks byte 9 onward of whatever
+// follows the username. With `openmentor` (every template in the repo) that is
+// zero password bytes; with a username shorter than 8 characters it is password
+// bytes, silently, with no test and no error (C11).
+func DSN(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		// Not a URL DSN. The other shape libpq accepts is keyword/value
+		// (`host=… user=… password=…`), which Text already handles token by
+		// token via the sensitive-key rules — and anything genuinely malformed is
+		// safer through those rules than echoed.
+		return Text(stripDSNUserinfo(trimmed))
+	}
+
+	// Built by hand instead of parsed.String(): url.UserPassword percent-encodes
+	// the mask (`***` becomes `%2A%2A%2A`), which is unreadable in a log line.
+	var b strings.Builder
+	b.WriteString(parsed.Scheme)
+	b.WriteString("://")
+	if parsed.User != nil {
+		b.WriteString(parsed.User.Username())
+		if _, hasPassword := parsed.User.Password(); hasPassword {
+			b.WriteString(":" + EmailMask)
+		}
+		b.WriteString("@")
+	}
+	b.WriteString(parsed.Host)
+	b.WriteString(parsed.Path)
+	if query := QueryString(parsed.RawQuery); query != "" {
+		b.WriteString("?")
+		b.WriteString(query)
+	}
+	return b.String()
+}
+
+// stripURLPassword removes the password from the userinfo of a URL embedded in
+// text. Kept separate from DSN because it must not reject what it cannot parse:
+// it works on one token lifted out of an error message, where the URL may be
+// truncated or quoted, and it has to leave everything it does not understand
+// exactly as it found it.
+func stripURLPassword(token string) string {
+	scheme := strings.Index(token, "://")
+	if scheme < 0 {
+		return token
+	}
+
+	start := scheme + len("://")
+	// Userinfo ends at the LAST `@` before the path, so a password containing
+	// `@` is still fully removed.
+	end := len(token)
+	if slash := strings.IndexByte(token[start:], '/'); slash >= 0 {
+		end = start + slash
+	}
+	at := strings.LastIndexByte(token[start:end], '@')
+	if at < 0 {
+		return token
+	}
+	userinfo := token[start : start+at]
+	colon := strings.IndexByte(userinfo, ':')
+	if colon < 0 {
+		return token
+	}
+	return token[:start+colon+1] + EmailMask + token[start+at:]
+}
+
+// stripDSNUserinfo masks a `user:password@` segment without requiring the `://`
+// that stripURLPassword anchors on. Only DSN's fallback uses it: a connection
+// string too malformed for net/url still carries a real password, and that is
+// exactly the input the fallback exists for. It is not used on free-form text,
+// where a bare `note:see me@host` would be a false positive.
+func stripDSNUserinfo(raw string) string {
+	at := strings.LastIndexByte(raw, '@')
+	if at < 0 {
+		return raw
+	}
+	head := raw[:at]
+	colon := strings.LastIndexByte(head, ':')
+	// A colon that opens `://` is the scheme separator, not a password delimiter.
+	if colon < 0 || strings.HasPrefix(head[colon:], "://") {
+		return raw
+	}
+	return head[:colon+1] + EmailMask + raw[at:]
 }
 
 // ID returns a short, non-reversible reference for a capability value so log

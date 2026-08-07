@@ -98,8 +98,10 @@ func Initialize(cfg Config) error {
 			zapcore.ErrorLevel,
 		)
 
-		// Combine all cores
-		core := zapcore.NewTee(stdoutCore, appFileCore, errorFileCore)
+		// Combine all cores, then wrap ONCE around the tee: redacting before the
+		// fan-out means stdout, app.log and error.log cannot disagree about what
+		// a line carries (C11).
+		core := NewRedactingCore(zapcore.NewTee(stdoutCore, appFileCore, errorFileCore))
 
 		// Build logger
 		logger = zap.New(
@@ -113,9 +115,12 @@ func Initialize(cfg Config) error {
 		config.OutputPaths = []string{"stdout"}
 		config.ErrorOutputPaths = []string{"stderr"}
 
+		// WrapCore, not a hand-built core: this branch keeps config.Build's
+		// sampler, and the redaction has to sit inside whatever Build produced.
 		logger, err = config.Build(
 			zap.AddCallerSkip(1),
 			zap.AddStacktrace(zapcore.ErrorLevel),
+			zap.WrapCore(NewRedactingCore),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to build logger: %w", err)
@@ -258,7 +263,7 @@ func LogAPICall(ctx context.Context, service, operation, status string, duration
 // LogError logs an error with context including trace context
 func LogError(ctx context.Context, err error, msg string, fields ...zap.Field) {
 	baseFields := []zap.Field{
-		zap.Error(err),
+		RedactedError(err),
 	}
 
 	// Add trace context if available

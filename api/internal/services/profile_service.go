@@ -14,6 +14,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
 	"github.com/openmentor-io/openmentor/api/pkg/safego"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
@@ -105,7 +106,7 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 		})
 		logger.Error("Profile save rejected: submitted tags do not exist",
 			zap.String("mentor_id", mentorID),
-			zap.Strings("unresolved_tags", unresolvedTags))
+			logger.RedactedStrings("unresolved_tags", unresolvedTags))
 		return apperrors.InvalidInputError("tags",
 			"unknown tag(s): "+strings.Join(unresolvedTags, ", "))
 	}
@@ -251,7 +252,7 @@ func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID s
 	})
 	logger.Info("Profile picture uploaded via session",
 		zap.String("mentor_id", mentorID),
-		zap.String("url", fullImageURL))
+		zap.String("url", redact.URL(fullImageURL)))
 
 	return fullImageURL, nil
 }

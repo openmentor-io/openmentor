@@ -272,7 +272,9 @@ loki.source.file "worker_logs" {
 
 // Loki process - parse JSON logs and extract fields
 loki.process "parse_json_logs" {
-  forward_to = [loki.write.grafana_cloud.receiver]
+  // Forwards to redact_pii, NOT straight to loki.write: every path into Loki has
+  // to pass the redaction choke point (C11).
+  forward_to = [loki.process.redact_pii.receiver]
 
   // Parse JSON log format (Winston for frontend, Zap for backend)
   stage.json {
@@ -322,6 +324,69 @@ loki.process "parse_json_logs" {
   // stage.output {
   //   source = "message"
   // }
+}
+
+// Loki process - LAST-RESORT PII/secret redaction before anything leaves the host
+//
+// This is defense in depth, not the fix. The fix is in the application:
+// api/pkg/redact owns the rules, pkg/logger installs them as a zapcore wrapper
+// every field passes through, and the call sites mask explicitly. This stage
+// exists because C11 found a line that had been reviewed twice and still shipped
+// a real address to Loki on every email the platform sent — so a rule that does
+// not depend on any Go code being correct is worth its cost.
+//
+// WHY THE MARKERS ARE LOUD AND DIFFERENT FROM THE GO MASKS
+// The Go masker turns an address into `j***@example.com`. This stage turns it
+// into `[REDACTED_EMAIL]@example.com` instead of the same shape on purpose: a
+// line carrying that marker means the application layer failed to redact, and
+// that has to be conspicuous in Loki rather than silently indistinguishable from
+// a correctly-masked line. It is a bug report, not a cover-up.
+//
+// WHY ONLY stage.replace
+// A bad stage in a live pipeline can stop logs reaching Loki entirely. Every
+// stage here is a stage.replace, which can only ever rewrite bytes inside a line
+// — there is deliberately no stage.drop, no stage.match and no stage.output, so
+// the worst failure mode available to this component is an ugly replacement.
+//
+// WHY THE CAPTURE GROUPS LOOK LIKE THAT
+// stage.replace substitutes the CAPTURE GROUPS, not the whole match (that is what
+// `replace` means here). So each expression matches enough context to be sure of
+// what it found and captures only the bytes that must not survive. The
+// surrounding JSON quoting is outside every group, which keeps the line valid
+// JSON for the query-time parser — the char classes all exclude `"` for the same
+// reason. Verified by infra/alloy-redaction-test.sh.
+//
+// Note the log line reaching this component is the RAW json, because
+// parse_json_logs leaves stage.output commented out. That is why these
+// expressions carry no `source` argument: they must run over the whole line, not
+// over the extracted map, which is not what gets written.
+loki.process "redact_pii" {
+  forward_to = [loki.write.grafana_cloud.receiver]
+
+  // Connection-string passwords. First, so the email rule below cannot claim the
+  // password of a DSN whose host happens to look like a domain.
+  stage.replace {
+    expression = "(?i)(?:postgres|postgresql|mysql|mongodb|redis|amqp|amqps)(?:\\+[a-z0-9]+)?://[^:/@\\s\"]+:([^@\\s\"]+)@"
+    replace    = "[REDACTED_SECRET]"
+  }
+
+  // Credentials in key=value or "key":"value" form. The key list is spelled out
+  // rather than derived so this stage cannot start eating fields nobody meant it
+  // to: `login_token_ttl_minutes` does not match, because a key here must be
+  // followed by a separator.
+  stage.replace {
+    expression = "(?i)(?:password|passwd|secret|api[-_]?key|access[-_]?key|auth[-_]?token|bearer|[a-z_]*token)[\"']?\\s*[:=]\\s*[\"']?([^\"'\\s,}&]+)"
+    replace    = "[REDACTED_SECRET]"
+  }
+
+  // Email addresses. The local part goes; the domain stays, because a
+  // deliverability failure is domain-wide and the domain is what an operator
+  // triages with. An already-masked `j***@example.com` does not match — `*` is
+  // not in the local-part class — so this never double-mangles a correct line.
+  stage.replace {
+    expression = "([A-Za-z0-9._%+\\-]+)@[A-Za-z0-9](?:[A-Za-z0-9\\-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9\\-]*[A-Za-z0-9])?)*\\.[A-Za-z]{2,}"
+    replace    = "[REDACTED_EMAIL]"
+  }
 }
 
 // Loki write to Grafana Cloud
@@ -502,7 +567,12 @@ database_observability.postgres "postgres_openmentor" {
 }
 
 loki.relabel "database_observability_postgres_openmentor" {
-  forward_to = [loki.write.grafana_cloud.receiver]
+  // Through redact_pii, not straight to loki.write. This path was the one the
+  // application-level redaction can never reach: query_samples and explain_plans
+  // ship the SQL Postgres actually ran, literals included, so a
+  // `WHERE email = '…'` lands in Loki with the address in it. It was also the
+  // easiest leak to miss, because nothing about it goes through Go code (C11).
+  forward_to = [loki.process.redact_pii.receiver]
 
   rule {
     target_label = "service_name"

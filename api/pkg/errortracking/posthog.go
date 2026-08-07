@@ -171,8 +171,12 @@ func (c *errorTrackingClient) captureWithStack(
 			},
 		})
 
+	// extraProps used to bypass every rule the message goes through: the doc
+	// comment said "must not contain PII" and that was the only enforcement.
+	// A caller-supplied property is exactly as likely to carry an address or an
+	// id as the message is, and this ships to a third party (C11).
 	for k, v := range extraProps {
-		props.Set(k, v)
+		props.Set(k, redactProperty(k, v))
 	}
 
 	if err := c.ph.Enqueue(posthog.Capture{
@@ -186,4 +190,19 @@ func (c *errorTrackingClient) captureWithStack(
 			zap.Error(err),
 		)
 	}
+}
+
+// redactProperty applies the same rules as a log field: a sensitive key loses
+// its value, and a string value goes through the shape sweeps. Non-strings are
+// passed through — a count or a status code cannot carry an address, and
+// reflecting over arbitrary values here would be a worse trade than the rule
+// that properties are scalars.
+func redactProperty(key string, value interface{}) interface{} {
+	if redact.SensitiveKey(key) {
+		return redact.Placeholder
+	}
+	if text, ok := value.(string); ok {
+		return redact.Text(text)
+	}
+	return value
 }
