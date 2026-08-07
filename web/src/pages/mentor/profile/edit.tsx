@@ -168,13 +168,17 @@ function ProfileEditContent(): JSX.Element {
     setShowVisibilitySuccess(true)
   }
 
-  // The delete revoked this session server-side, so there is nothing left to
-  // render here and every request from this page would now 401. Send the mentor
-  // to the login screen, which is the honest state: they no longer have an
-  // account to come back to. A full navigation rather than router.replace so no
-  // stale profile state survives in memory.
+  // The delete revoked this session server-side, so every request from anywhere
+  // under /mentor now 401s. Leave the portal entirely rather than landing on
+  // another page inside it: /mentor/login looks like an invitation to sign back
+  // in to an account that no longer exists, and the pages around it render auth
+  // errors instead of anything useful. The public home page is the one place
+  // that owes a signed-out visitor nothing.
+  //
+  // A full navigation, not router.replace: it drops all in-memory profile state
+  // and re-requests the page without the revoked session.
   const onProfileDeleted = (): void => {
-    window.location.assign('/mentor/login?deleted=1')
+    window.location.assign('/')
   }
 
   const onSubmitForReview = async (): Promise<void> => {

@@ -11,8 +11,8 @@ import { withObservability } from '@/lib/with-observability'
  * profile and answers 400 on a mismatch, 409 if it was already deleted.
  *
  * The delete revokes the mentor's sessions server-side, so every request after
- * this one gets a 401 — the client is expected to send the mentor to the
- * logged-out state rather than reload the portal.
+ * this one gets a 401 — the client is expected to leave the /mentor portal
+ * entirely (it sends them to the public home page) rather than reload it.
  */
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
