@@ -7,6 +7,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import type { Histogram } from 'prom-client'
 import { httpRequestDuration, httpRequestTotal, activeRequests } from './metrics'
 import { logHttpRequest, logError } from './logger'
+import { assertApiRouteLabel, type ApiRouteLabel } from './api-routes'
 
 type NextApiHandler = (req: NextApiRequest, res: NextApiResponse) => Promise<void> | void
 
@@ -102,12 +103,30 @@ export function routeLabel(url: string): string {
 }
 
 /**
- * Higher-order function that wraps API routes with observability instrumentation
+ * Higher-order function that wraps API routes with observability instrumentation.
+ *
+ * The one-argument form derives `http_route` from `req.url` via `routeLabel`
+ * and exists only while the ~40 routes migrate to explicit labels in batches
+ * (C7). It is removed once the last route carries its own template.
  */
-export function withObservability(handler: NextApiHandler): NextApiHandler {
+export function withObservability(handler: NextApiHandler): NextApiHandler
+export function withObservability(route: ApiRouteLabel, handler: NextApiHandler): NextApiHandler
+export function withObservability(
+  routeOrHandler: ApiRouteLabel | NextApiHandler,
+  maybeHandler?: NextApiHandler
+): NextApiHandler {
+  const declaredRoute = typeof routeOrHandler === 'string' ? routeOrHandler : null
+  const handler = typeof routeOrHandler === 'string' ? (maybeHandler as NextApiHandler) : routeOrHandler
+
+  // At module-import time, so a bad label is a loud dev failure on the first
+  // request to the route rather than a quietly mislabelled series.
+  if (declaredRoute !== null) {
+    assertApiRouteLabel(declaredRoute)
+  }
+
   return async (req: NextApiRequest, res: NextApiResponse): Promise<void> => {
     const start = Date.now()
-    const route = routeLabel(req.url || '')
+    const route = declaredRoute ?? routeLabel(req.url || '')
     const method = req.method || 'UNKNOWN'
 
     // Track active requests
