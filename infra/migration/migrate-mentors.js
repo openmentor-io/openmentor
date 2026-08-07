@@ -88,6 +88,7 @@
  * See migration/README.md for the environment contract.
  */
 
+const crypto = require('crypto');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
@@ -664,6 +665,42 @@ async function streamToBuffer(readableStream) {
   return Buffer.concat(chunks);
 }
 
+// putVerified uploads body and proves the bytes that landed are the bytes we
+// read (C12).
+//
+// The copy is a read-into-memory then a write, and nothing checked that the two
+// agreed: a truncated download or a corrupted transfer produced a profile photo
+// that was silently wrong, keyed under the new mentor's UUID, with the original
+// left behind on a bucket that is being decommissioned.
+//
+// Verification is server-side, not a second round trip. `ChecksumSHA256` makes S3
+// hash what it received and reject the PUT with BadDigest if it disagrees, so a
+// successful response IS the proof. The response echo is then compared as well,
+// which catches a destination that ignored the header (an S3-compatible endpoint
+// that does not implement additional checksums) rather than silently treating an
+// unverified upload as verified.
+async function putVerified(dest, bucket, key, body, contentType) {
+  const digest = crypto.createHash('sha256').update(body).digest('base64');
+
+  const response = await dest.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType || 'application/octet-stream',
+      ContentLength: body.length,
+      ChecksumAlgorithm: 'SHA256',
+      ChecksumSHA256: digest,
+    })
+  );
+
+  if (response.ChecksumSHA256 !== digest) {
+    throw new Error(
+      `checksum mismatch after upload of ${key}: sent ${digest}, stored ${response.ChecksumSHA256 || '(none returned)'}`
+    );
+  }
+}
+
 // destKeyBase is the NEW mentor's UUID (mentors.id): openmentor images are
 // keyed by the immutable UUID, not the slug (usernames are changeable).
 async function copyImages(oldSlug, destKeyBase, notes) {
@@ -684,15 +721,7 @@ async function copyImages(oldSlug, destKeyBase, notes) {
 
       const object = await src.send(new GetObjectCommand({ Bucket: config.sourceS3.bucket, Key: sourceKey }));
       const body = await streamToBuffer(object.Body);
-      await dest.send(
-        new PutObjectCommand({
-          Bucket: config.destS3.bucket,
-          Key: destKey,
-          Body: body,
-          ContentType: object.ContentType || 'application/octet-stream',
-          ContentLength: body.length,
-        })
-      );
+      await putVerified(dest, config.destS3.bucket, destKey, body, object.ContentType);
       copied++;
     } catch (error) {
       if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
@@ -736,6 +765,37 @@ async function triggerMigratedEmail(mentorId) {
 // ---------------------------------------------------------------------------
 // Migration intents (public /migrate page opt-ins in the target DB)
 // ---------------------------------------------------------------------------
+
+// Namespace for the run-level intents lock. Distinct from SLUG_ADVISORY_LOCK_NS
+// (that one is shared with the Go slug writers on purpose; this one is ours).
+const INTENTS_ADVISORY_LOCK_NS = 0x696e746e; // ASCII "intn"
+
+// claimIntentsConsumer serializes the --from-intents consumer against another
+// copy of itself (C12).
+//
+// The worklist is read, then processed, then written back. Two operators running
+// --from-intents at the same time — the plausible case, since the runbook has a
+// human doing this during a migration window — both read the same 'pending' rows
+// and both migrate every mentor in them.
+//
+// This is a SESSION-scoped advisory lock over the whole run rather than a
+// per-row `UPDATE ... RETURNING` claim, and that is the deliberate choice. A row
+// claim would need a 'claimed' status (a migration, plus a new value in the CHECK
+// constraint) and would leave rows stranded in it whenever a run died mid-pass:
+// with `pg_try_advisory_lock` a dead run's lock disappears with its connection,
+// so there is no stuck state to reason about and no recovery procedure to
+// document. Granularity costs nothing here — the consumer is single-threaded, so
+// per-row and per-run exclusion admit exactly the same amount of work.
+//
+// migrateMentor itself stays idempotent per slug; this stops the duplicate work,
+// the duplicate Claude translation spend and the duplicate "your profile has
+// been migrated" email, not a corrupt write.
+async function claimIntentsConsumer(target) {
+  const { rows } = await target.query('SELECT pg_try_advisory_lock($1, 0) AS acquired', [
+    INTENTS_ADVISORY_LOCK_NS,
+  ]);
+  return rows[0].acquired;
+}
 
 async function fetchPendingIntentSlugs(target) {
   const { rows } = await target.query(
@@ -1172,6 +1232,14 @@ async function main() {
 
   try {
     if (args.fromIntents) {
+      // Refuse rather than queue: a second operator wants to know that the run
+      // they were about to start is already happening, not to wait for it.
+      if (!(await claimIntentsConsumer(target))) {
+        fail(
+          'Another --from-intents run is already processing the pending intents ' +
+            '(advisory lock held). Wait for it to finish, or narrow this run with --slug/--csv.'
+        );
+      }
       const intentSlugs = await fetchPendingIntentSlugs(target);
       console.log(`   Pending migration intents: ${intentSlugs.length}`);
       slugs = [...new Set([...slugs, ...intentSlugs])];

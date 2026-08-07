@@ -484,6 +484,12 @@ services:
     container_name: openmentor-backend
     restart: always
     mem_limit: 512m
+    # Sized to cmd/api's own shutdown sequence (C12): 5s HTTP drain + 3s
+    # analytics drain + 5s tracer flush ~= 13s. Docker's default is 10s, so the
+    # tail of that sequence was SIGKILLed on every deploy — the code documented a
+    # graceful shutdown the container never let it finish. 20s leaves headroom
+    # without making a deploy wait on a hung dependency.
+    stop_grace_period: 20s
     # SECURITY (P10): explicit allowlist covering api/config/config.go's viper
     # bindings for cmd/api. Deliberately absent: SES_* and the email settings
     # (worker-only — cfg.Email has no reader in cmd/api), POSTGRES_PASSWORD,
@@ -597,6 +603,15 @@ services:
     restart: always
     mem_limit: 256m
     command: ["/app/worker"]
+    # Sized to cmd/worker's shutdown sequence (C12): up to 30s waiting for
+    # in-flight cron jobs, then 10s draining the trigger HTTP server, then 3s
+    # draining analytics. Docker's default 10s cut that off in the middle of the
+    # FIRST step, so a purge or finalize pass in flight during a deploy was
+    # SIGKILLed rather than drained — which is also why the cron lease releases
+    # with its connection rather than needing an explicit unlock. 50s covers the
+    # documented budget; a normal deploy with nothing in flight still stops in
+    # under a second, because every step completes immediately when idle.
+    stop_grace_period: 50s
     # SECURITY (P10): explicit allowlist. The worker is the only container that
     # sends email, so it is the only one holding SES_*. Deliberately absent:
     # the trigger URLs (it *serves* those routes), POSTGRES_PASSWORD, BACKUP_*,

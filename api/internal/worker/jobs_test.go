@@ -87,6 +87,9 @@ type fakeRepo struct {
 	notActive             map[string]bool
 	sortOrderTransactions [][]SortOrderUpdate
 	staleRequestsQueryLog []string // mentorIDs queried for reminder requests
+	// Cron lease (D82).
+	leasesRequested []string
+	leasesReleased  int
 }
 
 func newFakeRepo() *fakeRepo {
@@ -324,6 +327,16 @@ func (f *fakeRepo) PurgeProfile(_ context.Context, mentorID string, retentionDay
 	}
 	f.purged = append(f.purged, mentorID)
 	return f.purgeCounts[mentorID], nil
+}
+
+// AcquireJobLease always grants the lease here: these tests exercise the job
+// BODIES, and a fake that withheld it would skip every one of them. The
+// exclusivity of the real lease is a Postgres property, proven against a real
+// database in repository_lease_db_test.go; the skip and error paths are driven
+// from cron_lease_test.go with a purpose-built leaser.
+func (f *fakeRepo) AcquireJobLease(_ context.Context, job string) (JobLease, error) {
+	f.leasesRequested = append(f.leasesRequested, job)
+	return JobLease{Acquired: true, release: func() { f.leasesReleased++ }}, nil
 }
 
 // fakeEmailSender records every send attempt (including failed ones, to

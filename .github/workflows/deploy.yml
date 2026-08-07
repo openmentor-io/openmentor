@@ -128,6 +128,36 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
 
+      # The frontend bakes its observability configuration in at BUILD time
+      # (NEXT_PUBLIC_* are inlined by next build), so an unset one is not a
+      # degraded feature — it is a frontend that reports nothing, indistinguishable
+      # from a healthy one. This workflow used to pass five build args while
+      # infra/deploy.sh passed twenty, which is how an image built here shipped
+      # with empty PostHog and Faro config and uploaded no source maps (C12).
+      # Names only; never echo a secret value.
+      - name: Warn about unset frontend build inputs
+        env:
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+          NEXT_PUBLIC_FARO_COLLECTOR_URL: ${{ secrets.NEXT_PUBLIC_FARO_COLLECTOR_URL }}
+          FARO_APP_ID: ${{ secrets.FARO_APP_ID }}
+          FARO_STACK_ID: ${{ secrets.FARO_STACK_ID }}
+          FARO_API_KEY: ${{ secrets.FARO_API_KEY }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+        run: |
+          unset_names=()
+          for name in NEXT_PUBLIC_POSTHOG_KEY NEXT_PUBLIC_POSTHOG_HOST \
+                      NEXT_PUBLIC_FARO_COLLECTOR_URL FARO_APP_ID FARO_STACK_ID \
+                      FARO_API_KEY POSTHOG_PERSONAL_API_KEY POSTHOG_PROJECT_ID; do
+            if [ -z "${!name}" ]; then unset_names+=("$name"); fi
+          done
+          if [ "${#unset_names[@]}" -gt 0 ]; then
+            echo "::warning::Frontend observability build inputs are unset: ${unset_names[*]}. The image will ship without the corresponding analytics/error-tracking configuration, and source maps for those backends will not be uploaded."
+          else
+            echo "All frontend observability build inputs are set."
+          fi
+
       - name: Build and push frontend image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
@@ -139,12 +169,34 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ needs.validate-inputs.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Must stay in step with infra/deploy.sh's --build-arg list and with
+          # web/Dockerfile's ARGs: the two build paths have to produce the same
+          # image, or "it works when I deploy from my laptop" becomes a class of bug.
           build-args: |
             NEXT_PUBLIC_GO_API_URL=http://backend:8081
             NEXT_PUBLIC_S3_STORAGE_ENDPOINT=${{ secrets.NEXT_PUBLIC_S3_STORAGE_ENDPOINT }}
             NEXT_PUBLIC_S3_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_S3_STORAGE_BUCKET }}
             NEXT_PUBLIC_TURNSTILE_SITE_KEY=${{ secrets.TURNSTILE_SITE_KEY }}
             NEXT_PUBLIC_CDN_ENDPOINT=${{ secrets.NEXT_PUBLIC_CDN_ENDPOINT }}
+            NEXT_PUBLIC_APP_ENV=production
+            NEXT_PUBLIC_ANALYTICS_PROVIDER=posthog
+            NEXT_PUBLIC_ANALYTICS_EVENT_VERSION=v1
+            NEXT_PUBLIC_O11Y_SERVICE_NAMESPACE=openmentor-frontend
+            NEXT_PUBLIC_O11Y_FE_SERVICE_VERSION=${{ needs.validate-inputs.outputs.tag }}
+            NEXT_PUBLIC_FARO_APP_NAME=openmentor-frontend
+            NEXT_PUBLIC_FARO_COLLECTOR_URL=${{ secrets.NEXT_PUBLIC_FARO_COLLECTOR_URL }}
+            NEXT_PUBLIC_FARO_SAMPLE_RATE=0.5
+            NEXT_PUBLIC_POSTHOG_KEY=${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+            NEXT_PUBLIC_POSTHOG_HOST=${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+            POSTHOG_PROJECT_ID=${{ secrets.POSTHOG_PROJECT_ID }}
+            FARO_API_ENDPOINT=${{ secrets.FARO_API_ENDPOINT }}
+            FARO_APP_ID=${{ secrets.FARO_APP_ID }}
+            FARO_STACK_ID=${{ secrets.FARO_STACK_ID }}
+          # The two build-time credentials, as BuildKit secret mounts rather than
+          # build args (C12) — see the comment in web/Dockerfile.
+          secrets: |
+            posthog_personal_api_key=${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+            faro_api_key=${{ secrets.FARO_API_KEY }}
 
       - name: Image build summary
         env:

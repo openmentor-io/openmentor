@@ -4,6 +4,19 @@ const nextConfig = {
   // Enable standalone output for Docker deployments
   output: 'standalone',
 
+  // Emit browser source maps unconditionally (C12). Until this was set the only
+  // thing that turned them on was @posthog/nextjs-config, and only when
+  // POSTHOG_PERSONAL_API_KEY and POSTHOG_PROJECT_ID were both present — so the
+  // Faro half of the pipeline (scripts/filter-sourcemaps.js + faro-cli upload,
+  // both run from web/Dockerfile) had no map to filter or upload on any build
+  // lacking those two, which is every build the deploy workflow makes.
+  //
+  // Maps must not reach the pushed image: the runner stage copies .next/static
+  // wholesale, so a .map left there is served from the CDN. web/Dockerfile
+  // deletes them after the upload step, UNCONDITIONALLY — that deletion is what
+  // makes this setting safe, so the two have to stay together.
+  productionBrowserSourceMaps: true,
+
   // The social-card renderer (/api/og/mentor) needs runtime files the
   // standalone trace misses: its TTF fonts (read from disk) and next/og's
   // compiled @vercel/og package (satori + resvg/yoga wasm — the tracer does
@@ -169,7 +182,12 @@ module.exports = posthogUploadEnabled
       sourcemaps: {
         releaseName: 'openmentor-frontend',
         releaseVersion: process.env.NEXT_PUBLIC_O11Y_FE_SERVICE_VERSION || 'unknown',
-        deleteAfterUpload: true,
+        // false, not true (C12). `true` makes PostHog's CLI run with
+        // `--delete-after`, which erases every .map during `next build` — before
+        // the Dockerfile's Faro filter + upload step runs, so the two uploaders
+        // were mutually exclusive and PostHog silently won. The Dockerfile now
+        // owns the deletion instead, after both uploads.
+        deleteAfterUpload: false,
       },
     })
   : nextConfig

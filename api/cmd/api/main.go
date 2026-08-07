@@ -547,5 +547,27 @@ func main() { //nolint:gocyclo
 		logger.Fatal("Server forced to shutdown", zap.Error(err))
 	}
 
+	// After the HTTP server has drained, so nothing is still producing events,
+	// and before the deferred pool close. See the worker for the budget.
+	drainAnalytics(analyticsTracker)
+
 	logger.Info("Server exited")
+}
+
+// analyticsDrainTimeout bounds the shutdown drain of the analytics queue (C12).
+//
+// 3 seconds: exactly the tracker's own per-request HTTP timeout, so the drain
+// gets one in-flight request's worth of grace plus whatever the queue can clear
+// behind it, and an unreachable PostHog costs the deploy one timeout rather than
+// stalling it. It has to stay small for a second reason — this runs inside the
+// container's stop_grace_period, after the HTTP drain has already spent its own
+// budget, and an over-generous value here would simply be cut short by SIGKILL.
+const analyticsDrainTimeout = 3 * time.Second
+
+func drainAnalytics(tracker analytics.Tracker) {
+	ctx, cancel := context.WithTimeout(context.Background(), analyticsDrainTimeout)
+	defer cancel()
+	if err := analytics.Close(ctx, tracker); err != nil {
+		logger.Warn("Analytics events were dropped at shutdown", logger.RedactedError(err))
+	}
 }

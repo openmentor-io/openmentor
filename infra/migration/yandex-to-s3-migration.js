@@ -15,6 +15,7 @@
  * See migration/README.md for the SOURCE_* / DEST_* environment variables.
  */
 
+const crypto = require('crypto');
 const {
   S3Client,
   ListObjectsV2Command,
@@ -215,14 +216,32 @@ async function migrateObject(sourceClient, destClient, sourceObject) {
     }));
     const body = await streamToBuffer(getResponse.Body);
 
-    // Upload to AWS S3 with the exact same key
-    await destClient.send(new PutObjectCommand({
+    // Upload to AWS S3 with the exact same key, verified (C12).
+    //
+    // ChecksumSHA256 makes S3 hash what it received and reject the PUT with
+    // BadDigest on any disagreement, so a successful response IS the proof that
+    // the bytes that landed are the bytes that were read. Before this the copy was
+    // download-then-upload with nothing comparing the two — and the size/ETag
+    // existence check that makes re-runs idempotent would then accept a corrupted
+    // object as already migrated, so the error was permanent. The response echo is
+    // compared as well, so a destination that ignores the header is an error
+    // rather than an upload that was never actually verified.
+    const digest = crypto.createHash('sha256').update(body).digest('base64');
+    const putResponse = await destClient.send(new PutObjectCommand({
       Bucket: config.destBucket,
       Key: key,
       Body: body,
       ContentType: getResponse.ContentType || 'application/octet-stream',
       ContentLength: body.length,
+      ChecksumAlgorithm: 'SHA256',
+      ChecksumSHA256: digest,
     }));
+
+    if (putResponse.ChecksumSHA256 !== digest) {
+      throw new Error(
+        `checksum mismatch after upload: sent ${digest}, stored ${putResponse.ChecksumSHA256 || '(none returned)'}`
+      );
+    }
 
     console.log(`  ✅ Migrated: ${key} (${formatBytes(body.length)})`);
     stats.migrated++;

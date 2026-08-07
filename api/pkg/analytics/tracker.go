@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
@@ -16,7 +17,14 @@ import (
 )
 
 const (
-	DefaultPostHogHost       = "https://us.i.posthog.com"
+	// EU, matching config.go's POSTHOG_HOST default and errortracking's. This is
+	// a European product whose PostHog project lives in the EU region, and a
+	// package-level default that pointed at us.i.posthog.com was a
+	// GDPR-relevant divergence waiting for the one caller that constructs a
+	// Config without a host — a cross-region transfer nobody would have reviewed.
+	// (It was never reached in production: viper's POSTHOG_HOST default fills
+	// cfg.PostHog.Host even when the env var is set to the empty string.)
+	DefaultPostHogHost       = "https://eu.i.posthog.com"
 	DefaultEventVersion      = "v1"
 	defaultTimeout           = 3 * time.Second
 	defaultQueueSize         = 512
@@ -29,6 +37,25 @@ const (
 
 type Tracker interface {
 	Track(ctx context.Context, event string, distinctID string, properties map[string]interface{})
+}
+
+// Flusher is implemented by trackers that buffer events off the request path and
+// therefore have something to lose at shutdown. It is deliberately NOT part of
+// Tracker: every service and its test doubles depend on Tracker, and only the
+// two binaries that own a tracker's lifetime should be able to end it.
+type Flusher interface {
+	Close(ctx context.Context) error
+}
+
+// Close drains tracker's buffered events, bounded by ctx, and is a no-op for a
+// tracker that buffers nothing. Call it once, after the thing producing events
+// has stopped.
+func Close(ctx context.Context, tracker Tracker) error {
+	flusher, ok := tracker.(Flusher)
+	if !ok {
+		return nil
+	}
+	return flusher.Close(ctx)
 }
 
 type Provider string
@@ -59,6 +86,10 @@ type NoopTracker struct{}
 
 func (NoopTracker) Track(context.Context, string, string, map[string]interface{}) {}
 
+// Close satisfies Flusher so the binaries do not have to care which tracker they
+// were handed. Nothing is buffered, so there is nothing to drain.
+func (NoopTracker) Close(context.Context) error { return nil }
+
 type AnalyticsTracker struct {
 	provider            Provider
 	posthogAPIKey       string
@@ -69,6 +100,14 @@ type AnalyticsTracker struct {
 	eventVersion        string
 	httpClient          *http.Client
 	queue               chan queuedEvent
+
+	// closeMu guards closed against Track, so Close can close the queue knowing
+	// no Track is about to send on it. Track's send is non-blocking, so the read
+	// lock is never held for longer than a channel write.
+	closeMu sync.RWMutex
+	closed  bool
+	// drained is closed by the worker goroutine once it has emptied the queue.
+	drained chan struct{}
 }
 
 type queuedEvent struct {
@@ -144,6 +183,7 @@ func NewTracker(cfg *Config) Tracker {
 		eventVersion:        eventVersion,
 		httpClient:          httpClient,
 		queue:               make(chan queuedEvent, queueSize),
+		drained:             make(chan struct{}),
 	}
 	go tracker.runWorker()
 
@@ -179,6 +219,18 @@ func (t *AnalyticsTracker) Track(ctx context.Context, event string, distinctID s
 		occurredAt: time.Now().UTC(),
 	}
 
+	t.closeMu.RLock()
+	defer t.closeMu.RUnlock()
+	if t.closed {
+		// Sending here would panic on a closed channel. Events raised after the
+		// drain began are lost by definition; say so rather than crash the
+		// shutdown that is already under way.
+		logger.Warn("analytics tracker is closed; dropping event",
+			zap.String("provider", string(t.provider)),
+			zap.String("event", event))
+		return
+	}
+
 	select {
 	case t.queue <- item:
 	default:
@@ -190,8 +242,48 @@ func (t *AnalyticsTracker) Track(ctx context.Context, event string, distinctID s
 }
 
 func (t *AnalyticsTracker) runWorker() {
+	defer close(t.drained)
 	for event := range t.queue {
 		t.sendPostHog(event)
+	}
+}
+
+// Close stops accepting events and waits for the queued ones to be sent, giving
+// up when ctx expires.
+//
+// Without it a deploy silently discarded whatever was still queued — up to
+// defaultQueueSize (512) events, and in practice every event raised in the last
+// moments before SIGTERM, which is exactly the window a bad deploy's telemetry
+// lands in.
+//
+// The wait is bounded by ctx and by nothing else. The single sender goroutine is
+// mid-HTTP-request at worst, and that request already carries the client's own
+// timeout, so a hung PostHog can delay this by defaultTimeout and not longer.
+// After ctx expires the goroutine is simply abandoned: the process is exiting,
+// and blocking shutdown to finish telemetry would be the wrong trade.
+func (t *AnalyticsTracker) Close(ctx context.Context) error {
+	t.closeMu.Lock()
+	if t.closed {
+		t.closeMu.Unlock()
+		return nil
+	}
+	t.closed = true
+	queued := len(t.queue)
+	close(t.queue)
+	t.closeMu.Unlock()
+
+	select {
+	case <-t.drained:
+		logger.Info("Analytics queue drained",
+			zap.String("provider", string(t.provider)),
+			zap.Int("queued_events", queued))
+		return nil
+	case <-ctx.Done():
+		logger.Warn("Analytics drain deadline reached; queued events were dropped",
+			zap.String("provider", string(t.provider)),
+			zap.Int("queued_events", queued),
+			zap.Int("undrained_events", len(t.queue)))
+		return fmt.Errorf("analytics drain: %w", ctx.Err())
 	}
 }
 

@@ -28,9 +28,13 @@ The reasoning, so it can be re-examined rather than re-litigated: what P10
 documents is **co-location**, not disclosure. Every container received every
 secret, so a compromise of any one of them would have exposed all of them; no
 compromise, and no disclosure of any value, was demonstrated. The audit's
-build-ARG concern is weaker than it was written: `web/Dockerfile:62` sets
-`ENV POSTHOG_PERSONAL_API_KEY` inside the **builder** stage, and the `runner`
-stage begins at line 92, so the pushed image does not carry it.
+build-ARG concern is weaker than it was written: `web/Dockerfile` set
+`ENV POSTHOG_PERSONAL_API_KEY` inside the **builder** stage, and the pushed image
+is built from the `runner` stage, so it never carried the value. (C12/D85 has
+since moved `POSTHOG_PERSONAL_API_KEY` and `FARO_API_KEY` onto BuildKit secret
+mounts anyway — a build arg is the wrong tool for a credential even when the
+stage boundary happens to contain it. That change does not alter this decision:
+there was nothing to rotate before it, and there is nothing after it.)
 
 **What reverses this decision.** Evidence that the pre-P12 "Information to
 Gather" procedure in `infra/docs/troubleshooting.md` was ever actually run. That

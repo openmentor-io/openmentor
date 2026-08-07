@@ -8,8 +8,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.uber.org/zap"
 
 	"github.com/openmentor-io/openmentor/api/internal/repository"
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
 // This file holds the worker's own data access layer. The API's
@@ -155,6 +157,32 @@ type JobsRepository interface {
 	// closed, then erase one and everything attached to it.
 	ListPurgeableProfiles(ctx context.Context, retentionDays int) ([]PurgeableProfile, error)
 	PurgeProfile(ctx context.Context, mentorID string, retentionDays int) (PurgeCounts, error)
+
+	// AcquireJobLease is the cron mutual-exclusion primitive (D82).
+	AcquireJobLease(ctx context.Context, job string) (JobLease, error)
+}
+
+// jobLeaseNamespace is the first key of every cron advisory lock. Postgres
+// advisory locks share one cluster-wide space, so the two-int form namespaces
+// ours away from anything else that takes one — notably dbtest's schema
+// bootstrap lock and migrate-mentors.js's per-slug reservation.
+const jobLeaseNamespace = 0x6f6d6362 // "ombc": openmentor background cron
+
+// JobLease is the outcome of asking for a cron job's lease. A lease that was not
+// Acquired means somebody else is running that job right now; Release is safe to
+// call on it and does nothing.
+type JobLease struct {
+	Acquired bool
+	release  func()
+}
+
+// Release drops the lease. Always call it (defer) on a lease you acquired: the
+// underlying advisory lock is session-scoped, so it also disappears if the
+// process dies, but only when the connection actually closes.
+func (l JobLease) Release() {
+	if l.release != nil {
+		l.release()
+	}
 }
 
 // Repository is the pgx-backed JobsRepository implementation.
@@ -169,6 +197,56 @@ type Repository struct {
 // NewRepository builds the worker's data access layer on the worker DB pool.
 func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool, reviews: repository.NewReviewRepository(pool)}
+}
+
+// AcquireJobLease takes a session-scoped Postgres advisory lock named after the
+// job, so a scheduled tick and a manual POST /jobs/cron/<name> — or two worker
+// processes, if one is ever run alongside another — cannot both be inside the
+// same job. pg_try_advisory_lock never waits: the loser is told so and skips,
+// which is the desired behavior for a job that will run again on its schedule.
+//
+// The lock lives on a DEDICATED connection, not one borrowed from the worker
+// pool. A session lock has to be held for the whole run, so borrowing would pin
+// one of WORKER_DB_MAX_CONNS (5) connections per concurrently-leased job for
+// minutes at a time — and update-status-reminder and deactivate-pending-mentors
+// share a schedule, so that starves the pool the jobs themselves are querying
+// through. One extra short-lived connection per run is the cheaper side of that
+// trade.
+func (r *Repository) AcquireJobLease(ctx context.Context, job string) (JobLease, error) {
+	conn, err := pgx.ConnectConfig(ctx, r.pool.Config().ConnConfig.Copy())
+	if err != nil {
+		return JobLease{}, fmt.Errorf("open lease connection: %w", err)
+	}
+
+	var acquired bool
+	err = conn.QueryRow(ctx,
+		`SELECT pg_try_advisory_lock($1, hashtext($2))`, jobLeaseNamespace, job,
+	).Scan(&acquired)
+	if err != nil || !acquired {
+		closeLeaseConn(conn, job)
+		if err != nil {
+			return JobLease{}, fmt.Errorf("try advisory lock: %w", err)
+		}
+		return JobLease{}, nil
+	}
+
+	return JobLease{Acquired: true, release: func() {
+		// Closing the connection releases the lock; the explicit unlock is not
+		// required, and skipping it keeps release from needing a live context
+		// (the run's ctx may already be canceled by shutdown when we get here).
+		closeLeaseConn(conn, job)
+	}}, nil
+}
+
+func closeLeaseConn(conn *pgx.Conn, job string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := conn.Close(ctx); err != nil {
+		logger.Warn("Failed to close cron lease connection",
+			zap.String("job", job),
+			logger.RedactedError(err),
+		)
+	}
 }
 
 // GetJobMentorByID fetches a mentor row by uuid.
