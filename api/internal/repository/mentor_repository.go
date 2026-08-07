@@ -144,7 +144,8 @@ const mentorSelect = `
 			0
 		) + m.legacy_sessions_count AS mentee_count,
 		m.legacy_sessions_count,
-		m.photo_style, COALESCE(m.moderation_note, '')
+		m.photo_style, COALESCE(m.moderation_note, ''),
+		m.deleted_at
 	FROM mentors m
 	LEFT JOIN mentor_tags mt ON mt.mentor_id = m.id
 	LEFT JOIN tags t ON t.id = mt.tag_id
@@ -218,7 +219,11 @@ func (r *MentorRepository) Update(ctx context.Context, mentorId string, updates 
 		argPos++
 	}
 
-	query += fmt.Sprintf(", updated_at = NOW() WHERE id = $%d", argPos)
+	// A deleted profile (D70) accepts no edits, from its owner or from an admin.
+	// The services check this first and answer with a proper error; the guard
+	// here is what makes "unavailable for any action" true of the WRITE itself,
+	// for any caller that reaches Update without checking.
+	query += fmt.Sprintf(", updated_at = NOW() WHERE id = $%d AND deleted_at IS NULL", argPos)
 	args = append(args, mentorId)
 
 	_, err := r.pool.Exec(ctx, query, args...)
@@ -425,9 +430,16 @@ func (r *MentorRepository) GetByEmail(ctx context.Context, email string) (*model
 			COALESCE(competencies, ''), COALESCE(experience, ''), COALESCE(price, ''),
 			status, ''::text as tags, COALESCE(calendar_url, ''),
 			COALESCE(sort_order, 0), created_at, updated_at, 0 as mentee_count,
-			0 as legacy_sessions_count, photo_style, COALESCE(moderation_note, '')
+			0 as legacy_sessions_count, photo_style, COALESCE(moderation_note, ''),
+			deleted_at
 		FROM mentors
 		WHERE email = $1 AND status IN ('active', 'inactive', 'pending', 'draft')
+			-- A deleted profile (D70) is not a login candidate. Excluding it HERE,
+			-- rather than after the read, is what stops the magic-link email from
+			-- ever being generated: RequestLogin cannot mail a link for a mentor
+			-- it never found, and the caller gets the same enumeration-safe 200 an
+			-- unknown address gets.
+			AND deleted_at IS NULL
 		ORDER BY CASE status
 			WHEN 'active' THEN 0
 			WHEN 'inactive' THEN 1
@@ -457,8 +469,11 @@ func (r *MentorRepository) SetLoginToken(ctx context.Context, mentorId string, t
 
 // FetchAllMentorsFromDB retrieves all mentors from PostgreSQL for cache population
 func (r *MentorRepository) FetchAllMentorsFromDB(ctx context.Context) ([]*models.Mentor, error) {
+	// deleted_at IS NULL is redundant with status = 'active' today (deletion
+	// sets 'inactive'), and stays anyway: this is the query behind the whole
+	// public catalog, and it should not depend on a rule enforced elsewhere.
 	query := mentorSelect + `
-		WHERE m.status = 'active'
+		WHERE m.status = 'active' AND m.deleted_at IS NULL
 		GROUP BY m.id
 		ORDER BY m.sort_order
 	`
@@ -508,22 +523,31 @@ func (r *MentorRepository) FetchAllTagsFromDB(ctx context.Context) (map[string]s
 	return tags, nil
 }
 
+// moderationListSelect is the column list both moderation list queries share,
+// in the order scanModerationList expects.
+const moderationListSelect = `
+	SELECT
+		m.id,
+		m.legacy_id,
+		m.name,
+		COALESCE(m.email::text, ''),
+		COALESCE(m.preferred_contact, ''),
+		COALESCE(m.job_title, ''),
+		COALESCE(m.workplace, ''),
+		COALESCE(m.price, ''),
+		m.status,
+		m.deleted_at,
+		m.created_at
+	FROM mentors m
+`
+
 // ListForModeration retrieves mentors for moderation tabs, sorted by created_at DESC.
+// Deleted profiles (D70) are excluded from every status tab — they live in their
+// own tab, via ListDeletedForModeration, so an admin cannot act on one by
+// reaching it through "Approved".
 func (r *MentorRepository) ListForModeration(ctx context.Context, statuses []string) ([]models.AdminMentorListItem, error) {
-	query := `
-		SELECT
-			m.id,
-			m.legacy_id,
-			m.name,
-			COALESCE(m.email::text, ''),
-			COALESCE(m.preferred_contact, ''),
-			COALESCE(m.job_title, ''),
-			COALESCE(m.workplace, ''),
-			COALESCE(m.price, ''),
-			m.status,
-			m.created_at
-		FROM mentors m
-		WHERE m.status = ANY($1)
+	query := moderationListSelect + `
+		WHERE m.status = ANY($1) AND m.deleted_at IS NULL
 		ORDER BY m.created_at DESC
 	`
 
@@ -531,6 +555,27 @@ func (r *MentorRepository) ListForModeration(ctx context.Context, statuses []str
 	if err != nil {
 		return nil, fmt.Errorf("failed to list mentors for moderation: %w", err)
 	}
+	return scanModerationList(rows)
+}
+
+// ListDeletedForModeration retrieves the deleted profiles for the admin-only
+// "Deleted" tab, most recently deleted first — which is also the order in which
+// a restore is most likely to be wanted, and the reverse of the order the purge
+// job erases them in.
+func (r *MentorRepository) ListDeletedForModeration(ctx context.Context) ([]models.AdminMentorListItem, error) {
+	query := moderationListSelect + `
+		WHERE m.deleted_at IS NOT NULL
+		ORDER BY m.deleted_at DESC
+	`
+
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list deleted mentors: %w", err)
+	}
+	return scanModerationList(rows)
+}
+
+func scanModerationList(rows pgx.Rows) ([]models.AdminMentorListItem, error) {
 	defer rows.Close()
 
 	result := make([]models.AdminMentorListItem, 0)
@@ -546,6 +591,7 @@ func (r *MentorRepository) ListForModeration(ctx context.Context, statuses []str
 			&item.Workplace,
 			&item.Price,
 			&item.Status,
+			&item.DeletedAt,
 			&item.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan moderation mentor row: %w", err)
@@ -584,6 +630,7 @@ func (r *MentorRepository) GetForModerationByID(ctx context.Context, mentorID st
 			COALESCE(m.moderation_note, ''),
 			m.photo_style,
 			m.activated_at,
+			m.deleted_at,
 			(SELECT COUNT(*) FROM client_requests cr WHERE cr.mentor_id = m.id) AS requests_count,
 			m.created_at,
 			m.updated_at
@@ -617,6 +664,7 @@ func (r *MentorRepository) GetForModerationByID(ctx context.Context, mentorID st
 		&mentor.ModerationNote,
 		&mentor.PhotoStyle,
 		&mentor.ActivatedAt,
+		&mentor.DeletedAt,
 		&mentor.RequestsCount,
 		&mentor.CreatedAt,
 		&mentor.UpdatedAt,
@@ -631,11 +679,14 @@ func (r *MentorRepository) GetForModerationByID(ctx context.Context, mentorID st
 // SetMentorStatus updates a mentor's status. HARD GUARD: a mentor that has
 // ever been activated (activated_at IS NOT NULL) can never be moved back
 // to 'draft' — the WHERE clause blocks that transition on every write path.
+// A deleted profile (D70) is not moderatable at all; only RestoreMentor may
+// change its state.
 func (r *MentorRepository) SetMentorStatus(ctx context.Context, mentorID, status string) error {
 	query := `
 		UPDATE mentors
 		SET status = $1, updated_at = NOW()
 		WHERE id = $2
+			AND deleted_at IS NULL
 			AND NOT ($1 = 'draft' AND activated_at IS NOT NULL)
 	`
 	commandTag, err := r.pool.Exec(ctx, query, status, mentorID)
@@ -643,7 +694,7 @@ func (r *MentorRepository) SetMentorStatus(ctx context.Context, mentorID, status
 		return fmt.Errorf("failed to update mentor status: %w", err)
 	}
 	if commandTag.RowsAffected() == 0 {
-		return fmt.Errorf("mentor with ID %s not found (or transition to draft forbidden)", mentorID)
+		return fmt.Errorf("mentor with ID %s not found (or deleted, or transition to draft forbidden)", mentorID)
 	}
 	return nil
 }
@@ -658,7 +709,7 @@ func (r *MentorRepository) ApproveMentorModeration(ctx context.Context, mentorID
 			activated_at = COALESCE(activated_at, NOW()),
 			moderation_note = NULL,
 			updated_at = NOW()
-		WHERE id = $1
+		WHERE id = $1 AND deleted_at IS NULL
 	`
 	commandTag, err := r.pool.Exec(ctx, query, mentorID)
 	if err != nil {
@@ -681,7 +732,7 @@ func (r *MentorRepository) ReturnMentorToDraft(ctx context.Context, mentorID, no
 	query := `
 		UPDATE mentors
 		SET status = 'draft', moderation_note = $2, updated_at = NOW()
-		WHERE id = $1 AND activated_at IS NULL
+		WHERE id = $1 AND activated_at IS NULL AND deleted_at IS NULL
 	`
 	commandTag, err := r.pool.Exec(ctx, query, mentorID, note)
 	if err != nil {
@@ -744,6 +795,17 @@ func (r *MentorRepository) applyFilters(mentors []*models.Mentor, opts models.Fi
 // applySingleMentorFilters applies filtering options to a single mentor
 // Returns nil if mentor should be filtered out
 func (r *MentorRepository) applySingleMentorFilters(mentor *models.Mentor, opts models.FilterOptions) *models.Mentor {
+	// Deleted profiles (D70) are gone for everyone but admin reads. This check
+	// comes FIRST and is not covered by AllowAnyStatus on purpose: that option
+	// exists so a draft/pending mentor can reach their own profile, and a
+	// deleted profile must not be reachable by its owner either. Every full
+	// mentor read in this repository funnels through here, so a caller cannot
+	// forget it — GetBySlug (the public page, hence the 404), GetByMentorId
+	// (the portal) and GetAll (the catalog) all pass through this one filter.
+	if !opts.IncludeDeleted && mentor.DeletedAt != nil {
+		return nil
+	}
+
 	// Filter out mentors with non-public statuses — only 'active' and
 	// 'inactive' are valid on the public side of the app (draft/pending/
 	// declined are visible only to their owner via AllowAnyStatus, which is

@@ -547,3 +547,95 @@ groups:
               expression: A
               refId: B
               conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: om-profile-purge-stale
+        title: ProfilePurgeStale
+        condition: B
+        for: 10m
+        # NoData=Alerting, for the same reason DatabaseBackupStale uses it: the
+        # worker publishes these gauges on every scrape, so an EMPTY result means
+        # the worker, its /metrics endpoint or Alloy is gone — which is itself a
+        # purge that is not running. The per-deployment blind spot that argument
+        # leaves open is covered by om-profile-purge-pipeline-absent below.
+        noDataState: Alerting
+        execErrState: Error
+        # warning, not critical: retention lapsing is a compliance problem
+        # measured in days, not an outage measured in minutes. Nobody needs
+        # waking, but it must not sit in a backlog either — the retention window
+        # is published in the privacy policy (web/src/pages/privacy.tsx §6).
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "Profile retention purge on {{ $labels.deployment }} has not completed cleanly within its window"
+          description: "Deployment {{ $labels.deployment }}: the last CLEAN run of the purge-deleted-profiles sweep is {{ printf \"%.1f\" (divf $values.A.Value 3600) }} hours PAST the window derived from WORKER_PROFILE_PURGE_CRON (published as openmentor_profile_purge_max_age_seconds — two firing intervals, so one missed night is tolerated). Deleted mentor profiles are therefore outliving the retention period the privacy policy states, and the requests and reviews attached to them are still stored. A sweep that ran but failed on individual profiles does NOT refresh the gauge, so this fires for silent per-profile failures too — check `openmentor_profile_purge_profiles_total{outcome=\"failed\"}` and the worker's '[Purge Deleted Profiles] Failed to purge profile' lines, which name the mentor id. If the worker is up but cron is off, WORKER_CRON_ENABLED is false."
+        data:
+          # Same three properties as om-db-backup-stale, for the same reasons:
+          #   • `max by (deployment)`, never a global max() — a staging VM
+          #     remote-writes to this tenant with the same environment and
+          #     service_name, so a healthy staging sweep would otherwise hold
+          #     this Normal while production stops erasing. The label is stamped
+          #     in infra/alloy/config.alloy on the worker scrape.
+          #   • subtracting the PUBLISHED window rather than a literal, so
+          #     retuning WORKER_PROFILE_PURGE_CRON moves the alert with it.
+          #     Result is "seconds past the window", hence `> 0`.
+          #   • `a or b` unions the last clean sweep with the worker's start
+          #     time, so a freshly deployed worker gets one grace window without
+          #     last_success ever claiming a sweep that never ran — it stays 0,
+          #     which the `> 0` filter drops.
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: '(time() - max by (deployment) (openmentor_profile_purge_last_success_timestamp_seconds > 0 or openmentor_profile_purge_first_start_timestamp_seconds)) - max by (deployment) (openmentor_profile_purge_max_age_seconds)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: om-profile-purge-pipeline-absent
+        title: ProfilePurgePipelineAbsent
+        condition: B
+        # 15m, matching om-db-backup-pipeline-absent: long enough to ride out an
+        # Alloy or worker restart (a deploy does both), short enough that a dead
+        # pipeline is caught the same hour.
+        for: 15m
+        # noDataState: OK — an absent()-based query returning nothing is the
+        # HEALTHY case (every expected deployment is publishing). Alerting would
+        # page forever.
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, team: openmentor }
+        annotations:
+          summary: "Profile purge gauges for deployment {{ $labels.deployment }} have disappeared"
+          description: "Deployment {{ $labels.deployment }} has stopped remote-writing at least one openmentor_profile_purge_* gauge, so ProfilePurgeStale can no longer evaluate it — that rule's instance for this deployment ceases to exist instead of firing, because noDataState applies to an empty query result and not to a label value that vanished while other deployments keep reporting. Likely causes: the worker is down or crash-looping, WORKER_CRON_ENABLED=false (the gauges are published only when the scheduler registers the job, so cron off means retention is not being enforced at all), Alloy's worker scrape or its remote_write is broken, or DEPLOYMENT_NAME changed on the VM. Check `docker ps` and `docker logs openmentor-worker`, then `docker logs grafana-alloy`, and confirm with `count by (deployment) (openmentor_profile_purge_max_age_seconds)`."
+        data:
+          # One absent() term per gauge per EXPECTED deployment, with the
+          # equality matcher that makes absent() return a per-deployment
+          # instance — see om-db-backup-pipeline-absent for why a regex matcher
+          # would reintroduce the blind spot.
+          #
+          # expected-deployments: production
+          # absence-not-expected: staging, local
+          #   staging — ./deploy.sh --staging creates and destroys that VM, so an
+          #     absence rule for it would page on every intentional teardown.
+          #   local — infra/deploy-dev.sh sets DEPLOYMENT_NAME=local and the dev
+          #     overlay does not run alloy by default, so nothing local reaches
+          #     this tenant.
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              expr: 'absent(openmentor_profile_purge_last_success_timestamp_seconds{deployment="production"}) or absent(openmentor_profile_purge_first_start_timestamp_seconds{deployment="production"}) or absent(openmentor_profile_purge_max_age_seconds{deployment="production"})'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]

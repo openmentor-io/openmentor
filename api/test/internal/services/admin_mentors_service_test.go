@@ -23,10 +23,47 @@ type adminMockRepo struct {
 	setStatusCalls map[string]string // mentorID -> status
 	returnErr      error
 	approveErr     error
+
+	// Profile deletion (D70).
+	deletedList        []models.AdminMentorListItem
+	listDeletedCalled  bool
+	softDeleteCalled   bool
+	softDeleteRevoked  int
+	softDeleteErr      error
+	restoreCalled      bool
+	restoreErr         error
+	listForModCalls    [][]string
+	listForModeration  []models.AdminMentorListItem
+	listDeletedErrOnce error
 }
 
 func (m *adminMockRepo) ListForModeration(ctx context.Context, statuses []string) ([]models.AdminMentorListItem, error) {
-	return nil, nil
+	m.listForModCalls = append(m.listForModCalls, statuses)
+	return m.listForModeration, nil
+}
+
+func (m *adminMockRepo) ListDeletedForModeration(ctx context.Context) ([]models.AdminMentorListItem, error) {
+	m.listDeletedCalled = true
+	if m.listDeletedErrOnce != nil {
+		return nil, m.listDeletedErrOnce
+	}
+	return m.deletedList, nil
+}
+
+func (m *adminMockRepo) SoftDeleteMentor(ctx context.Context, mentorID string) (int, error) {
+	if m.softDeleteErr != nil {
+		return 0, m.softDeleteErr
+	}
+	m.softDeleteCalled = true
+	return m.softDeleteRevoked, nil
+}
+
+func (m *adminMockRepo) RestoreMentor(ctx context.Context, mentorID string) error {
+	if m.restoreErr != nil {
+		return m.restoreErr
+	}
+	m.restoreCalled = true
+	return nil
 }
 
 func (m *adminMockRepo) GetForModerationByID(ctx context.Context, mentorID string) (*models.AdminMentorDetails, error) {
@@ -72,8 +109,51 @@ func (m *adminMockRepo) ReturnMentorToDraft(ctx context.Context, mentorID, note 
 
 var _ services.AdminMentorsRepository = (*adminMockRepo)(nil)
 
+// adminFakeProfileService satisfies ProfileServiceInterface for the admin
+// service. Only the image stash/restore moves are recorded — they are the two
+// calls the admin deletion and restore paths are responsible for making.
+type adminFakeProfileService struct {
+	stashedImagesFor  []string
+	restoredImagesFor []string
+}
+
+func (f *adminFakeProfileService) SaveProfileByMentorId(context.Context, string, *models.SaveProfileRequest) error {
+	return nil
+}
+
+func (f *adminFakeProfileService) UploadPictureByMentorId(context.Context, string, *models.UploadProfilePictureRequest) (string, error) {
+	return "", nil
+}
+
+func (f *adminFakeProfileService) SetProfileStatusByMentorId(context.Context, string, string) error {
+	return nil
+}
+
+func (f *adminFakeProfileService) SubmitProfileByMentorId(context.Context, string) error {
+	return nil
+}
+
+func (f *adminFakeProfileService) DeleteProfileByMentorId(context.Context, string, string) error {
+	return nil
+}
+
+func (f *adminFakeProfileService) StashDeletedProfileImages(_ context.Context, mentorID string) {
+	f.stashedImagesFor = append(f.stashedImagesFor, mentorID)
+}
+
+func (f *adminFakeProfileService) RestoreDeletedProfileImages(_ context.Context, mentorID string) {
+	f.restoredImagesFor = append(f.restoredImagesFor, mentorID)
+}
+
 func newAdminTestService(repo *adminMockRepo, tracker *capturingTracker) *services.AdminMentorsService {
-	return services.NewAdminMentorsService(repo, nil, &config.Config{}, nil, tracker)
+	return services.NewAdminMentorsService(repo, &adminFakeProfileService{}, &config.Config{}, nil, tracker)
+}
+
+// newAdminTestServiceWithProfile exposes the fake for tests that assert on the
+// image moves.
+func newAdminTestServiceWithProfile(repo *adminMockRepo, tracker *capturingTracker) (*services.AdminMentorsService, *adminFakeProfileService) {
+	fake := &adminFakeProfileService{}
+	return services.NewAdminMentorsService(repo, fake, &config.Config{}, nil, tracker), fake
 }
 
 func adminSession(role models.ModeratorRole) *models.AdminSession {

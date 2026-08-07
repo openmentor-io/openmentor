@@ -31,6 +31,9 @@ import type {
   UpdateProfileStatusResponse,
   SubmitProfileResponse,
   AdminMentorReturnRequest,
+  AdminMentorDeleteRequest,
+  DeleteProfileRequest,
+  DeleteProfileResponse,
   RegisterMentorRequest,
   RegisterMentorResponse,
   MentorClientRequest,
@@ -494,6 +497,23 @@ class GoApiClient {
   }
 
   /**
+   * Delete the mentor's own profile (D70). The body carries the username the
+   * mentor retyped to confirm; the Go API verifies it against the session's own
+   * profile, so it confirms rather than selects.
+   */
+  async mentorDeleteProfile(
+    cookies: string,
+    payload: DeleteProfileRequest
+  ): Promise<DeleteProfileResponse> {
+    const { data } = await this.requestWithCookies<DeleteProfileResponse>(
+      'POST',
+      '/api/v1/mentor/profile/delete',
+      { cookies, body: payload as unknown as Record<string, unknown> }
+    )
+    return data
+  }
+
+  /**
    * Upload mentor's profile picture (using session auth)
    */
   async mentorUploadProfilePicture(
@@ -661,6 +681,33 @@ class GoApiClient {
       'POST',
       `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/return`,
       { cookies, body: payload as unknown as Record<string, unknown> }
+    )
+    return data.mentor
+  }
+
+  /**
+   * Delete a mentor's profile as an admin (D70). Body carries the target's
+   * username, retyped by the admin.
+   */
+  async adminDeleteMentor(
+    cookies: string,
+    mentorId: string,
+    payload: AdminMentorDeleteRequest
+  ): Promise<AdminMentorDetails> {
+    const { data } = await this.requestWithCookies<AdminMentorResponse>(
+      'POST',
+      `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/delete`,
+      { cookies, body: payload as unknown as Record<string, unknown> }
+    )
+    return data.mentor
+  }
+
+  /** Restore a deleted profile to 'inactive' — the only exit from deletion. */
+  async adminRestoreMentor(cookies: string, mentorId: string): Promise<AdminMentorDetails> {
+    const { data } = await this.requestWithCookies<AdminMentorResponse>(
+      'POST',
+      `/api/v1/admin/mentors/${encodeURIComponent(mentorId)}/restore`,
+      { cookies }
     )
     return data.mentor
   }

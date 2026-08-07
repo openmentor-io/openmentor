@@ -15,6 +15,7 @@ export { default as FilterPills } from './FilterPills'
 export { default as ProfileVisibilityCard } from './ProfileVisibilityCard'
 export { default as ShareProfileCard } from './ShareProfileCard'
 export { default as UsernameCard } from './UsernameCard'
+export { default as DeleteProfileCard } from './DeleteProfileCard'
 export {
   formatDate,
   formatDateTime,

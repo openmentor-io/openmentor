@@ -11,7 +11,9 @@ var ErrSessionSubjectGone = errors.New("session subject no longer exists")
 
 // Mentor statuses that may hold a portal session. Draft and pending mentors need
 // the portal to finish or fix their profile; inactive mentors manage their own
-// visibility from it. Only 'declined' is shut out.
+// visibility from it. 'declined' is shut out — as is the synthetic "deleted"
+// that MentorSessionState reports for a profile carrying deleted_at (D70),
+// which falls through to the default like any unknown value.
 //
 // This is the same rule the magic-link login applies at mint time; the session
 // middleware re-applies it per mutation so a mentor declined mid-session stops

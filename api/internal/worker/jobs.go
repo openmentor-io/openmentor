@@ -62,6 +62,16 @@ type Handlers struct {
 	devEmailOverride   string   // DEV_EMAIL_OVERRIDE: unlocks the email jobs off production
 	highlightedMentors []string // HIGHLIGHTED_MENTORS ids pinned by randomize-sort-order
 
+	// Profile purge (D70): WORKER_PROFILE_PURGE_CRON schedules the job,
+	// WORKER_PROFILE_PURGE_RETENTION_DAYS decides how long a deleted profile
+	// survives before it is erased. Deliberately NOT validated at boot
+	// (config.ValidateForWorker explains why) — instead NewHandlers substitutes
+	// the documented defaults for a missing or nonsensical value, and the purge
+	// repository refuses a non-positive retention outright, so a zero can never
+	// be read as "erase everything deleted".
+	profilePurgeCron          string
+	profilePurgeRetentionDays int
+
 	// DISCORD_MENTORS_PRIVATE_INVITE_LINK: private mentors' Discord invite,
 	// shown in the approval welcome email. Required — the template renders the
 	// section unconditionally (SES templates don't support {{#if}}), so an
@@ -96,8 +106,48 @@ func NewHandlers(repo JobsRepository, sender EmailSender, tracker analytics.Trac
 		devEmailOverride:   cfg.Email.DevEmailOverride,
 		highlightedMentors: parseHighlightedMentors(cfg.Worker.HighlightedMentors),
 
+		profilePurgeCron:          resolvePurgeCron(cfg.Worker.ProfilePurgeCron),
+		profilePurgeRetentionDays: resolvePurgeRetentionDays(cfg.Worker.ProfilePurgeRetentionDays),
+
 		discordInviteLink: strings.TrimSpace(cfg.Email.DiscordInviteLink),
 	}
+}
+
+// Profile purge fallbacks (D70). These mirror the viper defaults in
+// config.setDefaults — keep the two in step — and exist because a purge setting
+// must never be able to break the worker or, worse, be read as "erase
+// everything now":
+//
+//   - An unset value reaches here from any Config built without viper, which is
+//     every test that constructs one by hand.
+//   - A typo'd number (WORKER_PROFILE_PURGE_RETENTION_DAYS=thirty) parses to 0,
+//     and 0 days past deletion is EVERY deleted profile.
+//   - An empty schedule makes cron.AddJob fail, which fails NewCron, which
+//     stops the worker booting — taking every transactional email with it.
+//
+// So both fall back rather than propagate, loudly enough to find in the log.
+const (
+	defaultProfilePurgeCron          = "0 15 3 * * *"
+	defaultProfilePurgeRetentionDays = 30
+)
+
+func resolvePurgeCron(configured string) string {
+	if strings.TrimSpace(configured) != "" {
+		return configured
+	}
+	logger.Warn("WORKER_PROFILE_PURGE_CRON is empty; falling back to the default schedule",
+		zap.String("schedule", defaultProfilePurgeCron))
+	return defaultProfilePurgeCron
+}
+
+func resolvePurgeRetentionDays(configured int) int {
+	if configured > 0 {
+		return configured
+	}
+	logger.Warn("WORKER_PROFILE_PURGE_RETENTION_DAYS is unset or not a positive number; falling back to the default",
+		zap.Int("configured", configured),
+		zap.Int("retention_days", defaultProfilePurgeRetentionDays))
+	return defaultProfilePurgeRetentionDays
 }
 
 // parseHighlightedMentors mirrors randomize-sort-order/index.ts verbatim:
@@ -124,6 +174,10 @@ func (s *Server) RegisterJobRoutes(h *Handlers) {
 	s.RegisterHandler("/process-mentee-review", h.ProcessMenteeReview, "POST", "GET")
 	s.RegisterHandler("/request-process-finished", h.RequestProcessFinished, "GET")
 	s.RegisterHandler("/profile-migrated", h.ProfileMigrated)
+	// Profile deletion confirmations (D70), fired by the API for both the
+	// mentor-initiated and the admin-initiated action.
+	s.RegisterHandler("/profile-deleted", h.ProfileDeleted)
+	s.RegisterHandler("/profile-restored", h.ProfileRestored)
 }
 
 // sendEmail sends one message, recording metrics and logging failures.

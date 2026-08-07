@@ -81,6 +81,49 @@ func (h *MentorProfileHandler) SubmitProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SubmitProfileResponse{Success: true, Status: "pending"})
 }
 
+// DeleteProfile handles POST /api/v1/mentor/profile/delete — a mentor deleting
+// their OWN profile (D70). POST rather than DELETE on /profile because the body
+// carries the typed username confirmation, and a DELETE with a required body is
+// a shape proxies and clients handle inconsistently.
+//
+// The session decides WHICH profile goes; the body only confirms the mentor
+// meant it. On success every session for this mentor is already revoked, so the
+// client's next request will 401 — the response says success first so the UI can
+// show what happened before it gets logged out.
+func (h *MentorProfileHandler) DeleteProfile(c *gin.Context) {
+	session, err := middleware.GetMentorSession(c)
+	if err != nil {
+		respondError(c, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+
+	var req models.DeleteProfileRequest
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		respondErrorWithDetails(c, http.StatusBadRequest, "Invalid request body", gin.H{"message": bindErr.Error()}, bindErr)
+		return
+	}
+
+	err = h.profileService.DeleteProfileByMentorId(c.Request.Context(), session.MentorID, req.Username)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrDeleteConfirmationMismatch):
+			respondError(c, http.StatusBadRequest, "The username you entered does not match your profile", err)
+		case errors.Is(err, services.ErrProfileAlreadyDeleted):
+			respondError(c, http.StatusConflict, "This profile has already been deleted", err)
+		case errors.Is(err, apperrors.ErrNotFound):
+			respondError(c, http.StatusNotFound, "Profile not found", err)
+		default:
+			respondError(c, http.StatusInternalServerError, "Failed to delete profile", err)
+		}
+		return
+	}
+
+	logger.Info("Profile deleted via session",
+		zap.String("mentor_id", session.MentorID))
+
+	c.JSON(http.StatusOK, models.DeleteProfileResponse{Success: true})
+}
+
 // UpdateProfile handles POST /api/v1/mentor/profile
 // Updates the authenticated mentor's profile
 func (h *MentorProfileHandler) UpdateProfile(c *gin.Context) {

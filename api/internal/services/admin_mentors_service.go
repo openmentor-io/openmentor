@@ -35,6 +35,17 @@ var (
 	// ErrMentorAlreadyActivated guards the 'return' action: a mentor that
 	// has ever been active can never be moved back to draft.
 	ErrMentorAlreadyActivated = errors.New("mentor has already been activated and cannot be returned to draft")
+	// ErrMentorDeleted reports an action aimed at a deleted profile (D70).
+	// Deletion makes a profile inert: approve, decline, return, the status
+	// toggle, profile edits, picture uploads and username changes all refuse.
+	// Restore is the only way out.
+	ErrMentorDeleted = errors.New("this profile is deleted; restore it before making changes")
+	// ErrMentorAlreadyDeleted / ErrMentorNotDeleted are the two no-op outcomes
+	// of the delete and restore actions. Both mean the admin is acting on stale
+	// state — a second tab, a double submit — and both answer 409 rather than
+	// silently reporting success for a change that did not happen.
+	ErrMentorAlreadyDeleted = errors.New("this profile is already deleted")
+	ErrMentorNotDeleted     = errors.New("this profile is not deleted")
 )
 
 // AdminMentorsRepository is the mentor repository surface the admin
@@ -42,6 +53,7 @@ var (
 // tests substitute a fake.
 type AdminMentorsRepository interface {
 	ListForModeration(ctx context.Context, statuses []string) ([]models.AdminMentorListItem, error)
+	ListDeletedForModeration(ctx context.Context) ([]models.AdminMentorListItem, error)
 	GetForModerationByID(ctx context.Context, mentorID string) (*models.AdminMentorDetails, error)
 	GetTagIDByName(ctx context.Context, tagName string) (string, error)
 	Update(ctx context.Context, mentorID string, updates map[string]interface{}) error
@@ -49,6 +61,8 @@ type AdminMentorsRepository interface {
 	SetMentorStatus(ctx context.Context, mentorID, status string) error
 	ApproveMentorModeration(ctx context.Context, mentorID string) error
 	ReturnMentorToDraft(ctx context.Context, mentorID, note string) error
+	SoftDeleteMentor(ctx context.Context, mentorID string) (int, error)
+	RestoreMentor(ctx context.Context, mentorID string) error
 }
 
 var _ AdminMentorsRepository = (*repository.MentorRepository)(nil)
@@ -88,6 +102,16 @@ func (s *AdminMentorsService) ListMentors(
 	filter models.MentorModerationFilter,
 ) ([]models.AdminMentorListItem, error) {
 
+	// The deleted tab is not a status group (deletion is a timestamp, not a
+	// status — see migration 000013), so it takes its own repository method
+	// rather than a fourth entry in resolveStatuses.
+	if filter == models.MentorModerationFilterDeleted {
+		if session.Role != models.ModeratorRoleAdmin {
+			return nil, ErrAdminForbiddenAction
+		}
+		return s.mentorRepo.ListDeletedForModeration(ctx)
+	}
+
 	statuses, err := resolveStatuses(filter, session.Role)
 	if err != nil {
 		return nil, err
@@ -111,6 +135,13 @@ func (s *AdminMentorsService) GetMentor(
 	if err != nil {
 		return nil, err
 	}
+	// "Only an admin can see a deleted profile's details" (D70). A moderator is
+	// already blocked by the pending check below — deletion leaves status
+	// 'inactive' — but that is a consequence of how deletion happens to set
+	// status, not a rule about deletion. State the rule.
+	if mentor.DeletedAt != nil && session.Role != models.ModeratorRoleAdmin {
+		return nil, ErrAdminForbiddenAction
+	}
 	if session.Role == models.ModeratorRoleModerator && mentor.Status != mentorStatusPending {
 		return nil, ErrAdminForbiddenAction
 	}
@@ -128,6 +159,11 @@ func (s *AdminMentorsService) UpdateMentorProfile(
 	if err != nil {
 		s.trackAdminProfileUpdate(ctx, session, mentorID, "mentor_not_found_or_forbidden", nil)
 		return nil, err
+	}
+
+	if mentor.DeletedAt != nil {
+		s.trackAdminProfileUpdate(ctx, session, mentorID, "mentor_deleted", nil)
+		return nil, ErrMentorDeleted
 	}
 
 	if permissionErr := validateProfileUpdatePermissions(session, mentor); permissionErr != nil {
@@ -223,6 +259,16 @@ func (s *AdminMentorsService) UpdateMentorStatus(
 		})
 		return nil, err
 	}
+	if mentor.DeletedAt != nil {
+		s.tracker.Track(ctx, analytics.EventAdminMentorStatusUpdated, analytics.ModeratorDistinctID(session.ModeratorID), map[string]interface{}{
+			"moderator_id":     session.ModeratorID,
+			"moderator_role":   string(session.Role),
+			"target_mentor_id": mentorID,
+			"requested_status": status,
+			"outcome":          "mentor_deleted",
+		})
+		return nil, ErrMentorDeleted
+	}
 	if mentor.Status != mentorStatusActive && mentor.Status != mentorStatusInactive {
 		s.tracker.Track(ctx, analytics.EventAdminMentorStatusUpdated, analytics.ModeratorDistinctID(session.ModeratorID), map[string]interface{}{
 			"moderator_id":     session.ModeratorID,
@@ -275,7 +321,8 @@ func (s *AdminMentorsService) UploadMentorPicture(
 	}
 
 	// Existence check only — images are keyed by the mentor UUID itself.
-	if _, err := s.mentorRepo.GetForModerationByID(ctx, mentorID); err != nil {
+	target, err := s.mentorRepo.GetForModerationByID(ctx, mentorID)
+	if err != nil {
 		s.tracker.Track(ctx, analytics.EventAdminMentorPictureUploaded, analytics.ModeratorDistinctID(session.ModeratorID), map[string]interface{}{
 			"moderator_id":     session.ModeratorID,
 			"moderator_role":   string(session.Role),
@@ -283,6 +330,15 @@ func (s *AdminMentorsService) UploadMentorPicture(
 			"outcome":          "mentor_not_found",
 		})
 		return "", err
+	}
+	if target.DeletedAt != nil {
+		s.tracker.Track(ctx, analytics.EventAdminMentorPictureUploaded, analytics.ModeratorDistinctID(session.ModeratorID), map[string]interface{}{
+			"moderator_id":     session.ModeratorID,
+			"moderator_role":   string(session.Role),
+			"target_mentor_id": mentorID,
+			"outcome":          "mentor_deleted",
+		})
+		return "", ErrMentorDeleted
 	}
 	uploadURL, err := s.profileService.UploadPictureByMentorId(ctx, mentorID, req)
 	if err != nil {
@@ -342,6 +398,10 @@ func (s *AdminMentorsService) ReturnMentor(
 		trackReturn("mentor_not_found_or_forbidden")
 		return nil, err
 	}
+	if mentor.DeletedAt != nil {
+		trackReturn("mentor_deleted")
+		return nil, ErrMentorDeleted
+	}
 	if mentor.Status != mentorStatusPending {
 		trackReturn("invalid_transition")
 		return nil, fmt.Errorf("return is available only for pending mentors")
@@ -366,6 +426,131 @@ func (s *AdminMentorsService) ReturnMentor(
 	return s.mentorRepo.GetForModerationByID(ctx, mentorID)
 }
 
+// DeleteMentor is an admin deleting a mentor's profile (D70). Admin role only:
+// a moderator's remit is the pending queue, and deletion reaches profiles that
+// have been live for years.
+//
+// confirmUsername must match the TARGET profile's username. Unlike the mentor's
+// own deletion — where the typed name only has to match the session's profile —
+// this is the admin naming which profile they mean, on a page where the next
+// profile is one click away. It is still not a selector: the profile deleted is
+// the one in the URL, and a mismatch fails the request rather than redirecting
+// it.
+func (s *AdminMentorsService) DeleteMentor(
+	ctx context.Context,
+	session *models.AdminSession,
+	mentorID string,
+	confirmUsername string,
+) (*models.AdminMentorDetails, error) {
+
+	track := func(outcome string, extra map[string]interface{}) {
+		properties := map[string]interface{}{
+			"moderator_id":     session.ModeratorID,
+			"moderator_role":   string(session.Role),
+			"target_mentor_id": mentorID,
+			"outcome":          outcome,
+		}
+		for key, value := range extra {
+			properties[key] = value
+		}
+		s.tracker.Track(ctx, analytics.EventAdminMentorDeleted, analytics.ModeratorDistinctID(session.ModeratorID), properties)
+		annotateDeletionSpan(ctx, deletionActionDelete, deletionInitiatorAdmin, mentorID, outcome)
+	}
+
+	if session.Role != models.ModeratorRoleAdmin {
+		track("forbidden", nil)
+		return nil, ErrAdminForbiddenAction
+	}
+
+	mentor, err := s.mentorRepo.GetForModerationByID(ctx, mentorID)
+	if err != nil {
+		track("mentor_not_found", nil)
+		return nil, err
+	}
+	if mentor.DeletedAt != nil {
+		track("already_deleted", nil)
+		return nil, ErrMentorAlreadyDeleted
+	}
+	if !usernameConfirmationMatches(confirmUsername, mentor.Slug) {
+		track("confirmation_mismatch", nil)
+		return nil, ErrDeleteConfirmationMismatch
+	}
+
+	invitationsRevoked, err := s.mentorRepo.SoftDeleteMentor(ctx, mentorID)
+	if err != nil {
+		if errors.Is(err, repository.ErrMentorAlreadyDeleted) {
+			track("already_deleted", nil)
+			return nil, ErrMentorAlreadyDeleted
+		}
+		track("delete_failed", nil)
+		return nil, err
+	}
+
+	// Same confirmation email the mentor's own deletion sends. An admin deleting
+	// someone's profile is exactly the case where the mentor most needs to be
+	// told — they did not press the button and would otherwise discover it by
+	// finding their login broken.
+	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileDeletedTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
+
+	// Same image stash as the mentor's own deletion (D70): the profile's photos
+	// move to the S3 trash prefix, where the bucket lifecycle rule erases them.
+	s.profileService.StashDeletedProfileImages(ctx, mentorID)
+
+	track(outcomeSuccess, map[string]interface{}{
+		"from_status":         mentor.Status,
+		"invitations_revoked": invitationsRevoked,
+	})
+	return s.mentorRepo.GetForModerationByID(ctx, mentorID)
+}
+
+// RestoreMentor brings a deleted profile back as 'inactive' — the ONLY way out
+// of the deleted state, and admin-only. Inactive rather than active because the
+// profile was off the site while it was deleted; whoever restores it can
+// publish it with the status toggle as a separate, deliberate act.
+func (s *AdminMentorsService) RestoreMentor(
+	ctx context.Context,
+	session *models.AdminSession,
+	mentorID string,
+) (*models.AdminMentorDetails, error) {
+
+	track := func(outcome string) {
+		s.tracker.Track(ctx, analytics.EventAdminMentorRestored, analytics.ModeratorDistinctID(session.ModeratorID), map[string]interface{}{
+			"moderator_id":     session.ModeratorID,
+			"moderator_role":   string(session.Role),
+			"target_mentor_id": mentorID,
+			"outcome":          outcome,
+		})
+		annotateDeletionSpan(ctx, deletionActionRestore, deletionInitiatorAdmin, mentorID, outcome)
+	}
+
+	if session.Role != models.ModeratorRoleAdmin {
+		track("forbidden")
+		return nil, ErrAdminForbiddenAction
+	}
+
+	if err := s.mentorRepo.RestoreMentor(ctx, mentorID); err != nil {
+		if errors.Is(err, repository.ErrMentorNotDeleted) {
+			track("not_deleted")
+			return nil, ErrMentorNotDeleted
+		}
+		track("restore_failed")
+		return nil, err
+	}
+
+	// Tell the mentor their profile is back — they were told it was deleted, so
+	// leaving the reversal unannounced means their last word on the subject is
+	// wrong. It also matters practically: the profile comes back INACTIVE, so
+	// there is something for them to do.
+	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileRestoredTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
+
+	// Bring the profile's images back from the S3 trash prefix, so "nothing was
+	// lost" in the restore email covers the photo too (D70).
+	s.profileService.RestoreDeletedProfileImages(ctx, mentorID)
+
+	track(outcomeSuccess)
+	return s.mentorRepo.GetForModerationByID(ctx, mentorID)
+}
+
 func (s *AdminMentorsService) setModerationStatus(
 	ctx context.Context,
 	session *models.AdminSession,
@@ -378,6 +563,10 @@ func (s *AdminMentorsService) setModerationStatus(
 	if err != nil {
 		s.trackModerationAction(ctx, session, mentorID, action, "mentor_not_found_or_forbidden")
 		return nil, err
+	}
+	if mentor.DeletedAt != nil {
+		s.trackModerationAction(ctx, session, mentorID, action, "mentor_deleted")
+		return nil, ErrMentorDeleted
 	}
 	if session.Role == models.ModeratorRoleModerator && mentor.Status != mentorStatusPending {
 		s.trackModerationAction(ctx, session, mentorID, action, "forbidden")

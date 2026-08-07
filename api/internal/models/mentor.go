@@ -41,6 +41,14 @@ type Mentor struct {
 	// Status field for login eligibility checks
 	Status string `json:"status"`
 
+	// DeletedAt marks a deleted profile (D70). Non-nil means the profile is
+	// gone for every purpose except an admin's view of it and the purge job:
+	// no public page, no login link, no live review invitations. Deletion also
+	// sets Status to "inactive", so code that predates deletion sees a hidden
+	// profile rather than a live one — but "hidden" is not "gone", which is
+	// what the DeletedAt checks in the repository add.
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
 	// PhotoStyle is the auto-detected profile picture display style
 	// ('hero' for light uniform backgrounds, 'frame' otherwise).
 	PhotoStyle string `json:"photoStyle"`
@@ -108,6 +116,11 @@ type FilterOptions struct {
 	// everything but active/inactive). Used only by session-authenticated
 	// own-profile flows so draft/pending mentors can access their profile.
 	AllowAnyStatus bool
+	// IncludeDeleted keeps deleted profiles (D70) in the result. Deliberately
+	// separate from AllowAnyStatus, which the mentor's OWN-profile flows set:
+	// a deleted profile must stay invisible to its owner too, so only
+	// admin-side reads set this.
+	IncludeDeleted bool
 }
 
 // orZero unwraps a column scanned through a pointer: NULL becomes the field's
@@ -167,6 +180,7 @@ func ScanMentor(row pgx.Row) (*Mentor, error) {
 		&m.LegacySessionsCount,
 		&m.PhotoStyle,
 		&moderationNote,
+		&m.DeletedAt,
 	)
 	if err != nil {
 		return nil, err

@@ -41,6 +41,20 @@ type SubmitProfileResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// DeleteProfileRequest is a mentor deleting their own profile (D70). The
+// mentor retypes their username to confirm; the server verifies it against the
+// session's own mentor row, so the typed value is a confirmation step and never
+// a selector for WHICH profile gets deleted.
+type DeleteProfileRequest struct {
+	Username string `json:"username" binding:"required,max=64"`
+}
+
+// DeleteProfileResponse represents the response after deleting a profile.
+type DeleteProfileResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
 // UploadProfilePictureRequest represents a profile picture upload request
 type UploadProfilePictureRequest struct {
 	Image       string `json:"image" binding:"required"`

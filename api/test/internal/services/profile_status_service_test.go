@@ -31,6 +31,28 @@ type statusMockRepo struct {
 	setStatusMentorID   string
 	setStatusStatus     string
 	touchUpdatedAtCalls int
+
+	// Profile deletion (D70).
+	softDeleteCalled   bool
+	softDeleteMentorID string
+	softDeleteRevoked  int
+	softDeleteErr      error
+}
+
+func (m *statusMockRepo) SoftDeleteMentor(ctx context.Context, mentorID string) (int, error) {
+	if m.softDeleteErr != nil {
+		return 0, m.softDeleteErr
+	}
+	m.softDeleteCalled = true
+	m.softDeleteMentorID = mentorID
+	return m.softDeleteRevoked, nil
+}
+
+func (m *statusMockRepo) ListAllMentorSlugs(ctx context.Context, mentorID string) ([]string, error) {
+	if m.mentor != nil && m.mentor.Slug != "" {
+		return []string{m.mentor.Slug}, nil
+	}
+	return nil, nil
 }
 
 func (m *statusMockRepo) GetByMentorId(ctx context.Context, mentorID string, opts models.FilterOptions) (*models.Mentor, error) {

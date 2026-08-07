@@ -47,7 +47,7 @@ export default function Privacy(): JSX.Element {
         <Section className="bg-white py-12">
           <div className="prose mx-auto max-w-[720px] px-4 prose-headings:font-display prose-headings:font-extrabold prose-headings:uppercase prose-h2:text-xl prose-h2:tracking-[-0.01em] prose-h3:text-base prose-hr:border-line">
             <p>
-              <strong>Last updated:</strong> 9 July 2026
+              <strong>Last updated:</strong> 6 August 2026
             </p>
 
             <p>
@@ -250,19 +250,33 @@ export default function Privacy(): JSX.Element {
 
             <p>
               We retain personal data for as long as it remains relevant to providing the service,
-              and we delete it on request (see section 7). We do not currently apply fixed automatic
-              expiry periods to service data; your erasure request is honoured at any time.
+              and we delete it on request (see section 7). Apart from deleted mentor profiles,
+              described below, we do not apply fixed automatic expiry periods to service data; your
+              erasure request is honoured at any time.
             </p>
 
             <ul>
               <li>
-                <strong>Mentor profiles</strong> — kept while the profile is active on the platform;
-                deleted upon your deletion request or account removal.
+                <strong>Mentor profiles</strong> — kept while the profile is on the platform. You
+                can delete your profile yourself at any time from your profile page, and an
+                administrator can delete it on your request. A deleted profile is immediately
+                removed from public view: its page returns &ldquo;not found&rdquo;, it disappears
+                from the catalog and from search, no further login links are issued for it, and any
+                outstanding review invitations sent on its behalf stop working.
+              </li>
+              <li>
+                <strong>Deleted mentor profiles</strong> — retained for a short recovery window
+                (currently <strong>30 days</strong>) so that a deletion made in error can be undone
+                by an administrator, then <strong>permanently erased</strong> by an automated
+                process. Erasure removes the profile together with the mentee contact requests and
+                session reviews attached to it. After that point the data cannot be recovered, by
+                you or by us.
               </li>
               <li>
                 <strong>Mentee contact requests and reviews</strong> — kept while they remain
                 relevant to the service (for example, so the mentor can respond to an open request
-                and so reviews remain attributable); deleted or anonymized upon your request.
+                and so reviews remain attributable); deleted or anonymized upon your request, and
+                erased with the mentor profile they belong to as described above.
               </li>
               <li>
                 <strong>Login tokens</strong> — expire within minutes of issuance; sessions expire per
@@ -305,6 +319,16 @@ export default function Privacy(): JSX.Element {
                 ; you may also complain to the supervisory authority of your own EU/EEA country.
               </li>
             </ul>
+
+            <p>
+              <strong>Erasing your mentor profile yourself.</strong> You do not need to email us to
+              exercise your right to erasure for a mentor profile: sign in and use{' '}
+              <strong>Delete profile</strong> on your profile page. The profile leaves public view
+              immediately and is permanently erased after the recovery window in section 6, along
+              with the contact requests and reviews attached to it. If you delete it by mistake,
+              contact us as soon as possible — an administrator can restore it until that window
+              closes.
+            </p>
 
             <p>
               To exercise any of these rights, email{' '}

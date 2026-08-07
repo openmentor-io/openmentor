@@ -26,6 +26,13 @@ type ProfileServiceInterface interface {
 	UploadPictureByMentorId(ctx context.Context, mentorId string, req *models.UploadProfilePictureRequest) (string, error)
 	SetProfileStatusByMentorId(ctx context.Context, mentorId string, status string) error
 	SubmitProfileByMentorId(ctx context.Context, mentorId string) error
+	DeleteProfileByMentorId(ctx context.Context, mentorId string, confirmUsername string) error
+	// StashDeletedProfileImages / RestoreDeletedProfileImages move a profile's
+	// images into and out of the S3 trash prefix (D70). On the interface so the
+	// admin deletion and restore drive the SAME storage moves as the mentor's
+	// own deletion — the admin service holds no storage client of its own.
+	StashDeletedProfileImages(ctx context.Context, mentorId string)
+	RestoreDeletedProfileImages(ctx context.Context, mentorId string)
 }
 
 // MentorConfirmationServiceInterface defines the public email-confirmation
@@ -90,6 +97,8 @@ type AdminMentorsServiceInterface interface {
 	ReturnMentor(ctx context.Context, session *models.AdminSession, mentorID string, reason string) (*models.AdminMentorDetails, error)
 	UpdateMentorStatus(ctx context.Context, session *models.AdminSession, mentorID string, status string) (*models.AdminMentorDetails, error)
 	UploadMentorPicture(ctx context.Context, session *models.AdminSession, mentorID string, req *models.UploadProfilePictureRequest) (string, error)
+	DeleteMentor(ctx context.Context, session *models.AdminSession, mentorID string, confirmUsername string) (*models.AdminMentorDetails, error)
+	RestoreMentor(ctx context.Context, session *models.AdminSession, mentorID string) (*models.AdminMentorDetails, error)
 }
 
 // AdminRequestsServiceInterface defines admin access to the requests a mentor

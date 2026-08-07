@@ -56,6 +56,11 @@ func (r *MentorRepository) ConsumeLoginToken(ctx context.Context, token string) 
 		SET login_token = NULL, login_token_expires_at = NULL, updated_at = NOW()
 		WHERE login_token = $1
 			AND login_token_expires_at >= NOW()
+			-- A deleted profile (D70) cannot be logged into. The delete clears
+			-- login_token in the same transaction, so this predicate is belt to
+			-- that braces — and it is the belt that holds if a link was minted
+			-- concurrently with the delete.
+			AND deleted_at IS NULL
 		RETURNING id, legacy_id, name, status, session_version
 	`
 
@@ -80,9 +85,20 @@ func (r *MentorRepository) ConsumeLoginToken(ctx context.Context, token string) 
 // MentorSessionState reads the two fields a live mentor session is checked
 // against: the current status and the revocation counter. One primary-key
 // lookup, and narrow for the same reason as ConsumedMentorLogin.
+//
+// A deleted profile (D70) reports the synthetic status "deleted", which no
+// branch of models.MayHoldMentorSession accepts — so the session middleware
+// rejects the request and clears the cookie through the path it already had for
+// a declined mentor. Reporting it as a status rather than adding a third return
+// value keeps ONE definition of "may this session continue"; a parallel boolean
+// would be a second rule to forget. Deletion also bumps session_version, so a
+// live session is already revoked by the time this is consulted; this is what
+// answers correctly if that bump is ever lost.
 func (r *MentorRepository) MentorSessionState(ctx context.Context, mentorID string) (status string, sessionVersion int, err error) {
-	err = r.pool.QueryRow(ctx,
-		`SELECT status, session_version FROM mentors WHERE id = $1`, mentorID,
+	err = r.pool.QueryRow(ctx, `
+		SELECT CASE WHEN deleted_at IS NOT NULL THEN 'deleted' ELSE status END,
+			session_version
+		FROM mentors WHERE id = $1`, mentorID,
 	).Scan(&status, &sessionVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", 0, ErrSessionSubjectGone

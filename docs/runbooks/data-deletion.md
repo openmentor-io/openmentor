@@ -17,7 +17,21 @@
 ## Procedure
 
 1. **Verify identity**: reply from the address on file; for mentors, ask them to trigger a magic-link login or reply from the registered email. Never delete on a third-party's word.
-2. **Mentor deletion** (SQL, run in a transaction):
+2. **Mentor deletion — prefer the product flow (D70), not SQL.** Since profile
+   deletion shipped, the mentor can delete their own profile from their profile
+   page, and an admin can delete it from the moderation panel. That path does
+   everything this runbook's manual steps do, plus the parts that are easy to
+   forget by hand: it revokes sessions and outstanding review invitations,
+   moves the profile images — UUID-keyed **and** legacy slug-keyed — into the
+   bucket's `deleted/` trash prefix (erased by the bucket lifecycle rule), and
+   the worker's nightly purge erases the rows, requests and reviews after the
+   retention window (`WORKER_PROFILE_PURGE_RETENTION_DAYS`). For a GDPR
+   deadline shorter than the retention window, delete via the product flow,
+   then backdate `deleted_at` so the next nightly sweep erases the rows:
+   `UPDATE mentors SET deleted_at = NOW() - make_interval(days => <retention>+1) WHERE id = $MENTOR_ID;`
+   The manual SQL below remains for cases the product flow cannot reach (e.g.
+   a mentor row in a broken state).
+   **Mentor deletion, manual path** (SQL, run in a transaction):
    ```sql
    -- find the mentor
    SELECT id, slug, name, email FROM mentors WHERE email = $1;
@@ -49,6 +63,6 @@
 
 ## Notes
 
-- **Retention model (D13):** there is no scheduled/automatic expiry of service data — data is retained while relevant to the service and deleted on request. That makes this runbook the primary erasure mechanism; handle requests promptly and completely. (Exception: login tokens, sessions, and observability/log data expire on their own TTLs.)
+- **Retention model (D13, amended by D70):** service data is retained while relevant and deleted on request, with one scheduled exception — DELETED mentor profiles are automatically erased by the worker's nightly purge once `WORKER_PROFILE_PURGE_RETENTION_DAYS` has passed, and their images by the bucket lifecycle rule on the `deleted/` prefix. For everything else this runbook remains the primary erasure mechanism; handle requests promptly and completely. (Login tokens, sessions, and observability/log data expire on their own TTLs.)
 - Backups: managed-Postgres backups age out on their retention schedule; deletion from backups is not immediate — the privacy policy states this (section 6, Backups).
-- v2: self-service deletion from the mentor dashboard is tracked as a post-migration improvement.
+- Self-service deletion shipped with D70 (profile page → Delete profile); this runbook now mainly covers mentee erasure, analytics, and mentor rows the product flow cannot reach.

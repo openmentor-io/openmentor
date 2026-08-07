@@ -42,6 +42,10 @@ type JobMentor struct {
 	// registration email confirmation token.
 	ModerationNote         string
 	EmailConfirmationToken string
+	// DeletedAt is set only by GetJobMentorByIDIncludingDeleted — the ordinary
+	// lookup filters deleted profiles out, so it is always nil there (D70).
+	// The deletion-notice jobs use it as their replay guard.
+	DeletedAt *time.Time
 }
 
 // JobRequest is the client_requests row shape the job handlers need,
@@ -121,6 +125,7 @@ type SortOrderUpdate struct {
 // map "not found" to a 404 without inspecting driver errors.
 type JobsRepository interface {
 	GetJobMentorByID(ctx context.Context, mentorID string) (*JobMentor, error)
+	GetJobMentorByIDIncludingDeleted(ctx context.Context, mentorID string) (*JobMentor, error)
 	CountActiveMentorsByEmail(ctx context.Context, email, excludeMentorID string) (int, error)
 	FinalizeNewMentor(ctx context.Context, params FinalizeNewMentorParams) (applied bool, err error)
 	ReleaseNewMentorFinalization(ctx context.Context, params FinalizeNewMentorParams) error
@@ -145,6 +150,11 @@ type JobsRepository interface {
 	DeactivateMentor(ctx context.Context, mentorID string) (applied bool, err error)
 	ListActiveMentorIDs(ctx context.Context) ([]string, error)
 	SetSortOrders(ctx context.Context, updates []SortOrderUpdate) error
+
+	// Profile purge (D70): list the deleted profiles whose retention window has
+	// closed, then erase one and everything attached to it.
+	ListPurgeableProfiles(ctx context.Context, retentionDays int) ([]PurgeableProfile, error)
+	PurgeProfile(ctx context.Context, mentorID string, retentionDays int) (PurgeCounts, error)
 }
 
 // Repository is the pgx-backed JobsRepository implementation.
@@ -162,16 +172,49 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 // GetJobMentorByID fetches a mentor row by uuid.
-// Mirrors: SELECT * FROM mentors WHERE id = $1 (func app).
+// Mirrors: SELECT * FROM mentors WHERE id = $1 (func app), plus the deletion
+// guard below.
+//
+// A DELETED profile (D70) reads as absent, and that is the single edit that
+// stops the worker emailing a mentor who no longer exists. Every one of the
+// eight jobs that reaches a mentor through this function does so in order to
+// email them or act on their behalf — the login link, the confirmation, the
+// moderation outcome, the new-request notification — and every one of them
+// already branches on a nil mentor, because the row could always have been
+// missing. Filtering HERE therefore reuses eight existing, tested "not found"
+// paths instead of adding a deletion check to eight handlers, where the ninth
+// would be the one that gets forgotten.
 func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*JobMentor, error) {
+	return r.fetchJobMentor(ctx, mentorID, false)
+}
+
+// GetJobMentorByIDIncludingDeleted is the ONE deliberate exception to the filter
+// above: it returns the mentor whether or not the profile is deleted.
+//
+// Exactly two callers may use it — the profile-deleted and profile-restored
+// notices (D70) — because those emails are ABOUT the deletion, so refusing to
+// load a deleted profile would make the confirmation unsendable. Anything else
+// that wants a mentor wants to act on a live one and must use GetJobMentorByID.
+// It is a separate method rather than a boolean on the existing one so that
+// "email a deleted mentor" is a decision somebody typed out, and so the callers
+// are one grep away.
+func (r *Repository) GetJobMentorByIDIncludingDeleted(ctx context.Context, mentorID string) (*JobMentor, error) {
+	return r.fetchJobMentor(ctx, mentorID, true)
+}
+
+func (r *Repository) fetchJobMentor(ctx context.Context, mentorID string, includeDeleted bool) (*JobMentor, error) {
+	deletionGuard := "AND deleted_at IS NULL"
+	if includeDeleted {
+		deletionGuard = ""
+	}
 	query := `
 		SELECT id, legacy_id, name, COALESCE(email::text, ''), status,
 			COALESCE(preferred_contact, ''), COALESCE(slug, ''), COALESCE(job_title, ''),
 			COALESCE(workplace, ''), COALESCE(price, ''), COALESCE(calendar_url, ''),
-			COALESCE(moderation_note, ''), COALESCE(email_confirmation_token, '')
+			COALESCE(moderation_note, ''), COALESCE(email_confirmation_token, ''),
+			deleted_at
 		FROM mentors
-		WHERE id = $1
-	`
+		WHERE id = $1 ` + deletionGuard
 
 	var m JobMentor
 	err := r.pool.QueryRow(ctx, query, mentorID).Scan(
@@ -179,6 +222,7 @@ func (r *Repository) GetJobMentorByID(ctx context.Context, mentorID string) (*Jo
 		&m.PreferredContact, &m.Slug, &m.JobTitle,
 		&m.Workplace, &m.Price, &m.CalendarURL,
 		&m.ModerationNote, &m.EmailConfirmationToken,
+		&m.DeletedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -366,10 +410,18 @@ func (r *Repository) GetJobRequestByID(ctx context.Context, requestID string) (*
 // SELECT cr.*, m.name AS mentor_name FROM client_requests cr
 // JOIN mentors m ON m.id = cr.mentor_id WHERE cr.id = $1 (inner join: a
 // request whose mentor row is gone reads as "not found", like the func).
+//
+// The join carries the same deleted_at guard as GetJobMentorByID (D70): this is
+// the one job path that reaches a mentor WITHOUT that lookup, and skipping the
+// guard here would let a trigger retried after the deletion mint a fresh review
+// invitation and mail the mentee a link naming the deleted mentor. The link
+// would die at the eligibility check, but the email itself is exactly what the
+// deletion lockout exists to stop — and the unspendable invitation row would
+// pollute the outstanding-invitation count the H4 cutover is gated on (D4).
 func (r *Repository) GetJobRequestWithMentorName(ctx context.Context, requestID string) (*JobRequest, error) {
 	query := `SELECT ` + jobRequestColumns + `, m.name AS mentor_name
 		FROM client_requests cr
-		JOIN mentors m ON m.id = cr.mentor_id
+		JOIN mentors m ON m.id = cr.mentor_id AND m.deleted_at IS NULL
 		WHERE cr.id = $1`
 
 	var req JobRequest
@@ -547,6 +599,11 @@ func (r *Repository) ListMentorsWithStaleInProgressRequests(ctx context.Context)
 		INNER JOIN client_requests cr ON cr.mentor_id = m.id
 		WHERE
 			m.status != 'declined'
+			-- The only one of the cron mentor queries that needs this spelled
+			-- out: it selects on "not declined" rather than "active", so a
+			-- deleted profile (D70, status 'inactive') would otherwise match and
+			-- be nagged about requests it can no longer see.
+			AND m.deleted_at IS NULL
 			AND cr.status_changed_at < NOW() - INTERVAL '120 hours'
 			AND cr.status IN ('contacted', 'working')
 		GROUP BY m.id, m.name, m.email

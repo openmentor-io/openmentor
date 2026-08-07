@@ -30,7 +30,7 @@ func (h *AdminMentorsHandler) ListMentors(c *gin.Context) {
 
 	filter := models.MentorModerationFilter(c.DefaultQuery("status", string(models.MentorModerationFilterPending)))
 	if !filter.IsValid() {
-		respondError(c, http.StatusBadRequest, "Invalid status filter", errors.New("status must be pending, approved, or declined"))
+		respondError(c, http.StatusBadRequest, "Invalid status filter", errors.New("status must be pending, approved, declined or deleted"))
 		return
 	}
 
@@ -202,9 +202,67 @@ func (h *AdminMentorsHandler) UploadMentorPicture(c *gin.Context) {
 	})
 }
 
+// DeleteMentor handles POST /api/v1/admin/mentors/:id/delete (admin role only).
+// The body carries the target's username, retyped by the admin — see
+// AdminMentorsService.DeleteMentor for why it confirms rather than selects.
+func (h *AdminMentorsHandler) DeleteMentor(c *gin.Context) {
+	session, err := middleware.GetAdminSession(c)
+	if err != nil {
+		respondError(c, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+
+	mentorID := c.Param("id")
+	if mentorID == "" {
+		respondError(c, http.StatusBadRequest, "Invalid mentor ID", errors.New("missing route param: id"))
+		return
+	}
+
+	var req models.AdminMentorDeleteRequest
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		respondErrorWithDetails(c, http.StatusBadRequest, "Invalid request body", gin.H{"message": bindErr.Error()}, bindErr)
+		return
+	}
+
+	mentor, err := h.service.DeleteMentor(c.Request.Context(), session, mentorID, req.Username)
+	if err != nil {
+		h.respondServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, models.AdminMentorResponse{Mentor: mentor})
+}
+
+// RestoreMentor handles POST /api/v1/admin/mentors/:id/restore (admin role
+// only): the sole exit from the deleted state. No confirmation body — restoring
+// is the reversible direction.
+func (h *AdminMentorsHandler) RestoreMentor(c *gin.Context) {
+	h.withAdminMentor(c, h.service.RestoreMentor)
+}
+
 func (h *AdminMentorsHandler) respondServiceError(c *gin.Context, err error) {
 	if errors.Is(err, services.ErrAdminForbiddenAction) {
 		respondError(c, http.StatusForbidden, "Access denied", err)
+		return
+	}
+
+	if errors.Is(err, services.ErrMentorDeleted) {
+		respondError(c, http.StatusConflict, "This profile is deleted; restore it before making changes", err)
+		return
+	}
+
+	if errors.Is(err, services.ErrMentorAlreadyDeleted) {
+		respondError(c, http.StatusConflict, "This profile is already deleted", err)
+		return
+	}
+
+	if errors.Is(err, services.ErrMentorNotDeleted) {
+		respondError(c, http.StatusConflict, "This profile is not deleted", err)
+		return
+	}
+
+	if errors.Is(err, services.ErrDeleteConfirmationMismatch) {
+		respondError(c, http.StatusBadRequest, "The username you entered does not match this profile", err)
 		return
 	}
 

@@ -155,6 +155,10 @@ func registerMentorAdminRoutes(
 	mentor.POST("/profile/submit", profileRateLimiter.Middleware(), mentorProfileHandler.SubmitProfile)
 	mentor.POST("/profile/picture", profileRateLimiter.Middleware(), uploadAdmission.Middleware(),
 		middleware.BodySizeLimitMiddleware(middleware.MaxImageBodyBytes), mentorProfileHandler.UploadPicture)
+	// Profile deletion (D70). Rate-limited like the other profile mutations and
+	// body-capped: the payload is one username.
+	mentor.POST("/profile/delete", profileRateLimiter.Middleware(),
+		middleware.BodySizeLimitMiddleware(4*1024), mentorProfileHandler.DeleteProfile)
 
 	// Username (public name for the slug) — a DELIBERATELY separate flow from
 	// profile save: changing it is a breaking action (shared links, cached OG
@@ -203,6 +207,12 @@ func registerAdminModerationRoutes(
 	admin.POST("/mentors/:id/status", adminMentorsHandler.UpdateMentorStatus)
 	admin.POST("/mentors/:id/picture", profileRateLimiter.Middleware(), uploadAdmission.Middleware(),
 		middleware.BodySizeLimitMiddleware(middleware.MaxImageBodyBytes), adminMentorsHandler.UploadMentorPicture)
+
+	// Profile deletion and its only reversal (D70, admin role enforced in the
+	// service). Delete takes the retyped username in the body; restore takes
+	// nothing, because bringing a profile back is the safe direction.
+	admin.POST("/mentors/:id/delete", middleware.BodySizeLimitMiddleware(4*1024), adminMentorsHandler.DeleteMentor)
+	admin.POST("/mentors/:id/restore", adminMentorsHandler.RestoreMentor)
 
 	// Username change (admin role only, no cooldown; goes through the same
 	// history/redirect machinery as the mentor flow).

@@ -15,6 +15,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
+	"github.com/openmentor-io/openmentor/api/pkg/safego"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
 	"go.uber.org/zap"
 )
@@ -27,6 +28,16 @@ var ErrProfileStatusNotToggleable = errors.New("only active or inactive profiles
 // profile for review that is not in 'draft' status.
 var ErrProfileNotSubmittable = errors.New("only draft profiles can be submitted for review")
 
+// ErrDeleteConfirmationMismatch is returned when the username typed into the
+// deletion dialog does not match the profile being deleted. It is the whole
+// point of the typed confirmation: an accidental click cannot destroy a
+// profile, because destroying one requires knowing and typing its name.
+var ErrDeleteConfirmationMismatch = errors.New("the username entered does not match this profile")
+
+// ErrProfileAlreadyDeleted is returned when a delete lands on a profile that is
+// already deleted — a double-submitted dialog, or a second tab.
+var ErrProfileAlreadyDeleted = errors.New("this profile has already been deleted")
+
 // ProfileMentorRepository defines the mentor repository methods used by ProfileService.
 // *repository.MentorRepository satisfies this interface.
 type ProfileMentorRepository interface {
@@ -36,6 +47,8 @@ type ProfileMentorRepository interface {
 	UpdateMentorTags(ctx context.Context, mentorID string, tagIDs []string) error
 	TouchUpdatedAt(ctx context.Context, mentorID string) error
 	SetMentorStatus(ctx context.Context, mentorID, status string) error
+	SoftDeleteMentor(ctx context.Context, mentorID string) (int, error)
+	ListAllMentorSlugs(ctx context.Context, mentorID string) ([]string, error)
 }
 
 var _ ProfileMentorRepository = (*repository.MentorRepository)(nil)
@@ -344,4 +357,175 @@ func (s *ProfileService) SubmitProfileByMentorId(ctx context.Context, mentorID s
 		zap.String("mentor_id", mentorID))
 
 	return nil
+}
+
+// DeleteProfileByMentorId is a mentor deleting their own profile (D70).
+//
+// confirmUsername is the value typed into the deletion dialog. It is compared
+// against the SESSION's own mentor row and never used to select one: the
+// profile deleted is always the one behind the session, so a mistyped — or
+// maliciously crafted — value can only fail the delete, never redirect it at
+// somebody else's profile.
+//
+// The comparison is case-insensitive and whitespace-trimmed. Slugs are
+// lowercase by construction, so a mentor who capitalises their own name, or
+// whose phone helpfully capitalises it for them, is confirming correctly and
+// should not be told otherwise; that leniency costs nothing, because typing the
+// right name in the wrong case is not the accident this guard exists to catch.
+func (s *ProfileService) DeleteProfileByMentorId(ctx context.Context, mentorID, confirmUsername string) error {
+	// One closure feeds BOTH sinks, so an outcome cannot be tracked in
+	// analytics and missing from the trace (or spelled differently in each).
+	track := func(outcome string, extra map[string]interface{}) {
+		properties := map[string]interface{}{
+			"mentor_id": mentorID,
+			"outcome":   outcome,
+		}
+		for key, value := range extra {
+			properties[key] = value
+		}
+		s.tracker.Track(ctx, analytics.EventMentorProfileDeleted, analytics.MentorDistinctID(mentorID), properties)
+		annotateDeletionSpan(ctx, deletionActionDelete, deletionInitiatorMentor, mentorID, outcome)
+	}
+
+	// IncludeDeleted so an already-deleted profile is reported as such rather
+	// than as a missing mentor — every other read in this service deliberately
+	// cannot see one.
+	mentor, err := s.mentorRepo.GetByMentorId(ctx, mentorID,
+		models.FilterOptions{ShowHidden: true, AllowAnyStatus: true, IncludeDeleted: true})
+	if err != nil {
+		track("mentor_not_found", nil)
+		return apperrors.NotFoundError("mentor")
+	}
+	if mentor.DeletedAt != nil {
+		track("already_deleted", nil)
+		return ErrProfileAlreadyDeleted
+	}
+
+	if !usernameConfirmationMatches(confirmUsername, mentor.Slug) {
+		track("confirmation_mismatch", nil)
+		logger.Warn("Profile deletion rejected: username confirmation did not match",
+			zap.String("mentor_id", mentorID))
+		return ErrDeleteConfirmationMismatch
+	}
+
+	invitationsRevoked, err := s.mentorRepo.SoftDeleteMentor(ctx, mentorID)
+	if err != nil {
+		if errors.Is(err, repository.ErrMentorAlreadyDeleted) {
+			track("already_deleted", nil)
+			return ErrProfileAlreadyDeleted
+		}
+		track("delete_failed", nil)
+		logger.Error("Failed to delete mentor profile",
+			zap.Error(err),
+			zap.String("mentor_id", mentorID))
+		return fmt.Errorf("failed to delete profile")
+	}
+
+	// Confirm the deletion by email. Fired AFTER the delete commits, like every
+	// other trigger here: a confirmation for a deletion that failed is worse
+	// than no confirmation. Fire-and-forget — the mentor's profile is deleted
+	// whether or not the email goes out, so a trigger failure must not turn a
+	// completed deletion into an error the client will retry.
+	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileDeletedTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
+
+	// Move the profile images into the S3 trash prefix, where the bucket
+	// lifecycle rule — not the worker, which holds no S3 credential — erases
+	// them after the retention window (D70).
+	s.StashDeletedProfileImages(ctx, mentorID)
+
+	track(outcomeSuccess, map[string]interface{}{
+		"deleted_by":          deletionInitiatorMentor,
+		"from_status":         mentor.Status,
+		"invitations_revoked": invitationsRevoked,
+	})
+	logger.Info("Mentor profile deleted by its owner",
+		zap.String("mentor_id", mentorID),
+		zap.Int("invitations_revoked", invitationsRevoked))
+
+	return nil
+}
+
+// usernameConfirmationMatches compares a typed confirmation against the
+// profile's username. Shared by the mentor's own deletion and the admin one so
+// the two dialogs cannot come to different conclusions about the same typing.
+func usernameConfirmationMatches(typed, username string) bool {
+	return strings.EqualFold(strings.TrimSpace(typed), strings.TrimSpace(username))
+}
+
+// StashDeletedProfileImages moves a deleted profile's images into the S3 trash
+// prefix (D70), from which the bucket's lifecycle rule erases them for good.
+// The database purge deliberately cannot do this — cmd/worker holds no S3
+// credential (a57aec2) — so deletion time, in the API, is the only moment both
+// the credential and the row exist together. The row matters: images may be
+// keyed by retired slugs (legacy pre-D29 copies) that only mentor_slug_history
+// remembers, and the purge takes that table with the mentor.
+//
+// Asynchronous and non-fatal, like the confirmation email above it: the
+// deletion has already committed, so an S3 hiccup must not turn it into an
+// error the client retries. A failed move is logged and counted
+// (openmentor_s3_storage_requests_total{operation="moveImage"}); the object
+// stays on its live key, unreferenced — exactly the pre-D70 state, for that one
+// object.
+//
+// Serves BOTH deletion paths: called here for the mentor's own deletion and via
+// ProfileServiceInterface for the admin one, so the two cannot diverge on what
+// deletion does to storage.
+func (s *ProfileService) StashDeletedProfileImages(ctx context.Context, mentorID string) {
+	if s.storageClient == nil {
+		logger.Warn("Object storage is not configured; deleted profile images were not moved to trash",
+			zap.String("mentor_id", mentorID))
+		return
+	}
+
+	// Detached from the request context (the response does not wait for S3) and
+	// panic-isolated, same as UploadImageAllSizesAsync.
+	bgCtx := context.WithoutCancel(ctx)
+	safego.Go("s3_stash_deleted_profile_images", func() {
+		// UUID first — the canonical key since D29 — then every slug the
+		// profile has ever had, for the legacy copies the rekey left in place.
+		keyBases := []string{mentorID}
+		slugs, err := s.mentorRepo.ListAllMentorSlugs(bgCtx, mentorID)
+		if err != nil {
+			// Still move the UUID keys: a partial stash beats none, and the
+			// error is loud enough to follow up on with the runbook.
+			logger.Error("Failed to list slugs for deleted profile image stash; moving UUID keys only",
+				zap.Error(err),
+				zap.String("mentor_id", mentorID))
+		}
+		for _, slug := range slugs {
+			if slug != "" {
+				keyBases = append(keyBases, slug)
+			}
+		}
+
+		if err := s.storageClient.MoveImagesToTrash(bgCtx, keyBases); err != nil {
+			logger.Error("Failed to move deleted profile images to trash",
+				zap.Error(err),
+				zap.String("mentor_id", mentorID))
+		}
+	})
+}
+
+// RestoreDeletedProfileImages brings a restored profile's images back out of
+// the trash prefix — the reverse of StashDeletedProfileImages, minus the legacy
+// slug copies, which nothing reads and which stay in the trash on purpose.
+//
+// Asynchronous and non-fatal for the same reason: the restore has committed,
+// and the worst outcome of a failed move is a profile without a photo, which
+// the mentor can re-upload.
+func (s *ProfileService) RestoreDeletedProfileImages(ctx context.Context, mentorID string) {
+	if s.storageClient == nil {
+		logger.Warn("Object storage is not configured; restored profile images were not recovered from trash",
+			zap.String("mentor_id", mentorID))
+		return
+	}
+
+	bgCtx := context.WithoutCancel(ctx)
+	safego.Go("s3_restore_deleted_profile_images", func() {
+		if err := s.storageClient.RestoreImagesFromTrash(bgCtx, mentorID); err != nil {
+			logger.Error("Failed to restore profile images from trash",
+				zap.Error(err),
+				zap.String("mentor_id", mentorID))
+		}
+	})
 }

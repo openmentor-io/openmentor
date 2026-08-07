@@ -212,6 +212,34 @@ export async function returnModerationMentor(
   return response.mentor
 }
 
+/**
+ * Delete a mentor's profile (D70). `username` is the target profile's own
+ * username, retyped by the admin — the server re-checks it, so a mismatch
+ * comes back as a 400 rather than deleting the wrong profile.
+ */
+export async function deleteModerationMentor(
+  mentorId: string,
+  username: string
+): Promise<AdminMentorDetails> {
+  const response = await apiRequest<{ mentor: AdminMentorDetails }>(
+    `/api/admin/mentors/${encodeURIComponent(mentorId)}/delete`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    }
+  )
+  return response.mentor
+}
+
+/** Restore a deleted profile — comes back as 'inactive'. */
+export async function restoreModerationMentor(mentorId: string): Promise<AdminMentorDetails> {
+  const response = await apiRequest<{ mentor: AdminMentorDetails }>(
+    `/api/admin/mentors/${encodeURIComponent(mentorId)}/restore`,
+    { method: 'POST' }
+  )
+  return response.mentor
+}
+
 export async function updateModerationMentorStatus(
   mentorId: string,
   payload: AdminStatusUpdateRequest

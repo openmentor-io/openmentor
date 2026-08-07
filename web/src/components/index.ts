@@ -7,6 +7,7 @@ export { default as Section } from './ui/Section'
 export { default as Notification } from './ui/Notification'
 export { default as HtmlContent } from './ui/HtmlContent'
 export { default as CookieConsentBanner } from './ui/CookieConsentBanner'
+export { default as DeleteProfileDialog, confirmationMatches } from './ui/DeleteProfileDialog'
 
 // Layout Components
 export { default as MetaHeader } from './layout/MetaHeader'

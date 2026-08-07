@@ -176,8 +176,12 @@ func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, ch
 	// timestamp under the same lock so the check below can't be raced.
 	var oldSlug string
 	var slugChangedAt *time.Time
+	// deleted_at IS NULL makes a deleted profile (D70) unrenameable: it reads as
+	// "not found", the same answer the caller already handles. A rename is a
+	// write to a profile that is supposed to be inert, and it would also mint a
+	// slug-history redirect pointing at a page that 404s.
 	err = tx.QueryRow(ctx,
-		`SELECT slug, slug_changed_at FROM mentors WHERE id = $1 FOR UPDATE`,
+		`SELECT slug, slug_changed_at FROM mentors WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
 		mentorID,
 	).Scan(&oldSlug, &slugChangedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -291,4 +295,33 @@ func (r *MentorRepository) ChangeSlug(ctx context.Context, mentorID, newSlug, ch
 		return "", fmt.Errorf("failed to commit slug change: %w", err)
 	}
 	return oldSlug, nil
+}
+
+// ListAllMentorSlugs returns every slug the mentor has ever used: the current
+// one plus every retired entry in mentor_slug_history. It is the same union the
+// data-deletion runbook runs by hand, and it exists for the same reason —
+// profile images may be keyed by any of these (legacy pre-D29 copies), and the
+// history cascade-deletes with the mentor row, so whoever needs the list must
+// take it while the row still exists. Deliberately no deleted_at guard: the
+// one caller (StashDeletedProfileImages) runs AFTER the soft delete.
+func (r *MentorRepository) ListAllMentorSlugs(ctx context.Context, mentorID string) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT slug FROM mentors WHERE id = $1 AND slug IS NOT NULL
+		UNION
+		SELECT slug FROM mentor_slug_history WHERE mentor_id = $1
+	`, mentorID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list mentor slugs: %w", err)
+	}
+	defer rows.Close()
+
+	slugs := make([]string, 0, 2)
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, fmt.Errorf("failed to scan mentor slug: %w", err)
+		}
+		slugs = append(slugs, slug)
+	}
+	return slugs, rows.Err()
 }

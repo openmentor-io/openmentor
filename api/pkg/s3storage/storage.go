@@ -210,10 +210,11 @@ func (s *StorageClient) UploadImageAllSizesBytes(ctx context.Context, imageBytes
 		return "", err
 	}
 
-	sizes := []string{"full", "large", "small"}
 	var fullImageURL string
 
-	for _, size := range sizes {
+	// imageSizes is shared with the deletion trash moves (trash.go), so a size
+	// added here is automatically covered when a profile is deleted.
+	for _, size := range imageSizes {
 		// Generate key: {keyBase}/{size} (e.g., "<mentor-uuid>/full")
 		key := fmt.Sprintf("%s/%s", keyBase, size)
 
