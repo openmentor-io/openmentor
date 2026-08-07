@@ -372,7 +372,7 @@ func redactTextToken(token string) string {
 
 	// Before the URL rules, because none of them look at userinfo: a driver that
 	// fails to connect renders the whole DSN it was handed, password included.
-	trimmed = stripURLPassword(trimmed)
+	trimmed = redactURLUserinfo(trimmed)
 
 	switch {
 	case strings.Contains(trimmed, "?"):
@@ -478,7 +478,7 @@ func sweepEmails(text string) string {
 // isEmailDomain requires a dot and an alphabetic TLD. Both are load-bearing
 // against false positives that matter: a Go module path (`example.com/pkg@v1.2.3`
 // — TLD `3`), a docker image tag (`alloy@sha256:…` — no dot after the `@`) and a
-// libpq host with no domain (`user:pw@postgres` — handled by stripURLPassword
+// libpq host with no domain (`user:pw@postgres` — handled by redactURLUserinfo
 // instead).
 func isEmailDomain(domain string) bool {
 	dot := strings.LastIndexByte(domain, '.')
@@ -566,12 +566,18 @@ func DSN(raw string) string {
 	return b.String()
 }
 
-// stripURLPassword removes the password from the userinfo of a URL embedded in
-// text. Kept separate from DSN because it must not reject what it cannot parse:
+// redactURLUserinfo removes the password from the userinfo of a URL embedded in
+// text, returning the REDACTED url — the name says userinfo rather than password
+// for that reason, and because CodeQL's sensitive-data heuristic reads function
+// names: called stripURLPassword, its return value was labeled a password, and
+// the label then followed Text into redact.ID's SHA-256 as a bogus
+// "password hashed with a fast hash" finding.
+//
+// Kept separate from DSN because it must not reject what it cannot parse:
 // it works on one token lifted out of an error message, where the URL may be
 // truncated or quoted, and it has to leave everything it does not understand
 // exactly as it found it.
-func stripURLPassword(token string) string {
+func redactURLUserinfo(token string) string {
 	scheme := strings.Index(token, "://")
 	if scheme < 0 {
 		return token
@@ -597,7 +603,7 @@ func stripURLPassword(token string) string {
 }
 
 // stripDSNUserinfo masks a `user:password@` segment without requiring the `://`
-// that stripURLPassword anchors on. Only DSN's fallback uses it: a connection
+// that redactURLUserinfo anchors on. Only DSN's fallback uses it: a connection
 // string too malformed for net/url still carries a real password, and that is
 // exactly the input the fallback exists for. It is not used on free-form text,
 // where a bare `note:see me@host` would be a false positive.
