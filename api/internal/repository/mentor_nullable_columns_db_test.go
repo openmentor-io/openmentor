@@ -40,9 +40,27 @@ const loginTokenPlaintext = "nullable-column-test-token"
 // without this override every case would look like an expired link.
 const futureExpiry = "2999-01-01T00:00:00Z"
 
-// seedFullMentor inserts an active mentor with EVERY nullable column populated.
-// Active because FetchAllMentorsFromDB — the catalog, the widest blast radius of
-// the four — only selects active rows.
+// stateMarkerColumns are nullable mentors columns whose non-NULL value does not
+// DESCRIBE the mentor — it changes what the row IS. Filling them does not make a
+// richer fixture, it makes a different kind of row, so seedFullMentor leaves
+// them NULL.
+//
+// deleted_at is the only member: a non-NULL value means the profile is deleted
+// (D70), and a deleted profile is deliberately invisible to GetByEmail,
+// ConsumeLoginToken and the catalog. Filling it turned every subtest's fixture
+// into a deleted mentor, so all three of those reads correctly refused it and
+// the test blamed whichever profile column that subtest happened to be blanking.
+//
+// The columns are still ENUMERATED — the deleted_at subtest sets it back to NULL
+// and proves a live profile reads fine, which is the property this file is for.
+// If a future migration adds another marker of this kind, it will land here as
+// the same wall of unrelated failures; add it to this set rather than weakening
+// the query that is doing its job.
+var stateMarkerColumns = map[string]bool{"deleted_at": true}
+
+// seedFullMentor inserts an active mentor with every nullable column populated
+// except the state markers above. Active because FetchAllMentorsFromDB — the
+// catalog, the widest blast radius of the four — only selects active rows.
 func seedFullMentor(t *testing.T, pool *pgxpool.Pool, columns []dbtest.Column, suffix string) (id, mentorSlug, email string) {
 	t.Helper()
 
@@ -57,7 +75,14 @@ func seedFullMentor(t *testing.T, pool *pgxpool.Pool, columns []dbtest.Column, s
 		_, _ = pool.Exec(context.Background(), `DELETE FROM mentors WHERE id = $1`, id)
 	})
 
-	written := dbtest.FillNullable(t, pool, "mentors", columns, id, suffix, map[string]string{
+	fillable := make([]dbtest.Column, 0, len(columns))
+	for _, c := range columns {
+		if !stateMarkerColumns[c.Name] {
+			fillable = append(fillable, c)
+		}
+	}
+
+	written := dbtest.FillNullable(t, pool, "mentors", fillable, id, suffix, map[string]string{
 		"login_token_expires_at": futureExpiry,
 	})
 
