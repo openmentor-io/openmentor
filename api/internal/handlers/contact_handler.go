@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,14 @@ func (h *ContactHandler) ContactMentor(c *gin.Context) {
 
 	resp, err := h.service.SubmitContactForm(c.Request.Context(), &req)
 	if err != nil {
+		// The mentor not accepting requests is a state conflict, not bad input:
+		// the form was valid, and nothing about it can be edited to make the
+		// request land. 409 keeps it apart from validation failures in the logs.
+		if errors.Is(err, services.ErrMentorNotContactable) {
+			attachError(c, err)
+			c.JSON(http.StatusConflict, resp)
+			return
+		}
 		if resp != nil && resp.Error != "" {
 			attachError(c, err)
 			c.JSON(http.StatusBadRequest, resp)

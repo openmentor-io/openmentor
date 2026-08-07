@@ -42,7 +42,7 @@ func TestClientRequestCreateAndRead(t *testing.T) {
 	ctx := context.Background()
 	mentorID := seedMentor(t, pool, "requests-create")
 
-	id, err := repo.Create(ctx, &models.ClientRequest{
+	created, err := repo.Create(ctx, &models.ClientRequest{
 		MentorID:         mentorID,
 		Email:            "mentee@example.test",
 		Name:             "Mentee",
@@ -51,6 +51,8 @@ func TestClientRequestCreateAndRead(t *testing.T) {
 		Level:            "middle",
 	})
 	require.NoError(t, err)
+	require.NotNil(t, created)
+	id := created.ID
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM client_requests WHERE id = $1`, id)
 	})
@@ -135,7 +137,9 @@ func TestUpdateStatusStampsStatusChangedAt(t *testing.T) {
 	before, err := repo.GetByID(ctx, id)
 	require.NoError(t, err)
 
-	require.NoError(t, repo.UpdateStatus(ctx, id, "working"))
+	applied, err := repo.UpdateStatus(ctx, id, "pending", "working")
+	require.NoError(t, err)
+	require.True(t, applied)
 
 	after, err := repo.GetByID(ctx, id)
 	require.NoError(t, err)
@@ -157,7 +161,9 @@ func TestUpdateDeclineRecordsReasonAndComment(t *testing.T) {
 	mentorID := seedMentor(t, pool, "requests-decline")
 	id := seedRequest(t, pool, mentorID, "pending")
 
-	require.NoError(t, repo.UpdateDecline(ctx, id, models.DeclineTopicMismatch, "try a backend mentor"))
+	applied, err := repo.UpdateDecline(ctx, id, "pending", models.DeclineTopicMismatch, "try a backend mentor")
+	require.NoError(t, err)
+	require.True(t, applied)
 
 	got, err := repo.GetByID(ctx, id)
 	require.NoError(t, err)
@@ -191,7 +197,9 @@ func TestReviewEligibilityFollowsTheRequestState(t *testing.T) {
 	assert.Equal(t, mentorID, notDone.MentorID)
 	assert.Equal(t, "Update Test", notDone.MentorName)
 
-	require.NoError(t, requests.UpdateStatus(ctx, id, "done"))
+	applied, err := requests.UpdateStatus(ctx, id, "working", "done")
+	require.NoError(t, err)
+	require.True(t, applied)
 	eligible, err := reviews.CheckCanSubmitReview(ctx, id)
 	require.NoError(t, err)
 	assert.True(t, eligible.CanSubmit)

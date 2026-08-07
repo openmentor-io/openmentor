@@ -44,7 +44,7 @@ type ProfileMentorRepository interface {
 	GetByMentorId(ctx context.Context, mentorID string, opts models.FilterOptions) (*models.Mentor, error)
 	GetTagIDByName(ctx context.Context, tagName string) (string, error)
 	Update(ctx context.Context, mentorID string, updates map[string]interface{}) error
-	UpdateMentorTags(ctx context.Context, mentorID string, tagIDs []string) error
+	UpdateProfileWithTags(ctx context.Context, mentorID string, updates map[string]interface{}, tagIDs []string) error
 	TouchUpdatedAt(ctx context.Context, mentorID string) error
 	SetMentorStatus(ctx context.Context, mentorID, status string) error
 	SoftDeleteMentor(ctx context.Context, mentorID string) (int, error)
@@ -110,7 +110,14 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 			"unknown tag(s): "+strings.Join(unresolvedTags, ", "))
 	}
 
-	// Prepare updates with PostgreSQL column names
+	// Prepare updates with PostgreSQL column names.
+	//
+	// calendar_url is written UNCONDITIONALLY: `if req.CalendarURL != ""` meant a
+	// mentor could add a calendar link through the portal but never remove one,
+	// while the admin edit form always wrote the field — so the same empty value
+	// meant "clear it" from one form and "keep whatever is there" from the other.
+	// The portal always sends the field (the form registers it), so an empty
+	// string here is a deliberate clear.
 	updates := map[string]interface{}{
 		"name":         req.Name,
 		"job_title":    req.Job,
@@ -120,14 +127,22 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 		"details":      req.Description,
 		"about":        req.About,
 		"competencies": req.Competencies,
+		"calendar_url": req.CalendarURL,
 	}
 
-	if req.CalendarURL != "" {
-		updates["calendar_url"] = req.CalendarURL
-	}
-
-	// Update in database
-	if err := s.mentorRepo.Update(ctx, mentorID, updates); err != nil {
+	// Row and tags in ONE transaction: a tags failure used to be logged while
+	// success was still returned, so the profile text and the tag set could
+	// silently disagree. It also closes the soft-delete race — a delete
+	// committing after the read above turns the write into ErrMentorNotWritable
+	// rather than a partial save on a deleted profile (D70).
+	if err := s.mentorRepo.UpdateProfileWithTags(ctx, mentorID, updates, tagIDs); err != nil {
+		if errors.Is(err, repository.ErrMentorNotWritable) {
+			s.tracker.Track(ctx, analytics.EventMentorProfileUpdated, analytics.MentorDistinctID(mentorID), map[string]interface{}{
+				"mentor_id": mentorID,
+				"outcome":   "already_deleted",
+			})
+			return ErrProfileAlreadyDeleted
+		}
 		metrics.ProfileUpdates.WithLabelValues("error").Inc()
 		s.tracker.Track(ctx, analytics.EventMentorProfileUpdated, analytics.MentorDistinctID(mentorID), map[string]interface{}{
 			"mentor_id":  mentorID,
@@ -138,14 +153,6 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 			zap.Error(err),
 			zap.String("mentor_id", mentorID))
 		return fmt.Errorf("failed to update profile")
-	}
-
-	// Update tags in mentor_tags table
-	if err := s.mentorRepo.UpdateMentorTags(ctx, mentorID, tagIDs); err != nil {
-		logger.Error("Failed to update mentor tags",
-			zap.Error(err),
-			zap.String("mentor_id", mentorID))
-		// Don't fail the whole update if tags fail - log and continue
 	}
 
 	metrics.ProfileUpdates.WithLabelValues("success").Inc()

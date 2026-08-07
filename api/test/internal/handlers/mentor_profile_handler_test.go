@@ -14,6 +14,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/internal/middleware"
 	"github.com/openmentor-io/openmentor/api/internal/models"
 	"github.com/openmentor-io/openmentor/api/internal/services"
+	apperrors "github.com/openmentor-io/openmentor/api/pkg/errors"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -264,6 +265,75 @@ func TestMentorProfileHandler_UploadPicture_ErrorMapping(t *testing.T) {
 			var body map[string]interface{}
 			assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 			assert.Equal(t, tt.wantError, body["error"])
+		})
+	}
+}
+
+// newProfileUpdateRouter builds a test router for the profile save endpoint.
+func newProfileUpdateRouter(profileService services.ProfileServiceInterface, session *models.MentorSession) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	handler := handlers.NewMentorProfileHandler(new(MockMentorService), profileService)
+
+	router := gin.New()
+	router.POST("/profile", func(c *gin.Context) {
+		c.Set(middleware.MentorSessionContextKey, session)
+		c.Next()
+	}, handler.UpdateProfile)
+	return router
+}
+
+// TestMentorProfileHandler_UpdateProfile_ErrorMapping: every save failure used to
+// be a 500. Since the save is one transaction (C1) its refusals are meaningful —
+// a profile deleted in another tab, or tags a stale form still offers — and the
+// mentor can act on both.
+func TestMentorProfileHandler_UpdateProfile_ErrorMapping(t *testing.T) {
+	tests := []struct {
+		name       string
+		serviceErr error
+		wantStatus int
+		wantError  string
+	}{
+		{
+			name:       "a save that raced a deletion wrote nothing",
+			serviceErr: services.ErrProfileAlreadyDeleted,
+			wantStatus: http.StatusConflict,
+			wantError:  "This profile has already been deleted",
+		},
+		{
+			name:       "unknown tags are the client's to fix",
+			serviceErr: apperrors.InvalidInputError("tags", "unknown tag(s): Security"),
+			wantStatus: http.StatusBadRequest,
+			wantError:  "Invalid profile data",
+		},
+		{
+			name:       "anything else stays a 500",
+			serviceErr: errors.New("postgres exploded"),
+			wantStatus: http.StatusInternalServerError,
+			wantError:  "Failed to update profile",
+		},
+	}
+
+	const body = `{"name":"Mentor","job":"Staff Engineer","workplace":"OpenMentor",` +
+		`"experience":"5-10","price":"free","tags":["Backend"],"description":"desc",` +
+		`"about":"about","competencies":"comps"}`
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService := new(MockProfileService)
+			mockService.On("SaveProfileByMentorId", mock.Anything, "mentor-uuid-123", mock.Anything).
+				Return(tt.serviceErr)
+			router := newProfileUpdateRouter(mockService, &models.MentorSession{MentorID: "mentor-uuid-123", Name: "John Doe"})
+
+			req := httptest.NewRequest(http.MethodPost, "/profile", bytes.NewReader([]byte(body)))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.wantStatus, w.Code)
+
+			var got map[string]interface{}
+			assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+			assert.Equal(t, tt.wantError, got["error"])
 		})
 	}
 }

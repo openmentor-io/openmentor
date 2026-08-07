@@ -17,6 +17,10 @@ type ContactMentorResponse struct {
 	RequestID   string `json:"requestId,omitempty"`
 	CalendarURL string `json:"calendar_url,omitempty"`
 	Error       string `json:"error,omitempty"`
+	// Reason is a machine-readable rejection code, like the registration
+	// response's: 'mentor_not_contactable' when the named mentor is not accepting
+	// requests. Empty on success.
+	Reason string `json:"reason,omitempty"`
 }
 
 // ClientRequest represents a client request record

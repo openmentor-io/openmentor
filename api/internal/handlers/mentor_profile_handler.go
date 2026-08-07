@@ -141,7 +141,18 @@ func (h *MentorProfileHandler) UpdateProfile(c *gin.Context) {
 
 	err = h.profileService.SaveProfileByMentorId(c.Request.Context(), session.MentorID, &req)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "Failed to update profile", err)
+		switch {
+		// A save that raced a deletion (D70) wrote NOTHING — neither the row nor
+		// the tags — so it must not answer 500 as if the outcome were unknown.
+		case errors.Is(err, services.ErrProfileAlreadyDeleted):
+			respondError(c, http.StatusConflict, "This profile has already been deleted", err)
+		// Unknown tags are the client's to fix (a stale form after a taxonomy
+		// change), not a server fault.
+		case errors.Is(err, apperrors.ErrInvalidInput):
+			respondError(c, http.StatusBadRequest, "Invalid profile data", err)
+		default:
+			respondError(c, http.StatusInternalServerError, "Failed to update profile", err)
+		}
 		return
 	}
 
