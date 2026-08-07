@@ -172,7 +172,7 @@ func TestAdminRestoreMentor_RequiresAdminRole(t *testing.T) {
 func TestAdminRestoreMentor_Success(t *testing.T) {
 	repo := &adminMockRepo{mentor: deletedMentorDetails()}
 	tracker := &capturingTracker{}
-	svc := newAdminTestService(repo, tracker)
+	svc, profile := newAdminTestServiceWithProfile(repo, tracker)
 
 	if _, err := svc.RestoreMentor(context.Background(), adminSession(models.ModeratorRoleAdmin), "mentor-1"); err != nil {
 		t.Fatalf("RestoreMentor() error = %v", err)
@@ -184,6 +184,52 @@ func TestAdminRestoreMentor_Success(t *testing.T) {
 	if event == nil || event.event != "admin_mentor_restored" {
 		t.Fatalf("expected admin_mentor_restored event, got %+v", event)
 	}
+	// The photo comes back with the profile — the restore email says "nothing
+	// was lost", and the images move is what makes that true.
+	if len(profile.restoredImagesFor) != 1 || profile.restoredImagesFor[0] != "mentor-1" {
+		t.Errorf("restored images for %v, want [mentor-1]", profile.restoredImagesFor)
+	}
+}
+
+// The admin deletion moves the profile's images to the S3 trash prefix, the
+// same stash the mentor's own deletion performs (D70) — and only on a deletion
+// that actually happened: a refusal must leave storage untouched.
+func TestAdminDeleteMentor_StashesProfileImagesOnlyOnSuccess(t *testing.T) {
+	t.Run("success stashes", func(t *testing.T) {
+		repo := &adminMockRepo{mentor: liveMentorDetails()}
+		svc, profile := newAdminTestServiceWithProfile(repo, &capturingTracker{})
+
+		if _, err := svc.DeleteMentor(context.Background(), adminSession(models.ModeratorRoleAdmin), "mentor-1", "anna-petrova-42"); err != nil {
+			t.Fatalf("DeleteMentor() error = %v", err)
+		}
+		if len(profile.stashedImagesFor) != 1 || profile.stashedImagesFor[0] != "mentor-1" {
+			t.Errorf("stashed images for %v, want [mentor-1]", profile.stashedImagesFor)
+		}
+	})
+
+	t.Run("refusals do not touch storage", func(t *testing.T) {
+		refusals := map[string]func(*services.AdminMentorsService) error{
+			"moderator role": func(s *services.AdminMentorsService) error {
+				_, err := s.DeleteMentor(context.Background(), adminSession(models.ModeratorRoleModerator), "mentor-1", "anna-petrova-42")
+				return err
+			},
+			"username mismatch": func(s *services.AdminMentorsService) error {
+				_, err := s.DeleteMentor(context.Background(), adminSession(models.ModeratorRoleAdmin), "mentor-1", "the-wrong-mentor")
+				return err
+			},
+		}
+		for name, attempt := range refusals {
+			repo := &adminMockRepo{mentor: liveMentorDetails()}
+			svc, profile := newAdminTestServiceWithProfile(repo, &capturingTracker{})
+
+			if err := attempt(svc); err == nil {
+				t.Fatalf("%s: expected an error", name)
+			}
+			if len(profile.stashedImagesFor) != 0 {
+				t.Errorf("%s: images stashed for %v, want none", name, profile.stashedImagesFor)
+			}
+		}
+	})
 }
 
 // "Once the profile has this deleted status, it immediately becomes

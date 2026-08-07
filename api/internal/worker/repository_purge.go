@@ -85,10 +85,13 @@ func (r *Repository) ListPurgeableProfiles(ctx context.Context, retentionDays in
 //     delete is always zero) so the summary says what was actually removed.
 //   - mentor_tags and mentor_slug_history cascade from mentors.
 //
-// Not covered: the mentor's profile images in object storage. cmd/worker holds
-// no S3 credential by design (see config.ValidateForWorker and the a57aec2
-// note), so this transaction cannot delete them. They are keyed by mentor UUID
-// and become unreferenced here; see the D70 row in DECISIONS.md.
+// Not covered, by design: the mentor's profile images in object storage.
+// cmd/worker holds no S3 credential (see config.ValidateForWorker and the
+// a57aec2 note), so this transaction cannot touch them — and it does not need
+// to. The API moved them into the bucket's "deleted/" trash prefix when the
+// profile was deleted (services.ProfileService.StashDeletedProfileImages), and
+// the bucket's lifecycle rule erases that prefix on its own clock; see the D70
+// row in DECISIONS.md and the retention block in infra/.env.example.
 func (r *Repository) PurgeProfile(ctx context.Context, mentorID string, retentionDays int) (PurgeCounts, error) {
 	var counts PurgeCounts
 

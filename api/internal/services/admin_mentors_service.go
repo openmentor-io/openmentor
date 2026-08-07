@@ -492,6 +492,10 @@ func (s *AdminMentorsService) DeleteMentor(
 	// finding their login broken.
 	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileDeletedTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
 
+	// Same image stash as the mentor's own deletion (D70): the profile's photos
+	// move to the S3 trash prefix, where the bucket lifecycle rule erases them.
+	s.profileService.StashDeletedProfileImages(ctx, mentorID)
+
 	track(outcomeSuccess, map[string]interface{}{
 		"from_status":         mentor.Status,
 		"invitations_revoked": invitationsRevoked,
@@ -538,6 +542,10 @@ func (s *AdminMentorsService) RestoreMentor(
 	// wrong. It also matters practically: the profile comes back INACTIVE, so
 	// there is something for them to do.
 	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileRestoredTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
+
+	// Bring the profile's images back from the S3 trash prefix, so "nothing was
+	// lost" in the restore email covers the photo too (D70).
+	s.profileService.RestoreDeletedProfileImages(ctx, mentorID)
 
 	track(outcomeSuccess)
 	return s.mentorRepo.GetForModerationByID(ctx, mentorID)

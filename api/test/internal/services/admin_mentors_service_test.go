@@ -109,8 +109,51 @@ func (m *adminMockRepo) ReturnMentorToDraft(ctx context.Context, mentorID, note 
 
 var _ services.AdminMentorsRepository = (*adminMockRepo)(nil)
 
+// adminFakeProfileService satisfies ProfileServiceInterface for the admin
+// service. Only the image stash/restore moves are recorded — they are the two
+// calls the admin deletion and restore paths are responsible for making.
+type adminFakeProfileService struct {
+	stashedImagesFor  []string
+	restoredImagesFor []string
+}
+
+func (f *adminFakeProfileService) SaveProfileByMentorId(context.Context, string, *models.SaveProfileRequest) error {
+	return nil
+}
+
+func (f *adminFakeProfileService) UploadPictureByMentorId(context.Context, string, *models.UploadProfilePictureRequest) (string, error) {
+	return "", nil
+}
+
+func (f *adminFakeProfileService) SetProfileStatusByMentorId(context.Context, string, string) error {
+	return nil
+}
+
+func (f *adminFakeProfileService) SubmitProfileByMentorId(context.Context, string) error {
+	return nil
+}
+
+func (f *adminFakeProfileService) DeleteProfileByMentorId(context.Context, string, string) error {
+	return nil
+}
+
+func (f *adminFakeProfileService) StashDeletedProfileImages(_ context.Context, mentorID string) {
+	f.stashedImagesFor = append(f.stashedImagesFor, mentorID)
+}
+
+func (f *adminFakeProfileService) RestoreDeletedProfileImages(_ context.Context, mentorID string) {
+	f.restoredImagesFor = append(f.restoredImagesFor, mentorID)
+}
+
 func newAdminTestService(repo *adminMockRepo, tracker *capturingTracker) *services.AdminMentorsService {
-	return services.NewAdminMentorsService(repo, nil, &config.Config{}, nil, tracker)
+	return services.NewAdminMentorsService(repo, &adminFakeProfileService{}, &config.Config{}, nil, tracker)
+}
+
+// newAdminTestServiceWithProfile exposes the fake for tests that assert on the
+// image moves.
+func newAdminTestServiceWithProfile(repo *adminMockRepo, tracker *capturingTracker) (*services.AdminMentorsService, *adminFakeProfileService) {
+	fake := &adminFakeProfileService{}
+	return services.NewAdminMentorsService(repo, fake, &config.Config{}, nil, tracker), fake
 }
 
 func adminSession(role models.ModeratorRole) *models.AdminSession {

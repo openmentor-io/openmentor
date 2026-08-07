@@ -48,6 +48,13 @@ func (m *statusMockRepo) SoftDeleteMentor(ctx context.Context, mentorID string) 
 	return m.softDeleteRevoked, nil
 }
 
+func (m *statusMockRepo) ListAllMentorSlugs(ctx context.Context, mentorID string) ([]string, error) {
+	if m.mentor != nil && m.mentor.Slug != "" {
+		return []string{m.mentor.Slug}, nil
+	}
+	return nil, nil
+}
+
 func (m *statusMockRepo) GetByMentorId(ctx context.Context, mentorID string, opts models.FilterOptions) (*models.Mentor, error) {
 	if m.getErr != nil {
 		return nil, m.getErr

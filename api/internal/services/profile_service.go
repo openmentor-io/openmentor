@@ -15,6 +15,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
+	"github.com/openmentor-io/openmentor/api/pkg/safego"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
 	"go.uber.org/zap"
 )
@@ -47,6 +48,7 @@ type ProfileMentorRepository interface {
 	TouchUpdatedAt(ctx context.Context, mentorID string) error
 	SetMentorStatus(ctx context.Context, mentorID, status string) error
 	SoftDeleteMentor(ctx context.Context, mentorID string) (int, error)
+	ListAllMentorSlugs(ctx context.Context, mentorID string) ([]string, error)
 }
 
 var _ ProfileMentorRepository = (*repository.MentorRepository)(nil)
@@ -426,6 +428,11 @@ func (s *ProfileService) DeleteProfileByMentorId(ctx context.Context, mentorID, 
 	// completed deletion into an error the client will retry.
 	trigger.CallAsync(ctx, s.config.EventTriggers.ProfileDeletedTriggerURL(), mentorID, s.config.Worker.AuthToken, s.httpClient)
 
+	// Move the profile images into the S3 trash prefix, where the bucket
+	// lifecycle rule — not the worker, which holds no S3 credential — erases
+	// them after the retention window (D70).
+	s.StashDeletedProfileImages(ctx, mentorID)
+
 	track(outcomeSuccess, map[string]interface{}{
 		"deleted_by":          deletionInitiatorMentor,
 		"from_status":         mentor.Status,
@@ -443,4 +450,82 @@ func (s *ProfileService) DeleteProfileByMentorId(ctx context.Context, mentorID, 
 // the two dialogs cannot come to different conclusions about the same typing.
 func usernameConfirmationMatches(typed, username string) bool {
 	return strings.EqualFold(strings.TrimSpace(typed), strings.TrimSpace(username))
+}
+
+// StashDeletedProfileImages moves a deleted profile's images into the S3 trash
+// prefix (D70), from which the bucket's lifecycle rule erases them for good.
+// The database purge deliberately cannot do this — cmd/worker holds no S3
+// credential (a57aec2) — so deletion time, in the API, is the only moment both
+// the credential and the row exist together. The row matters: images may be
+// keyed by retired slugs (legacy pre-D29 copies) that only mentor_slug_history
+// remembers, and the purge takes that table with the mentor.
+//
+// Asynchronous and non-fatal, like the confirmation email above it: the
+// deletion has already committed, so an S3 hiccup must not turn it into an
+// error the client retries. A failed move is logged and counted
+// (openmentor_s3_storage_requests_total{operation="moveImage"}); the object
+// stays on its live key, unreferenced — exactly the pre-D70 state, for that one
+// object.
+//
+// Serves BOTH deletion paths: called here for the mentor's own deletion and via
+// ProfileServiceInterface for the admin one, so the two cannot diverge on what
+// deletion does to storage.
+func (s *ProfileService) StashDeletedProfileImages(ctx context.Context, mentorID string) {
+	if s.storageClient == nil {
+		logger.Warn("Object storage is not configured; deleted profile images were not moved to trash",
+			zap.String("mentor_id", mentorID))
+		return
+	}
+
+	// Detached from the request context (the response does not wait for S3) and
+	// panic-isolated, same as UploadImageAllSizesAsync.
+	bgCtx := context.WithoutCancel(ctx)
+	safego.Go("s3_stash_deleted_profile_images", func() {
+		// UUID first — the canonical key since D29 — then every slug the
+		// profile has ever had, for the legacy copies the rekey left in place.
+		keyBases := []string{mentorID}
+		slugs, err := s.mentorRepo.ListAllMentorSlugs(bgCtx, mentorID)
+		if err != nil {
+			// Still move the UUID keys: a partial stash beats none, and the
+			// error is loud enough to follow up on with the runbook.
+			logger.Error("Failed to list slugs for deleted profile image stash; moving UUID keys only",
+				zap.Error(err),
+				zap.String("mentor_id", mentorID))
+		}
+		for _, slug := range slugs {
+			if slug != "" {
+				keyBases = append(keyBases, slug)
+			}
+		}
+
+		if err := s.storageClient.MoveImagesToTrash(bgCtx, keyBases); err != nil {
+			logger.Error("Failed to move deleted profile images to trash",
+				zap.Error(err),
+				zap.String("mentor_id", mentorID))
+		}
+	})
+}
+
+// RestoreDeletedProfileImages brings a restored profile's images back out of
+// the trash prefix — the reverse of StashDeletedProfileImages, minus the legacy
+// slug copies, which nothing reads and which stay in the trash on purpose.
+//
+// Asynchronous and non-fatal for the same reason: the restore has committed,
+// and the worst outcome of a failed move is a profile without a photo, which
+// the mentor can re-upload.
+func (s *ProfileService) RestoreDeletedProfileImages(ctx context.Context, mentorID string) {
+	if s.storageClient == nil {
+		logger.Warn("Object storage is not configured; restored profile images were not recovered from trash",
+			zap.String("mentor_id", mentorID))
+		return
+	}
+
+	bgCtx := context.WithoutCancel(ctx)
+	safego.Go("s3_restore_deleted_profile_images", func() {
+		if err := s.storageClient.RestoreImagesFromTrash(bgCtx, mentorID); err != nil {
+			logger.Error("Failed to restore profile images from trash",
+				zap.Error(err),
+				zap.String("mentor_id", mentorID))
+		}
+	})
 }

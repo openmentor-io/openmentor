@@ -95,6 +95,12 @@ func (m *MockProfileService) DeleteProfileByMentorId(ctx context.Context, mentor
 	return args.Error(0)
 }
 
+// The image stash/restore moves are fire-and-forget side effects with no return
+// value; no handler branches on them, so the mock does not record expectations.
+func (m *MockProfileService) StashDeletedProfileImages(ctx context.Context, mentorId string) {}
+
+func (m *MockProfileService) RestoreDeletedProfileImages(ctx context.Context, mentorId string) {}
+
 // newProfileStatusRouter builds a test router for the status endpoint.
 // When session is non-nil, it is injected into the request context the same
 // way MentorSessionMiddleware does after validating the session cookie.
