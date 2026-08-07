@@ -37,7 +37,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
 }
 
-export default withObservability(handler)
+export default withObservability('/api/mentor/profile/picture', handler)
 
 // The photo arrives base64-encoded inside JSON (FileReader.readAsDataURL), so
 // this is NOT the advertised file size: it must carry MAX_IMAGE_FILE_BYTES at
