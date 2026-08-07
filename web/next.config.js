@@ -31,7 +31,19 @@ const nextConfig = {
   },
 
   experimental: {
-    largePageDataBytes: 10 * 1024 * 1024,
+    // A budget, not a mute button. The homepage ships every visible mentor so
+    // catalog search and filters run client-side, which at 287 mentors is
+    // ~170 KB of __NEXT_DATA__ (587 B/mentor after the C8 projection, down from
+    // 730) — over Next's 128 KB default, so some number has to be set here. The
+    // previous 10 MB was 60x the real payload and would not have fired if the
+    // catalog grew tenfold. 256 KB fires at roughly 435 mentors, which is the
+    // point where ship-everything stops being the right design and search
+    // belongs on the server.
+    //
+    // The tight guard is `src/__tests__/pages/index-props.test.ts`, which
+    // budgets bytes PER MENTOR in CI: this one only fires in `next dev`, and
+    // only once per page in production.
+    largePageDataBytes: 256 * 1024,
   },
 
   // Next.js 16 way to exclude server-side packages from bundling

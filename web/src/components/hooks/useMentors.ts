@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import filters from '@/config/filters'
 import analytics from '@/lib/analytics'
-import type { MentorListItem, AppliedFilters, UseMentorsReturn } from '@/types'
+import type { MentorCatalogItem, AppliedFilters, UseMentorsReturn } from '@/types'
 
 // Pagination configuration
 const DEFAULT_PAGE_SIZE = 48
 
 export default function useMentors(
-  allMentors: MentorListItem[],
+  allMentors: MentorCatalogItem[],
   pageSize: number = DEFAULT_PAGE_SIZE
 ): UseMentorsReturn {
   const [searchInput, setSearchInput] = useState('')

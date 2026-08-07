@@ -36,6 +36,12 @@ const _getServerSideProps: GetServerSideProps<MentorsPageProps> = async (context
     .map(({ id, slug, name, job, workplace }) => ({ id, slug, name, job, workplace }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
+  // Same for every visitor and not session-scoped — see the note on `/`.
+  context.res.setHeader(
+    'Cache-Control',
+    'public, max-age=0, s-maxage=60, stale-while-revalidate=300'
+  )
+
   logger.info('Mentors directory page rendered', {
     mentorCount: mentors.length,
     userAgent: context.req.headers['user-agent'],
