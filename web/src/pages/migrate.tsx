@@ -3,28 +3,10 @@ import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
-import type { GetServerSideProps } from 'next'
 import { Footer, MetaHeader, NavHeader, Section } from '@/components'
 import { pageTitle } from '@/config/seo'
-import { withSSRObservability } from '@/lib/with-ssr-observability'
 import { GENERIC_SUBMIT_ERROR, upstreamErrorMessage } from '@/lib/upstream-error'
-import logger, { getTraceContext } from '@/lib/logger'
 import type { ScheduleMigrationResponse } from '@/types'
-
-// Add SSR observability for metrics, logs, and traces
-const _getServerSideProps: GetServerSideProps = async (context) => {
-  logger.info('Migrate page rendered', {
-    slug: context.query.slug ?? null,
-    userAgent: context.req.headers['user-agent'],
-    ...getTraceContext(),
-  })
-
-  return {
-    props: {},
-  }
-}
-
-export const getServerSideProps = withSSRObservability(_getServerSideProps, 'migrate')
 
 type SubmitState = 'idle' | 'loading' | 'scheduled' | 'already' | 'error'
 

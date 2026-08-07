@@ -1,24 +1,7 @@
 import Head from 'next/head'
 import Link from 'next/link'
-import type { GetServerSideProps } from 'next'
 import { Footer, MetaHeader, NavHeader, Section } from '@/components'
 import { pageTitle } from '@/config/seo'
-import { withSSRObservability } from '@/lib/with-ssr-observability'
-import logger, { getTraceContext } from '@/lib/logger'
-
-// Add SSR observability for metrics, logs, and traces
-const _getServerSideProps: GetServerSideProps = async (context) => {
-  logger.info('About page rendered', {
-    userAgent: context.req.headers['user-agent'],
-    ...getTraceContext(),
-  })
-
-  return {
-    props: {},
-  }
-}
-
-export const getServerSideProps = withSSRObservability(_getServerSideProps, 'about')
 
 /** Manifesto section: display heading + quiet body copy. */
 function Block({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {

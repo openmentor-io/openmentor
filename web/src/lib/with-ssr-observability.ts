@@ -2,9 +2,6 @@ import type {
   GetServerSideProps,
   GetServerSidePropsContext,
   GetServerSidePropsResult,
-  GetStaticProps,
-  GetStaticPropsContext,
-  GetStaticPropsResult,
 } from 'next'
 import { pageViews, serverSideRenderDuration, mentorProfileViews } from './metrics'
 import { logError } from './logger'
@@ -22,7 +19,15 @@ interface SSRResult<P> {
 }
 
 /**
- * Wraps getServerSideProps with observability instrumentation
+ * Wraps getServerSideProps with observability instrumentation.
+ *
+ * Only for a page that genuinely needs per-request data. The seven content
+ * pages that used to wrap a getServerSideProps whose whole body was one log
+ * line are statically optimized now (C9): SSR on every request bought a
+ * `nextjs_page_views_total{page="about"}` counter that Faro, PostHog, GTM and
+ * the proxy access log already record, and cost the pages any CDN caching.
+ * There is deliberately no getStaticProps wrapper — a build-time counter for a
+ * page rendered once is not a page-view metric.
  */
 export function withSSRObservability<P extends { [key: string]: unknown }>(
   getServerSidePropsFunc: GetServerSideProps<P>,
@@ -64,47 +69,6 @@ export function withSSRObservability<P extends { [key: string]: unknown }>(
         logError(error, {
           page: pageName,
           url: context.resolvedUrl,
-          params: context.params,
-        })
-      }
-
-      throw error
-    }
-  }
-}
-
-/**
- * Simpler version for static props (if needed)
- */
-export function withStaticPropsObservability<P extends { [key: string]: unknown }>(
-  getStaticPropsFunc: GetStaticProps<P>,
-  pageName: string
-): GetStaticProps<P> {
-  return async (context: GetStaticPropsContext): Promise<GetStaticPropsResult<P>> => {
-    const start = Date.now()
-    let status: SSRStatus = 'success'
-
-    try {
-      const result = (await getStaticPropsFunc(context)) as SSRResult<P>
-
-      if (result.redirect) {
-        status = 'redirect'
-      } else if (result.notFound) {
-        status = 'not_found'
-      }
-
-      const duration = (Date.now() - start) / 1000
-      serverSideRenderDuration.observe({ page: pageName, status }, duration)
-
-      return result as GetStaticPropsResult<P>
-    } catch (error) {
-      status = 'error'
-      const duration = (Date.now() - start) / 1000
-      serverSideRenderDuration.observe({ page: pageName, status }, duration)
-
-      if (error instanceof Error) {
-        logError(error, {
-          page: pageName,
           params: context.params,
         })
       }

@@ -31,7 +31,7 @@ export {
   mentorProfileViews,
 } from './metrics'
 export { withObservability, measureAsync, measureSync } from './with-observability'
-export { withSSRObservability, withStaticPropsObservability } from './with-ssr-observability'
+export { withSSRObservability } from './with-ssr-observability'
 // Tracing
 export { registerServerTracing } from './tracing-server'
 

@@ -1,27 +1,10 @@
 import Head from 'next/head'
 import Link from 'next/link'
-import type { GetServerSideProps } from 'next'
 import type { ReactNode } from 'react'
 import { Footer, MetaHeader, NavHeader, Section } from '@/components'
 import { pageTitle } from '@/config/seo'
 import { reactNodeToText } from '@/lib/react-text'
 import { jsonLdScriptProps } from '@/lib/json-ld'
-import { withSSRObservability } from '@/lib/with-ssr-observability'
-import logger, { getTraceContext } from '@/lib/logger'
-
-// Add SSR observability for metrics, logs, and traces
-const _getServerSideProps: GetServerSideProps = async (context) => {
-  logger.info('FAQ page rendered', {
-    userAgent: context.req.headers['user-agent'],
-    ...getTraceContext(),
-  })
-
-  return {
-    props: {},
-  }
-}
-
-export const getServerSideProps = withSSRObservability(_getServerSideProps, 'faq')
 
 interface FaqEntry {
   id: string
