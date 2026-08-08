@@ -74,7 +74,7 @@ func (r *MentorRepository) GetByID(ctx context.Context, id int, opts models.Filt
 		// flattens every error here into a 404 — so say so once, here, the way
 		// GetAll used to.
 		if !IsNoRows(err) {
-			logger.Error("Failed to fetch mentor by legacy ID", zap.Error(err), zap.Int("legacy_id", id))
+			logger.Error("Failed to fetch mentor by legacy ID", logger.RedactedError(err), zap.Int("legacy_id", id))
 		}
 		return nil, fmt.Errorf("mentor with ID %d not found: %w", id, err)
 	}

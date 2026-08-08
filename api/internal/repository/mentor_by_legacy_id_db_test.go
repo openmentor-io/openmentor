@@ -132,7 +132,7 @@ func TestGetByIDKeepsCatalogVisibility(t *testing.T) {
 	require.NoError(t, err, "an active mentor must stay reachable by legacy ID")
 	require.Equal(t, active, found.LegacyID)
 
-	for _, status := range []string{"pending", "declined", "inactive"} {
+	for _, status := range []string{"draft", "pending", "declined", "inactive"} {
 		hidden := seedLegacyIDMentor(t, pool, "visible-"+status, status)
 		_, err := repo.GetByID(ctx, hidden, permissive)
 		require.Error(t, err, "status %q must not be reachable by legacy ID", status)
