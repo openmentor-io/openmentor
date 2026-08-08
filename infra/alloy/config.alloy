@@ -365,17 +365,26 @@ loki.process "redact_pii" {
 
   // Connection-string passwords. First, so the email rule below cannot claim the
   // password of a DSN whose host happens to look like a domain.
+  //
+  // The value's FIRST character excludes `*` and `[` so the Go layer's own
+  // correct outputs — redact.DSN's `user:***@host` and this stage's own
+  // `[REDACTED_SECRET]` — do not re-match. That is what keeps the marker's
+  // meaning: a [REDACTED_SECRET] in Loki is a value the application layer
+  // MISSED, not one it already masked. (A real password that starts with `*`
+  // or `[` slips this stage — accepted; the Go layer is the primary net.)
   stage.replace {
-    expression = "(?i)(?:postgres|postgresql|mysql|mongodb|redis|amqp|amqps)(?:\\+[a-z0-9]+)?://[^:/@\\s\"]+:([^@\\s\"]+)@"
+    expression = "(?i)(?:postgres|postgresql|mysql|mongodb|redis|amqp|amqps)(?:\\+[a-z0-9]+)?://[^:/@\\s\"]+:([^@\\s\"*\\[][^@\\s\"]*)@"
     replace    = "[REDACTED_SECRET]"
   }
 
   // Credentials in key=value or "key":"value" form. The key list is spelled out
   // rather than derived so this stage cannot start eating fields nobody meant it
   // to: `login_token_ttl_minutes` does not match, because a key here must be
-  // followed by a separator.
+  // followed by a separator. First value character excludes `*` and `[` for the
+  // same reason as the DSN stage: the core's `[REDACTED]` placeholder and a
+  // `***` mask are correct outputs, not leaks.
   stage.replace {
-    expression = "(?i)(?:password|passwd|secret|api[-_]?key|access[-_]?key|auth[-_]?token|bearer|[a-z_]*token)[\"']?\\s*[:=]\\s*[\"']?([^\"'\\s,}&]+)"
+    expression = "(?i)(?:password|passwd|secret|api[-_]?key|access[-_]?key|auth[-_]?token|bearer|[a-z_]*token)[\"']?\\s*[:=]\\s*[\"']?([^\"'\\s,}&*\\[][^\"'\\s,}&]*)"
     replace    = "[REDACTED_SECRET]"
   }
 

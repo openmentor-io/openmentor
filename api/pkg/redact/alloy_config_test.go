@@ -76,6 +76,46 @@ func TestAlloyEmailRuleAgreesWithTheGoMasker(t *testing.T) {
 	}
 }
 
+// TestAlloySecretRulesLeaveTheGoMasksAlone pins the marker's meaning: a
+// [REDACTED_SECRET] in Loki must indicate a value the application layer MISSED.
+// The DSN and credential stages therefore must not re-match the Go layer's own
+// correct outputs — redact.DSN's `user:***@host`, the core's `[REDACTED]`
+// placeholder — or their own [REDACTED_SECRET], while still firing on the raw
+// values those masks replace.
+func TestAlloySecretRulesLeaveTheGoMasksAlone(t *testing.T) {
+	expressions := alloyRedactionExpressions(t)
+	if len(expressions) < 3 {
+		t.Fatalf("want at least 3 expressions (dsn, credentials, email), got %d", len(expressions))
+	}
+	dsnRule := regexp.MustCompile(expressions[0])
+	credentialRule := regexp.MustCompile(expressions[1])
+
+	if !dsnRule.MatchString(`postgres://om:realpassword@db.internal:5432/om`) {
+		t.Error("the DSN rule does not catch a raw password — the last resort has a hole")
+	}
+	for _, masked := range []string{
+		DSN("postgres://om:realpassword@db.internal:5432/om"),
+		`postgres://om:[REDACTED_SECRET]@db.internal:5432/om`,
+	} {
+		if dsnRule.MatchString(masked) {
+			t.Errorf("the DSN rule fires on %q, which is already masked — [REDACTED_SECRET] would stop meaning \"the app layer failed\"", masked)
+		}
+	}
+
+	if !credentialRule.MatchString(`"login_token":"mtk_abcdef123456"`) {
+		t.Error("the credential rule does not catch a raw token — the last resort has a hole")
+	}
+	for _, masked := range []string{
+		`"login_token":"` + Placeholder + `"`,
+		`"password":"***"`,
+		`"api_key":"[REDACTED_SECRET]"`,
+	} {
+		if credentialRule.MatchString(masked) {
+			t.Errorf("the credential rule fires on %q, which is already masked — [REDACTED_SECRET] would stop meaning \"the app layer failed\"", masked)
+		}
+	}
+}
+
 // alloyRedactionExpressions lifts the stage.replace expressions out of the
 // redact_pii component, unescaping river's doubled backslashes.
 func alloyRedactionExpressions(t *testing.T) []string {
