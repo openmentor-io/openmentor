@@ -544,7 +544,14 @@ func main() { //nolint:gocyclo
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		logger.Fatal("Server forced to shutdown", zap.Error(err))
+		// Error + explicit exit, not Fatal: Fatal is os.Exit(1) on the spot,
+		// which would skip the drain below on exactly the degraded shutdown
+		// where queued events are most at risk. Still exits non-zero, like
+		// Fatal did — a forced shutdown is not a clean one.
+		logger.Error("Server forced to shutdown", zap.Error(err))
+		drainAnalytics(analyticsTracker)
+		logger.Sync()
+		os.Exit(1) //nolint:gocritic // exitAfterDefer: Fatal skipped the same deferreds; this exit just drains first
 	}
 
 	// After the HTTP server has drained, so nothing is still producing events,

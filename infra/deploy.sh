@@ -350,6 +350,9 @@ if [ "$DEPLOY_FRONTEND" = true ]; then
     # takes a source path or an env NAME and files keep this working when either
     # value is unset.
     BUILD_SECRETS_DIR="$(mktemp -d)"
+    # This trap only needs to cover until the build finishes: step 7 re-arms
+    # EXIT for its own temp files (bash keeps ONE trap per signal), so the dir
+    # is also removed eagerly right after the build below.
     # shellcheck disable=SC2064 # expand BUILD_SECRETS_DIR now, while it is set
     trap "rm -rf '$BUILD_SECRETS_DIR'" EXIT
     (umask 077; printf '%s' "$POSTHOG_PERSONAL_API_KEY" > "$BUILD_SECRETS_DIR/posthog_personal_api_key")
@@ -388,6 +391,9 @@ if [ "$DEPLOY_FRONTEND" = true ]; then
         echo -e "${RED}❌ Failed to build frontend image${NC}"
         exit 1
     fi
+    # Remove the plaintext credentials now: step 7's trap replaces this one,
+    # so waiting for EXIT would leave them in /tmp after a successful deploy.
+    rm -rf "$BUILD_SECRETS_DIR"
     echo -e "${GREEN}✅ Frontend image built${NC}"
 else
     echo -e "${YELLOW}⏭️  Step 2/9: Skipping frontend build${NC}"
