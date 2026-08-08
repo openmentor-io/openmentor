@@ -60,6 +60,17 @@ CI once went green while `make lint` reported 44 issues. The narrower targets ar
 - `docs/migration/` is a historical record of the getmentor→openmentor fork. Don't "fix" old
   paths there. Same for `docs/audit/`: it records what an audit claimed, and §4 lists the claims
   later verification overturned — read that section before acting on the plan.
+- **Keep this file current.** When you learn something a future agent would otherwise rediscover
+  the hard way — a non-obvious constraint, a gotcha that cost you a debugging session, a
+  convention you had to be corrected on — add it here in the same PR, with the failure it
+  prevents. A rule without its reason gets "simplified" away later. Things that belong here:
+  invariants, gotchas, and conventions that differ from tool defaults. Things that do not:
+  directory listings, dependency lists and anything else derivable from the codebase — those go
+  stale silently and are what rotted the file this one replaced.
+- **Keep code comments short, and omit them when the change is trivial.** Explain *why* — a
+  constraint the code cannot state itself. Never narrate what the next line does, restate the
+  diff, or record how a bug used to behave; that belongs in the commit message or a decision
+  row, and reads as noise the moment the PR merges.
 
 ## Migrations
 
@@ -389,7 +400,34 @@ these from macOS, whose `/bin/bash` is **3.2**, so:
 
 ## Observability as code (`grafana/`)
 
-The two halves ship completely differently, and mixing them up is how alerting goes silent:
+### Instrument every feature and behaviour change
+
+A change that alters what the product does is not finished until it is observable. Before opening
+the PR, decide for each of these and say in the body what you did — including "nothing, because…":
+
+- **Product metrics.** A new user-facing flow, or a new outcome of an existing one, needs a
+  counter. Extend the existing series rather than minting a parallel one: a new terminal state on
+  an existing flow is usually a new label value on the counter that already tracks it. Adding a
+  label *value* is cheap; adding a label *key* multiplies cardinality on every series, so justify
+  it. Never put a user id, email or capability in a label — those are unbounded and are PII.
+- **Logs.** One line at the decision point, at the level that matches the consequence, obeying the
+  PII and capability rules above. A silent branch is one you cannot debug from production.
+- **Traces.** If the change adds a network hop, a database call or a background job, it should
+  appear on the span it belongs to. Span attributes are subject to the same redaction as logs.
+- **Alerts.** If the change introduces a failure mode nobody would notice, it needs a rule — and
+  the reverse: **if it adds a new non-success outcome to a flow an alert already watches, check
+  the alert first.** A rule firing on `status != "success"` will page on a new *expected* outcome.
+  That has happened here.
+- **Dashboards.** If you added or renamed a series, or changed a label value, update the panel
+  that reads it in the same PR — a dashboard querying a series that no longer exists shows an
+  empty graph, not an error.
+
+Analytics events are a product surface too: adding or renaming one, or changing a `distinct_id`,
+changes what the PostHog funnels mean. Say so in the PR body, because those are not in this repo.
+
+### Shipping the two halves
+
+They ship completely differently, and mixing them up is how alerting goes silent:
 
 - **`grafana/dashboards/` IS Git-Synced**, hourly, from `main`, into folder uid `repository-7b3d712`.
   A merge changes live Grafana with no operator action.
