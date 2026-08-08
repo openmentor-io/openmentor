@@ -36,6 +36,13 @@ const _getServerSideProps: GetServerSideProps<MentorTagPageProps> = async (conte
     return { notFound: true }
   }
 
+  // Same for every visitor and not session-scoped — see the note on `/`. Set
+  // after the 404 branch so an unknown slug keeps Next's uncacheable default.
+  context.res.setHeader(
+    'Cache-Control',
+    'public, max-age=0, s-maxage=60, stale-while-revalidate=300'
+  )
+
   const allMentors = await getAllMentors({ onlyVisible: true, drop_long_fields: true })
 
   // A tag with no live matches still RENDERS, carrying noindex (see below).
