@@ -123,7 +123,7 @@ npm run dev             # http://localhost:3000
 
 The frontend is a thin client: every data operation goes through the Go API, so
 you'll usually want the API running too. Conventions — path aliases, strict
-TypeScript, component layout — are in [`web/CLAUDE.md`](web/CLAUDE.md).
+TypeScript, component layout — are in the `web/` section of [`AGENTS.md`](AGENTS.md).
 
 ### The whole stack at once
 
@@ -142,7 +142,7 @@ from `.env.example` on first run with generated secrets. See
 
 | Directory | What it is | Start here |
 |---|---|---|
-| `web/` | Next.js 16 frontend | [`web/README.md`](web/README.md), [`web/CLAUDE.md`](web/CLAUDE.md) |
+| `web/` | Next.js 16 frontend | [`web/README.md`](web/README.md), [`AGENTS.md`](AGENTS.md) |
 | `api/` | Go backend: API, worker, migrations | [`api/README.md`](api/README.md) |
 | `infra/` | Compose + Traefik deployment, observability | [`infra/README.md`](infra/README.md) |
 | `docs/` | Decisions log, runbooks, design reference, legal | [`docs/migration/DECISIONS.md`](docs/migration/DECISIONS.md) |
