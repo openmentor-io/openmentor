@@ -460,6 +460,14 @@ func sweepEmails(text string) string {
 		if start == i || !isEmailDomain(text[i+1:end]) {
 			continue
 		}
+		// An @ hard up against the previous match ("a@b.co@c.d.co"): the
+		// backward scan ran into text already emitted, so this "local part" is
+		// the previous address's domain, not a second address. Skip it — what
+		// remains is a bare @domain, and domains are what the mask keeps anyway.
+		// Without this, text[copied:start] below is an inverted slice and panics.
+		if start < copied {
+			continue
+		}
 		// Do not re-cut an address already masked upstream: Email is idempotent,
 		// but only because `*` is not a local-part character, so `j***@b.co`
 		// never reaches here with a local part to strip.

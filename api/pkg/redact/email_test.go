@@ -92,6 +92,21 @@ func TestTextMasksEmbeddedAddresses(t *testing.T) {
 			"reroute mentee@example.com to dev@example.org",
 			"reroute m***@example.com to d***@example.org",
 		},
+		{
+			// Adjacent @s: the second @'s "local part" is the first match's
+			// domain. This shape arrives from outside (a User-Agent header, a
+			// mailto: URI in error text, a double-pasted address) and used to
+			// slice sweepEmails out of bounds — a panic on the write path of
+			// every log line.
+			"address immediately followed by a second at-domain",
+			"see mailto:john@example.com@evil.example.org for details",
+			"see mailto:j***@example.com@evil.example.org for details",
+		},
+		{
+			"double-pasted address",
+			"login failed for x@a.com@a.com",
+			"login failed for *@a.com@a.com",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
