@@ -98,10 +98,17 @@ func Initialize(cfg Config) error {
 			zapcore.ErrorLevel,
 		)
 
-		// Combine all cores, then wrap ONCE around the tee: redacting before the
-		// fan-out means stdout, app.log and error.log cannot disagree about what
-		// a line carries (C11).
-		core := NewRedactingCore(zapcore.NewTee(stdoutCore, appFileCore, errorFileCore))
+		// Wrap each sink, NOT the tee. Level routing lives in each child's
+		// Check — Write on an ioCore is unconditional — so a wrapper around
+		// the tee that registers itself and later calls tee.Write would send
+		// every info line to error.log too. Per-child wrapping keeps the
+		// routing and still means stdout, app.log and error.log cannot
+		// disagree about what a line carries (C11): same rules, same input.
+		core := zapcore.NewTee(
+			NewRedactingCore(stdoutCore),
+			NewRedactingCore(appFileCore),
+			NewRedactingCore(errorFileCore),
+		)
 
 		// Build logger
 		logger = zap.New(
@@ -115,8 +122,14 @@ func Initialize(cfg Config) error {
 		config.OutputPaths = []string{"stdout"}
 		config.ErrorOutputPaths = []string{"stderr"}
 
-		// WrapCore, not a hand-built core: this branch keeps config.Build's
-		// sampler, and the redaction has to sit inside whatever Build produced.
+		// Sampling is disabled explicitly: WrapCore puts the redacting core
+		// OUTSIDE whatever Build produced, and a wrapper that registers itself
+		// in Check bypasses the sampler's Check underneath it — so with
+		// Sampling left on, the config would claim sampling this branch does
+		// not deliver. Production runs the LogDir branch above (compose sets
+		// LOG_DIR); this branch is local dev and tests, where sampling has no
+		// value and losing lines would hide the very output being debugged.
+		config.Sampling = nil
 		logger, err = config.Build(
 			zap.AddCallerSkip(1),
 			zap.AddStacktrace(zapcore.ErrorLevel),

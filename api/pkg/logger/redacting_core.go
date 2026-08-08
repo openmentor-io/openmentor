@@ -109,14 +109,22 @@ func redactField(field zapcore.Field) (zapcore.Field, bool) {
 		if !ok {
 			return field, false
 		}
-		return zap.String(field.Key, redactValue(field.Key, err.Error())), true
+		text, ok := stringify(err.Error)
+		if !ok {
+			return field, false
+		}
+		return zap.String(field.Key, redactValue(field.Key, text)), true
 
 	case zapcore.StringerType:
 		stringer, ok := field.Interface.(fmt.Stringer)
 		if !ok {
 			return field, false
 		}
-		return zap.String(field.Key, redactValue(field.Key, stringer.String())), true
+		text, ok := stringify(stringer.String)
+		if !ok {
+			return field, false
+		}
+		return zap.String(field.Key, redactValue(field.Key, text)), true
 
 	case zapcore.ReflectType:
 		// zap.Any routes errors and Stringers to their own types, so what lands
@@ -148,6 +156,20 @@ func redactValue(key, value string) string {
 		return redact.Placeholder
 	}
 	return redact.Text(value)
+}
+
+// stringify calls an Error()/String() method with the same panic tolerance
+// zap's own encoder has (encodeStringer recovers a nil-receiver Stringer and
+// renders it anyway). This core runs those methods earlier, inside Write, where
+// nothing else recovers — so a panicking value must fall through unchanged and
+// let the encoder's guard deal with it, not take the log line's caller down.
+func stringify(fn func() string) (text string, ok bool) {
+	defer func() {
+		if recover() != nil {
+			text, ok = "", false
+		}
+	}()
+	return fn(), true
 }
 
 func redactStringMap(values map[string]string) map[string]string {

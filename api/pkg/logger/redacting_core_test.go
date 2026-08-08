@@ -201,6 +201,73 @@ func TestInitializeInstallsTheRedactingCore(t *testing.T) {
 	}
 }
 
+// TestErrorLogStillReceivesOnlyErrors pins the per-sink level routing the
+// redaction wrapping must not break: routing lives in each child core's Check
+// (Write on an ioCore is unconditional), so wrapping the TEE — rather than each
+// child — would register the wrapper once and fan every info line out to
+// error.log, turning it into a duplicate of app.log that rotates real errors
+// away at full log rate.
+func TestErrorLogStillReceivesOnlyErrors(t *testing.T) {
+	logDir := t.TempDir()
+
+	previous := Log
+	t.Cleanup(func() { Log = previous })
+
+	if err := Initialize(Config{
+		Level:       "debug",
+		LogDir:      logDir,
+		Environment: "production",
+		ServiceName: "openmentor-test",
+	}); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	Info("routine line that belongs in app.log only")
+	Error("genuine error line")
+	Sync()
+
+	appLog, err := os.ReadFile(filepath.Join(logDir, "app.log"))
+	if err != nil {
+		t.Fatalf("read app.log: %v", err)
+	}
+	if !strings.Contains(string(appLog), "routine line") || !strings.Contains(string(appLog), "genuine error line") {
+		t.Fatalf("app.log must carry both lines: %s", appLog)
+	}
+
+	errorLog, err := os.ReadFile(filepath.Join(logDir, "error.log"))
+	if err != nil {
+		t.Fatalf("read error.log: %v", err)
+	}
+	if strings.Contains(string(errorLog), "routine line") {
+		t.Errorf("error.log received an info line — the redacting wrapper broke level routing: %s", errorLog)
+	}
+	if !strings.Contains(string(errorLog), "genuine error line") {
+		t.Errorf("error.log lost the error line: %s", errorLog)
+	}
+}
+
+// panickyStringer reproduces what zap's encoder tolerates (encodeStringer
+// recovers): a String() that panics must not take the Write path down now that
+// the redacting core calls it earlier, where nothing else recovers.
+type panickyStringer struct{}
+
+func (panickyStringer) String() string { panic("boom") }
+
+func TestRedactingCoreSurvivesAPanickingStringer(t *testing.T) {
+	log, logs := observedRedactingLogger(t)
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("logging a panicking Stringer panicked the caller: %v", recovered)
+		}
+	}()
+	log.Info("stringer field", zap.Stringer("value", panickyStringer{}))
+
+	if logs.Len() != 1 {
+		t.Fatalf("the log line was dropped entirely: %d entries", logs.Len())
+	}
+}
+
 // TestInitializeInstallsTheRedactingCoreOnTheNonProductionPath pins the OTHER
 // construction branch, which builds through zap.Config and was the one an earlier
 // pass would have been easiest to forget.
