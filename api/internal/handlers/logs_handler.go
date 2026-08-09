@@ -5,17 +5,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/gin-gonic/gin"
-	"github.com/openmentor-io/openmentor/api/pkg/logger"
-	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"go.uber.org/zap"
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 )
 
 // redactContextValue applies the log-field rules to one browser-supplied context
@@ -117,30 +115,10 @@ func (h *LogsHandler) writeLogsToFile(logs []LogEntry) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Ensure log directory exists
-	//nolint:gosec // G301: 0755 is appropriate for log directory to allow group/other read
-	if err := os.MkdirAll(h.logDir, 0755); err != nil {
-		return fmt.Errorf("failed to create log directory: %w", err)
-	}
+	// No MkdirAll and no OpenFile: lumberjack creates the directory and the file
+	// on first write, and reopens it after each rotation.
+	encoder := json.NewEncoder(h.writer)
 
-	// Open frontend log file in append mode
-	logPath := filepath.Join(h.logDir, "frontend.log")
-	//nolint:gosec // G302: 0644 is appropriate for log files (group/other read for log aggregators)
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open frontend log file: %w", err)
-	}
-	defer func() {
-		_ = f.Close()
-	}()
-
-	// Write each log entry as a JSON line.
-	//
-	// Every value here is browser-supplied, and this file is written with
-	// encoding/json rather than zap — so the redacting core never sees it and
-	// this is the one sink that has to redact itself. It is also the least
-	// trusted one: anyone can POST to /logs (C11).
-	encoder := json.NewEncoder(f)
 	for _, entry := range logs {
 		// Reformat log entry to match backend format
 		logLine := map[string]interface{}{
