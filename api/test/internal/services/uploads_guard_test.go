@@ -21,27 +21,29 @@ func init() {
 // test can assert that a rejected registration wrote NOTHING.
 type recordingRegistrationRepo struct {
 	createCalls   int
-	tagCalls      int
 	createdFields map[string]interface{}
+	createdTagIDs []string
 	createErr     error
+	// unknownTags are the names GetTagIDByName refuses to resolve, which is how a
+	// stale frontend offering a tag the database does not have shows up (C2).
+	unknownTags map[string]bool
 }
 
-func (r *recordingRegistrationRepo) GetTagIDByName(_ context.Context, _ string) (string, error) {
-	return "tag-id", nil
+func (r *recordingRegistrationRepo) GetTagIDByName(_ context.Context, name string) (string, error) {
+	if r.unknownTags[name] {
+		return "", errors.New("tag not found")
+	}
+	return "tag-id-" + name, nil
 }
 
-func (r *recordingRegistrationRepo) CreateMentor(_ context.Context, fields map[string]interface{}) (string, int, string, error) {
+func (r *recordingRegistrationRepo) CreateMentor(_ context.Context, fields map[string]interface{}, tagIDs []string) (string, int, string, error) {
 	r.createCalls++
 	r.createdFields = fields
+	r.createdTagIDs = tagIDs
 	if r.createErr != nil {
 		return "", 0, "", r.createErr
 	}
 	return "mentor-uuid", 42, "john-doe-42", nil
-}
-
-func (r *recordingRegistrationRepo) UpdateMentorTags(_ context.Context, _ string, _ []string) error {
-	r.tagCalls++
-	return nil
 }
 
 var _ services.RegistrationMentorRepository = (*recordingRegistrationRepo)(nil)
@@ -72,8 +74,8 @@ func TestRegistrationWithPhotoRejectedWhenUploadsUnconfigured(t *testing.T) {
 	if resp.Reason != "uploads_unavailable" {
 		t.Errorf("response reason = %q, want uploads_unavailable", resp.Reason)
 	}
-	if repo.createCalls != 0 || repo.tagCalls != 0 {
-		t.Errorf("no DB write may happen: createCalls=%d tagCalls=%d", repo.createCalls, repo.tagCalls)
+	if repo.createCalls != 0 {
+		t.Errorf("no DB write may happen: createCalls=%d", repo.createCalls)
 	}
 }
 

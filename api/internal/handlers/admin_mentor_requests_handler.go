@@ -124,6 +124,16 @@ func (h *AdminMentorRequestsHandler) respondServiceError(c *gin.Context, err err
 		respondError(c, http.StatusNotFound, "Request not found", err)
 		return
 	}
+	// A lost compare-and-set: the request moved between this admin's read and
+	// their write, and the service refused to overwrite a transition the admin
+	// never saw. A stale view, not a server fault — 409 so the client reloads,
+	// and so the expected outcome of two people acting on one request does not
+	// land in the metrics as a 5xx.
+	if errors.Is(err, services.ErrInvalidStatusTransition) {
+		respondError(c, http.StatusConflict,
+			"The request was changed by someone else — reload and try again", err)
+		return
+	}
 	if strings.Contains(strings.ToLower(err.Error()), "unsupported") {
 		respondError(c, http.StatusBadRequest, "Invalid request", err)
 		return

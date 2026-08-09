@@ -40,6 +40,13 @@ export interface ContactMentorResponse {
   requestId?: string
   calendar_url?: string
   error?: string
+  /**
+   * Machine-readable rejection code. 'mentor_not_contactable' (HTTP 409) means the
+   * mentor is not accepting requests: the API gates the insert in SQL, so no
+   * request was created and no calendar link comes back. The page renders `error`;
+   * this field is for anything that needs to branch on the cause.
+   */
+  reason?: string
 }
 
 /**

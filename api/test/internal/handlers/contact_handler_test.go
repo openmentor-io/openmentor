@@ -13,8 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/openmentor-io/openmentor/api/internal/handlers"
 	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // MockContactService implements ContactServiceInterface for testing
@@ -443,6 +445,49 @@ func TestContactHandler_ContactMentor_WithoutContact(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.True(t, resp.Success)
+
+	mockService.AssertExpectations(t)
+}
+
+// TestContactHandler_ContactMentor_MentorNotContactable: the mentor not accepting
+// requests is a state conflict, not bad input — nothing about the form can be
+// edited to make it land (C3). The reason code travels to the client so the page
+// can say what happened rather than showing a generic failure.
+func TestContactHandler_ContactMentor_MentorNotContactable(t *testing.T) {
+	mockService := new(MockContactService)
+	handler := handlers.NewContactHandler(mockService)
+
+	router := gin.New()
+	router.POST("/contact", handler.ContactMentor)
+
+	mockService.On("SubmitContactForm", mock.Anything, mock.Anything).Return(&models.ContactMentorResponse{
+		Success: false,
+		Error:   "This mentor is temporarily not accepting new requests.",
+		Reason:  "mentor_not_contactable",
+	}, services.ErrMentorNotContactable)
+
+	body, _ := json.Marshal(models.ContactMentorRequest{
+		Email:        "test@example.com",
+		Name:         "Test User",
+		Experience:   "Middle",
+		Intro:        "I want to learn Go programming",
+		MentorID:     "4821fee2-7601-41ad-8798-70d57f0b2acc",
+		CaptchaToken: "valid-captcha-token-123456",
+	})
+	req := httptest.NewRequest("POST", "/contact", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+
+	var resp models.ContactMentorResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.False(t, resp.Success)
+	assert.Equal(t, "mentor_not_contactable", resp.Reason)
+	assert.Empty(t, resp.RequestID)
+	assert.Empty(t, resp.CalendarURL, "an ineligible mentor's calendar link must not be returned")
 
 	mockService.AssertExpectations(t)
 }

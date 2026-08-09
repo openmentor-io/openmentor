@@ -384,7 +384,7 @@ func main() { //nolint:gocyclo
 
 	// Initialize services
 	mentorService := services.NewMentorService(mentorRepo, cfg)
-	contactService := services.NewContactService(clientRequestRepo, mentorRepo, cfg, httpClient, analyticsTracker)
+	contactService := services.NewContactService(clientRequestRepo, cfg, httpClient, analyticsTracker)
 	profileService := services.NewProfileService(mentorRepo, storageClient, cfg, httpClient, analyticsTracker)
 	registrationService := services.NewRegistrationService(mentorRepo, storageClient, cfg, httpClient, analyticsTracker)
 	mentorAuthService := services.NewMentorAuthService(mentorRepo, cfg, httpClient, analyticsTracker)

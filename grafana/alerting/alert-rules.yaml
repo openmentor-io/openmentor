@@ -17,6 +17,11 @@
 # before applying, or the rule pages the moment it is created — the live
 # notification policy fans out to telegram/slack/Discord.
 #
+# ⚠️ PENDING RE-APPLY (audit C3, edited 2026-08-07): ContactFormFailures now
+# excludes the mentor_not_contactable outcome, which C3 introduced. Until the
+# group PUT is re-run, the LIVE rule still counts it — so a mentee submitting to a
+# mentor who has just hidden themselves pages as a warning. Nothing else changed.
+#
 # ⚠️ PENDING RE-APPLY (audit H13, edited 2026-08-04 after the group was applied):
 # ContainerHighCPU, ContainerHighMemory, DBErrorRate and DBLatencyP95 were
 # rewritten because none of the first two could fire and the last two aggregated
@@ -268,13 +273,18 @@ groups:
         labels: { severity: warning, team: openmentor }
         annotations:
           summary: "Contact form submissions are failing"
-          description: "{{ printf \"%.0f\" $values.A.Value }} contact form submissions failed (status != success) in the last 30 minutes. Check captcha configuration and API errors."
+          description: "{{ printf \"%.0f\" $values.A.Value }} contact form submissions failed (status != success, excluding mentor_not_contactable) in the last 30 minutes. Check captcha configuration and API errors."
         data:
           - refId: A
             relativeTimeRange: { from: 1800, to: 0 }
             datasourceUid: grafanacloud-prom
+            # mentor_not_contactable is excluded: since C3 the insert is gated on
+            # the mentor being active, so that outcome means a mentee submitted to
+            # a mentor who had just hidden themselves (or a bot posted a mentor
+            # id). There is nothing to fix, and this rule pages at >0.
+            # om-backend still breaks the counter out by status.
             model:
-              expr: 'sum(increase(openmentor_contact_form_submissions_total{status!="success"}[30m]))'
+              expr: 'sum(increase(openmentor_contact_form_submissions_total{status!~"success|mentor_not_contactable"}[30m]))'
               instant: true
               refId: A
           - refId: B
