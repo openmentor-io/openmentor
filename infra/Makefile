@@ -1,4 +1,4 @@
-.PHONY: help check compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests
+.PHONY: help check compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests
 
 # The fast infra checks, in one place. .github/workflows/checks.yml calls these
 # targets (as web/ and api/ do), so `make check` here runs exactly what the
@@ -15,13 +15,14 @@ help:
 	@echo "  compose-config - Validate the prod and dev compose renders"
 	@echo "  env-allowlist  - Per-service env allowlist + secret ownership"
 	@echo "  shellcheck     - shellcheck every script in infra/"
-	@echo "  backup-tests   - postgres-backup sidecar behaviour tests"
+	@echo "  backup-tests   - postgres-backup sidecar behavior tests"
 	@echo "  deploy-tests   - blocks the deploy scripts share (.env.runtime, backup gate)"
 	@echo "  rollback-tests - rollback.sh migration-boundary guard + expand/contract policy"
 	@echo "  alert-tests    - backup alert + panels vs Alloy labels vs sidecar gauges"
 	@echo "  alert-fireability-tests - every alert rule can actually fire"
+	@echo "  alloy-redaction-tests   - Alloy PII redaction stage + config parses"
 
-check: compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests
+check: compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests
 	@echo "✅ Infra checks passed!"
 
 compose-config:
@@ -63,6 +64,14 @@ alert-tests:
 # labels it keys on must exist, and its threshold must be reachable (H13).
 alert-fireability-tests:
 	@./alert-fireability-test.sh
+
+# The redaction stage is the last thing between a log line and Grafana Cloud, and
+# nothing validated config.alloy before this (C11). This is also the only parse
+# check the file has: `alloy validate` rejects a forward_to pointing at a
+# component that does not exist, which is the mistake that stops ALL shipping.
+alloy-redaction-tests:
+	@./alloy-redaction-test.sh
+
 # Applies ../api/migrations to a throwaway postgres container and asserts what
 # each role can and cannot do (SECURITY H8). The checks.yml infra filter covers
 # api/migrations/** so a migration that quietly re-grants the app superuser-ish

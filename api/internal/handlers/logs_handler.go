@@ -10,8 +10,27 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"go.uber.org/zap"
 )
+
+// redactContextValue applies the log-field rules to one browser-supplied context
+// entry. Only strings are rewritten; a nested object is dropped outright rather
+// than walked, because an unbounded structure from an untrusted client is not
+// something to recurse over inside a mutex on the write path.
+func redactContextValue(key string, value interface{}) interface{} {
+	if redact.SensitiveKey(key) {
+		return redact.Placeholder
+	}
+	switch typed := value.(type) {
+	case string:
+		return redact.Text(typed)
+	case nil, bool, float64, json.Number:
+		return typed
+	default:
+		return redact.Placeholder
+	}
+}
 
 type LogsHandler struct {
 	logDir string
@@ -79,21 +98,26 @@ func (h *LogsHandler) writeLogsToFile(logs []LogEntry) error {
 		_ = f.Close()
 	}()
 
-	// Write each log entry as a JSON line
+	// Write each log entry as a JSON line.
+	//
+	// Every value here is browser-supplied, and this file is written with
+	// encoding/json rather than zap — so the redacting core never sees it and
+	// this is the one sink that has to redact itself. It is also the least
+	// trusted one: anyone can POST to /logs (C11).
 	encoder := json.NewEncoder(f)
 	for _, entry := range logs {
 		// Reformat log entry to match backend format
 		logLine := map[string]interface{}{
 			"ts":      entry.Timestamp,
 			"level":   entry.Level,
-			"msg":     entry.Message,
+			"msg":     redact.Text(entry.Message),
 			"service": "nextjs",
 		}
 
 		// Add context fields if present
 		if entry.Context != nil {
 			for k, v := range entry.Context {
-				logLine[k] = v
+				logLine[k] = redactContextValue(k, v)
 			}
 		}
 

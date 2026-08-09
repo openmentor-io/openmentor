@@ -19,6 +19,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/email"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 )
 
 // Moderation actions carried on the mentor-moderation trigger payload.
@@ -187,7 +188,7 @@ func (h *Handlers) sendEmail(ctx context.Context, job string, msg email.Message)
 		logger.Error("Job email send failed",
 			zap.String("job", job),
 			zap.String("template", msg.TemplateName),
-			zap.String("recipient", msg.Recipient),
+			zap.String("recipient", redact.Email(msg.Recipient)),
 			logger.RedactedError(err),
 		)
 		return err

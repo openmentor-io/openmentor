@@ -13,6 +13,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
 	"github.com/openmentor-io/openmentor/api/pkg/slug"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
@@ -176,27 +177,17 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 	// Trim the optional free-text contact details
 	contact := strings.TrimSpace(req.PreferredContact)
 
-	// 4. Resolve the selected tags, refusing the registration if ANY name is
-	// unknown (C2). This loop used to resolve tags non-strictly and only warn
-	// about the ones it dropped — the exact failure resolveTagsStrict was written
-	// to prevent, and the one that actually happened: "Security" was offered by
-	// the frontend but never seeded, so every registration that picked it was
-	// created without it and nobody found out until migration 000009.
-	tagIDs, unresolvedTags := resolveTagsStrict(ctx, s.mentorRepo, req.Tags)
-	if len(unresolvedTags) > 0 {
-		metrics.MentorRegistrations.WithLabelValues("tags_invalid").Inc()
-		s.tracker.Track(ctx, analytics.EventMentorRegistrationSubmitted, analytics.SystemDistinctID("api"),
-			registrationProperties(baseProperties, "tags_invalid"))
-		// Tag names are taxonomy values, not personal data: naming them is what
-		// makes a stale frontend diagnosable without waiting for a mentor to
-		// notice a missing tag.
-		logger.Error("Registration rejected: submitted tags do not exist",
-			zap.Strings("unresolved_tags", unresolvedTags))
-		return &models.RegisterMentorResponse{
-			Success: false,
-			Error:   "Unknown tag(s): " + strings.Join(unresolvedTags, ", ") + " — please reload the page and pick your tags again",
-			Reason:  "tags_invalid",
-		}, fmt.Errorf("unknown tag(s): %s", strings.Join(unresolvedTags, ", "))
+	// 4. Get tag IDs for selected tags
+	var tagIDs []string
+	for _, tagName := range req.Tags {
+		tagID, err := s.mentorRepo.GetTagIDByName(ctx, tagName)
+		if err == nil && tagID != "" {
+			tagIDs = append(tagIDs, tagID)
+		} else {
+			// Attacker-controlled free text: a rejected tag is whatever the form
+			// sent, so it goes through the text rules like any other value.
+			logger.Warn("Tag not found", zap.String("tag_name", redact.Text(tagName)))
+		}
 	}
 
 	// 5. Create mentor record in PostgreSQL
@@ -250,7 +241,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		zap.String("mentor_id", mentorID),
 		zap.Int("legacy_id", legacyID),
 		zap.String("slug", mentorSlug),
-		zap.String("email", req.Email))
+		zap.String("email", redact.Email(req.Email)))
 
 	// 6. Upload the already-validated photo bytes (non-blocking on failure).
 	// Images are keyed by the mentor UUID, not the slug — usernames are

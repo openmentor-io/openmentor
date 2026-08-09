@@ -15,6 +15,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/jwt"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
 	"go.uber.org/zap"
 )
@@ -71,7 +72,7 @@ func (s *AdminAuthService) RequestLogin(ctx context.Context, email string) (*mod
 		s.tracker.Track(ctx, analytics.EventAdminAuthLoginRequested, analytics.SystemDistinctID("api"), map[string]interface{}{
 			"outcome": "moderator_not_found",
 		})
-		logger.Warn("Admin login request for unknown email", zap.String("email", maskEmail(email)), zap.Error(err))
+		logger.Warn("Admin login request for unknown email", zap.String("email", redact.Email(email)), zap.Error(err))
 		return nil, ErrModeratorNotFound
 	}
 	if !moderator.Role.IsValid() {
@@ -118,10 +119,10 @@ func (s *AdminAuthService) RequestLogin(ctx context.Context, email string) (*mod
 		}
 		trigger.CallAsyncWithPayload(ctx, s.config.EventTriggers.ModeratorLoginEmailTriggerURL, payload, s.config.Worker.AuthToken, s.httpClient)
 	} else if s.config.IsDevelopment() {
-		logger.Info("=== DEVELOPMENT ADMIN LOGIN URL ===",
-			zap.String("moderator_email", maskEmail(moderator.Email)),
-			zap.String("moderator_name", moderator.Name),
-			zap.String("login_url", loginURL))
+		logger.Info("Development admin login URL printed to stdout",
+			zap.String("moderator_email", redact.Email(moderator.Email)),
+			zap.String("moderator_id", moderator.ID))
+		printDevLoginURL("DEVELOPMENT ADMIN LOGIN URL", loginURL)
 	}
 	s.tracker.Track(ctx, analytics.EventAdminAuthLoginRequested, analytics.ModeratorDistinctID(moderator.ID), map[string]interface{}{
 		"moderator_id":            moderator.ID,
