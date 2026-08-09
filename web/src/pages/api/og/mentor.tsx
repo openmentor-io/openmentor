@@ -10,6 +10,16 @@
  * be spoofed via query params. Any failure falls back to a redirect to the
  * static site banner: a scraper must always get *an* image.
  *
+ * The endpoint is bounded on four axes (C8), because one request costs two
+ * upstream fetches plus a 1200x630 satori render and it is reachable
+ * unauthenticated by anyone who can type a URL:
+ *   - method: GET/HEAD only, so a POST flood cannot drive renders;
+ *   - slug: rejected against the username grammar before any upstream call;
+ *   - concurrency: at most MAX_CONCURRENT_RENDERS in flight, the rest shed to
+ *     the banner rather than queueing behind the event loop;
+ *   - caching: rendered PNGs are held in-process, so a `?v=` sweep re-serves
+ *     bytes instead of re-rendering.
+ *
  * Runs in the regular Node runtime: next/og ships a Node build, and the edge
  * runtime variant is mis-bundled by Turbopack for Pages Router API routes
  * (broken `__import_unsupported` zlib shim, Next 16.0.10 — in dev AND build).
@@ -22,6 +32,7 @@ import path from 'path'
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { ImageResponse } from 'next/og'
 import logger from '@/lib/logger'
+import { withObservability } from '@/lib/with-observability'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
 import {
   MENTOR_INITIALS_HEX,
@@ -133,19 +144,141 @@ function initials(name: string): string {
     .join('')
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
+/**
+ * Concurrent renders allowed in flight. satori + resvg are synchronous CPU on
+ * the Node event loop, so unbounded concurrency does not "queue" — it stalls
+ * every other request the frontend is serving, including the ones the mentor
+ * pages need. Excess requests are shed to the banner: a scraper that gets the
+ * generic image is a worse card, an unresponsive frontend is an outage.
+ */
+const MAX_CONCURRENT_RENDERS = 3
+let activeRenders = 0
+
+/**
+ * Rendered cards, keyed by slug alone.
+ *
+ * Deliberately NOT keyed by `?v=`: `v` exists to bust the CDN when a profile
+ * changes, and keying on it would let an arbitrary `v` sweep miss the cache on
+ * every request — the exact multiplication this is here to stop. Keying by slug
+ * means such a sweep costs one render per slug per TTL, at the price of a card
+ * lagging a profile edit by up to the TTL. That lag is invisible next to the
+ * `s-maxage=86400` the response already carries.
+ *
+ * Bounded by entry count rather than bytes: a 1200x630 PNG is a few hundred KB,
+ * so this is single-digit MB at the ceiling.
+ */
+const CARD_CACHE_TTL_MS = 10 * 60 * 1000
+const CARD_CACHE_MAX_ENTRIES = 16
+const cardCache = new Map<string, { png: Buffer; expiresAt: number }>()
+
+function cachedCard(slug: string): Buffer | null {
+  const hit = cardCache.get(slug)
+  if (!hit) return null
+  if (hit.expiresAt <= Date.now()) {
+    cardCache.delete(slug)
+    return null
+  }
+  // Re-insert so Map iteration order stays least-recently-used first.
+  cardCache.delete(slug)
+  cardCache.set(slug, hit)
+  return hit.png
+}
+
+function cacheCard(slug: string, png: Buffer): void {
+  cardCache.delete(slug)
+  cardCache.set(slug, { png, expiresAt: Date.now() + CARD_CACHE_TTL_MS })
+  while (cardCache.size > CARD_CACHE_MAX_ENTRIES) {
+    const oldest = cardCache.keys().next()
+    if (oldest.done) break
+    cardCache.delete(oldest.value)
+  }
+}
+
+/** Test seam: the cache is process-global and would leak between test cases. */
+export function __resetCardCache(): void {
+  cardCache.clear()
+  activeRenders = 0
+}
+
+/**
+ * The cache-buster the mentor page appends: `updatedAtToVersion`, i.e. epoch
+ * seconds. Anything else is not from us, and honouring it would only mint CDN
+ * cache keys, so it is refused before any upstream work happens.
+ */
+function isVersionParamValid(value: string | string[] | undefined): boolean {
+  if (value === undefined) return true
+  if (Array.isArray(value)) return false
+  return /^[0-9]{1,12}$/.test(value)
+}
+
+/**
+ * A bound on the slug, deliberately looser than the username grammar
+ * (`api/pkg/slug`, D29: `^[a-z0-9]+(-[a-z0-9]+)*$`, 3-40 chars).
+ *
+ * The grammar would be the obvious check and it is the wrong one here: it
+ * postdates the getmentor.dev import, and at least one live profile has a
+ * leading-hyphen slug that predates it. Gating on the grammar would replace a
+ * working card with the generic banner for those mentors. What this needs to
+ * stop is unbounded input reaching the upstream fetch — a traversal attempt, a
+ * multi-kilobyte string, an encoded null — so charset and length are enough,
+ * with a 64-char ceiling comfortably past anything the grammar can produce.
+ */
+const SLUG_BOUND = /^[a-z0-9-]{1,64}$/
+
+function sendCard(res: NextApiResponse, png: Buffer): void {
+  res.setHeader('Content-Type', 'image/png')
+  // Cards change when the profile does — the page busts via ?v=.
+  res.setHeader(
+    'Cache-Control',
+    'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800'
+  )
+  res.status(200).send(png)
+}
+
+async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
+  // A transient or refused card must not be cached as this mentor's image, so
+  // the banner redirect is explicitly uncacheable.
   const fallback = (): void => {
+    res.setHeader('Cache-Control', 'no-store')
     res.redirect(302, '/images/banner.png')
   }
 
-  try {
-    const slugParam = req.query.slug
-    const slug = (Array.isArray(slugParam) ? slugParam[0] : slugParam)?.trim()
-    if (!slug) {
-      fallback()
-      return
-    }
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.setHeader('Allow', 'GET, HEAD')
+    res.status(405).json({ error: 'Method not allowed' })
+    return
+  }
 
+  // A repeated `?slug=` is refused rather than resolved to the first value: no
+  // legitimate caller sends one, and accepting it would give every mentor an
+  // unbounded family of URLs that render the same card.
+  const slugParam = req.query.slug
+  const slug = Array.isArray(slugParam) ? undefined : slugParam?.trim()
+
+  // Both checks run before any upstream call or render, so a probe costs a
+  // regex rather than two HTTP round trips.
+  if (!slug || !SLUG_BOUND.test(slug) || !isVersionParamValid(req.query.v)) {
+    fallback()
+    return
+  }
+
+  const cached = cachedCard(slug)
+  if (cached) {
+    sendCard(res, cached)
+    return
+  }
+
+  if (activeRenders >= MAX_CONCURRENT_RENDERS) {
+    logger.warn('OG card render shed at capacity, redirecting to banner', {
+      slug,
+      activeRenders,
+    })
+    fallback()
+    return
+  }
+
+  activeRenders += 1
+  try {
     const mentor = await fetchMentor(slug)
     if (!mentor) {
       fallback()
@@ -339,19 +472,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     )
 
     const png = Buffer.from(await image.arrayBuffer())
-    res.setHeader('Content-Type', 'image/png')
-    // Cards change when the profile does — the page busts via ?v=.
-    res.setHeader(
-      'Cache-Control',
-      'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800'
-    )
-    res.status(200).send(png)
+    cacheCard(slug, png)
+    sendCard(res, png)
   } catch (error) {
     // Never break a scraper — but do leave a trace for us.
     logger.error('OG card render failed, redirecting to banner', {
-      slug: req.query.slug,
+      slug,
       error: error instanceof Error ? error.message : String(error),
     })
     fallback()
+  } finally {
+    activeRenders -= 1
   }
 }
+
+export default withObservability('/api/og/mentor', handler)

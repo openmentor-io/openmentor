@@ -84,4 +84,23 @@ describe('/mentors/[tag] props', () => {
       expect(Object.prototype.hasOwnProperty.call(mentor, key)).toBe(false)
     }
   })
+
+  it('lets a shared cache serve a known tag, and not an unknown one', async () => {
+    mockedGetAllMentors.mockResolvedValue([legacyMentor()])
+
+    // A tag page is identical for every visitor, same as `/` and `/mentors`.
+    const known = ctx('backend')
+    await getServerSideProps(known)
+    expect(known.res.setHeader).toHaveBeenCalledWith(
+      'Cache-Control',
+      'public, max-age=0, s-maxage=60, stale-while-revalidate=300'
+    )
+
+    // The 404 for an unknown slug keeps Next's uncacheable default: a shared
+    // cache must not pin a not-found answer for a tag that ships next week.
+    const unknown = ctx('no-such-tag')
+    const result = await getServerSideProps(unknown)
+    expect(result).toEqual({ notFound: true })
+    expect(unknown.res.setHeader).not.toHaveBeenCalled()
+  })
 })

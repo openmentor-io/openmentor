@@ -1,26 +1,9 @@
 import Head from 'next/head'
 import { useEffect } from 'react'
-import type { GetServerSideProps } from 'next'
 import { Footer, MetaHeader, NavHeader } from '@/components'
 import donates from '@/config/donates'
 import { pageTitle } from '@/config/seo'
 import analytics from '@/lib/analytics'
-import { withSSRObservability } from '@/lib/with-ssr-observability'
-import logger, { getTraceContext } from '@/lib/logger'
-
-// Add SSR observability for metrics, logs, and traces
-const _getServerSideProps: GetServerSideProps = async (context) => {
-  logger.info('Donate page rendered', {
-    userAgent: context.req.headers['user-agent'],
-    ...getTraceContext(),
-  })
-
-  return {
-    props: {},
-  }
-}
-
-export const getServerSideProps = withSSRObservability(_getServerSideProps, 'donate')
 
 export default function Donate(): JSX.Element {
   const title = pageTitle('Support us')

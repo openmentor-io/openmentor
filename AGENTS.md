@@ -224,23 +224,24 @@ There is no `app/` directory and no plan for one. Pages live in `src/pages/`, AP
 ### Metric route labels
 
 `src/lib/with-observability.ts` owns the `http_route` label on three Prometheus series
-(`httpRequestTotal`, `httpRequestDuration`, `activeRequests`). Two mechanisms, both load-bearing:
+(`httpRequestTotal`, `httpRequestDuration`, `activeRequests`). The label is a **compile-time
+literal**: `withObservability('/api/mentor/example/:id', handler)`, typed as `ApiRouteLabel` — a
+union derived from the `API_ROUTE_LABELS` tuple in `src/lib/api-routes.ts`. `req.url` has no path
+to the label at all, so cardinality equals the number of call sites; the old
+`normalizeRoute()`/`KNOWN_ROUTES` allowlist is gone (C7, D76) — don't reintroduce a runtime
+mapping.
 
-- `normalizeRoute()` collapses UUID segments to `:id` at any depth, because one id-bearing
-  request otherwise mints three new series.
-- `KNOWN_ROUTES` is a hard-coded allowlist of route templates; `routeLabel()` maps anything else
-  to `other`. That caps cardinality at `KNOWN_ROUTES.size + 1` — necessary because these metrics
-  are labelled *before* the handler authenticates anything, and a non-UUID id (an Airtable
-  `rec…`, a numeric id) survives normalization verbatim.
-
-**Never build a label from `req.url` yourself — always go through `routeLabel()`.** Adding an API
-route touches three places, so do them in one edit pass: the handler under `src/pages/api/`, its
-`withObservability(handler)` wrapper, and its template in `KNOWN_ROUTES`.
-`src/lib/__tests__/with-observability.test.ts` walks `src/pages/api` for files containing
-`withObservability(`, derives each template from its path, and asserts `routeLabel` returns that
-template — so a forgotten entry fails CI, late. These label values are **live Grafana dashboard
-dimensions** (`grafana/dashboards/om-frontend.json` queries `http_route` by name), so renaming
-one changes the panels' series.
+Adding an API route touches two places, in one edit pass: the tuple in `src/lib/api-routes.ts`
+(every dynamic segment spelled `:id`) and the handler's `withObservability('<template>', handler)`
+wrapper. Three guards enforce it: the `ApiRouteLabel` type (a missing or undeclared label fails
+`tsc`), a dev-only import-time assertion (no-op in production — a labelling bug must not take a
+live endpoint down), and `src/lib/__tests__/api-routes.test.ts`, which parses every file under
+`src/pages/api` and asserts the literal each one passes equals its own path-derived template —
+the one mistake the type cannot see is a *valid* label belonging to a sibling route.
+`/api/metrics` is the sole deliberately unwrapped handler (a scrape must not write to the
+registry it is serializing), and that exemption is asserted too. These label values are **live
+Grafana dashboard dimensions** (`grafana/dashboards/om-frontend.json` queries `http_route` by
+name), so renaming one changes the panels' series.
 
 ### Redaction
 

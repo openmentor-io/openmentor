@@ -1,7 +1,7 @@
 import classNames from 'classnames'
 import { Menu } from '@headlessui/react'
 import analytics from '@/lib/analytics'
-import type { MentorListItem } from '@/types'
+import type { MentorCatalogItem } from '@/types'
 
 export type MentorsSortOption = 'relevance' | 'sessions' | 'newest'
 
@@ -19,7 +19,10 @@ const SORT_OPTIONS = Object.keys(SORT_LABELS) as MentorsSortOption[]
  * - sessions: completed sessions, descending
  * - newest: NEW mentors first (stable within groups)
  */
-export function sortMentors(mentors: MentorListItem[], sort: MentorsSortOption): MentorListItem[] {
+export function sortMentors(
+  mentors: MentorCatalogItem[],
+  sort: MentorsSortOption
+): MentorCatalogItem[] {
   if (sort === 'sessions') {
     return [...mentors].sort((a, b) => (b.sessionsCount ?? 0) - (a.sessionsCount ?? 0))
   }

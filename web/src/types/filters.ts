@@ -2,7 +2,7 @@
  * Filter configuration types
  */
 
-import type { MentorListItem } from './mentor'
+import type { MentorCatalogItem } from './mentor'
 
 /**
  * Topic tab category: a label shown as a tab and the tags it aggregates
@@ -61,7 +61,7 @@ export interface AppliedFilters {
  * useMentors hook return type
  */
 export type UseMentorsReturn = [
-  MentorListItem[], // mentors (visible page)
+  MentorCatalogItem[], // mentors (visible page)
   string, // searchInput
   boolean, // hasMoreMentors
   (value: string) => void, // setSearchInput

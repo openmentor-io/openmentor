@@ -16,6 +16,7 @@ import {
 } from '@/components'
 import type { MentorsSortOption } from '@/components'
 import { getAllMentors } from '@/server/mentors-data'
+import { toCatalogItem } from '@/server/mentor-projection'
 import analytics from '@/lib/analytics'
 import pluralize from '@/lib/pluralize'
 import seo from '@/config/seo'
@@ -23,7 +24,7 @@ import constants from '@/config/constants'
 import { jsonLdScriptProps } from '@/lib/json-ld'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
-import type { MentorListItem } from '@/types'
+import type { MentorCatalogItem } from '@/types'
 
 // CollectionPage node: references the sitewide WebSite/Organization nodes
 // declared in _app.tsx by @id rather than re-declaring them. No ItemList
@@ -41,11 +42,30 @@ const homeJsonLd: Record<string, unknown> = {
 
 interface HomePageProps {
   [key: string]: unknown
-  pageMentors: MentorListItem[]
+  /**
+   * Every visible mentor, projected to the card + filter + search fields. The
+   * whole catalog has to be here — filters and search run client-side with no
+   * round trip — so the projection is what keeps that affordable: 209 KB of
+   * `__NEXT_DATA__` down to 168 KB at 287 mentors, and the saving scales with
+   * the catalog. `/mentors` and `/mentors/[tag]` already projected; this page
+   * shipped whole `MentorListItem`s.
+   */
+  pageMentors: MentorCatalogItem[]
 }
 
 const _getServerSideProps: GetServerSideProps<HomePageProps> = async (context) => {
-  const pageMentors = await getAllMentors({ onlyVisible: true, drop_long_fields: true })
+  const allMentors = await getAllMentors({ onlyVisible: true, drop_long_fields: true })
+  const pageMentors = allMentors.map(toCatalogItem)
+
+  // The catalog is identical for every visitor and nothing here is
+  // session-scoped, so a shared cache can serve it. Without this Next sends
+  // `private, no-store` on every SSR response and the page is uncacheable.
+  // `max-age=0` keeps browsers revalidating, so only the shared cache holds it
+  // — the same shape sitemap.xml.ts uses, with a catalog-appropriate window.
+  context.res.setHeader(
+    'Cache-Control',
+    'public, max-age=0, s-maxage=60, stale-while-revalidate=300'
+  )
 
   logger.info('Index page rendered', {
     mentorCount: pageMentors.length,
