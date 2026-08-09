@@ -199,9 +199,9 @@ func (s *ProfileService) UploadPictureByMentorId(ctx context.Context, mentorID s
 		return "", fmt.Errorf("mentor not found: %w", err)
 	}
 
-	// Upload to S3-compatible object storage in 3 sizes: full, large, small
-	// (synchronous), reusing the bytes preparePhoto already decoded.
-	fullImageURL, err := s.storageClient.UploadImageAllSizesBytes(ctx, photo.bytes, mentorID, photo.contentType)
+	// Store the photo as one canonical object (synchronous), reusing the bytes
+	// preparePhoto already decoded.
+	fullImageURL, err := s.storageClient.UploadProfileImage(ctx, photo.bytes, mentorID, photo.contentType)
 	if err != nil {
 		metrics.ProfilePictureUploads.WithLabelValues("error").Inc()
 		s.tracker.Track(ctx, analytics.EventMentorProfilePictureUploaded, analytics.MentorDistinctID(mentorID), map[string]interface{}{
@@ -478,7 +478,7 @@ func (s *ProfileService) StashDeletedProfileImages(ctx context.Context, mentorID
 	}
 
 	// Detached from the request context (the response does not wait for S3) and
-	// panic-isolated, same as UploadImageAllSizesAsync.
+	// panic-isolated, same as UploadProfileImageAsync.
 	bgCtx := context.WithoutCancel(ctx)
 	safego.Go("s3_stash_deleted_profile_images", func() {
 		// UUID first — the canonical key since D29 — then every slug the

@@ -71,7 +71,7 @@ func NewStorageClient(accessKeyID, secretAccessKey, bucketName, endpoint, region
 // base64 and data URI format (data:image/png;base64,...).
 //
 // Callers decode ONCE and pass the bytes down (ValidateImage,
-// UploadImageAllSizesBytes): threading the string around meant the same
+// UploadProfileImage): threading the string around meant the same
 // payload was base64-decoded five to six times per upload — once for the size
 // check, once for the content sniff, and once per stored size.
 func DecodeImageData(imageData string) ([]byte, error) {
@@ -118,6 +118,34 @@ func (s *StorageClient) UploadImageBytes(ctx context.Context, imageBytes []byte,
 	)
 
 	return s.publicURL(key), nil
+}
+
+// deleteObject removes one object. S3 treats deleting an absent key as success,
+// so callers cannot use this to test existence.
+func (s *StorageClient) deleteObject(ctx context.Context, key string) error {
+	start := time.Now()
+	const operation = "deleteImage"
+
+	_, err := s.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucketName),
+		Key:    aws.String(key),
+	})
+
+	duration := metrics.MeasureDuration(start)
+	outcome := "success"
+	fields := []zap.Field{zap.String("key", key)}
+	if err != nil {
+		outcome = "error"
+		fields = append(fields, zap.Error(err))
+	}
+	metrics.S3StorageRequestDuration.WithLabelValues(operation, outcome).Observe(duration)
+	metrics.S3StorageRequestTotal.WithLabelValues(operation, outcome).Inc()
+	logger.LogAPICall(ctx, "s3_storage", operation, outcome, duration, fields...)
+
+	if err != nil {
+		return fmt.Errorf("failed to delete object: %w", err)
+	}
+	return nil
 }
 
 // publicURL is the address a stored object is served from:
@@ -200,61 +228,82 @@ func ValidateImage(imageBytes []byte, contentType string) error {
 	return imageclass.CheckBounds(imageBytes)
 }
 
-// UploadImageAllSizesBytes stores the same validated payload under each size.
-// NOTE: Currently uploads same image 3 times (tech debt - future: generate thumbnails)
-// Returns the URL of the 'full' size image.
+// UploadProfileImage validates the payload and stores it as ONE object, at
+// {keyBase}/full, whose URL it returns.
+//
+// It used to PUT the identical bytes three times, under full/large/small (audit
+// C5). Those were never variants — no resizing existed, and the code said so —
+// so the platform paid three uploads, three times the storage and three times
+// the egress to serve three copies of one photo.
+//
+// The URL scheme is unchanged: full/large/small remain the key layout, web/'s
+// image loader resolves every requested size to canonicalImageSize, and when
+// real thumbnails exist they come back as *different bytes* under the same keys.
+//
 // keyBase is the immutable mentor UUID (mentors.id) — NOT the slug: usernames are
 // user-changeable, and keying objects on the UUID makes renames free (no S3 moves).
-func (s *StorageClient) UploadImageAllSizesBytes(ctx context.Context, imageBytes []byte, keyBase, contentType string) (string, error) {
+func (s *StorageClient) UploadProfileImage(ctx context.Context, imageBytes []byte, keyBase, contentType string) (string, error) {
 	if err := ValidateImage(imageBytes, contentType); err != nil {
 		return "", err
 	}
 
-	var fullImageURL string
-
-	// imageSizes is shared with the deletion trash moves (trash.go), so a size
-	// added here is automatically covered when a profile is deleted.
-	for _, size := range imageSizes {
-		// Generate key: {keyBase}/{size} (e.g., "<mentor-uuid>/full")
-		key := fmt.Sprintf("%s/%s", keyBase, size)
-
-		// Upload to object storage
-		imageURL, err := s.UploadImageBytes(ctx, imageBytes, key, contentType)
-		if err != nil {
-			return "", fmt.Errorf("failed to upload image size %s: %w", size, err)
-		}
-
-		// Store the 'full' URL to return
-		if size == "full" {
-			fullImageURL = imageURL
-		}
-
-		logger.Info("Uploaded image size to storage",
-			zap.String("key_base", keyBase),
-			zap.String("size", size),
-			zap.String("url", imageURL))
+	imageURL, err := s.UploadImageBytes(ctx, imageBytes, imageKey(keyBase, canonicalImageSize), contentType)
+	if err != nil {
+		return "", fmt.Errorf("failed to upload image: %w", err)
 	}
 
-	return fullImageURL, nil
+	s.deleteSupersededAliases(ctx, keyBase)
+
+	logger.Info("Uploaded profile image to storage",
+		zap.String("key_base", keyBase),
+		zap.String("size", canonicalImageSize),
+		zap.String("url", imageURL))
+
+	return imageURL, nil
 }
 
-// UploadImageAllSizesAsync uploads the same image in 3 sizes (full, large, small) asynchronously
-// NOTE: Currently uploads same image 3 times (tech debt - future: generate thumbnails)
-// This is non-blocking and returns immediately. Errors are logged but not returned.
-// Use this when you don't need to wait for upload completion (e.g., during registration).
-// Objects are keyed by the mentor UUID (see UploadImageAllSizesBytes).
+// deleteSupersededAliases removes the byte-identical copies an earlier upload
+// left under the other size keys.
+//
+// Without it, replacing a photo would leave the PREVIOUS one publicly readable
+// at {uuid}/large forever: nothing overwrites those keys any more, and no reader
+// asks for them, so nothing would ever notice.
+//
+// Best effort by design — a failure here costs a stale object (still collected
+// by the trash lifecycle when the profile is deleted), and the mentor's new
+// photo is already stored. Deleting an absent key is a no-op on S3, so this is
+// two cheap requests for accounts that never had aliases, against the two
+// multi-megabyte PUTs it replaces.
+func (s *StorageClient) deleteSupersededAliases(ctx context.Context, keyBase string) {
+	for _, size := range imageSizes {
+		if size == canonicalImageSize {
+			continue
+		}
+		key := imageKey(keyBase, size)
+		if err := s.deleteObject(ctx, key); err != nil {
+			logger.Warn("Could not remove superseded image alias",
+				zap.Error(err),
+				zap.String("key", key))
+		}
+	}
+}
+
+// UploadProfileImageAsync stores the image without blocking the caller: it
+// returns immediately and errors are logged, not returned. Use it when the
+// response must not wait for the bucket (e.g. during registration).
+// Objects are keyed by the mentor UUID (see UploadProfileImage).
 //
 // Takes decoded bytes: the caller has already validated and classified them
 // (services.preparePhoto), and a background goroutine is the last place that
 // should be discovering an image is unacceptable.
-func (s *StorageClient) UploadImageAllSizesAsync(ctx context.Context, imageBytes []byte, contentType, mentorID string) {
+func (s *StorageClient) UploadProfileImageAsync(ctx context.Context, imageBytes []byte, contentType, mentorID string) {
 	// Detach from the HTTP request context so the upload isn't canceled
 	// when the handler returns the response to the client. safego.Go, not a
 	// bare goroutine: nothing here is allowed to take the process down, and
 	// the caller's recover() (RecoveryMiddleware) cannot reach this stack.
 	bgCtx := context.WithoutCancel(ctx)
-	safego.Go("s3_upload_image_all_sizes", func() {
-		fullImageURL, err := s.UploadImageAllSizesBytes(bgCtx, imageBytes, mentorID, contentType)
+	safego.Go("s3_upload_profile_image", func() {
+		fullImageURL, err := s.UploadProfileImage(bgCtx, imageBytes, mentorID, contentType)
 		if err != nil {
 			logger.Error("Failed to upload profile picture asynchronously",
 				zap.Error(err),

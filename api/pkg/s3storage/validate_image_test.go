@@ -34,17 +34,17 @@ func TestValidateImage(t *testing.T) {
 	}
 }
 
-// TestUploadImageAllSizesBytesRejectsBombBeforeStoring: the storage layer is the
+// TestUploadProfileImageRejectsBombBeforeStoring: the storage layer is the
 // last line of defense — nothing may reach the bucket. A nil s3Client makes the
 // point loudly: any PutObject attempt would panic instead of returning an error.
-func TestUploadImageAllSizesBytesRejectsBombBeforeStoring(t *testing.T) {
+func TestUploadProfileImageRejectsBombBeforeStoring(t *testing.T) {
 	client := &StorageClient{bucketName: "test-bucket", endpoint: "https://s3.example.com"}
 
-	url, err := client.UploadImageAllSizesBytes(t.Context(), imagefixture.BombPNG(t, 10000, 10000), "mentor-uuid", "image/png")
+	url, err := client.UploadProfileImage(t.Context(), imagefixture.BombPNG(t, 10000, 10000), "mentor-uuid", "image/png")
 	if !errors.Is(err, imageclass.ErrImageTooLarge) {
-		t.Fatalf("UploadImageAllSizesBytes() error = %v, want ErrImageTooLarge", err)
+		t.Fatalf("UploadProfileImage() error = %v, want ErrImageTooLarge", err)
 	}
 	if url != "" {
-		t.Errorf("UploadImageAllSizesBytes() url = %q, want empty", url)
+		t.Errorf("UploadProfileImage() url = %q, want empty", url)
 	}
 }
