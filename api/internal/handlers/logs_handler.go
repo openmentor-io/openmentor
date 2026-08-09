@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +13,9 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"go.uber.org/zap"
+	"gopkg.in/natefinch/lumberjack.v2"
+
+	"github.com/openmentor-io/openmentor/api/pkg/logger"
 )
 
 // redactContextValue applies the log-field rules to one browser-supplied context
@@ -33,9 +37,26 @@ func redactContextValue(key string, value interface{}) interface{} {
 }
 
 type LogsHandler struct {
-	logDir string
+	// writer is a lumberjack.Logger, so frontend.log is bounded the same way
+	// pkg/logger bounds app.log and error.log. Before this it was a bare
+	// O_APPEND open per request and grew without limit — the one log file in the
+	// deployment with no rotation, filling the same volume the rotated ones
+	// share.
+	writer io.WriteCloser
 	mu     sync.Mutex
 }
+
+// frontendLogRotation mirrors pkg/logger's app.log/error.log settings, so every
+// file on the log volume is bounded by the same rule.
+//
+// frontend.log is deliberately NOT one of Alloy's tail targets (it reads
+// /var/log/backend/app.log and /var/log/frontend/app-*.log), so rotating it
+// changes nothing about what reaches Loki. It is disk, and only disk.
+const (
+	frontendLogMaxSizeMB  = 100
+	frontendLogMaxBackups = 7
+	frontendLogMaxAgeDays = 7
+)
 
 type LogEntry struct {
 	Timestamp string                 `json:"timestamp"`
@@ -49,8 +70,20 @@ type LogBatchRequest struct {
 }
 
 func NewLogsHandler(logDir string) *LogsHandler {
+	return newLogsHandler(logDir, frontendLogMaxSizeMB)
+}
+
+// newLogsHandler exists so the rotation test can choose a size it can actually
+// write past; production always uses frontendLogMaxSizeMB.
+func newLogsHandler(logDir string, maxSizeMB int) *LogsHandler {
 	return &LogsHandler{
-		logDir: logDir,
+		writer: &lumberjack.Logger{
+			Filename:   filepath.Join(logDir, "frontend.log"),
+			MaxSize:    maxSizeMB,
+			MaxBackups: frontendLogMaxBackups,
+			MaxAge:     frontendLogMaxAgeDays,
+			Compress:   true,
+		},
 	}
 }
 
@@ -78,6 +111,9 @@ func (h *LogsHandler) ReceiveFrontendLogs(c *gin.Context) {
 }
 
 func (h *LogsHandler) writeLogsToFile(logs []LogEntry) error {
+	// lumberjack.Logger.Write is itself serialized, but the mutex still has to
+	// hold for the whole batch: without it two concurrent batches interleave
+	// their JSON lines mid-encode.
 	h.mu.Lock()
 	defer h.mu.Unlock()
 

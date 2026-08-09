@@ -180,7 +180,7 @@ func TestScheduledJobSkipsOverlappingRun(t *testing.T) {
 			<-release
 			return JobSummary{}, nil
 		},
-	})
+	}, &grantingLeaser{})
 
 	firstDone := make(chan struct{})
 	go func() {
@@ -217,9 +217,11 @@ func TestScheduledJobSkipsOverlappingRun(t *testing.T) {
 	}
 }
 
-// TestScheduledJobWithoutGuardRunsConcurrently pins the opposite default: only
-// jobs that ask for the guard get it, so a long-running weekly job is never
-// silently skipped.
+// TestScheduledJobWithoutGuardRunsConcurrently pins the opposite default for the
+// in-process chain: only jobs that ask for it get the SkipIfStillRunning wrapper.
+// The lease is stubbed as always-granting here to isolate that layer — in
+// production the lease is what stops these two runs overlapping (D82), which is
+// exactly why the chain is an optimisation and not the safety mechanism.
 func TestScheduledJobWithoutGuardRunsConcurrently(t *testing.T) {
 	release := make(chan struct{})
 	entered := make(chan struct{}, 2)
@@ -234,7 +236,7 @@ func TestScheduledJobWithoutGuardRunsConcurrently(t *testing.T) {
 			<-release
 			return JobSummary{}, nil
 		},
-	})
+	}, &grantingLeaser{})
 
 	var running sync.WaitGroup
 	running.Add(2)

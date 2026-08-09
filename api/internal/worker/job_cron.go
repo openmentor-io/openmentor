@@ -22,6 +22,14 @@ type JobSummary struct {
 	// emails to a dev inbox.
 	Skipped bool `json:"skipped,omitempty"`
 
+	// SkipReason disambiguates Skipped for whoever triggered the job by hand.
+	// There are now two reasons a manual POST /jobs/cron/<name> can come back
+	// having done nothing, and "skipped: true" alone cannot tell an operator
+	// whether the environment gate declined the run or another pass already holds
+	// the lease. Set by the layer that made the decision, so a handler that only
+	// knows about the environment gate does not have to name it.
+	SkipReason string `json:"skip_reason,omitempty"`
+
 	MentorsMatched int `json:"mentors_matched"`
 	EmailsSent     int `json:"emails_sent"`
 	EmailFailures  int `json:"email_failures"`
@@ -55,6 +63,12 @@ type JobSummary struct {
 	// everywhere but only writes sort orders in production.
 	WritesSkipped bool `json:"writes_skipped,omitempty"`
 }
+
+// JobSummary.SkipReason values.
+const (
+	skipReasonNonProduction = "non_production"
+	skipReasonLeaseHeld     = "lease_held"
+)
 
 // CronJobFunc is a single cron job run, ported from a timer-triggered
 // function in openmentor-func.

@@ -38,10 +38,8 @@ ARG NEXT_PUBLIC_FARO_SAMPLE_RATE
 ARG FARO_API_ENDPOINT
 ARG FARO_APP_ID
 ARG FARO_STACK_ID
-ARG FARO_API_KEY
 ARG NEXT_PUBLIC_POSTHOG_KEY
 ARG NEXT_PUBLIC_POSTHOG_HOST
-ARG POSTHOG_PERSONAL_API_KEY
 ARG POSTHOG_PROJECT_ID
 
 ENV NEXT_PUBLIC_GO_API_URL=$NEXT_PUBLIC_GO_API_URL
@@ -59,12 +57,26 @@ ENV NEXT_PUBLIC_FARO_COLLECTOR_URL=$NEXT_PUBLIC_FARO_COLLECTOR_URL
 ENV NEXT_PUBLIC_FARO_SAMPLE_RATE=$NEXT_PUBLIC_FARO_SAMPLE_RATE
 ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
 ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
-ENV POSTHOG_PERSONAL_API_KEY=$POSTHOG_PERSONAL_API_KEY
 ENV POSTHOG_PROJECT_ID=$POSTHOG_PROJECT_ID
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# The two build-time CREDENTIALS arrive as BuildKit secret mounts, not build args
+# (C12). A build arg is the wrong tool for a secret: it is recorded in the
+# metadata of the stage that declares it and is visible to every later
+# instruction in that stage. Nothing was disclosed by the previous shape — both
+# were confined to this builder stage, and the pushed image is built from the
+# `runner` stage below, whose history carries neither — but a secret mount is
+# scoped to the one RUN that needs it and leaves nothing behind at all, which is
+# the property worth having rather than "the stage boundary happens to save us".
+#
+# The file form (`cat`) rather than `env=`: `env=` needs a
+# `# syntax=docker/dockerfile:1.10+` frontend directive, and reading the file
+# keeps this buildable by any BuildKit.
+
 # Build the Next.js application
-RUN npm run build
+RUN --mount=type=secret,id=posthog_personal_api_key \
+    POSTHOG_PERSONAL_API_KEY="$(cat /run/secrets/posthog_personal_api_key 2>/dev/null || true)" \
+    npm run build
 
 # Add curl for source map upload
 RUN apk add --update curl
@@ -75,7 +87,9 @@ RUN apk add --update curl
 # The `--` below is load-bearing: unlike yarn, `npm run` consumes flags itself
 # and only forwards what follows `--` to the script. Drop it and every -e/-a/-s/
 # -k/-b below is silently swallowed, so faro-cli uploads with no credentials.
-RUN if [ -n "$FARO_API_KEY" ] && [ -n "$FARO_APP_ID" ] && [ -n "$FARO_STACK_ID" ]; then \
+RUN --mount=type=secret,id=faro_api_key \
+    FARO_API_KEY="$(cat /run/secrets/faro_api_key 2>/dev/null || true)"; \
+    if [ -n "$FARO_API_KEY" ] && [ -n "$FARO_APP_ID" ] && [ -n "$FARO_STACK_ID" ]; then \
       echo "Uploading source maps to Grafana Faro..." && \
       npm run faro:sourcemaps -- \
         -e "${FARO_API_ENDPOINT:-https://faro-api-prod-eu-west-3.grafana.net/faro/api/v1}" \
@@ -86,6 +100,16 @@ RUN if [ -n "$FARO_API_KEY" ] && [ -n "$FARO_APP_ID" ] && [ -n "$FARO_STACK_ID" 
     else \
       echo "Skipping source map upload (FARO_API_KEY, FARO_APP_ID, or FARO_STACK_ID not set)"; \
     fi
+
+# Delete every source map before the runner stage copies .next/static (C12).
+#
+# UNCONDITIONAL, and deliberately not folded into the upload step above: the
+# runner serves .next/static straight from the CDN, so a .map that survives here
+# is a public copy of the application's TypeScript. Skipping the upload must not
+# also skip the deletion — that combination is precisely the build where the
+# maps would ship.
+RUN find .next/static -name '*.map' -delete && \
+    echo "Removed build source maps from .next/static"
 
 
 # Stage 3: Production image (using Alpine for smaller size)

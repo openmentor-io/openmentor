@@ -1,4 +1,4 @@
-.PHONY: help check compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests
+.PHONY: help check compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests advisory-lock-tests
 
 # The fast infra checks, in one place. .github/workflows/checks.yml calls these
 # targets (as web/ and api/ do), so `make check` here runs exactly what the
@@ -21,8 +21,9 @@ help:
 	@echo "  alert-tests    - backup alert + panels vs Alloy labels vs sidecar gauges"
 	@echo "  alert-fireability-tests - every alert rule can actually fire"
 	@echo "  alloy-redaction-tests   - Alloy PII redaction stage + config parses"
+	@echo "  advisory-lock-tests     - Postgres advisory-lock namespaces do not collide"
 
-check: compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests
+check: compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests advisory-lock-tests
 	@echo "✅ Infra checks passed!"
 
 compose-config:
@@ -78,3 +79,10 @@ alloy-redaction-tests:
 # privileges fails the gate.
 db-identity-tests:
 	@./db-identity-test.sh
+
+# Reads ../api and ../infra/migration: Postgres advisory locks share one space
+# per cluster, and the four keys that use it are plain integers in four files
+# across two languages, so a collision is invisible until two unrelated
+# components start excluding each other (D82).
+advisory-lock-tests:
+	@./advisory-lock-namespace-test.sh

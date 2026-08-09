@@ -213,5 +213,22 @@ func main() {
 		logger.Error("Worker HTTP server forced to shutdown", zap.Error(err))
 	}
 
+	// Last, once both event producers (cron and the trigger routes) have stopped.
+	// The whole sequence — 30s cron + 10s HTTP + this — is what infra's
+	// stop_grace_period for this container is sized against.
+	drainAnalytics(analyticsTracker)
+
 	logger.Info("Worker exited")
+}
+
+// analyticsDrainTimeout bounds the shutdown drain of the analytics queue (C12).
+// 3 seconds, for the reasons given on the API's copy of this constant.
+const analyticsDrainTimeout = 3 * time.Second
+
+func drainAnalytics(tracker analytics.Tracker) {
+	ctx, cancel := context.WithTimeout(context.Background(), analyticsDrainTimeout)
+	defer cancel()
+	if err := analytics.Close(ctx, tracker); err != nil {
+		logger.Warn("Analytics events were dropped at shutdown", logger.RedactedError(err))
+	}
 }
