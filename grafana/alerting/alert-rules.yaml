@@ -17,19 +17,14 @@
 # before applying, or the rule pages the moment it is created — the live
 # notification policy fans out to telegram/slack/Discord.
 #
-# ⚠️ PENDING RE-APPLY (audit C3, edited 2026-08-07): ContactFormFailures now
-# excludes the mentor_not_contactable outcome, which C3 introduced. Until the
-# group PUT is re-run, the LIVE rule still counts it — so a mentee submitting to a
-# mentor who has just hidden themselves pages as a warning. Nothing else changed.
-#
-# ⚠️ PENDING RE-APPLY (audit H13, edited 2026-08-04 after the group was applied):
-# ContainerHighCPU, ContainerHighMemory, DBErrorRate and DBLatencyP95 were
-# rewritten because none of the first two could fire and the last two aggregated
-# the API and the worker into one number. The versions LIVE on the stack are the
-# old ones until an operator re-runs the group PUT below. Nothing about the new
-# expressions pages on arrival — all four keep noDataState: OK and every
-# threshold was checked against live data first (ContainerHighMemory's highest
-# instance is ~37% against an 85% threshold).
+# RE-APPLIED 2026-08-10 (all 16 rules, via the group PUT below): picked up the
+# C3 ContactFormFailures exclusion (edited 2026-08-07), the two D70 profile-purge
+# rules (their first apply — ProfilePurgeStale needed the deployment!="" fix
+# below first, or it would have paged on arrival), and re-asserted the H13
+# rewrites, which a 2026-08-06 apply had already made live despite this header
+# still calling them pending. Live group verified after the PUT: 16 rules, new
+# expressions in place, ProfilePurgeStale evaluating exactly
+# {deployment="production"} at a healthy negative value.
 #
 # Target: folder "OpenMentor Alerts" (uid `openmentor-alerts`), rule group `openmentor`, org 1.
 # NOT the Git Sync folder `repository-7b3d712` this file used to name:
