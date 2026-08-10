@@ -8,17 +8,26 @@ logging {
   format = "logfmt"
 }
 
+// NOTE on `instance` (here and on every scrape target below): it used to be
+// sys.env("HOSTNAME"), which inside this container is Alloy's OWN container id
+// — one opaque value shared by every target, re-minted whenever the alloy
+// container is recreated. Each recreate therefore duplicated every series of
+// every job at once (the 8.7k active-series spike of 2026-07-26). DEPLOYMENT_NAME
+// is the stable per-VM identity (deploy.sh writes it from the deploy target, see
+// the D70 comments below), so <deployment>-<service> is stable across recreates
+// yet still distinct between production and a staging VM remote-writing to the
+// same tenant (D86).
 prometheus.scrape "cadvisor" {
   targets = [
     {
       __address__ = "cadvisor:8080",
-      instance    = coalesce(sys.env("HOSTNAME"), "cadvisor"),
+      instance    = string.format("%s-cadvisor", coalesce(sys.env("DEPLOYMENT_NAME"), "production")),
       environment = coalesce(sys.env("APP_ENV"), "production"),
       service_name = "yc-cadvisor",
       namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
     },
   ]
-  forward_to = [prometheus.relabel.clean_container_labels.receiver]
+  forward_to = [prometheus.relabel.cadvisor.receiver]
   scrape_interval = coalesce(sys.env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
   metrics_path = "/metrics"
 }
@@ -28,7 +37,7 @@ prometheus.scrape "yc_go_api" {
   targets = [
     {
       __address__ = string.format("backend:%s", coalesce(sys.env("PORT"), "8081")),
-      instance    = coalesce(sys.env("HOSTNAME"), "backend"),
+      instance    = string.format("%s-backend", coalesce(sys.env("DEPLOYMENT_NAME"), "production")),
       environment = coalesce(sys.env("APP_ENV"), "production"),
       service_name = coalesce(sys.env("O11Y_BE_SERVICE_NAME"), "openmentor-api"),
       namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
@@ -44,7 +53,7 @@ prometheus.scrape "yc_go_worker" {
   targets = [
     {
       __address__ = string.format("worker:%s", coalesce(sys.env("WORKER_PORT"), "8090")),
-      instance    = coalesce(sys.env("HOSTNAME"), "worker"),
+      instance    = string.format("%s-worker", coalesce(sys.env("DEPLOYMENT_NAME"), "production")),
       environment = coalesce(sys.env("APP_ENV"), "production"),
       service_name = coalesce(sys.env("O11Y_WORKER_SERVICE_NAME"), "openmentor-worker"),
       namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
@@ -70,7 +79,7 @@ prometheus.scrape "yc_nextjs_frontend" {
   targets = [
     {
       __address__ = "frontend:3000",
-      instance    = coalesce(sys.env("HOSTNAME"), "frontend"),
+      instance    = string.format("%s-frontend", coalesce(sys.env("DEPLOYMENT_NAME"), "production")),
       environment = coalesce(sys.env("APP_ENV"), "production"),
       service_name = coalesce(sys.env("O11Y_FE_SERVICE_NAME"), "openmentor-frontend"),
       namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
@@ -108,7 +117,7 @@ discovery.relabel "backup_metrics" {
 
   rule {
     target_label = "instance"
-    replacement  = coalesce(sys.env("HOSTNAME"), "postgres-backup")
+    replacement  = string.format("%s-postgres-backup", coalesce(sys.env("DEPLOYMENT_NAME"), "production"))
   }
 
   rule {
@@ -151,39 +160,87 @@ prometheus.scrape "yc_alloy_self_monitoring" {
   targets = [
     {
       __address__ = "localhost:12345",
-      instance    = coalesce(sys.env("HOSTNAME"), "alloy"),
+      instance    = string.format("%s-alloy", coalesce(sys.env("DEPLOYMENT_NAME"), "production")),
       environment = coalesce(sys.env("APP_ENV"), "production"),
       service_name = "openmentor-o11y",
       namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
     },
   ]
-  forward_to      = [prometheus.relabel.drop_unused_metrics.receiver]
+  forward_to      = [prometheus.relabel.alloy_self.receiver]
   scrape_interval = coalesce(sys.env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
 }
 
-// Clean verbose container labels but keep essential ones
-prometheus.relabel "clean_container_labels" {
-  // Drop unnecessary Docker Compose labels (SAFE - not used in dashboards)
-  rule {
-    regex  = "container_label_com_docker_compose_(config_hash|depends_on|image)"
-    action = "labeldrop"
-  }
-
-  rule {
-    regex  = "container_label_org_opencontainers_image_(source|version)"
-    action = "labeldrop"
-  }
-
-  forward_to = [prometheus.relabel.drop_unused_metrics.receiver]
-}
-
-// Drop truly unused metrics only
-prometheus.relabel "drop_unused_metrics" {
-  // Drop alloy internal metrics
+// cAdvisor: allowlist, then de-churn (D86).
+//
+// The default export is ~40 metric families for every cgroup on the host, each
+// series carrying `id`, `image` and ~40 `container_label_*` keys. Measured on
+// the tenant 2026-08-10: ~1,900 active series, of which grafana/ queries
+// exactly five families — and because `id` and `image` change on every
+// container recreate, each deploy re-minted the whole set. Filtered here
+// rather than via cAdvisor flags (--docker_only, --disable_metrics) on
+// purpose: a bad flag stops the cadvisor container at the VM where no CI
+// check can see it, while a relabel rule ships the same reduction and fails
+// only `make check`.
+prometheus.relabel "cadvisor" {
+  // Series allowlist. The five container_* families grafana/ reads;
+  // machine_cpu_cores, which ContainerHighCPU and the om-database-infra host
+  // CPU panel divide by; and the scrape's own meta series — `up` feeds
+  // ServiceDown for this target.
   rule {
     source_labels = ["__name__"]
-    regex         = "alloy_(component_dependencies_wait_seconds.*|component_evaluation_seconds.*|labelstore_.*)"
+    regex         = "container_cpu_usage_seconds_total|container_memory_usage_bytes|container_memory_working_set_bytes|container_spec_memory_limit_bytes|container_fs_usage_bytes|machine_cpu_cores|up|scrape_.+"
+    action        = "keep"
+  }
+
+  // Drop the unnamed cgroup-slice series (name="", id="/system.slice/…" etc.)
+  // — ~30 per family, nothing queries them. The root cgroup id="/" must
+  // survive: om-database-infra reads container_fs_usage_bytes{id="/"} and
+  // container_memory_usage_bytes{id="/"} for host totals. The regex requires
+  // at least one character after "/", so id="/" never matches.
+  rule {
+    source_labels = ["__name__", "name", "id"]
+    regex         = "container_[a-z_]+;;/.+"
     action        = "drop"
+  }
+
+  // On a NAMED container's series, id is /system.slice/docker-<hash>.scope —
+  // a per-recreate value no query reads (the id="/" selectors above carry no
+  // name). Blank it so a deploy continues the old series instead of minting
+  // new ones. `image` and the compose/traefik metadata labels churn the same
+  // way (tag, config hash) and are equally unqueried.
+  rule {
+    source_labels = ["name"]
+    regex         = ".+"
+    target_label  = "id"
+    replacement   = ""
+  }
+
+  rule {
+    regex  = "image"
+    action = "labeldrop"
+  }
+
+  rule {
+    regex  = "container_label_.*"
+    action = "labeldrop"
+  }
+
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+// Alloy self-monitoring: allowlist (D86).
+//
+// The full self-export is ~1,200 series (otelcol/loki internals, component
+// graph, histogram buckets) and nothing in grafana/ queries any of it. What
+// stays is the health of the pipelines themselves: `up` (ServiceDown covers
+// this target), remote-write delivery counters (a silent remote_write failure
+// is otherwise invisible — every OTHER alert stops evaluating when this path
+// breaks), and the Loki write counters for the same reason on the logs side.
+prometheus.relabel "alloy_self" {
+  rule {
+    source_labels = ["__name__"]
+    regex         = "up|scrape_.+|alloy_build_info|prometheus_remote_storage_(samples_total|samples_failed_total|samples_retried_total|samples_dropped_total|samples_pending|highest_timestamp_in_seconds|queue_highest_sent_timestamp_seconds|shards)|loki_write_(sent_entries_total|dropped_entries_total|sent_bytes_total|dropped_bytes_total)"
+    action        = "keep"
   }
 
   forward_to = [prometheus.remote_write.grafana_cloud.receiver]
@@ -630,6 +687,20 @@ discovery.relabel "database_observability_postgres_openmentor" {
 
 prometheus.scrape "postgres_openmentor" {
   targets         = discovery.relabel.database_observability_postgres_openmentor.output
-  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  forward_to      = [prometheus.relabel.postgres_openmentor.receiver]
   scrape_interval = coalesce(sys.env("PROMETHEUS_SCRAPE_INTERVAL"), "30s")
+}
+
+prometheus.relabel "postgres_openmentor" {
+  // Every pg_stat_statements_* family is per-queryid (top-100 statements), so
+  // each name costs ~100 series and the set churns as the top-100 rotates.
+  // om-database-infra reads calls/seconds/block_read/block_write; rows_total
+  // is read by nothing (D86).
+  rule {
+    source_labels = ["__name__"]
+    regex         = "pg_stat_statements_rows_total"
+    action        = "drop"
+  }
+
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
 }
