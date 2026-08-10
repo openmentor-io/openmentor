@@ -158,7 +158,7 @@ jobs:
       # — without it that panic alone would fail the job and no SARIF would be
       # written at all.
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@6be2b51fd78feca86af91f5186b7964d76cb1256 # v2.22.10
+        uses: securego/gosec@9e75c0576c9878035d4221392108d458abe10fc3 # v2.28.0
         with:
           args: '-no-fail -fmt sarif -out results.sarif ./api/...'
 
