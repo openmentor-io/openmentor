@@ -591,11 +591,20 @@ groups:
           #     time, so a freshly deployed worker gets one grace window without
           #     last_success ever claiming a sweep that never ran — it stays 0,
           #     which the `> 0` filter drops.
+          # And one property db-backup-stale does NOT need: `deployment!=""` on
+          # every operand. The purge gauges live in the shared pkg/metrics
+          # registry, so the API binary exports the same three names — plain
+          # gauges, so they publish 0 — and the API scrape carries no deployment
+          # label (only the worker's does; see infra/alloy/config.alloy). Without
+          # the matcher, `max by (deployment)` turns those phantoms into a
+          # deployment="" group whose value is time()-0-0, and the rule pages the
+          # moment it is applied. Verified against the live tenant 2026-08-10:
+          # unfiltered, the expression returns {deployment=""} = time().
           - refId: A
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: grafanacloud-prom
             model:
-              expr: '(time() - max by (deployment) (openmentor_profile_purge_last_success_timestamp_seconds > 0 or openmentor_profile_purge_first_start_timestamp_seconds)) - max by (deployment) (openmentor_profile_purge_max_age_seconds)'
+              expr: '(time() - max by (deployment) (openmentor_profile_purge_last_success_timestamp_seconds{deployment!=""} > 0 or openmentor_profile_purge_first_start_timestamp_seconds{deployment!=""})) - max by (deployment) (openmentor_profile_purge_max_age_seconds{deployment!=""})'
               instant: true
               refId: A
           - refId: B
