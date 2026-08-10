@@ -76,7 +76,7 @@
     "@types/react-dom": "^19",
     "@types/sanitize-html": "^2.13",
     "autoprefixer": "^10.4.7",
-    "eslint": "^9",
+    "eslint": "^10",
     "eslint-config-next": "16.2.12",
     "eslint-plugin-react": "^7.30.1",
     "globals": "^16.5.0",
