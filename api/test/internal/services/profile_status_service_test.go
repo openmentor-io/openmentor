@@ -37,6 +37,15 @@ type statusMockRepo struct {
 	softDeleteMentorID string
 	softDeleteRevoked  int
 	softDeleteErr      error
+
+	// Profile save (C1): the row and its tags are written by ONE call, so the
+	// fake records the pair and can fail them together.
+	profileWriteCalls int
+	profileUpdates    map[string]interface{}
+	profileTagIDs     []string
+	profileWriteErr   error
+	// unknownTags are the names GetTagIDByName refuses to resolve.
+	unknownTags map[string]bool
 }
 
 func (m *statusMockRepo) SoftDeleteMentor(ctx context.Context, mentorID string) (int, error) {
@@ -63,15 +72,27 @@ func (m *statusMockRepo) GetByMentorId(ctx context.Context, mentorID string, opt
 }
 
 func (m *statusMockRepo) GetTagIDByName(ctx context.Context, tagName string) (string, error) {
-	return "tag-id", nil
+	if m.unknownTags[tagName] {
+		return "", errors.New("tag not found")
+	}
+	return "tag-id-" + tagName, nil
 }
 
 func (m *statusMockRepo) Update(ctx context.Context, mentorID string, updates map[string]interface{}) error {
 	return nil
 }
 
-func (m *statusMockRepo) UpdateMentorTags(ctx context.Context, mentorID string, tagIDs []string) error {
-	return nil
+func (m *statusMockRepo) UpdateProfileWithTags(
+	ctx context.Context,
+	mentorID string,
+	updates map[string]interface{},
+	tagIDs []string,
+) error {
+
+	m.profileWriteCalls++
+	m.profileUpdates = updates
+	m.profileTagIDs = tagIDs
+	return m.profileWriteErr
 }
 
 func (m *statusMockRepo) TouchUpdatedAt(ctx context.Context, mentorID string) error {

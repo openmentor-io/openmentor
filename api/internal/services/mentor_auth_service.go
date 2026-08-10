@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/openmentor-io/openmentor/api/config"
@@ -16,6 +18,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/jwt"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
 	"go.uber.org/zap"
 )
@@ -94,11 +97,11 @@ func (s *MentorAuthService) RequestLogin(ctx context.Context, email string) (*mo
 		})
 		if outcome == "lookup_failed" {
 			logger.Error("Login request failed: mentor lookup error",
-				zap.String("email", maskEmail(email)),
+				zap.String("email", redact.Email(email)),
 				zap.Error(err))
 		} else {
 			logger.Warn("Login request for unknown email",
-				zap.String("email", maskEmail(email)),
+				zap.String("email", redact.Email(email)),
 				zap.Error(err))
 		}
 		metrics.MentorAuthLoginRequests.WithLabelValues(outcome).Inc()
@@ -114,7 +117,7 @@ func (s *MentorAuthService) RequestLogin(ctx context.Context, email string) (*mo
 			"outcome":       "not_eligible",
 		})
 		logger.Warn("Login request for mentor with ineligible status",
-			zap.String("email", maskEmail(email)),
+			zap.String("email", redact.Email(email)),
 			zap.String("mentor_id", mentor.MentorID),
 			zap.String("status", mentor.Status))
 		metrics.MentorAuthLoginRequests.WithLabelValues("not_eligible").Inc()
@@ -161,11 +164,11 @@ func (s *MentorAuthService) RequestLogin(ctx context.Context, email string) (*mo
 		}
 		trigger.CallAsyncWithPayload(ctx, s.config.EventTriggers.MentorLoginEmailTriggerURL, payload, s.config.Worker.AuthToken, s.httpClient)
 	} else if s.config.IsDevelopment() {
-		// In development mode without email trigger, log the login URL to console
-		logger.Info("=== DEVELOPMENT LOGIN URL ===",
-			zap.String("mentor_email", maskEmail(email)),
-			zap.String("mentor_name", mentor.Name),
-			zap.String("login_url", loginURL))
+		// The link goes to the terminal, not to a log field: see printDevLoginURL.
+		logger.Info("Development login URL printed to stdout",
+			zap.String("mentor_email", redact.Email(email)),
+			zap.String("mentor_id", mentor.MentorID))
+		printDevLoginURL("DEVELOPMENT MENTOR LOGIN URL", loginURL)
 	}
 
 	duration := metrics.MeasureDuration(start)
@@ -358,4 +361,26 @@ func generateLoginToken() (string, error) {
 	// Format: mtk_{random_hex}_{timestamp}
 	timestamp := time.Now().Unix()
 	return fmt.Sprintf("mtk_%s_%d", hex.EncodeToString(bytes), timestamp), nil
+}
+
+// printDevLoginURL puts a magic link on the developer's terminal, NOT in a log
+// line. It is a deliberate bypass of the logger, for two reasons that point the
+// same way (C11):
+//
+//   - The URL carries a live login token. Since C11 the logger's redacting core
+//     rewrites `?token=…` to the placeholder in every field it encodes, which is
+//     correct — and it would silently break local login, because this branch
+//     exists precisely so a developer with no email trigger configured can click
+//     the link.
+//   - A credential should not be in a log FIELD at all. Writing to stdout keeps
+//     it out of app.log and error.log, so it cannot reach Loki even if someone
+//     misconfigures the environment.
+//
+// Guarded twice by the caller: no email trigger configured AND IsDevelopment().
+// devLoginOut is a variable so a test can prove the link really is written
+// somewhere and is written verbatim.
+var devLoginOut io.Writer = os.Stdout
+
+func printDevLoginURL(label, loginURL string) {
+	fmt.Fprintf(devLoginOut, "\n=== %s (development only, not logged) ===\n%s\n\n", label, loginURL)
 }

@@ -38,6 +38,14 @@ type CronJob struct {
 	SkipIfRunning bool
 }
 
+// Cron outcome labels for openmentor_worker_cron_runs_total. success / error /
+// panic / skipped are emitted by runCronJob; skipped_overlap by the in-process
+// chain (cronSkipLogger); these two by the lease.
+const (
+	cronOutcomeSkippedLease = "skipped_lease"
+	cronOutcomeLeaseError   = "lease_error"
+)
+
 // CronJobs returns the scheduled jobs. The first four are ported from the func
 // app's timer-triggered functions and keep its NCRONTAB expressions verbatim
 // (6 fields, seconds first), taken from each function.json timer definition:
@@ -55,15 +63,28 @@ type CronJob struct {
 // the same replay set only race each other for the same rows. The daily/weekly
 // jobs have no such margin.
 //
-// It stays the only one, deliberately. The wrapper covers scheduled ticks ONLY —
-// POST /jobs/cron/<name> bypasses it — so it can never be what makes a job safe to
-// run twice; that is the job of the row-level guards on the writes themselves
-// (FinalizeNewMentor, DeactivateMentor, SetRequestContactPending). With those in
-// place an overlapping pass of deactivate-pending-mentors deactivates and emails
-// each mentor exactly once, so adding the wrapper to a weekly job whose runs
-// cannot overlap in the first place would only add a way for a tick to be dropped.
-// randomize-sort-order's writes are a cosmetic full-catalog shuffle where a
-// concurrent pass simply wins, which needs no guard at all.
+// It stays the only one, deliberately: the wrapper is an in-process fast path for
+// jobs whose runtime can approach their interval, and adding it to a weekly job
+// whose scheduled runs cannot overlap would only add a way for a tick to be
+// dropped.
+//
+// The wrapper is NOT what makes a job safe to run twice — it covers scheduled
+// ticks only, and POST /jobs/cron/<name> bypasses it. Every job below is instead
+// registered with a Postgres advisory LEASE (D82), taken in runGuardedCronJob at
+// every entry point the scheduler and the manual trigger share, so "this named
+// job runs at most once at a time" holds cluster-wide rather than per process.
+// That is the invariant the row-level guards on the writes (FinalizeNewMentor,
+// DeactivateMentor, SetRequestContactPending) cannot supply on their own:
+// sessions-watcher and update-status-reminder WRITE NOTHING, so they have no row
+// to claim, and two overlapping passes send every stale mentor two reminder
+// emails. The lease is applied uniformly rather than per job so that a new job,
+// or a new write inside an existing one, does not have to re-derive the argument.
+//
+// The lease is scoped to named scheduled jobs. The per-entity callbacks
+// (/jobs/new-mentor-watcher and friends) stay unleased — they are keyed to one
+// row, so the row-level claim is both necessary and sufficient there, and it is
+// still what makes finalize-stuck-registrations safe against a concurrent
+// new-mentor-watcher delivery.
 func (h *Handlers) CronJobs() []CronJob {
 	return []CronJob{
 		{Name: "sessions-watcher", Schedule: "0 30 8 * * *", Run: h.SessionsWatcher},
@@ -95,18 +116,28 @@ func NewCron(h *Handlers) (*Cron, error) {
 	parser := cron.NewParser(
 		cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
 	)
-	c := &Cron{cron: cron.New(cron.WithParser(parser))}
+	// UTC, not time.Local. A spec with no TZ= prefix parses to Location ==
+	// time.Local, which SpecSchedule.Next treats as "the zone of the time I was
+	// handed" — and the time it is handed is cron's own now(), i.e. time.Now() in
+	// THIS location. So without the option every wall-clock schedule below ("daily
+	// 08:30", "Wednesdays 10:00") fires at that time in the CONTAINER's local
+	// zone, and a base-image change or a TZ env var silently moves every job away
+	// from what the runbooks and the freshness alerts say it is.
+	c := &Cron{cron: cron.New(cron.WithParser(parser), cron.WithLocation(time.UTC))}
 
 	for _, job := range h.CronJobs() {
 		schedule, err := parser.Parse(job.Schedule)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := c.cron.AddJob(job.Schedule, scheduledJob(job)); err != nil {
+		if _, err := c.cron.AddJob(job.Schedule, scheduledJob(job, h.repo)); err != nil {
 			return nil, err
 		}
 		if job.Name == purgeDeletedProfilesJob {
-			publishPurgeFreshnessGauges(schedule, time.Now())
+			// UTC for the same reason the scheduler runs in UTC: the interval is
+			// measured off two Next() calls, and Next interprets a TZ-less spec in
+			// the zone of the time it is given.
+			publishPurgeFreshnessGauges(schedule, time.Now().UTC())
 		}
 		logger.Info("Registered cron job",
 			zap.String("job", job.Name),
@@ -154,18 +185,55 @@ func publishPurgeFreshnessGauges(schedule cron.Schedule, now time.Time) {
 // The guard is per job (each wrapped job gets its own single-slot channel), so a
 // long finalize pass never blocks an unrelated schedule. It only covers SCHEDULED
 // ticks: the manual POST /jobs/cron/<name> trigger and the per-registration
-// /jobs/new-mentor-watcher endpoint bypass it entirely, which is why the row-level
-// claim in FinalizeNewMentor — not this wrapper — is what guarantees a
-// registration is finalized and emailed once.
-func scheduledJob(job CronJob) cron.Job {
-	name, run := job.Name, job.Run
+// /jobs/new-mentor-watcher endpoint bypass it entirely. The lease inside
+// runGuardedCronJob is what covers the first of those; the row-level claim in
+// FinalizeNewMentor is what covers the second.
+func scheduledJob(job CronJob, leaser jobLeaser) cron.Job {
 	wrapped := cron.FuncJob(func() {
-		runCronJob(context.Background(), name, run) //nolint:errcheck // logged + counted inside
+		runGuardedCronJob(context.Background(), job, leaser) //nolint:errcheck // logged + counted inside
 	})
 	if !job.SkipIfRunning {
 		return wrapped
 	}
-	return cron.NewChain(cron.SkipIfStillRunning(cronSkipLogger{job: name})).Then(wrapped)
+	return cron.NewChain(cron.SkipIfStillRunning(cronSkipLogger{job: job.Name})).Then(wrapped)
+}
+
+// jobLeaser hands out the cross-process cron lease. Satisfied by JobsRepository,
+// so the job handlers' existing fake repository can drive the skip path without a
+// database.
+type jobLeaser interface {
+	AcquireJobLease(ctx context.Context, job string) (JobLease, error)
+}
+
+// runGuardedCronJob is the ONE entry point both the scheduler and
+// POST /jobs/cron/<name> go through, so the lease it takes is what makes
+// "this named job runs at most once at a time" true of the job rather than
+// of the scheduler (D82).
+//
+// It fails CLOSED. A lease that cannot be acquired means the answer to "is a
+// pass already running?" is unknown, and every one of these jobs either emails
+// real people or erases data, so guessing "no" is the expensive guess. Every job
+// is also DB-driven, so a database that cannot lend a connection is one the run
+// would have failed against anyway — the lease just fails it earlier, with a
+// distinguishable outcome label instead of a mid-pass error.
+func runGuardedCronJob(ctx context.Context, job CronJob, leaser jobLeaser) (JobSummary, error) {
+	lease, err := leaser.AcquireJobLease(ctx, job.Name)
+	if err != nil {
+		metrics.WorkerCronRunsTotal.WithLabelValues(job.Name, cronOutcomeLeaseError).Inc()
+		logger.Error("Cron job lease could not be acquired",
+			zap.String("job", job.Name),
+			logger.RedactedError(err),
+		)
+		return JobSummary{Job: job.Name}, fmt.Errorf("acquire lease for cron job %s: %w", job.Name, err)
+	}
+	if !lease.Acquired {
+		metrics.WorkerCronRunsTotal.WithLabelValues(job.Name, cronOutcomeSkippedLease).Inc()
+		logger.Warn("Cron job skipped: another run holds the lease", zap.String("job", job.Name))
+		return JobSummary{Job: job.Name, Skipped: true, SkipReason: skipReasonLeaseHeld}, nil
+	}
+	defer lease.Release()
+
+	return runCronJob(ctx, job.Name, job.Run)
 }
 
 // cronSkipLogger surfaces the overlap guard's decision. cron only logs through it
@@ -197,10 +265,8 @@ func (l cronSkipLogger) Error(err error, msg string, _ ...interface{}) {
 // so the same X-Worker-Token middleware guards them.
 func (s *Server) RegisterCronRoutes(h *Handlers) {
 	for _, job := range h.CronJobs() {
-		run := job.Run
-		name := job.Name
-		s.jobs.POST("/cron/"+name, func(c *gin.Context) {
-			summary, err := runCronJob(c.Request.Context(), name, run)
+		s.jobs.POST("/cron/"+job.Name, func(c *gin.Context) {
+			summary, err := runGuardedCronJob(c.Request.Context(), job, h.repo)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"summary": summary,
@@ -280,6 +346,9 @@ func runCronJob(ctx context.Context, name string, job CronJobFunc) (summary JobS
 		errortracking.CaptureException(err, map[string]interface{}{"job": name})
 	case summary.Skipped:
 		outcome = "skipped"
+		if summary.SkipReason == "" {
+			summary.SkipReason = skipReasonNonProduction
+		}
 		log.Info("Cron job skipped: non-production without DEV_EMAIL_OVERRIDE")
 	}
 	return summary, err
@@ -300,4 +369,10 @@ func (c *Cron) Stop() context.Context {
 // Entries exposes the scheduled entries (used by tests).
 func (c *Cron) Entries() []cron.Entry {
 	return c.cron.Entries()
+}
+
+// Location is the zone the scheduler evaluates every spec in, and the zone a
+// test has to hand SpecSchedule.Next to reproduce what the run loop does.
+func (c *Cron) Location() *time.Location {
+	return c.cron.Location()
 }

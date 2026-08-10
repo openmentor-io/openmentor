@@ -98,8 +98,17 @@ func Initialize(cfg Config) error {
 			zapcore.ErrorLevel,
 		)
 
-		// Combine all cores
-		core := zapcore.NewTee(stdoutCore, appFileCore, errorFileCore)
+		// Wrap each sink, NOT the tee. Level routing lives in each child's
+		// Check — Write on an ioCore is unconditional — so a wrapper around
+		// the tee that registers itself and later calls tee.Write would send
+		// every info line to error.log too. Per-child wrapping keeps the
+		// routing and still means stdout, app.log and error.log cannot
+		// disagree about what a line carries (C11): same rules, same input.
+		core := zapcore.NewTee(
+			NewRedactingCore(stdoutCore),
+			NewRedactingCore(appFileCore),
+			NewRedactingCore(errorFileCore),
+		)
 
 		// Build logger
 		logger = zap.New(
@@ -113,9 +122,18 @@ func Initialize(cfg Config) error {
 		config.OutputPaths = []string{"stdout"}
 		config.ErrorOutputPaths = []string{"stderr"}
 
+		// Sampling is disabled explicitly: WrapCore puts the redacting core
+		// OUTSIDE whatever Build produced, and a wrapper that registers itself
+		// in Check bypasses the sampler's Check underneath it — so with
+		// Sampling left on, the config would claim sampling this branch does
+		// not deliver. Production runs the LogDir branch above (compose sets
+		// LOG_DIR); this branch is local dev and tests, where sampling has no
+		// value and losing lines would hide the very output being debugged.
+		config.Sampling = nil
 		logger, err = config.Build(
 			zap.AddCallerSkip(1),
 			zap.AddStacktrace(zapcore.ErrorLevel),
+			zap.WrapCore(NewRedactingCore),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to build logger: %w", err)
@@ -258,7 +276,7 @@ func LogAPICall(ctx context.Context, service, operation, status string, duration
 // LogError logs an error with context including trace context
 func LogError(ctx context.Context, err error, msg string, fields ...zap.Field) {
 	baseFields := []zap.Field{
-		zap.Error(err),
+		RedactedError(err),
 	}
 
 	// Add trace context if available

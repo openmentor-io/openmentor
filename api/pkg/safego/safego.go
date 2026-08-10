@@ -14,6 +14,7 @@ import (
 
 	"github.com/openmentor-io/openmentor/api/pkg/errortracking"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
+	"github.com/openmentor-io/openmentor/api/pkg/redact"
 )
 
 // Go runs fn in a new goroutine, recovering and reporting any panic. task
@@ -45,7 +46,10 @@ func Run(task string, fn func()) {
 // hole).
 func logPanic(task string, recovered interface{}, stack []byte) {
 	if logger.Log == nil {
-		fmt.Fprintf(os.Stderr, "panic in background task %q: %v\n%s\n", task, recovered, stack)
+		// Redacted by hand: this branch exists precisely because the logger (and
+		// so the redacting core) is not there to do it.
+		fmt.Fprintf(os.Stderr, "panic in background task %q: %v\n%s\n",
+			task, redact.Text(fmt.Sprintf("%v", recovered)), stack)
 		return
 	}
 	logger.Error("Recovered panic in background task",

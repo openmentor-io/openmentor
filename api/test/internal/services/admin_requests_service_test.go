@@ -19,8 +19,12 @@ type adminRequestsMockRepo struct {
 	listArgs []models.RequestStatus
 
 	updatedTo     models.RequestStatus
+	updatedFrom   models.RequestStatus
 	updateCalled  bool
 	getByIDCalled int
+	// notApplied makes the compare-and-set write match no row, the way a
+	// concurrent transition does (C3).
+	notApplied bool
 }
 
 func (m *adminRequestsMockRepo) ListByMentorFiltered(ctx context.Context, mentorID string, statuses []models.RequestStatus) ([]*models.MentorClientRequest, error) {
@@ -39,17 +43,26 @@ func (m *adminRequestsMockRepo) GetByID(ctx context.Context, id string) (*models
 	return m.request, nil
 }
 
-func (m *adminRequestsMockRepo) UpdateStatus(ctx context.Context, id string, status models.RequestStatus) error {
+func (m *adminRequestsMockRepo) UpdateStatus(
+	ctx context.Context,
+	id string,
+	expected, status models.RequestStatus,
+) (bool, error) {
+
 	if m.updErr != nil {
-		return m.updErr
+		return false, m.updErr
 	}
 	m.updateCalled = true
 	m.updatedTo = status
+	m.updatedFrom = expected
+	if m.notApplied {
+		return false, nil
+	}
 	// Reflect the write so the service's re-fetch returns the new state.
 	if m.request != nil {
 		m.request.Status = status
 	}
-	return nil
+	return true, nil
 }
 
 var _ services.AdminRequestsRepository = (*adminRequestsMockRepo)(nil)
@@ -212,5 +225,30 @@ func TestAdminRequestsService_GetMentorRequest_NotFound(t *testing.T) {
 	_, err := svc.GetMentorRequest(context.Background(), adminSession(models.ModeratorRoleAdmin), "mentor-1", "req-1")
 	if !errors.Is(err, services.ErrRequestNotFound) {
 		t.Fatalf("expected ErrRequestNotFound, got %v", err)
+	}
+}
+
+// TestAdminRequestsService_UpdateRequestStatus_ConcurrentChange: the override is
+// unrestricted about WHICH transitions an admin may make, not about acting on a
+// stale view. When the mentor moved the request between the admin's read and the
+// write, the compare-and-set writes nothing and the admin is told, rather than
+// silently overwriting a transition nobody saw (C3).
+func TestAdminRequestsService_UpdateRequestStatus_ConcurrentChange(t *testing.T) {
+	repo := &adminRequestsMockRepo{request: requestOf(models.StatusPending), notApplied: true}
+	tracker := &capturingTracker{}
+	svc := services.NewAdminRequestsService(repo, tracker)
+
+	updated, err := svc.UpdateRequestStatus(context.Background(), adminSession(models.ModeratorRoleAdmin), "mentor-1", "req-1", models.StatusWorking)
+	if !errors.Is(err, services.ErrInvalidStatusTransition) {
+		t.Fatalf("UpdateRequestStatus() error = %v, want ErrInvalidStatusTransition", err)
+	}
+	if updated != nil {
+		t.Errorf("UpdateRequestStatus() request = %+v, want nil", updated)
+	}
+	if repo.updatedFrom != models.StatusPending {
+		t.Errorf("expected status passed to the write = %q, want pending", repo.updatedFrom)
+	}
+	if event := tracker.last(); event == nil || event.properties["outcome"] != "concurrent_change" {
+		t.Errorf("tracked outcome = %v, want concurrent_change", event)
 	}
 }

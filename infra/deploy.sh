@@ -343,8 +343,28 @@ if [ "$DEPLOY_FRONTEND" = true ]; then
     POSTHOG_PERSONAL_API_KEY="${POSTHOG_PERSONAL_API_KEY}"
     POSTHOG_PROJECT_ID="${POSTHOG_PROJECT_ID}"
 
-    docker build \
+    # The two build-time CREDENTIALS go in as BuildKit secrets, not build args
+    # (C12): a build arg is recorded in the declaring stage's metadata and is
+    # readable by every later instruction in it, while a secret mount exists only
+    # for the one RUN that reads it. Files rather than env, because `--secret`
+    # takes a source path or an env NAME and files keep this working when either
+    # value is unset.
+    BUILD_SECRETS_DIR="$(mktemp -d)"
+    # This trap only needs to cover until the build finishes: step 7 re-arms
+    # EXIT for its own temp files (bash keeps ONE trap per signal), so the dir
+    # is also removed eagerly right after the build below.
+    # shellcheck disable=SC2064 # expand BUILD_SECRETS_DIR now, while it is set
+    trap "rm -rf '$BUILD_SECRETS_DIR'" EXIT
+    (umask 077; printf '%s' "$POSTHOG_PERSONAL_API_KEY" > "$BUILD_SECRETS_DIR/posthog_personal_api_key")
+    (umask 077; printf '%s' "$FARO_API_KEY" > "$BUILD_SECRETS_DIR/faro_api_key")
+
+    # BuildKit is required for --secret. It is the default since Docker 23; set
+    # explicitly so an older daemon fails on the unknown flag instead of quietly
+    # building a frontend with no PostHog or Faro configuration.
+    DOCKER_BUILDKIT=1 docker build \
         --platform linux/amd64 \
+        --secret "id=posthog_personal_api_key,src=$BUILD_SECRETS_DIR/posthog_personal_api_key" \
+        --secret "id=faro_api_key,src=$BUILD_SECRETS_DIR/faro_api_key" \
         --build-arg NEXT_PUBLIC_GO_API_URL="$NEXT_PUBLIC_GO_API_URL" \
         --build-arg NEXT_PUBLIC_TURNSTILE_SITE_KEY="$NEXT_PUBLIC_TURNSTILE_SITE_KEY" \
         --build-arg NEXT_PUBLIC_S3_STORAGE_ENDPOINT="$NEXT_PUBLIC_S3_STORAGE_ENDPOINT" \
@@ -357,12 +377,10 @@ if [ "$DEPLOY_FRONTEND" = true ]; then
         --build-arg NEXT_PUBLIC_FARO_SAMPLE_RATE="$NEXT_PUBLIC_FARO_SAMPLE_RATE" \
         --build-arg NEXT_PUBLIC_POSTHOG_KEY="$NEXT_PUBLIC_POSTHOG_KEY" \
         --build-arg NEXT_PUBLIC_POSTHOG_HOST="$NEXT_PUBLIC_POSTHOG_HOST" \
-        --build-arg POSTHOG_PERSONAL_API_KEY="$POSTHOG_PERSONAL_API_KEY" \
         --build-arg POSTHOG_PROJECT_ID="$POSTHOG_PROJECT_ID" \
         --build-arg FARO_API_ENDPOINT="$FARO_API_ENDPOINT" \
         --build-arg FARO_APP_ID="$FARO_APP_ID" \
         --build-arg FARO_STACK_ID="$FARO_STACK_ID" \
-        --build-arg FARO_API_KEY="$FARO_API_KEY" \
         --build-arg NEXT_PUBLIC_APP_ENV="$NEXT_PUBLIC_APP_ENV" \
         --build-arg NEXT_PUBLIC_ANALYTICS_PROVIDER="$NEXT_PUBLIC_ANALYTICS_PROVIDER" \
         --build-arg NEXT_PUBLIC_ANALYTICS_EVENT_VERSION="$NEXT_PUBLIC_ANALYTICS_EVENT_VERSION" \
@@ -373,6 +391,9 @@ if [ "$DEPLOY_FRONTEND" = true ]; then
         echo -e "${RED}❌ Failed to build frontend image${NC}"
         exit 1
     fi
+    # Remove the plaintext credentials now: step 7's trap replaces this one,
+    # so waiting for EXIT would leave them in /tmp after a successful deploy.
+    rm -rf "$BUILD_SECRETS_DIR"
     echo -e "${GREEN}✅ Frontend image built${NC}"
 else
     echo -e "${YELLOW}⏭️  Step 2/9: Skipping frontend build${NC}"

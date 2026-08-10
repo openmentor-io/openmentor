@@ -36,4 +36,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
 }
 
-export default withObservability(handler)
+export default withObservability('/api/admin/mentors', handler)

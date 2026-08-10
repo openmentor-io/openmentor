@@ -26,9 +26,26 @@ var (
 	ErrInvalidRequestGroup     = errors.New("invalid request group")
 )
 
+// MentorRequestsRepository is the client-request surface the mentor's own inbox
+// needs. *repository.ClientRequestRepository satisfies it; tests substitute a
+// fake (mirrors AdminRequestsRepository).
+//
+// The two write methods return `applied` rather than just an error: a transition
+// this service validated against a row it read is only really made if the row was
+// still in that state, and the mentee/mentor emails must follow the write that
+// landed, not the verdict that preceded it.
+type MentorRequestsRepository interface {
+	GetByMentor(ctx context.Context, mentorID string, statuses []models.RequestStatus) ([]*models.MentorClientRequest, error)
+	GetByID(ctx context.Context, id string) (*models.MentorClientRequest, error)
+	UpdateStatus(ctx context.Context, id string, expected, status models.RequestStatus) (applied bool, err error)
+	UpdateDecline(ctx context.Context, id string, expected models.RequestStatus, reason models.DeclineReason, comment string) (applied bool, err error)
+}
+
+var _ MentorRequestsRepository = (*repository.ClientRequestRepository)(nil)
+
 // MentorRequestsService handles mentor request operations
 type MentorRequestsService struct {
-	requestRepo *repository.ClientRequestRepository
+	requestRepo MentorRequestsRepository
 	config      *config.Config
 	httpClient  httpclient.Client
 	tracker     analytics.Tracker
@@ -36,7 +53,7 @@ type MentorRequestsService struct {
 
 // NewMentorRequestsService creates a new MentorRequestsService
 func NewMentorRequestsService(
-	requestRepo *repository.ClientRequestRepository,
+	requestRepo MentorRequestsRepository,
 	cfg *config.Config,
 	httpClient httpclient.Client,
 	tracker analytics.Tracker,
@@ -145,8 +162,11 @@ func (s *MentorRequestsService) UpdateStatus(ctx context.Context, mentorId strin
 
 	oldStatus := request.Status
 
-	// Update in repository
-	if err := s.requestRepo.UpdateStatus(ctx, requestID, newStatus); err != nil {
+	// Update in repository, on the status this transition was validated against.
+	// A concurrent write (a second tab, or an admin override) means the verdict
+	// above was reached about a state the row is no longer in.
+	applied, err := s.requestRepo.UpdateStatus(ctx, requestID, oldStatus, newStatus)
+	if err != nil {
 		s.tracker.Track(ctx, analytics.EventMentorRequestStatusUpdated, analytics.MentorDistinctID(mentorId), map[string]interface{}{
 			"mentor_id":   mentorId,
 			"from_status": string(oldStatus),
@@ -157,6 +177,21 @@ func (s *MentorRequestsService) UpdateStatus(ctx context.Context, mentorId strin
 			zap.String("request_ref", redact.ID(requestID)),
 			zap.Error(err))
 		return nil, fmt.Errorf("failed to update status: %w", err)
+	}
+	if !applied {
+		s.tracker.Track(ctx, analytics.EventMentorRequestStatusUpdated, analytics.MentorDistinctID(mentorId), map[string]interface{}{
+			"mentor_id":   mentorId,
+			"from_status": string(oldStatus),
+			"to_status":   string(newStatus),
+			"outcome":     "concurrent_change",
+		})
+		logger.Warn("Request status transition did not apply: the request had already moved",
+			zap.String("request_ref", redact.ID(requestID)),
+			zap.String("expected_status", string(oldStatus)),
+			zap.String("to_status", string(newStatus)))
+		// Returned BEFORE the trigger below: an email announcing a completed
+		// session for a transition that did not happen is worse than no email.
+		return nil, fmt.Errorf("%w: request is no longer '%s'", ErrInvalidStatusTransition, oldStatus)
 	}
 
 	// Trigger email sending via webhook
@@ -215,8 +250,9 @@ func (s *MentorRequestsService) DeclineRequest(ctx context.Context, mentorId str
 		return nil, fmt.Errorf("%w: request with status '%s' cannot be declined", ErrCannotDeclineRequest, request.Status)
 	}
 
-	// Update in repository
-	if err := s.requestRepo.UpdateDecline(ctx, requestID, payload.Reason, payload.Comment); err != nil {
+	// Update in repository, on the status the checks above were made against.
+	applied, err := s.requestRepo.UpdateDecline(ctx, requestID, request.Status, payload.Reason, payload.Comment)
+	if err != nil {
 		s.tracker.Track(ctx, analytics.EventMentorRequestDeclined, analytics.MentorDistinctID(mentorId), map[string]interface{}{
 			"mentor_id": mentorId,
 			"reason":    string(payload.Reason),
@@ -226,6 +262,17 @@ func (s *MentorRequestsService) DeclineRequest(ctx context.Context, mentorId str
 			zap.String("request_ref", redact.ID(requestID)),
 			zap.Error(err))
 		return nil, fmt.Errorf("failed to decline request: %w", err)
+	}
+	if !applied {
+		s.tracker.Track(ctx, analytics.EventMentorRequestDeclined, analytics.MentorDistinctID(mentorId), map[string]interface{}{
+			"mentor_id": mentorId,
+			"reason":    string(payload.Reason),
+			"outcome":   "concurrent_change",
+		})
+		logger.Warn("Decline did not apply: the request had already moved",
+			zap.String("request_ref", redact.ID(requestID)),
+			zap.String("expected_status", string(request.Status)))
+		return nil, fmt.Errorf("%w: request is no longer '%s'", ErrCannotDeclineRequest, request.Status)
 	}
 
 	// Trigger email sending via webhook

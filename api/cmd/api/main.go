@@ -384,7 +384,7 @@ func main() { //nolint:gocyclo
 
 	// Initialize services
 	mentorService := services.NewMentorService(mentorRepo, cfg)
-	contactService := services.NewContactService(clientRequestRepo, mentorRepo, cfg, httpClient, analyticsTracker)
+	contactService := services.NewContactService(clientRequestRepo, cfg, httpClient, analyticsTracker)
 	profileService := services.NewProfileService(mentorRepo, storageClient, cfg, httpClient, analyticsTracker)
 	registrationService := services.NewRegistrationService(mentorRepo, storageClient, cfg, httpClient, analyticsTracker)
 	mentorAuthService := services.NewMentorAuthService(mentorRepo, cfg, httpClient, analyticsTracker)
@@ -544,8 +544,37 @@ func main() { //nolint:gocyclo
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		logger.Fatal("Server forced to shutdown", zap.Error(err))
+		// Error + explicit exit, not Fatal: Fatal is os.Exit(1) on the spot,
+		// which would skip the drain below on exactly the degraded shutdown
+		// where queued events are most at risk. Still exits non-zero, like
+		// Fatal did — a forced shutdown is not a clean one.
+		logger.Error("Server forced to shutdown", zap.Error(err))
+		drainAnalytics(analyticsTracker)
+		logger.Sync()
+		os.Exit(1) //nolint:gocritic // exitAfterDefer: Fatal skipped the same deferreds; this exit just drains first
 	}
 
+	// After the HTTP server has drained, so nothing is still producing events,
+	// and before the deferred pool close. See the worker for the budget.
+	drainAnalytics(analyticsTracker)
+
 	logger.Info("Server exited")
+}
+
+// analyticsDrainTimeout bounds the shutdown drain of the analytics queue (C12).
+//
+// 3 seconds: exactly the tracker's own per-request HTTP timeout, so the drain
+// gets one in-flight request's worth of grace plus whatever the queue can clear
+// behind it, and an unreachable PostHog costs the deploy one timeout rather than
+// stalling it. It has to stay small for a second reason — this runs inside the
+// container's stop_grace_period, after the HTTP drain has already spent its own
+// budget, and an over-generous value here would simply be cut short by SIGKILL.
+const analyticsDrainTimeout = 3 * time.Second
+
+func drainAnalytics(tracker analytics.Tracker) {
+	ctx, cancel := context.WithTimeout(context.Background(), analyticsDrainTimeout)
+	defer cancel()
+	if err := analytics.Close(ctx, tracker); err != nil {
+		logger.Warn("Analytics events were dropped at shutdown", logger.RedactedError(err))
+	}
 }

@@ -12,8 +12,9 @@ import (
 func TestTrashKeyLayout(t *testing.T) {
 	assert.Equal(t, "deleted/abc-123/full", trashKey("abc-123/full"))
 
-	// Every uploaded size is covered by the move, in the same layout
-	// UploadImageAllSizesBytes writes.
+	// Every size a photo can exist under is covered by the move: the canonical
+	// object UploadProfileImage writes, plus the byte-identical large/small
+	// copies uploads wrote before C5.
 	assert.Equal(t,
 		[]string{"abc-123/full", "abc-123/large", "abc-123/small"},
 		imageKeys("abc-123"),

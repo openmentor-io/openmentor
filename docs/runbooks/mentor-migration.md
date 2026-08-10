@@ -166,7 +166,18 @@ To process the queue (run this daily while the announcement is hot):
 
 It picks up every `pending` intent, migrates each mentor, and writes the
 outcome back to the row (`done` / `skipped` / `failed` + a note), so the
-next run only sees new opt-ins. Peek at the queue any time:
+next run only sees new opt-ins.
+
+**One `--from-intents` run at a time** (C12/D85). The worklist is read, then
+processed, then written back, so two concurrent runs would both migrate every
+mentor in it — duplicate Claude translation spend and a second "your profile has
+been migrated" email each. The second run therefore refuses straight away with
+*"Another `--from-intents` run is already processing the pending intents"*, held
+by a Postgres advisory lock. Nothing to clean up if a run dies: the lock is
+released with its connection. Use `--slug`/`--csv` if you need to work on one
+mentor while a queue run is in progress.
+
+Peek at the queue any time:
 
 ```bash
 ../db.sh -c "SELECT slug, status, note, created_at FROM migration_intents ORDER BY created_at DESC LIMIT 20"

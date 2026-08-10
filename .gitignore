@@ -22,3 +22,7 @@ logs/
 # OS / editor junk
 .DS_Store
 Thumbs.db
+
+# Python bytecode from infra/alloy-redaction-behavior.py
+__pycache__/
+*.pyc

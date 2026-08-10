@@ -100,4 +100,4 @@ async function handler(
   }
 }
 
-export default withObservability(handler)
+export default withObservability('/api/reviews/submit', handler)

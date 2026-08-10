@@ -104,3 +104,49 @@ func TestCapturePanicRedactsThePanicValue(t *testing.T) {
 		}
 	}
 }
+
+// exceptionAddress is an RFC 2606 sentinel, so no test output can carry a real
+// address.
+const exceptionAddress = "mentee.person@example.com"
+
+// TestRedactPropertyClosesTheExtraPropsBypass covers what P14 left open. The
+// $exception_message goes through redact.Text, but caller-supplied properties
+// were merged in raw, with the doc comment "must not contain PII" as the only
+// enforcement — and this ships to a third party (C11).
+func TestRedactPropertyClosesTheExtraPropsBypass(t *testing.T) {
+	cases := []struct {
+		name  string
+		key   string
+		value interface{}
+		want  interface{}
+	}{
+		{"address in a property", "http_path", "/contact?email=" + exceptionAddress, "/contact?email=m***@example.com"},
+		{"capability under an innocuous key", "http_path", "/api/v1/reviews/11111111-2222-4333-8444-555555555555", "/api/v1/reviews/" + redact.Placeholder},
+		{"credential by key name", "login_token", "abc123", redact.Placeholder},
+		{"non-string is passed through", "http_status", 500, 500},
+		{"bool is passed through", "panic", true, true},
+		{"innocuous string survives", "job", "purge-deleted-profiles", "purge-deleted-profiles"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := redactProperty(tc.key, tc.value); got != tc.want {
+				t.Errorf("redactProperty(%q, %v) = %v, want %v", tc.key, tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCaptureExceptionRedactsAddressesInTheMessage pins the gap C11 names: P14's
+// redact.Text covered URLs, ids and key=value pairs, and an address is a
+// different shape that used to pass straight through it.
+func TestCaptureExceptionRedactsAddressesInTheMessage(t *testing.T) {
+	message := redact.Text("could not deliver to " + exceptionAddress)
+
+	if strings.Contains(message, exceptionAddress) {
+		t.Errorf("redact.Text left the address in the exception message: %q", message)
+	}
+	if !strings.Contains(message, "m***@example.com") {
+		t.Errorf("redact.Text dropped the domain, which is what makes the issue triageable: %q", message)
+	}
+}

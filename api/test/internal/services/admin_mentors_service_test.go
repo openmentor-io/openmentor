@@ -35,6 +35,12 @@ type adminMockRepo struct {
 	listForModCalls    [][]string
 	listForModeration  []models.AdminMentorListItem
 	listDeletedErrOnce error
+
+	// Profile write (C1): row + tags land through ONE call.
+	profileWriteCalls int
+	profileUpdates    map[string]interface{}
+	profileTagIDs     []string
+	profileWriteErr   error
 }
 
 func (m *adminMockRepo) ListForModeration(ctx context.Context, statuses []string) ([]models.AdminMentorListItem, error) {
@@ -81,8 +87,17 @@ func (m *adminMockRepo) Update(ctx context.Context, mentorID string, updates map
 	return nil
 }
 
-func (m *adminMockRepo) UpdateMentorTags(ctx context.Context, mentorID string, tagIDs []string) error {
-	return nil
+func (m *adminMockRepo) UpdateProfileWithTags(
+	ctx context.Context,
+	mentorID string,
+	updates map[string]interface{},
+	tagIDs []string,
+) error {
+
+	m.profileWriteCalls++
+	m.profileUpdates = updates
+	m.profileTagIDs = tagIDs
+	return m.profileWriteErr
 }
 
 func (m *adminMockRepo) SetMentorStatus(ctx context.Context, mentorID, status string) error {

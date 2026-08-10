@@ -18,7 +18,7 @@ import (
 type AdminRequestsRepository interface {
 	ListByMentorFiltered(ctx context.Context, mentorID string, statuses []models.RequestStatus) ([]*models.MentorClientRequest, error)
 	GetByID(ctx context.Context, id string) (*models.MentorClientRequest, error)
-	UpdateStatus(ctx context.Context, id string, status models.RequestStatus) error
+	UpdateStatus(ctx context.Context, id string, expected, status models.RequestStatus) (applied bool, err error)
 }
 
 var _ AdminRequestsRepository = (*repository.ClientRequestRepository)(nil)
@@ -166,12 +166,25 @@ func (s *AdminRequestsService) UpdateRequestStatus(
 		return request, nil
 	}
 
-	if err := s.requestRepo.UpdateStatus(ctx, requestID, newStatus); err != nil {
+	// Compare-and-set on the status this admin was shown. An override is
+	// unrestricted about WHICH transitions it may make, not about acting on a
+	// stale view: if the mentor moved the request in between, the admin's list is
+	// out of date and the answer is to reload, not to overwrite blindly.
+	applied, err := s.requestRepo.UpdateStatus(ctx, requestID, oldStatus, newStatus)
+	if err != nil {
 		track(oldStatus, "update_failed")
 		logger.Error("Failed to update request status as admin",
 			zap.String("request_ref", redact.ID(requestID)),
 			zap.Error(err))
 		return nil, fmt.Errorf("failed to update status: %w", err)
+	}
+	if !applied {
+		track(oldStatus, "concurrent_change")
+		logger.Warn("Admin status override did not apply: the request had already moved",
+			zap.String("request_ref", redact.ID(requestID)),
+			zap.String("expected_status", string(oldStatus)),
+			zap.String("to_status", string(newStatus)))
+		return nil, fmt.Errorf("%w: request is no longer '%s'", ErrInvalidStatusTransition, oldStatus)
 	}
 
 	track(oldStatus, "success")

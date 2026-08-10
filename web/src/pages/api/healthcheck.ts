@@ -6,4 +6,4 @@ function handler(_req: NextApiRequest, res: NextApiResponse): void {
   res.status(200).json({})
 }
 
-export default withObservability(handler)
+export default withObservability('/api/healthcheck', handler)

@@ -2,12 +2,12 @@ import classNames from 'classnames'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import allFilters from '@/config/filters'
 import analytics from '@/lib/analytics'
-import type { AppliedFilters, FilterCategory, MentorListItem } from '@/types'
+import type { AppliedFilters, FilterCategory, MentorCatalogItem } from '@/types'
 
 interface MentorsFiltersProps {
   appliedFilters: AppliedFilters
   /** All loaded mentors — used to compute the per-option mono counts. */
-  mentors: MentorListItem[]
+  mentors: MentorCatalogItem[]
 }
 
 /**

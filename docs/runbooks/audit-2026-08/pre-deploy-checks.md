@@ -66,6 +66,11 @@ next profile edit, and decide which of these you want:
    opaque 400 that `mentor/profile/edit.tsx` renders as *"Something went
    wrong"*.
 
+   Emptying the field is now a real way out too (D71): the portal writes
+   `calendar_url` unconditionally, so a cleared field clears the stored link.
+   Before that, an empty value only meant "leave this column alone" — a mentor
+   who deleted the offending link saved successfully and found it still there.
+
 2. **Warn them first (if the count is small).** The affected rows are cheap to
    list, and a mentor told in advance will not open a support ticket:
 

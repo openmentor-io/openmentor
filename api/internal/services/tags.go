@@ -12,7 +12,7 @@ type tagResolver interface {
 // names that do not exist.
 //
 // Callers MUST reject the write when unresolved is non-empty. Mentor tag
-// updates replace the whole set (UpdateMentorTags deletes then re-inserts), so
+// updates replace the whole set (replaceMentorTags deletes then re-inserts), so
 // quietly skipping an unknown name silently deletes that association — and a
 // PARTIAL mismatch is the likely shape of the problem, not a total one: the
 // D30 taxonomy deliberately left several tags unchanged, so a stale client

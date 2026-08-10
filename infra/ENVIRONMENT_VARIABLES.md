@@ -239,8 +239,8 @@ Deploy- and build-only values, kept out of runtime env entirely:
 | `ECR_REGISTRY`, `AWS_REGION`, `IMAGE_TAG`, `FRONTEND_IMAGE_TAG`, `BACKEND_IMAGE_TAG` | compose interpolation / deploy scripts |
 | `VM_SSH_HOST`, `VM_SSH_USER`, `VM_SSH_KEY_FILE` | `deploy.sh` / `rollback.sh` on your workstation |
 | `LETSENCRYPT_EMAIL` | traefik `command:` interpolation (static config, not env) |
-| `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID` | `next build` sourcemap upload (`next.config.js`) |
-| `FARO_API_KEY`, `FARO_API_ENDPOINT`, `FARO_APP_ID`, `FARO_STACK_ID` | `next build` sourcemap upload |
+| `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID` | `next build` sourcemap upload (`next.config.js`). The KEY reaches the build as a BuildKit **secret mount** (`--secret id=posthog_personal_api_key`), not a `--build-arg` — D85 |
+| `FARO_API_KEY`, `FARO_API_ENDPOINT`, `FARO_APP_ID`, `FARO_STACK_ID` | `next build` sourcemap upload. `FARO_API_KEY` is a BuildKit **secret mount** (`--secret id=faro_api_key`) for the same reason |
 
 Dropping `POSTHOG_PERSONAL_API_KEY` / `POSTHOG_PROJECT_ID` from the frontend's
 runtime env changes nothing: `web/` builds with `output: 'standalone'`, and the

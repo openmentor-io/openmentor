@@ -305,7 +305,9 @@ func Init(serviceName string) {
 			Help: "Total number of worker cron job runs",
 		},
 		// outcome: success | error | panic | skipped (non-production gate) |
-		// skipped_overlap (tick dropped, previous run still in flight)
+		// skipped_overlap (tick dropped, previous run still in flight) |
+		// skipped_lease (another run of this job holds the advisory lease, D82) |
+		// lease_error (the lease could not be acquired, so the run failed closed)
 		[]string{"job", "outcome"},
 	)
 

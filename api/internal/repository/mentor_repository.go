@@ -53,21 +53,38 @@ func (r *MentorRepository) GetAll(ctx context.Context, opts models.FilterOptions
 	return filtered, nil
 }
 
-// GetByID retrieves a mentor by legacy numeric ID
-// Note: O(n) complexity is acceptable as per requirements
+// GetByID retrieves a mentor by legacy numeric ID off mentors_legacy_id_uniq.
+//
+// It used to call GetAll and scan the returned slice: the whole catalog
+// aggregate — every active mentor, their tags and a COUNT(*) subquery per row —
+// materialized to answer a single-row question, on an endpoint rate-limited at
+// 100 r/s (audit C4).
+//
+// The query keeps GetAll's `status = 'active' AND deleted_at IS NULL`
+// predicate rather than resolving any mentor by numeric ID. That is not
+// caution for its own sake: because the old implementation read the catalog,
+// a draft, pending, declined or inactive mentor was NEVER reachable by legacy
+// ID whatever FilterOptions the caller passed, and both callers (the public
+// by-id endpoint and the internal one, which takes its options from a request
+// body) shipped against that behavior.
 func (r *MentorRepository) GetByID(ctx context.Context, id int, opts models.FilterOptions) (*models.Mentor, error) {
-	mentors, err := r.GetAll(ctx, opts)
+	mentor, err := r.fetchMentorByLegacyIDFromDB(ctx, id)
 	if err != nil {
-		return nil, err
-	}
-
-	for _, mentor := range mentors {
-		if mentor.LegacyID == id {
-			return mentor, nil
+		// A dead pool or an unreadable row is not a typo'd URL, and the handler
+		// flattens every error here into a 404 — so say so once, here, the way
+		// GetAll used to.
+		if !IsNoRows(err) {
+			logger.Error("Failed to fetch mentor by legacy ID", logger.RedactedError(err), zap.Int("legacy_id", id))
 		}
+		return nil, fmt.Errorf("mentor with ID %d not found: %w", id, err)
 	}
 
-	return nil, fmt.Errorf("mentor with ID %d not found", id)
+	filtered := r.applySingleMentorFilters(mentor, opts)
+	if filtered == nil {
+		return nil, fmt.Errorf("mentor with ID %d not found or filtered out", id)
+	}
+
+	return filtered, nil
 }
 
 // GetBySlug retrieves a mentor by slug directly from the database.
@@ -151,6 +168,30 @@ const mentorSelect = `
 	LEFT JOIN tags t ON t.id = mt.tag_id
 `
 
+// mentorCatalogQuery is the public catalog read: every active, non-deleted
+// mentor, tags aggregated, ordered for display.
+//
+// deleted_at IS NULL is redundant with status = 'active' today (deletion sets
+// 'inactive'), and stays anyway: this is the query behind the whole public
+// catalog, and it should not depend on a rule enforced elsewhere.
+//
+// A const rather than a local string so a test can EXPLAIN exactly what
+// production runs — the C4 measurement compares this plan against
+// mentorByLegacyIDQuery's.
+const mentorCatalogQuery = mentorSelect + `
+	WHERE m.status = 'active' AND m.deleted_at IS NULL
+	GROUP BY m.id
+	ORDER BY m.sort_order
+`
+
+// mentorByLegacyIDQuery is mentorCatalogQuery narrowed to one row via
+// mentors_legacy_id_uniq. Same visibility predicate, so the two answer the same
+// question about the same set of mentors — see GetByID.
+const mentorByLegacyIDQuery = mentorSelect + `
+	WHERE m.legacy_id = $1 AND m.status = 'active' AND m.deleted_at IS NULL
+	GROUP BY m.id
+`
+
 // fetchMentorByUUIDFromDB retrieves a single mentor by UUID from PostgreSQL
 func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId string) (*models.Mentor, error) {
 	query := mentorSelect + `
@@ -159,6 +200,12 @@ func (r *MentorRepository) fetchMentorByUUIDFromDB(ctx context.Context, mentorId
 	`
 
 	row := r.pool.QueryRow(ctx, query, mentorId)
+	return models.ScanMentor(row)
+}
+
+// fetchMentorByLegacyIDFromDB retrieves a single mentor by legacy numeric ID.
+func (r *MentorRepository) fetchMentorByLegacyIDFromDB(ctx context.Context, id int) (*models.Mentor, error) {
+	row := r.pool.QueryRow(ctx, mentorByLegacyIDQuery, id)
 	return models.ScanMentor(row)
 }
 
@@ -187,27 +234,20 @@ var allowedUpdateColumns = map[string]bool{
 	"photo_style":       true,
 }
 
-// Update updates a mentor in PostgreSQL.
-//
-// An empty updates map is a no-op rather than an error: it used to build
-// `UPDATE mentors SET , updated_at = NOW() WHERE ...` — a syntax error — so a
-// caller whose diff came out empty got a failed save instead of nothing to do.
-func (r *MentorRepository) Update(ctx context.Context, mentorId string, updates map[string]interface{}) error {
-	// Validate all keys against allowlist to prevent SQL injection
+// buildMentorUpdate turns a caller-supplied column map into the one UPDATE every
+// mentor write shares. The values are parameterized but the column NAMES are
+// concatenated, so allowedUpdateColumns is the only thing between a caller and
+// arbitrary SQL — which is why this validation and the query construction live
+// together in one place rather than once per write path.
+func buildMentorUpdate(mentorId string, updates map[string]interface{}) (string, []interface{}, error) {
 	for key := range updates {
 		if !allowedUpdateColumns[key] {
-			return fmt.Errorf("invalid column name: %s", key)
+			return "", nil, fmt.Errorf("invalid column name: %s", key)
 		}
 	}
 
-	if len(updates) == 0 {
-		return nil
-	}
-
-	// Build dynamic UPDATE query
-	// This is simplified - in production you'd want proper query building
 	query := `UPDATE mentors SET `
-	args := []interface{}{}
+	args := make([]interface{}, 0, len(updates)+1)
 	argPos := 1
 
 	for key, value := range updates {
@@ -218,28 +258,130 @@ func (r *MentorRepository) Update(ctx context.Context, mentorId string, updates 
 		args = append(args, value)
 		argPos++
 	}
+	if argPos > 1 {
+		query += ", "
+	}
 
 	// A deleted profile (D70) accepts no edits, from its owner or from an admin.
 	// The services check this first and answer with a proper error; the guard
 	// here is what makes "unavailable for any action" true of the WRITE itself,
-	// for any caller that reaches Update without checking.
-	query += fmt.Sprintf(", updated_at = NOW() WHERE id = $%d AND deleted_at IS NULL", argPos)
+	// for any caller that reaches a write without checking.
+	query += fmt.Sprintf("updated_at = NOW() WHERE id = $%d AND deleted_at IS NULL", argPos)
 	args = append(args, mentorId)
 
-	_, err := r.pool.Exec(ctx, query, args...)
+	return query, args, nil
+}
+
+// Update updates a mentor in PostgreSQL.
+//
+// An empty updates map is a no-op rather than an error: it used to build
+// `UPDATE mentors SET , updated_at = NOW() WHERE ...` — a syntax error — so a
+// caller whose diff came out empty got a failed save instead of nothing to do.
+//
+// Zero affected rows is deliberately NOT an error here (a missing or deleted
+// mentor writes nothing, silently). Callers that need to know whether the write
+// landed — every save that must stay consistent with a second write — use
+// UpdateProfileWithTags instead.
+func (r *MentorRepository) Update(ctx context.Context, mentorId string, updates map[string]interface{}) error {
+	if len(updates) == 0 {
+		// Validate before short-circuiting so a bad column name is still
+		// reported, then leave updated_at alone: it busts the OG/image caches.
+		if _, _, err := buildMentorUpdate(mentorId, updates); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	query, args, err := buildMentorUpdate(mentorId, updates)
 	if err != nil {
+		return err
+	}
+
+	if _, err := r.pool.Exec(ctx, query, args...); err != nil {
 		return fmt.Errorf("failed to update mentor: %w", err)
 	}
 
 	return nil
 }
 
-// CreateMentor creates a new mentor record in PostgreSQL
+// ErrMentorNotWritable reports that a profile write matched no writable mentor
+// row — the profile was deleted (D70), or purged, between the service's read and
+// the write. Nothing was written: the transaction is rolled back, so the row and
+// the tag set stay as they were rather than half-updated.
+var ErrMentorNotWritable = errors.New("mentor row is not writable (missing or deleted)")
+
+// UpdateProfileWithTags writes the mentor row and REPLACES its tag set in one
+// transaction (C1).
+//
+// The two used to be separate operations, and on the mentor's own save path a
+// tags failure was logged while success was still returned — so the profile text
+// and the tag set could silently disagree, with nothing in the response saying
+// so. Tags are a full replacement (DELETE then INSERT), which makes a failure
+// between the two writes worse than a no-op: the mentor can end up with FEWER
+// tags than they submitted and a save that reported success.
+//
+// Zero affected rows on the row UPDATE aborts the whole transaction with
+// ErrMentorNotWritable, which is what closes the soft-delete race: a delete
+// committing between the service's existence check and this write turns the
+// UPDATE into a no-op (deleted_at IS NULL), and without the check the tag
+// replacement would still have rewritten the tags of a deleted profile.
+func (r *MentorRepository) UpdateProfileWithTags(
+	ctx context.Context,
+	mentorID string,
+	updates map[string]interface{},
+	tagIDs []string,
+) error {
+
+	query, args, err := buildMentorUpdate(mentorID, updates)
+	if err != nil {
+		return err
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		// Rollback is safe to call even after Commit
+		_ = tx.Rollback(ctx) //nolint:errcheck
+	}()
+
+	tag, err := tx.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to update mentor: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrMentorNotWritable
+	}
+
+	if err := replaceMentorTags(ctx, tx, mentorID, tagIDs); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// CreateMentor creates a new mentor record in PostgreSQL, with its tag
+// associations, in ONE transaction.
 // Returns: mentorId (UUID), legacyId (int), error
 // Note: slug is generated automatically using pre-fetched legacy_id
+//
+// tagIDs are written here rather than by a follow-up call for the same reason
+// UpdateProfileWithTags exists (C1): the registration service used to insert the
+// row, then set the tags, then only LOG a tags failure — so a mentor could
+// register with tags and land in the catalog with none of them, which is exactly
+// how the "Security" tag went missing from live profiles (migration 000009).
+// Failing the whole registration instead lets the registrant retry into a clean
+// state; a committed row with the wrong tags cannot be retried at all.
+//
 // nolint:gocyclo // one transaction with ordered steps (sequence -> slug claim
-// -> insert); splitting it would hide the ordering the correctness depends on.
-func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]interface{}) (string, int, string, error) {
+// -> insert -> tags); splitting it would hide the ordering the correctness
+// depends on.
+func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]interface{}, tagIDs []string) (string, int, string, error) {
 	// Begin transaction to ensure atomicity
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -360,6 +502,10 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 		return "", 0, "", fmt.Errorf("failed to create mentor: %w", err)
 	}
 
+	if tagsErr := replaceMentorTags(ctx, tx, mentorId, tagIDs); tagsErr != nil {
+		return "", 0, "", tagsErr
+	}
+
 	// Commit transaction
 	if err = tx.Commit(ctx); err != nil {
 		return "", 0, "", fmt.Errorf("failed to commit transaction: %w", err)
@@ -373,40 +519,31 @@ func (r *MentorRepository) GetTagIDByName(ctx context.Context, name string) (str
 	return r.tagsCache.GetTagIDByName(name)
 }
 
-// UpdateMentorTags updates the tags for a mentor
-func (r *MentorRepository) UpdateMentorTags(ctx context.Context, mentorID string, tagIDs []string) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		// Rollback is safe to call even after Commit
-		// Error is ignored as we prioritize the Commit error
-		_ = tx.Rollback(ctx) //nolint:errcheck
-	}()
-
-	// Delete existing tags for this mentor
-	_, err = tx.Exec(ctx, "DELETE FROM mentor_tags WHERE mentor_id = $1", mentorID)
-	if err != nil {
+// replaceMentorTags swaps a mentor's whole tag set inside the caller's
+// transaction. Every tag write in this repository goes through it, so the
+// replace-the-set semantics resolveTagsStrict documents cannot be implemented
+// two different ways on two write paths.
+func replaceMentorTags(ctx context.Context, tx pgx.Tx, mentorID string, tagIDs []string) error {
+	if _, err := tx.Exec(ctx, "DELETE FROM mentor_tags WHERE mentor_id = $1", mentorID); err != nil {
 		return fmt.Errorf("failed to delete existing tags: %w", err)
 	}
 
-	// Insert new tags
 	for _, tagID := range tagIDs {
-		_, err = tx.Exec(ctx,
+		if _, err := tx.Exec(ctx,
 			"INSERT INTO mentor_tags (mentor_id, tag_id) VALUES ($1, $2)",
-			mentorID, tagID)
-		if err != nil {
+			mentorID, tagID); err != nil {
 			return fmt.Errorf("failed to insert tag: %w", err)
 		}
 	}
 
-	if err = tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
 	return nil
 }
+
+// There is deliberately NO standalone "set this mentor's tags" method. Tags are
+// only ever written next to the row they belong to — by CreateMentor on
+// registration and UpdateProfileWithTags on a save — because a tag set written
+// on its own is a tag set that can land while the row write fails, or fail while
+// the row write lands. That was C1.
 
 // GetAllTags retrieves all tags
 func (r *MentorRepository) GetAllTags(ctx context.Context) (map[string]string, error) {
@@ -469,16 +606,7 @@ func (r *MentorRepository) SetLoginToken(ctx context.Context, mentorId string, t
 
 // FetchAllMentorsFromDB retrieves all mentors from PostgreSQL for cache population
 func (r *MentorRepository) FetchAllMentorsFromDB(ctx context.Context) ([]*models.Mentor, error) {
-	// deleted_at IS NULL is redundant with status = 'active' today (deletion
-	// sets 'inactive'), and stays anyway: this is the query behind the whole
-	// public catalog, and it should not depend on a rule enforced elsewhere.
-	query := mentorSelect + `
-		WHERE m.status = 'active' AND m.deleted_at IS NULL
-		GROUP BY m.id
-		ORDER BY m.sort_order
-	`
-
-	rows, err := r.pool.Query(ctx, query)
+	rows, err := r.pool.Query(ctx, mentorCatalogQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch mentors: %w", err)
 	}

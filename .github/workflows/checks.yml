@@ -75,6 +75,11 @@ jobs:
               - 'api/**'
               - '.github/workflows/ci-api.yml'
               - '.github/workflows/checks.yml'
+              # api/pkg/redact/alloy_config_test.go compiles config.alloy's
+              # stage.replace expressions with Go's RE2 — the engine Alloy
+              # actually runs, which the infra suite's Python `re` cannot stand
+              # in for — so an alloy-config-only PR has to run the api gate too
+              - 'infra/alloy/config.alloy'
             infra:
               - 'infra/**'
               # `make check` also asserts the backup alert, its dashboard panels,
@@ -88,6 +93,14 @@ jobs:
               # (db-identity-test.sh), so a new migration has to run it — a stray
               # GRANT is how H8 comes back silently.
               - 'api/migrations/**'
+              # `make check` also asserts the four Postgres advisory-lock
+              # namespaces do not collide (advisory-lock-namespace-test.sh, D82).
+              # Three of the four keys live in api/, so editing one there has to
+              # run the infra gate — a collision produces no error anywhere, just
+              # two unrelated components excluding each other.
+              - 'api/internal/repository/slug_history_repository.go'
+              - 'api/internal/worker/repository.go'
+              - 'api/test/dbtest/dbtest.go'
               - '.github/workflows/checks.yml'
             workflows:
               - '.github/workflows/**'

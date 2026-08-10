@@ -3,6 +3,7 @@ import Link from 'next/link'
 import type { GetServerSideProps, InferGetServerSidePropsType } from 'next'
 import { Footer, MentorsList, MetaHeader, NavHeader, Section } from '@/components'
 import { getAllMentors } from '@/server/mentors-data'
+import { toCardItem } from '@/server/mentor-projection'
 import { pageTitle } from '@/config/seo'
 import constants from '@/config/constants'
 import { TAG_CATEGORIES, TAG_PAGES, tagBySlug, tagPath } from '@/config/tags'
@@ -10,7 +11,7 @@ import { jsonLdScriptProps } from '@/lib/json-ld'
 import { withSSRObservability } from '@/lib/with-ssr-observability'
 import logger, { getTraceContext } from '@/lib/logger'
 import pluralize from '@/lib/pluralize'
-import type { MentorCardItem, MentorListItem, MentorTag } from '@/types'
+import type { MentorCardItem, MentorTag } from '@/types'
 
 interface MentorTagPageProps {
   [key: string]: unknown
@@ -24,34 +25,6 @@ interface MentorTagPageProps {
   mentors: MentorCardItem[]
 }
 
-/**
- * Narrow a mentor to the fields a card renders.
- *
- * `sessionsCount`, `photoStyle` and `updatedAt` are optional on the payload —
- * older Go API responses omit them — so they are spread in only when present.
- * Assigning them unconditionally would create own properties holding
- * `undefined`, which `getServerSideProps` rejects: `next dev` answers 500 with
- * "Error serializing `.mentors[0].sessionsCount`". Production hides it, since
- * JSON.stringify drops undefined, which makes it a bug that only breaks local
- * development — do not "simplify" this back into a plain destructure.
- */
-function toCardItem(mentor: MentorListItem): MentorCardItem {
-  return {
-    id: mentor.id,
-    mentorId: mentor.mentorId,
-    slug: mentor.slug,
-    name: mentor.name,
-    job: mentor.job,
-    workplace: mentor.workplace,
-    experience: mentor.experience,
-    price: mentor.price,
-    isNew: mentor.isNew,
-    ...(mentor.sessionsCount !== undefined && { sessionsCount: mentor.sessionsCount }),
-    ...(mentor.photoStyle !== undefined && { photoStyle: mentor.photoStyle }),
-    ...(mentor.updatedAt !== undefined && { updatedAt: mentor.updatedAt }),
-  }
-}
-
 const _getServerSideProps: GetServerSideProps<MentorTagPageProps> = async (context) => {
   const tagParam = context.params?.tag
   const slug = Array.isArray(tagParam) ? tagParam[0] : tagParam
@@ -62,6 +35,13 @@ const _getServerSideProps: GetServerSideProps<MentorTagPageProps> = async (conte
     logger.warn('Unknown mentor tag slug requested', { slug, ...getTraceContext() })
     return { notFound: true }
   }
+
+  // Same for every visitor and not session-scoped — see the note on `/`. Set
+  // after the 404 branch so an unknown slug keeps Next's uncacheable default.
+  context.res.setHeader(
+    'Cache-Control',
+    'public, max-age=0, s-maxage=60, stale-while-revalidate=300'
+  )
 
   const allMentors = await getAllMentors({ onlyVisible: true, drop_long_fields: true })
 

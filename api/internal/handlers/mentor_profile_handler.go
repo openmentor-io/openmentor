@@ -75,8 +75,7 @@ func (h *MentorProfileHandler) SubmitProfile(c *gin.Context) {
 	}
 
 	logger.Info("Profile submitted for review via session",
-		zap.String("mentor_id", session.MentorID),
-		zap.String("mentor_name", session.Name))
+		zap.String("mentor_id", session.MentorID))
 
 	c.JSON(http.StatusOK, models.SubmitProfileResponse{Success: true, Status: "pending"})
 }
@@ -141,13 +140,23 @@ func (h *MentorProfileHandler) UpdateProfile(c *gin.Context) {
 
 	err = h.profileService.SaveProfileByMentorId(c.Request.Context(), session.MentorID, &req)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "Failed to update profile", err)
+		switch {
+		// A save that raced a deletion (D70) wrote NOTHING — neither the row nor
+		// the tags — so it must not answer 500 as if the outcome were unknown.
+		case errors.Is(err, services.ErrProfileAlreadyDeleted):
+			respondError(c, http.StatusConflict, "This profile has already been deleted", err)
+		// Unknown tags are the client's to fix (a stale form after a taxonomy
+		// change), not a server fault.
+		case errors.Is(err, apperrors.ErrInvalidInput):
+			respondError(c, http.StatusBadRequest, "Invalid profile data", err)
+		default:
+			respondError(c, http.StatusInternalServerError, "Failed to update profile", err)
+		}
 		return
 	}
 
 	logger.Info("Profile updated via session",
-		zap.String("mentor_id", session.MentorID),
-		zap.String("mentor_name", session.Name))
+		zap.String("mentor_id", session.MentorID))
 
 	c.JSON(http.StatusOK, models.SaveProfileResponse{Success: true})
 }
@@ -182,7 +191,6 @@ func (h *MentorProfileHandler) UpdateProfileStatus(c *gin.Context) {
 
 	logger.Info("Profile status updated via session",
 		zap.String("mentor_id", session.MentorID),
-		zap.String("mentor_name", session.Name),
 		zap.String("status", req.Status))
 
 	c.JSON(http.StatusOK, models.UpdateProfileStatusResponse{Success: true, Status: req.Status})
@@ -223,9 +231,7 @@ func (h *MentorProfileHandler) UploadPicture(c *gin.Context) {
 	}
 
 	logger.Info("Profile picture uploaded via session",
-		zap.String("mentor_id", session.MentorID),
-		zap.String("mentor_name", session.Name),
-		zap.String("image_url", imageURL))
+		zap.String("mentor_id", session.MentorID))
 
 	c.JSON(http.StatusOK, models.UploadProfilePictureResponse{
 		Success:  true,

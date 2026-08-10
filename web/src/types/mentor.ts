@@ -177,6 +177,25 @@ export type MentorCardItem = Pick<
 >
 
 /**
+ * Exactly the fields the homepage catalog needs: a card, plus the three the
+ * client-side filter/search work over.
+ *
+ * The homepage ships EVERY visible mentor so search and filters can run without
+ * a round trip, so each field costs bytes in `__NEXT_DATA__` times the whole
+ * catalog. Measured against production (287 mentors), the unprojected
+ * `MentorListItem` was 209 KB and this is 168 KB — `drop_long_fields` only
+ * clears `about`/`description`, leaving `calendarUrl`, `isVisible`, `status`,
+ * `sortOrder`, `calendarType`, `legacySessionsCount` and `photo_url` to be
+ * serialized for every visitor and read by nothing.
+ *
+ * `competencies` stays because `useMentors` searches it (C10) — it is the only
+ * long field the search haystack has left, and dropping it would silently
+ * narrow live search to name/job/workplace.
+ */
+export type MentorCatalogItem = MentorCardItem &
+  Pick<MentorListItem, 'tags' | 'menteeCount' | 'competencies'>
+
+/**
  * Type guard for mentor with secure fields
  */
 export function hasMentorSecureFields(

@@ -57,7 +57,7 @@ type AdminMentorsRepository interface {
 	GetForModerationByID(ctx context.Context, mentorID string) (*models.AdminMentorDetails, error)
 	GetTagIDByName(ctx context.Context, tagName string) (string, error)
 	Update(ctx context.Context, mentorID string, updates map[string]interface{}) error
-	UpdateMentorTags(ctx context.Context, mentorID string, tagIDs []string) error
+	UpdateProfileWithTags(ctx context.Context, mentorID string, updates map[string]interface{}, tagIDs []string) error
 	SetMentorStatus(ctx context.Context, mentorID, status string) error
 	ApproveMentorModeration(ctx context.Context, mentorID string) error
 	ReturnMentorToDraft(ctx context.Context, mentorID, note string) error
@@ -187,12 +187,16 @@ func (s *AdminMentorsService) UpdateMentorProfile(
 
 	updates := buildProfileUpdates(req, contact)
 
-	if err := s.mentorRepo.Update(ctx, mentorID, updates); err != nil {
+	// One transaction for row + tags (C1), same as the mentor's own save: the two
+	// writes used to be sequential, so a tags failure left the admin looking at
+	// an error next to a profile whose text had already changed.
+	if err := s.mentorRepo.UpdateProfileWithTags(ctx, mentorID, updates, tagIDs); err != nil {
+		if errors.Is(err, repository.ErrMentorNotWritable) {
+			// A deletion committed between GetMentor above and this write.
+			s.trackAdminProfileUpdate(ctx, session, mentorID, "mentor_deleted", nil)
+			return nil, ErrMentorDeleted
+		}
 		s.trackAdminProfileUpdate(ctx, session, mentorID, "update_failed", nil)
-		return nil, err
-	}
-	if err := s.mentorRepo.UpdateMentorTags(ctx, mentorID, tagIDs); err != nil {
-		s.trackAdminProfileUpdate(ctx, session, mentorID, "tags_update_failed", nil)
 		return nil, err
 	}
 

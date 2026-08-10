@@ -4,6 +4,19 @@ const nextConfig = {
   // Enable standalone output for Docker deployments
   output: 'standalone',
 
+  // Emit browser source maps unconditionally (C12). Until this was set the only
+  // thing that turned them on was @posthog/nextjs-config, and only when
+  // POSTHOG_PERSONAL_API_KEY and POSTHOG_PROJECT_ID were both present — so the
+  // Faro half of the pipeline (scripts/filter-sourcemaps.js + faro-cli upload,
+  // both run from web/Dockerfile) had no map to filter or upload on any build
+  // lacking those two, which is every build the deploy workflow makes.
+  //
+  // Maps must not reach the pushed image: the runner stage copies .next/static
+  // wholesale, so a .map left there is served from the CDN. web/Dockerfile
+  // deletes them after the upload step, UNCONDITIONALLY — that deletion is what
+  // makes this setting safe, so the two have to stay together.
+  productionBrowserSourceMaps: true,
+
   // The social-card renderer (/api/og/mentor) needs runtime files the
   // standalone trace misses: its TTF fonts (read from disk) and next/og's
   // compiled @vercel/og package (satori + resvg/yoga wasm — the tracer does
@@ -31,7 +44,19 @@ const nextConfig = {
   },
 
   experimental: {
-    largePageDataBytes: 10 * 1024 * 1024,
+    // A budget, not a mute button. The homepage ships every visible mentor so
+    // catalog search and filters run client-side, which at 287 mentors is
+    // ~170 KB of __NEXT_DATA__ (587 B/mentor after the C8 projection, down from
+    // 730) — over Next's 128 KB default, so some number has to be set here. The
+    // previous 10 MB was 60x the real payload and would not have fired if the
+    // catalog grew tenfold. 256 KB fires at roughly 435 mentors, which is the
+    // point where ship-everything stops being the right design and search
+    // belongs on the server.
+    //
+    // The tight guard is `src/__tests__/pages/index-props.test.ts`, which
+    // budgets bytes PER MENTOR in CI: this one only fires in `next dev`, and
+    // only once per page in production.
+    largePageDataBytes: 256 * 1024,
   },
 
   // Next.js 16 way to exclude server-side packages from bundling
@@ -169,7 +194,12 @@ module.exports = posthogUploadEnabled
       sourcemaps: {
         releaseName: 'openmentor-frontend',
         releaseVersion: process.env.NEXT_PUBLIC_O11Y_FE_SERVICE_VERSION || 'unknown',
-        deleteAfterUpload: true,
+        // false, not true (C12). `true` makes PostHog's CLI run with
+        // `--delete-after`, which erases every .map during `next build` — before
+        // the Dockerfile's Faro filter + upload step runs, so the two uploaders
+        // were mutually exclusive and PostHog silently won. The Dockerfile now
+        // owns the deletion instead, after both uploads.
+        deleteAfterUpload: false,
       },
     })
   : nextConfig

@@ -127,3 +127,60 @@ describe('useMentors', () => {
     expect(result.current[2]).toBe(false) // hasMoreMentors
   })
 })
+
+/**
+ * The haystack must be exactly the text the catalog payload carries. Its only
+ * caller fetches with `drop_long_fields: true`, so `description` and `about`
+ * arrive empty on every request — searching them looked like bio search and
+ * matched nothing (C10).
+ */
+describe('useMentors search haystack', () => {
+  function search(mentors: MentorListItem[], term: string): string[] {
+    const { result } = renderHook(() => useMentors(mentors, 10))
+    act(() => {
+      result.current[3](term)
+    })
+    return result.current[0].map((mentor) => mentor.slug)
+  }
+
+  it.each([
+    ['name', 'Frontend'],
+    ['job', 'FE'],
+    ['workplace', 'Company'],
+    ['competencies', 'JS'],
+  ])('matches on %s, which the payload always carries', (_field, term) => {
+    expect(search(baseMentors, term)).toContain('frontend-mentor')
+  })
+
+  // These two would match here and never in production — the failure C10 fixes.
+  it.each(['description', 'about'] as const)(
+    'does not pretend to search %s',
+    (field) => {
+      const mentors: MentorListItem[] = [
+        {
+          ...baseMentors[0],
+          description: null,
+          about: null,
+          competencies: 'React',
+          [field]: 'kubernetes',
+        },
+      ]
+
+      expect(search(mentors, 'kubernetes')).toEqual([])
+      expect(search(mentors, 'React')).toEqual(['frontend-mentor'])
+    }
+  )
+
+  it('is unaffected by whether the API dropped the long fields', () => {
+    const withLongFields: MentorListItem[] = baseMentors.map((mentor) => ({ ...mentor }))
+    const dropped: MentorListItem[] = baseMentors.map((mentor) => ({
+      ...mentor,
+      description: null,
+      about: null,
+    }))
+
+    for (const term of ['Frontend', 'JS', 'Go', 'Company']) {
+      expect(search(withLongFields, term)).toEqual(search(dropped, term))
+    }
+  })
+})
