@@ -8,15 +8,13 @@ logging {
   format = "logfmt"
 }
 
-// NOTE on `instance` (here and on every scrape target below): it used to be
-// sys.env("HOSTNAME"), which inside this container is Alloy's OWN container id
-// — one opaque value shared by every target, re-minted whenever the alloy
-// container is recreated. Each recreate therefore duplicated every series of
-// every job at once (the 8.7k active-series spike of 2026-07-26). DEPLOYMENT_NAME
-// is the stable per-VM identity (deploy.sh writes it from the deploy target, see
-// the D70 comments below), so <deployment>-<service> is stable across recreates
-// yet still distinct between production and a staging VM remote-writing to the
-// same tenant (D86).
+// `instance` on every scrape target below is <DEPLOYMENT_NAME>-<service>:
+// stable across container recreates, distinct between production and a staging
+// VM remote-writing to this same tenant (deploy.sh writes DEPLOYMENT_NAME from
+// the deploy target — see the D70 comments below). sys.env("HOSTNAME") cannot
+// serve here: inside this container it is Alloy's OWN container id, one value
+// shared by every target and replaced on every recreate, which re-mints every
+// series that carries it (D86).
 prometheus.scrape "cadvisor" {
   targets = [
     {
@@ -58,14 +56,13 @@ prometheus.scrape "yc_go_worker" {
       service_name = coalesce(sys.env("O11Y_WORKER_SERVICE_NAME"), "openmentor-worker"),
       namespace   = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io"),
       // Per-VM identity, for the same reason the backup gauges carry it (D70):
-      // ProfilePurgeStale evaluates the retention sweep PER DEPLOYMENT, and
-      // none of the labels above can carry that. `./deploy.sh --staging`
-      // uploads the same .env.production, so a staging worker remote-writes to
-      // this tenant with an identical environment and service_name, and
-      // `instance` is Alloy's own container id (Docker's HOSTNAME), which
-      // changes on every recreate. Without this, a global max() over the purge
-      // gauges lets a healthy staging sweep hold the rule Normal while
-      // production stops erasing data it has promised to erase.
+      // ProfilePurgeStale evaluates the retention sweep PER DEPLOYMENT.
+      // `./deploy.sh --staging` uploads the same .env.production, so a staging
+      // worker remote-writes to this tenant with an identical environment and
+      // service_name; `deployment` is the label the purge rules aggregate by.
+      // Without it, a global max() over the purge gauges lets a healthy
+      // staging sweep hold the rule Normal while production stops erasing
+      // data it has promised to erase.
       deployment  = coalesce(sys.env("DEPLOYMENT_NAME"), "production"),
     },
   ]
@@ -135,14 +132,13 @@ discovery.relabel "backup_metrics" {
     replacement  = coalesce(sys.env("O11Y_SERVICE_NAMESPACE"), "openmentor-io")
   }
 
-  // Backup freshness has to be evaluated PER DEPLOYMENT, and none of the labels
-  // above can carry that: `./deploy.sh --staging` uploads the same
-  // .env.production, so a staging VM remote-writes to this same Grafana Cloud
-  // tenant with APP_ENV=production too, and `instance` is the alloy container id
-  // (Docker's default HOSTNAME), which changes on every recreate. Without a
-  // stable per-VM label a global max() over these gauges lets one fresh staging
-  // backup hold DatabaseBackupStale Normal while production dumps rot.
-  // deploy.sh writes DEPLOYMENT_NAME into the VM's .env from the deploy target.
+  // Backup freshness has to be evaluated PER DEPLOYMENT: `./deploy.sh --staging`
+  // uploads the same .env.production, so a staging VM remote-writes to this same
+  // Grafana Cloud tenant with APP_ENV=production too. `deployment` is the label
+  // DatabaseBackupStale aggregates by; without a stable per-VM label a global
+  // max() over these gauges lets one fresh staging backup hold the rule Normal
+  // while production dumps rot. deploy.sh writes DEPLOYMENT_NAME into the VM's
+  // .env from the deploy target.
   rule {
     target_label = "deployment"
     replacement  = coalesce(sys.env("DEPLOYMENT_NAME"), "production")
@@ -173,22 +169,19 @@ prometheus.scrape "yc_alloy_self_monitoring" {
 // cAdvisor: allowlist, then de-churn (D86).
 //
 // The default export is ~40 metric families for every cgroup on the host, each
-// series carrying `id`, `image` and ~40 `container_label_*` keys. Measured on
-// the tenant 2026-08-10: ~1,900 active series, of which grafana/ queries
-// exactly five families — and because `id` and `image` change on every
-// container recreate, each deploy re-minted the whole set. Filtered here
-// rather than via cAdvisor flags (--docker_only, --disable_metrics) on
-// purpose: a bad flag stops the cadvisor container at the VM where no CI
-// check can see it, while a relabel rule ships the same reduction and fails
-// only `make check`.
+// series carrying `id`, `image` and ~40 `container_label_*` keys; grafana/
+// queries five of those families. Filtered here rather than via cAdvisor flags
+// (--docker_only, --disable_metrics) on purpose: a bad flag stops the cadvisor
+// container on the VM where no CI check can see it, while a relabel rule ships
+// the same reduction and fails only `make check`.
 prometheus.relabel "cadvisor" {
   // Series allowlist. The five container_* families grafana/ reads;
-  // machine_cpu_cores, which ContainerHighCPU and the om-database-infra host
-  // CPU panel divide by; and the scrape's own meta series — `up` feeds
-  // ServiceDown for this target.
+  // machine_cpu_cores and machine_memory_bytes, which ContainerHighCPU and the
+  // om-database-infra host CPU/Memory panels read; and the scrape's own meta
+  // series — `up` feeds ServiceDown for this target.
   rule {
     source_labels = ["__name__"]
-    regex         = "container_cpu_usage_seconds_total|container_memory_usage_bytes|container_memory_working_set_bytes|container_spec_memory_limit_bytes|container_fs_usage_bytes|machine_cpu_cores|up|scrape_.+"
+    regex         = "container_cpu_usage_seconds_total|container_memory_usage_bytes|container_memory_working_set_bytes|container_spec_memory_limit_bytes|container_fs_usage_bytes|machine_cpu_cores|machine_memory_bytes|up|scrape_.+"
     action        = "keep"
   }
 
@@ -230,12 +223,12 @@ prometheus.relabel "cadvisor" {
 
 // Alloy self-monitoring: allowlist (D86).
 //
-// The full self-export is ~1,200 series (otelcol/loki internals, component
-// graph, histogram buckets) and nothing in grafana/ queries any of it. What
-// stays is the health of the pipelines themselves: `up` (ServiceDown covers
-// this target), remote-write delivery counters (a silent remote_write failure
-// is otherwise invisible — every OTHER alert stops evaluating when this path
-// breaks), and the Loki write counters for the same reason on the logs side.
+// Nothing in grafana/ queries the self-export (otelcol/loki internals,
+// component graph, histogram buckets). What stays is the health of the
+// pipelines themselves: `up` (ServiceDown covers this target), remote-write
+// delivery counters (a silent remote_write failure is otherwise invisible —
+// every OTHER alert stops evaluating when this path breaks), and the Loki
+// write counters for the same reason on the logs side.
 prometheus.relabel "alloy_self" {
   rule {
     source_labels = ["__name__"]
