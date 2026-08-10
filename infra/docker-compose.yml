@@ -30,7 +30,7 @@ services:
   # Removing even that needs Traefik's file provider (no daemon access at all)
   # — see DECISIONS D66.
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3.0
+    image: tecnativa/docker-socket-proxy:v0.5.0
     # Matches the `openmentor-*` pattern the ContainerHighCPU/ContainerHighMemory
     # alert rules select on, so the new container is covered by them.
     container_name: openmentor-docker-socket-proxy
