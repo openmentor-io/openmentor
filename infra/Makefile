@@ -1,4 +1,4 @@
-.PHONY: help check compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests advisory-lock-tests
+.PHONY: help check compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests advisory-lock-tests metrics-keeplist-tests
 
 # The fast infra checks, in one place. .github/workflows/checks.yml calls these
 # targets (as web/ and api/ do), so `make check` here runs exactly what the
@@ -22,8 +22,9 @@ help:
 	@echo "  alert-fireability-tests - every alert rule can actually fire"
 	@echo "  alloy-redaction-tests   - Alloy PII redaction stage + config parses"
 	@echo "  advisory-lock-tests     - Postgres advisory-lock namespaces do not collide"
+	@echo "  metrics-keeplist-tests  - Alloy metric keep-lists vs what grafana/ reads"
 
-check: compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests advisory-lock-tests
+check: compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests advisory-lock-tests metrics-keeplist-tests
 	@echo "✅ Infra checks passed!"
 
 compose-config:
@@ -86,3 +87,10 @@ db-identity-tests:
 # components start excluding each other (D82).
 advisory-lock-tests:
 	@./advisory-lock-namespace-test.sh
+
+# Reads ../grafana as well as alloy/config.alloy: the relabel keep-lists decide
+# which series reach Grafana Cloud, and `alloy validate` cannot see that a
+# dashboard reads a series the allowlist drops (D86). The checks.yml infra
+# filter covers grafana/**, so a dashboard-only PR still runs this.
+metrics-keeplist-tests:
+	@./metrics-keeplist-test.sh

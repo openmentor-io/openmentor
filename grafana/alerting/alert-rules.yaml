@@ -470,7 +470,8 @@ groups:
           #     production dumps rot. Alloy stamps `deployment` from
           #     DEPLOYMENT_NAME (infra/alloy/config.alloy); before that config
           #     reaches a VM the label is empty, which is one instance — today's
-          #     behaviour. `instance` would not do: it is the alloy container id.
+          #     behaviour. `instance` would not do: it names the scrape target,
+          #     and `deployment` is the purpose-built per-VM label here.
           #   • subtracting openmentor_db_backup_max_age_seconds instead of
           #     comparing against a literal, so changing BACKUP_MAX_AGE_HOURS in
           #     .env.production moves the alert with it. Result is "seconds past

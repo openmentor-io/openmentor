@@ -35,8 +35,9 @@ workflows call these same targets, so local and CI run the identical check.
 ```bash
 cd api   && make ci      # lint (golangci-lint, version pinned in api/Makefile) + test-race
 cd web   && make ci      # eslint + tsc --noEmit + jest + production build
-cd infra && make check   # 7 suites: compose-config, env-allowlist, backup-tests,
-                         # deploy-tests, rollback-tests, alert-tests, alert-fireability-tests
+cd infra && make check   # 10 suites: compose-config, env-allowlist, backup-tests,
+                         # deploy-tests, rollback-tests, alert-tests, alert-fireability-tests,
+                         # alloy-redaction-tests, advisory-lock-tests, metrics-keeplist-tests
                          # (shellcheck and db-identity-tests are separate targets, NOT in check)
 ```
 
@@ -323,7 +324,7 @@ wholesale.
 Docker Compose behind Traefik on a single production VM, a Postgres backup sidecar, and Grafana
 Alloy. Scripts here run as root on that VM. A quoting slip is an incident, not a stack trace.
 
-### `make check` — seven suites
+### `make check` — ten suites
 
 | Target | What it proves |
 |---|---|
@@ -334,6 +335,9 @@ Alloy. Scripts here run as root on that VM. A quoting slip is an incident, not a
 | `rollback-tests` | `rollback-migration-guard-test.sh` — the migration-boundary guard and the expand/contract policy, reading `../api/migrations` |
 | `alert-tests` | `alert-consistency-test.sh` — `../grafana/alerting` and `../grafana/dashboards` against `docker-compose.yml` |
 | `alert-fireability-tests` | `alert-fireability-test.sh` — every rule's labels exist and its threshold is reachable |
+| `alloy-redaction-tests` | `alloy-redaction-test.sh` — the PII redaction stage rewrites what it must and nothing else, and `alloy validate` passes |
+| `advisory-lock-tests` | `advisory-lock-namespace-test.sh` — the Postgres advisory-lock namespaces across Go and the migration script do not collide |
+| `metrics-keeplist-tests` | `metrics-keeplist-test.sh` — every series `../grafana` reads survives the Alloy relabel keep-lists, and the filters still bite |
 
 Not in `check`, run them when relevant: `make shellcheck`, `make db-identity-tests`.
 
