@@ -196,23 +196,40 @@ ORDER BY updated_at DESC;
 -- surfaces as '', which is off-list, which is one save from 'Free'.
 -- `experience` (Mentor.Experience string) has the identical shape, which is why
 -- D2d has always counted NULL. Both filters now agree.
+--
+-- D2b/D2c WERE REPOINTED WHEN THE FORM BUG WAS FIXED (D87). They used to flag
+-- any price outside the profile select's six options, because an option the
+-- select could not represent was one save from becoming 'Free'. The select is
+-- gone: price is now a pill group over a closed grammar, an amount the mentor
+-- types round-trips, and `mentors_price_chk` refuses anything else. Against the
+-- old list, '$30' and '$120' — 80+ real rows — would now be reported as "one
+-- save from losing it" when they are neither off-list nor at risk, and a false
+-- alarm in a runbook an operator acts on is worse than no check at all.
+--
+-- What is still worth detecting is a row the grammar does NOT admit, which on a
+-- migrated database means the constraint is missing: a rollback below migration
+-- 000014, or someone dropped it. The expected result is now ZERO rows, and a
+-- non-zero result is a schema problem, not a mentor problem.
+--
+-- NULL stays counted for the reason above: the constraint is a CHECK, and a
+-- CHECK is satisfied by NULL, so 000014 did not close this case.
 \echo ''
-\echo '## D2b — mentors holding a price the profile select cannot represent'
+\echo '## D2b — mentors holding a price outside the stored grammar (expect 0)'
 
-SELECT count(*) AS off_list_prices
+SELECT count(*) AS off_grammar_prices
 FROM mentors
 WHERE price IS NULL
-   OR price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable');
+   OR price !~ '^(Free|Negotiable|\$([1-9][0-9]{0,2}|1000))$';
 
 \echo ''
-\echo '## D2c — the actual off-list values (input for the recompute in data-repair.md)'
+\echo '## D2c — the actual off-grammar values (input for the recompute in data-repair.md)'
 
 -- COALESCE so a NULL is a visible '<NULL>' bucket rather than a blank cell an
 -- operator reads as the empty string. Same shape as D2d.
 SELECT COALESCE(price, '<NULL>') AS price, count(*) AS mentors
 FROM mentors
 WHERE price IS NULL
-   OR price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable')
+   OR price !~ '^(Free|Negotiable|\$([1-9][0-9]{0,2}|1000))$'
 GROUP BY 1
 ORDER BY mentors DESC, 1;
 
@@ -491,9 +508,9 @@ FROM (
            -- D2b comment for why a NULL price is the worse case, not the safe one.
            (SELECT count(*) FROM mentors
              WHERE price IS NULL
-                OR price NOT IN ('Free', '$50', '$100', '$150', '$200', 'Negotiable'))::text
-               || ' mentor row(s) hold an off-list price',
-           'each is one profile save from losing it; fix the form first'
+                OR price !~ '^(Free|Negotiable|\$([1-9][0-9]{0,2}|1000))$')::text
+               || ' mentor row(s) hold an off-grammar price',
+           'expect 0; non-zero means mentors_price_chk is missing (see D2b)'
     UNION ALL
     SELECT 5,
            'D2d',

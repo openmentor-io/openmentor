@@ -303,10 +303,25 @@ unknown email", which sends whoever debugs it looking for a typo).
 2. **Then** restore values.
 
 Backwards, and the mentor's next profile save re-clobbers everything you just
-restored. Note also that restoring a price to an off-list value like `$30` puts
-that mentor straight back into the D2b exposure set — the off-list value *is*
-the exposure. Either the form fix landed, or restoring makes the problem
-recur.
+restored.
+
+> **The price half of step 1 has shipped (D87).** `ProfileForm.tsx` no longer
+> renders price as a `<select>` at all — it is a pill group over a closed
+> grammar (`Free` / `Negotiable` / any whole `$1`–`$1000`), a radio group has no
+> first option to fall into, and `mentors_price_chk` refuses anything outside
+> the grammar. Two consequences for this runbook:
+>
+> - **Restoring a price no longer re-arms the bug.** `$30` is a value the form
+>   renders and round-trips, so it is not "exposure" any more; the old warning
+>   that restoring an off-list value put the mentor straight back at risk no
+>   longer applies. D2b was repointed to match — it now flags rows the *grammar*
+>   rejects, and expects zero.
+> - **A restore must be canonical.** `$30 / hour`, `75 USD` and `''` are not
+>   storable; the write-back will be refused by the constraint rather than
+>   silently accepted. Convert to `$30`, `$75`, or ask the mentor.
+>
+> **`experience` is unchanged and still exposed** — see the paragraph below.
+> Everything in §D2 continues to apply to it verbatim.
 
 **Fix `experience` in the same change.** `diagnostics.sql` D2d covers it: the
 `experience` select (`ProfileForm.tsx:404-409`) has the identical defect and
@@ -426,13 +441,15 @@ evidence the bug did it. A mentor who deliberately switched to `Free` after the
 dump was taken matches all three conditions exactly. §D2.2 above says D2a is a
 candidate list, not a list of victims; that applies here too.
 
-There is one hard filter, and it comes straight from the mechanism. The select
-offers `Free, $50, $100, $150, $200, Negotiable`
-(`web/src/config/filters.ts` → `filters.price`) and is rendered
-`<select {...register('price')} defaultValue={mentor.price}>`
-(`ProfileForm.tsx:426`). If the stored price **is** one of those six, the browser
-selects that option and the value round-trips correctly. The clobber can only
-happen when the stored price was **off-list**.
+There is one hard filter, and it comes straight from the mechanism. **This
+describes the form as it was when the clobbering happened** — the six-option
+select is gone (D87), but the historical signature below is still how you read a
+dump taken while it was live. The select offered `Free, $50, $100, $150, $200,
+Negotiable` and was rendered
+`<select {...register('price')} defaultValue={mentor.price}>`. If the stored
+price **was** one of those six, the browser selected that option and the value
+round-tripped correctly. The clobber can only have happened when the stored
+price was **off-list**.
 
 | Dump's price | Can the select bug explain production's `Free`? | Action |
 |---|---|---|
