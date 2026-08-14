@@ -36,6 +36,8 @@ import { DeleteProfileDialog } from '@/components'
 import { formatDateTime } from '@/components/mentor-admin'
 import { imageLoader } from '@/lib/image-loader'
 import { isValidCalendarUrl } from '@/lib/safe-url'
+import { formatPrice, isValidPrice, parsePrice, type PriceValue } from '@/lib/price'
+import PriceField from '@/components/forms/PriceField'
 import {
   useUsernameAvailability,
   isUsernameFormatValid,
@@ -247,6 +249,11 @@ function MentorModerationEditContent(): JSX.Element {
 
   const [mentor, setMentor] = useState<AdminMentorDetails | null>(null)
   const [formData, setFormData] = useState<AdminMentorProfileUpdateRequest | null>(null)
+  // Price is edited as a {kind, amount} pair rather than as formData's stored
+  // string: "Set an amount" with an empty box has no spelling as a price, and
+  // collapsing it to '' while the admin types would deselect the pill under
+  // them. It is seeded wherever formData is — the two move together.
+  const [priceDraft, setPriceDraft] = useState<PriceValue | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -298,6 +305,7 @@ function MentorModerationEditContent(): JSX.Element {
         if (!mounted) return
         setMentor(data)
         setFormData(buildFormData(data))
+        setPriceDraft(parsePrice(data.price))
       } catch (err) {
         if (mounted) {
           setError(err instanceof Error ? err.message : 'Failed to load mentor')
@@ -328,6 +336,11 @@ function MentorModerationEditContent(): JSX.Element {
   }, [formData?.tags])
 
   const calendarUrlInvalid = !isValidCalendarUrl(formData?.calendarUrl.trim())
+  // Same shape as calendarUrlInvalid, and for the same reason: the form is
+  // seeded from stored data that predates the grammar, so a legacy free-text
+  // price would otherwise fail the save as an opaque "Invalid request body"
+  // naming no field.
+  const priceInvalid = priceDraft === null || !isValidPrice(priceDraft)
 
   const handleInputChange = (
     field: keyof AdminMentorProfileUpdateRequest,
@@ -356,13 +369,20 @@ function MentorModerationEditContent(): JSX.Element {
       setActionError('Calendar URL must be an https:// link, or empty.')
       return
     }
-    const payload = { ...formData, calendarUrl: formData.calendarUrl.trim() }
+    const price = priceDraft === null ? null : formatPrice(priceDraft)
+    if (price === null) {
+      setSaveState('error')
+      setActionError('Price must be Free, Negotiable, or a whole amount from $1 to $1000.')
+      return
+    }
+    const payload = { ...formData, price, calendarUrl: formData.calendarUrl.trim() }
     setSaveState('loading')
     setActionError(null)
     try {
       const updated = await updateModerationMentor(mentor.mentorId, payload)
       setMentor(updated)
       setFormData(buildFormData(updated))
+      setPriceDraft(parsePrice(updated.price))
       setSaveState('success')
     } catch (err) {
       setSaveState('error')
@@ -472,6 +492,7 @@ function MentorModerationEditContent(): JSX.Element {
       const updated = await restoreModerationMentor(mentor.mentorId)
       setMentor(updated)
       setFormData(buildFormData(updated))
+      setPriceDraft(parsePrice(updated.price))
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to restore the profile')
     } finally {
@@ -896,19 +917,24 @@ function MentorModerationEditContent(): JSX.Element {
               </select>
             </div>
             <div>
-              <label className={labelClass}>Price</label>
-              <select
-                value={formData.price}
-                onChange={(e) => handleInputChange('price', e.target.value)}
-                className="field"
-              >
-                <option value="">Select price</option>
-                {filters.price.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
+              <PriceField
+                value={priceDraft}
+                onChange={(next) => {
+                  setPriceDraft(next)
+                  // formatPrice returns null while the amount box is empty; the
+                  // draft above keeps that state, and priceInvalid blocks the
+                  // save until it resolves.
+                  handleInputChange('price', formatPrice(next) ?? '')
+                }}
+                label="Price"
+                labelClassName={labelClass}
+                invalid={priceInvalid}
+                error={
+                  priceInvalid
+                    ? 'Choose Free, Negotiable, or a whole amount from $1 to $1000. Saving is blocked until this is fixed.'
+                    : undefined
+                }
+              />
             </div>
             <div>
               <label className={labelClass}>Calendar URL</label>

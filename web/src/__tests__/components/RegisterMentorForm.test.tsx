@@ -97,7 +97,9 @@ describe('RegisterMentorForm', () => {
     expect(screen.getByLabelText(/Job title/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Company/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Experience/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/Price per one-hour session/i)).toBeInTheDocument()
+    // A fieldset legend, not a <label for> — the price control is a radio
+    // group, so it is found by its group name rather than by label text.
+    expect(screen.getByRole('group', { name: /Price per one-hour session/i })).toBeInTheDocument()
     // Tags field uses Controller-wrapped Select, so check for label text instead
     expect(screen.getByText(/Specialization/i)).toBeInTheDocument()
     // Wysiwyg fields also use Controller, check for label text
@@ -221,7 +223,7 @@ describe('RegisterMentorForm', () => {
     await user.type(screen.getByLabelText(/Job title/i), 'Engineer')
     await user.type(screen.getByLabelText(/Company/i), 'Tech Company')
     await user.selectOptions(screen.getByLabelText(/Experience/i), '10+')
-    await user.selectOptions(screen.getByLabelText(/Price per one-hour session/i), '$100')
+    await user.click(screen.getByRole('radio', { name: /^Negotiable$/i }))
 
     // Complete the captcha
     await act(async () => {

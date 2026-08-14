@@ -162,7 +162,7 @@ type AdminMentorProfileUpdateRequest struct {
 	Job              string   `json:"job" binding:"required,max=200"`
 	Workplace        string   `json:"workplace" binding:"required,max=200"`
 	Experience       string   `json:"experience" binding:"required,max=50"`
-	Price            string   `json:"price" binding:"required,max=100"`
+	Price            string   `json:"price" binding:"required,max=100,price"`
 	Tags             []string `json:"tags" binding:"required,min=1,max=20,dive,max=50"`
 	Description      string   `json:"description" binding:"required,max=5000"`
 	About            string   `json:"about" binding:"required,max=10000"`

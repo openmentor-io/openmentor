@@ -14,7 +14,7 @@ type RegisterMentorRequest struct {
 	Job        string   `json:"job" binding:"required,max=200"`
 	Workplace  string   `json:"workplace" binding:"required,max=200"`
 	Experience string   `json:"experience" binding:"required,oneof=2-5 5-10 10+"`
-	Price      string   `json:"price" binding:"required,max=100"`
+	Price      string   `json:"price" binding:"required,max=100,price"`
 	Tags       []string `json:"tags" binding:"required,min=1,max=5,dive,max=50"`
 
 	// Content

@@ -11,6 +11,8 @@ import Link from 'next/link'
 import { useState, useRef, type ChangeEvent } from 'react'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
 import { isValidCalendarUrl } from '@/lib/safe-url'
+import { formatPrice, isValidPrice, parsePrice, type PriceValue } from '@/lib/price'
+import PriceField from './PriceField'
 import type { MentorWithSecureFields } from '@/types'
 
 interface TagOption {
@@ -30,6 +32,14 @@ interface ProfileFormData {
   competencies: string
   calendarUrl?: string
 }
+
+/**
+ * What the form holds internally. It differs from what it submits in exactly
+ * one field: price is edited as a {kind, amount} pair and serialized to its
+ * canonical string on submit, because "fixed with no amount yet" is a state the
+ * string has no spelling for.
+ */
+type ProfileFormValues = Omit<ProfileFormData, 'price'> & { price: PriceValue | null }
 
 interface ImageUploadData {
   image: string
@@ -108,11 +118,15 @@ const tagOptions = tagsToOptions(filters.tags)
 type SelectOption = [value: string, label: string]
 
 /**
- * `price` (free text per DECISIONS D3) and `experience` are TEXT columns, while
- * these selects only offer a few suggestions. An uncontrolled <select> whose
- * defaultValue matches no <option> reports the FIRST option instead, which
- * rewrites a stored "$75" to "Free" on any save — so keep the stored value as an
- * option of its own and it round-trips untouched.
+ * `experience` is a TEXT column while this select offers only a few
+ * suggestions. An uncontrolled <select> whose defaultValue matches no <option>
+ * reports the FIRST option instead, which rewrote a stored "15 years" to "2-5"
+ * on any save — so keep the stored value as an option of its own and it
+ * round-trips untouched (D44).
+ *
+ * `price` used this too, and no longer needs to: PriceField has no "first
+ * option" to fall into, and an unparseable stored price leaves it unselected
+ * rather than silently becoming a real one (D87).
  */
 function withStoredOption(
   options: SelectOption[],
@@ -139,7 +153,7 @@ export default function ProfileForm({
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<ProfileFormData>()
+  } = useForm<ProfileFormValues>()
 
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -150,10 +164,10 @@ export default function ProfileForm({
     Object.entries(filters.experience).map(([label, value]): SelectOption => [value, label]),
     mentor.experience
   )
-  const priceOptions = withStoredOption(
-    filters.price.map((price): SelectOption => [price, price]),
-    mentor.price
-  )
+  // An unparseable stored price stays unselected rather than being coerced to a
+  // real one: silently rewriting what a mentor charges is the D44 failure, and
+  // the `required` rule turns it into a save the mentor has to resolve instead.
+  const storedPrice = parsePrice(mentor.price)
 
   const MAX_TAGS = 5
 
@@ -224,8 +238,13 @@ export default function ProfileForm({
     }
   }
 
-  const handleFormSubmit = (data: ProfileFormData): void => {
-    onSubmit(data)
+  const handleFormSubmit = (values: ProfileFormValues): void => {
+    const price = values.price === null ? null : formatPrice(values.price)
+    // The Controller's rule already blocks this, so reaching here means the
+    // rule and formatPrice disagree — drop the save rather than post a price
+    // the mentor did not choose.
+    if (price === null) return
+    onSubmit({ ...values, price })
   }
 
   return (
@@ -441,26 +460,27 @@ export default function ProfileForm({
         </div>
 
         <div>
-          <label htmlFor="price" className="block mb-2 font-medium text-ink">
-            Price per one-hour session
-          </label>
-
-          {errors.price && (
-            <div className="text-sm text-danger mt-3 mb-2">This field is required.</div>
-          )}
-
-          <select
-            {...register('price', { required: true })}
-            defaultValue={mentor.price}
-            id="price"
-            className="field"
-          >
-            {priceOptions.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+          <Controller
+            control={control}
+            name="price"
+            defaultValue={storedPrice}
+            rules={{ validate: (value) => value !== null && isValidPrice(value) }}
+            render={({ field }) => (
+              <PriceField
+                value={field.value}
+                onChange={field.onChange}
+                inputRef={field.ref}
+                label="Price per one-hour session"
+                labelClassName="block mb-2 font-medium text-ink"
+                invalid={Boolean(errors.price)}
+                error={
+                  errors.price
+                    ? 'Choose Free, Negotiable, or a whole amount from $1 to $1000.'
+                    : undefined
+                }
+              />
+            )}
+          />
         </div>
       </div>
 

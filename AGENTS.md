@@ -83,6 +83,18 @@ CI once went green while `make lint` reported 44 issues. The narrower targets ar
   deployed image to decide whether a rollback may cross a migration boundary, so an unmarked or
   mismarked file silently degrades a production safety check. `cd infra && make check` fails on
   both, and on a missing `.down.sql`.
+- **A narrowing `CHECK` is `contract`, and no automated check will tell you.** The tripwire in
+  `rollback-migration-guard-test.sh` greps for `DROP`/`RENAME`/`DELETE FROM`/`SET NOT NULL`, none
+  of which appear in `ADD CONSTRAINT … CHECK` — yet a CHECK on an existing column stops an older
+  image from writing values it still produces, which is exactly what the phase marker exists to
+  record. It cannot be added to the tripwire either: a CHECK that *widens* an enum (`000005`) or
+  that lands on a brand-new column (`000006`) is correctly `expand`, so the regexp would be wrong
+  more often than right. Pick the marker by asking whether the previous image can still write.
+- **A new `CHECK` on a `mentors` column needs an override in `dbtest.FillNullable`.** The nullable
+  -column test fills every column from a generic per-type filler, so a constraint the filler cannot
+  satisfy fails the seed INSERT and every subtest then fails blaming its own column — a wall of
+  unrelated failures with no mention of the constraint. `mentor_nullable_columns_db_test.go` passes
+  `price` for this reason; `mentor_update_db_test.go` needs the same for its allowlist fixture.
 - **Every migration ships a `.down.sql`, and it documents what it cannot restore.** Down-migrations
   are for a human to run deliberately: `000009_modernise_tags.down.sql` cannot bring back the
   mentor–tag associations its up-migration cascaded away. **Never wire a lossy down-migration into

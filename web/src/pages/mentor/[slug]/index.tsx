@@ -4,7 +4,8 @@ import Head from 'next/head'
 import type { GetServerSideProps, InferGetServerSidePropsType } from 'next'
 import { Footer, HtmlContent, MetaHeader, NavHeader } from '@/components'
 import MentorPortrait from '@/components/ui/MentorPortrait'
-import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
+import PriceBadge from '@/components/ui/PriceBadge'
+import { parsePrice } from '@/lib/price'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import constants from '@/config/constants'
 import { pageTitle } from '@/config/seo'
@@ -137,7 +138,7 @@ function AvailabilityMeta({ isVisible }: { isVisible: boolean }): JSX.Element {
 
 /** Big price value for the sidebar card / mobile CTA bar. */
 function PriceValue({ price, size }: { price: string; size: 'lg' | 'sm' }): JSX.Element {
-  const { kind } = classifyPrice(price)
+  const kind = parsePrice(price)?.kind
 
   if (kind === 'free' || kind === 'negotiable') {
     return <PriceBadge price={price} />

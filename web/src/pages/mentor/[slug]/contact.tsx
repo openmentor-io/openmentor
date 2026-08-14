@@ -11,7 +11,8 @@ import {
   NoIndexHead,
 } from '@/components'
 import MentorPortrait from '@/components/ui/MentorPortrait'
-import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
+import PriceBadge from '@/components/ui/PriceBadge'
+import { parsePrice } from '@/lib/price'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import analytics from '@/lib/analytics'
 import { safeHttpUrl } from '@/lib/safe-url'
@@ -88,7 +89,7 @@ export const getServerSideProps = withSSRObservability(_getServerSideProps, 'men
 
 /** Small inline price for the recap card / mobile strip. */
 function RecapPrice({ price }: { price: string }): JSX.Element {
-  const { kind } = classifyPrice(price)
+  const kind = parsePrice(price)?.kind
   if (kind === 'free' || kind === 'negotiable') {
     return <PriceBadge price={price} />
   }

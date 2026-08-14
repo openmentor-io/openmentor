@@ -122,15 +122,17 @@ func TestUpdateWritesEveryAllowedColumn(t *testing.T) {
 	id := seedMentor(t, pool, "update-all-columns")
 
 	updates := map[string]interface{}{
-		"name":              "Renamed Mentor",
-		"email":             "update-all-columns@example.test",
-		"job_title":         "Staff Engineer",
-		"workplace":         "OpenMentor",
-		"about":             "about text",
-		"details":           "details text",
-		"competencies":      "competencies text",
-		"experience":        "5-10",
-		"price":             "free",
+		"name":         "Renamed Mentor",
+		"email":        "update-all-columns@example.test",
+		"job_title":    "Staff Engineer",
+		"workplace":    "OpenMentor",
+		"about":        "about text",
+		"details":      "details text",
+		"competencies": "competencies text",
+		"experience":   "5-10",
+		// Canonical: mentors_price_chk (000014) rejects "free" and every other
+		// free-text spelling this column used to hold.
+		"price":             "Free",
 		"preferred_contact": "email",
 		"calendar_url":      "https://cal.example/mentor",
 		"status":            "inactive",

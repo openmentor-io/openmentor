@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/openmentor-io/openmentor/api/pkg/price"
 )
 
 // astralRune is ONE rune written the most expensive way JSON allows: an
@@ -86,6 +88,14 @@ func worstCaseString(t *testing.T, tags []string, key string) string {
 	// case however big any max= next to it says.
 	if longest, ok := longestOneOf(tags); ok {
 		return longest
+	}
+
+	// The price tag bounds the field by grammar for the same reason: the
+	// longest value it accepts is "Negotiable", however big the max= next to it
+	// says. Derived rather than spelled out so a future spelling that is longer
+	// moves this worst case with it.
+	if hasTag(tags, "price") {
+		return price.Value{Kind: price.Negotiable}.String()
 	}
 
 	maxRunes, ok := tagInt(tags, "max")
