@@ -66,8 +66,8 @@ func TestValidateUsername_MentorDerivatives(t *testing.T) {
 		"mentor-anna", "anna-mentor", "topmentor", "the-best-mentor", "mentor1",
 		// Brand-ish compounds (also on the reserved list; still derivatives).
 		"openmentor", "getmentor",
-		// Separator and digit-substitution spellings.
-		"me-ntor", "m-e-n-t-o-r", "m3nt0r", "men7or", "m3nt0rship", "ment0r-anna",
+		// Digit-substitution spellings.
+		"m3nt0r", "men7or", "m3nt0rship", "ment0r-anna",
 	} {
 		err := ValidateUsername(u)
 		if !errors.Is(err, ErrUsernameReserved) {
@@ -81,6 +81,10 @@ func TestValidateUsername_NotMentorDerivatives(t *testing.T) {
 	for _, u := range []string{
 		"anna-smith", "ment", "mento", "menter", "torment", "mentha", "normen",
 		"nemtor", "mentr", "m3nt", "elena-mentz",
+		// The stem must be CONTIGUOUS. Folding hyphens away would catch
+		// "m-e-n-t-o-r", but it would also refuse ordinary names that happen to
+		// span the stem across segments — which is the worse trade.
+		"tim-entorf", "adam-entorf", "me-ntor", "m-e-n-t-o-r",
 	} {
 		if err := ValidateUsername(u); err != nil {
 			t.Errorf("ValidateUsername(%q) = %v, want nil", u, err)

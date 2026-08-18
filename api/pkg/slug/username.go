@@ -57,12 +57,17 @@ var reservedUsernames = map[string]bool{
 	"root": true, "system": true,
 }
 
-// mentorStemFold collapses the spellings that still read as "mentor": hyphens
-// dropped ("me-ntor") and the digits people substitute for letters folded back
-// ("m3nt0r", "men7or"). Only substitutions that can actually spell the stem are
-// listed — a wider fold buys nothing and widens the false-positive surface.
+// mentorStemFold folds back the digits people substitute for letters, so
+// "m3nt0r" and "men7or" still read as the stem. Only substitutions that can
+// actually spell it are listed; a digit inside a word is deliberate enough that
+// this costs no real names.
+//
+// Hyphens are deliberately NOT dropped. Dropping them would catch "m-e-n-t-o-r",
+// but hyphens are the ordinary word separator here, so joining segments invents
+// false positives out of real names: "tim-entorf" becomes "timentorf", which
+// contains the stem. Splitting the word is a poor disguise anyway — the URL
+// still reads as a person, which is the thing this rule protects.
 var mentorStemFold = strings.NewReplacer(
-	"-", "",
 	"0", "o",
 	"3", "e",
 	"7", "t",
@@ -74,7 +79,8 @@ var mentorStemFold = strings.NewReplacer(
 // platform each one reads as an official /mentor/* URL rather than as a person.
 // The deliberate cost is that an incidental substring ("tormentor",
 // "elementor") is rejected too — the alternative is an exception list nobody
-// can keep complete.
+// can keep complete. The stem must be contiguous, so a name that merely spans
+// it across segments ("tim-entorf") is left alone.
 func isMentorDerivative(username string) bool {
 	return strings.Contains(mentorStemFold.Replace(username), "mentor")
 }
