@@ -1,7 +1,7 @@
 # Backup sidecar for the openmentor postgres container (DECISIONS D2).
 # Based on the same postgres image as the database so pg_dump matches the
 # server major version; aws-cli ships the dumps to S3.
-FROM postgres:16.14-alpine
+FROM postgres:18.6-alpine
 
 RUN apk add --no-cache aws-cli
 
