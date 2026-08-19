@@ -32,6 +32,7 @@ var (
 	ProfilePictureUploads  *prometheus.CounterVec
 	MentorRegistrations    *prometheus.CounterVec
 	PhotoClassifications   *prometheus.CounterVec
+	UsernameRejections     *prometheus.CounterVec
 
 	// Mentor Auth Metrics
 	MentorAuthLoginRequests     *prometheus.CounterVec
@@ -187,6 +188,23 @@ func Init(serviceName string) {
 			Help: "Total mentor registration attempts",
 		},
 		[]string{"status"},
+	)
+
+	// Usernames refused by pkg/slug validation. Nothing else records this
+	// outcome: an availability check answers the caller and returns, and a
+	// rejected change never reaches the repository — so without this counter
+	// production cannot tell a rule that never fires from one that is turning
+	// real people away. `surface` is what separates a lost signup from a red
+	// hint the user simply retypes past; both label sets are closed.
+	UsernameRejections = factory.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "openmentor_username_rejections_total",
+			Help: "Total usernames refused by validation",
+		},
+		// surface: registration | change | availability
+		// reason:  too_short | too_long | bad_format | reserved |
+		//          mentor_derivative | other
+		[]string{"surface", "reason"},
 	)
 
 	PhotoClassifications = factory.NewCounterVec(

@@ -93,6 +93,7 @@ func (s *UsernameService) CheckAvailability(ctx context.Context, raw, forMentorI
 	result := &AvailabilityResult{Username: username}
 
 	if err := slug.ValidateUsername(username); err != nil {
+		recordUsernameRejection(usernameSurfaceAvailability, err)
 		result.Reason = "invalid"
 		if errors.Is(err, slug.ErrUsernameReserved) {
 			result.Reason = "reserved"
@@ -154,6 +155,7 @@ func (s *UsernameService) Status(ctx context.Context, mentorID string) (*Usernam
 func (s *UsernameService) Change(ctx context.Context, mentorID, raw, changedBy string) (string, error) {
 	username := slug.NormalizeUsername(raw)
 	if err := slug.ValidateUsername(username); err != nil {
+		recordUsernameRejection(usernameSurfaceChange, err)
 		return "", err
 	}
 

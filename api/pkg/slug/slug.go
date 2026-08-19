@@ -66,11 +66,42 @@ func GenerateMentorSlug(name string, legacyID int) string {
 	// Replace spaces with dashes
 	slug = strings.ReplaceAll(slug, " ", "-")
 
-	// Append legacy ID for uniqueness
-	slug = fmt.Sprintf("%s-%d", slug, legacyID)
-
 	// Convert to lowercase
 	slug = strings.ToLower(slug)
 
-	return slug
+	// A generated slug obeys the same "mentor" rule a chosen one does (D87).
+	// Registration's username field is optional, so without this the whole
+	// prohibition is bypassed by omitting one JSON field: name "Anna Mentor"
+	// would land on /mentor/anna-mentor-42.
+	slug = dropMentorSegments(slug)
+
+	// Append legacy ID for uniqueness
+	return fmt.Sprintf("%s-%d", slug, legacyID)
+}
+
+// generatedSlugFallback stands in when a name consists of nothing BUT the
+// stem. It only has to be neutral and free of the stem — the mentor can pick a
+// real username afterwards through the D29 change flow.
+const generatedSlugFallback = "member"
+
+// dropMentorSegments removes the name segments that read as "mentor" from an
+// already-lowercased, hyphen-joined name. Segments are dropped rather than the
+// registration refused, because the input is somebody's actual name: "Anna
+// Mentor" is a person, and turning her away is a worse outcome than the URL
+// reading "anna-42". Returns the name unchanged when the stem is absent, so no
+// existing name generates a different slug than it did before.
+func dropMentorSegments(name string) string {
+	if !isMentorDerivative(name) {
+		return name
+	}
+	kept := make([]string, 0, strings.Count(name, "-")+1)
+	for _, segment := range strings.Split(name, "-") {
+		if segment != "" && !isMentorDerivative(segment) {
+			kept = append(kept, segment)
+		}
+	}
+	if len(kept) == 0 {
+		return generatedSlugFallback
+	}
+	return strings.Join(kept, "-")
 }
