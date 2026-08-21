@@ -69,10 +69,8 @@ func GenerateMentorSlug(name string, legacyID int) string {
 	// Convert to lowercase
 	slug = strings.ToLower(slug)
 
-	// A generated slug obeys the same "mentor" rule a chosen one does (D87).
-	// Registration's username field is optional, so without this the whole
-	// prohibition is bypassed by omitting one JSON field: name "Anna Mentor"
-	// would land on /mentor/anna-mentor-42.
+	// Registration's username is optional, so this path also has to satisfy the
+	// "mentor" rule chosen usernames go through (D87).
 	slug = dropMentorSegments(slug)
 
 	// Append legacy ID for uniqueness
@@ -84,12 +82,11 @@ func GenerateMentorSlug(name string, legacyID int) string {
 // real username afterwards through the D29 change flow.
 const generatedSlugFallback = "member"
 
-// dropMentorSegments removes the name segments that read as "mentor" from an
-// already-lowercased, hyphen-joined name. Segments are dropped rather than the
-// registration refused, because the input is somebody's actual name: "Anna
-// Mentor" is a person, and turning her away is a worse outcome than the URL
-// reading "anna-42". Returns the name unchanged when the stem is absent, so no
-// existing name generates a different slug than it did before.
+// dropMentorSegments removes the segments that read as "mentor" from an
+// already-lowercased, hyphen-joined name. Dropping rather than refusing is
+// deliberate: this input is somebody's actual name, so turning "Anna Mentor"
+// away is a worse outcome than a shortened URL she can change later. A name
+// without the stem is returned untouched.
 func dropMentorSegments(name string) string {
 	if !isMentorDerivative(name) {
 		return name
