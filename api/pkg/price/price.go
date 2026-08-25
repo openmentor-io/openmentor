@@ -96,6 +96,18 @@ func IsCanonical(s string) bool {
 	return err == nil
 }
 
+// KindLabel is the Kind of a stored price as a bounded analytics dimension:
+// "free", "negotiable", "fixed", or "invalid" for anything Parse rejects.
+// Four values, closed set — safe as an event property where the raw price
+// (~1002 values) or arbitrary legacy text would rot every breakdown.
+func KindLabel(s string) string {
+	v, err := Parse(s)
+	if err != nil {
+		return "invalid"
+	}
+	return string(v.Kind)
+}
+
 // String renders the canonical stored spelling. It returns "" for a Value whose
 // Kind is unset, so a caller that skipped Parse writes an empty price the
 // database constraint rejects rather than a plausible-looking wrong one.

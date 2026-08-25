@@ -66,9 +66,25 @@ test('an out-of-range amount leaves a note for the reviewing mentor', () => {
   assert.match(notes[0], /outside \$1\.\.\$1000/);
 });
 
-test('a respelled amount records what it was respelled from', () => {
+// The old column was free text and notes go to the operator log, so a note
+// may name what mapPrice computed and the raw value's length — never the raw
+// text itself ("$30, call +7..." must not reach a log line).
+test('a respelled amount is located by length, not quoted', () => {
   const notes = [];
   mapPrice('$30 / hour', notes);
   assert.equal(notes.length, 1);
-  assert.match(notes[0], /"\$30 \/ hour" -> "\$30"/);
+  assert.match(notes[0], /leading \$30 taken from a 10-char legacy value/);
+  assert.doesNotMatch(notes[0], /hour/);
+});
+
+test('no note branch ever quotes the raw value', () => {
+  const dirty = '$30 / hour, call +7 999 123-45-67';
+  for (const probe of [dirty, `1500 руб ${dirty}`, `ask me: ${dirty}`]) {
+    const notes = [];
+    mapPrice(probe, notes);
+    for (const note of notes) {
+      assert.ok(!note.includes('call'), `raw text leaked into a note: ${note}`);
+      assert.ok(!note.includes('+7'), `raw text leaked into a note: ${note}`);
+    }
+  }
 });

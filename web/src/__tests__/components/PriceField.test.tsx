@@ -70,41 +70,64 @@ describe('PriceField', () => {
     expect(value()).toEqual({ kind: 'fixed', amount: 50 })
   })
 
+  // The two rounds of the same PR finding, resolved by one rule: what the
+  // mentor typed is what the box SHOWS. Clean amounts land as amounts;
+  // anything else lands verbatim as an invalid draft with amount null — no
+  // keystroke is swallowed for later digits to concatenate around ("50.5"
+  // must not end as a valid $505), and nothing invalid can save.
   it.each([
-    ['abc', '', 'letters are rejected keystroke by keystroke'],
-    ['0', '', 'a lone zero clears'],
-    ['007', '7', 'leading zeros dropped'],
-    ['5a0', '50', 'the letter keystroke is refused, the digits land'],
-    // Lands whole and reads as invalid: truncating to the different, valid
-    // "$1234" (or "10000" to "$1000") would silently save a price the mentor
-    // did not type — the PR-review finding this pins.
-    ['12345', '12345', 'over-the-cap amounts land instead of truncating'],
-    ['50.5', '505', 'the dot keystroke is refused; the visible result is on screen, not silent'],
-  ])('sanitizes typed %p to %p (%s)', async (typed, expected) => {
+    ['0', '', null, 'a lone zero clears'],
+    ['007', '7', 7, 'leading zeros are decoration'],
+    ['1000', '1000', 1000, 'MAX_AMOUNT stays typable'],
+    ['12345', '12345', 12345, 'over-the-cap lands and reads as invalid, never truncates to $1234'],
+    ['50.5', '50.5', null, 'the dot lands visibly; amount is null, save blocked'],
+    ['5a0', '5a0', null, 'a stray letter lands visibly instead of merging 5 and 0 into 50'],
+    ['abc', 'abc', null, 'letters land visibly and read as invalid'],
+    ['-50', '-50', null, 'a sign lands visibly instead of becoming 50'],
+  ] as [string, string, number | null, string][])(
+    'typed %p shows %p with amount %p (%s)',
+    async (typed, shown, amount) => {
+      const user = userEvent.setup()
+      render(<Harness />)
+
+      await user.click(pill(/Set a fixed amount/i))
+      await user.type(amountBox(), typed)
+
+      expect(amountBox().value).toBe(shown)
+      expect(value()).toEqual({ kind: 'fixed', amount })
+    }
+  )
+
+  it('recovers from an invalid draft the moment the input is clean again', async () => {
     const user = userEvent.setup()
     render(<Harness />)
 
     await user.click(pill(/Set a fixed amount/i))
-    await user.type(amountBox(), typed)
+    await user.type(amountBox(), '50.5')
+    expect(value()).toEqual({ kind: 'fixed', amount: null })
 
-    expect(amountBox().value).toBe(expected)
+    await user.clear(amountBox())
+    await user.type(amountBox(), '505')
+
+    expect(amountBox().value).toBe('505')
+    expect(value()).toEqual({ kind: 'fixed', amount: 505 })
   })
 
-  // A PASTE (one change event, unlike typing) of a value that is not a plain
-  // amount is rejected whole rather than having its digits merged into a
-  // different number — "50.5" must not become $505, "-50" must not become $50.
+  // A paste of a value that is not a plain amount lands verbatim as an
+  // invalid draft — its digits are never merged into a different number
+  // ("50.5" must not become $505, "-50" must not become $50).
   it.each([
-    ['50.5', ''],
-    ['-50', ''],
-    ['1,0,00', ''],
-  ])('rejects a pasted %p outright', async (pasted, expected) => {
+    ['50.5'],
+    ['-50'],
+    ['1,0,00'],
+  ])('a pasted %p lands verbatim with amount null', async (pasted) => {
     const user = userEvent.setup()
     render(<Harness />)
 
     await user.click(pill(/Set a fixed amount/i))
     fireEvent.change(amountBox(), { target: { value: pasted } })
 
-    expect(amountBox().value).toBe(expected)
+    expect(amountBox().value).toBe(pasted)
     expect(value()).toEqual({ kind: 'fixed', amount: null })
   })
 
@@ -122,6 +145,20 @@ describe('PriceField', () => {
   // Without this, the form submits {kind: 'free', amount: 120}, which
   // mentors_price_chk rejects as a 500 from the repository rather than as a
   // field error the mentor can act on.
+  it('clears an invalid draft when the mentor switches pills', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+
+    await user.click(pill(/Set a fixed amount/i))
+    fireEvent.change(amountBox(), { target: { value: '50.5' } })
+
+    await user.click(pill(/^Free$/i))
+    await user.click(pill(/Set a fixed amount/i))
+
+    expect(amountBox().value).toBe('')
+    expect(value()).toEqual({ kind: 'fixed', amount: null })
+  })
+
   it('drops the amount when the mentor switches away from a fixed price', async () => {
     const user = userEvent.setup()
     render(<Harness />)

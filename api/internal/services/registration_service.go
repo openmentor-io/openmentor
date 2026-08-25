@@ -13,6 +13,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/price"
 	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
 	"github.com/openmentor-io/openmentor/api/pkg/slug"
@@ -210,6 +211,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		"workplace":         req.Workplace,
 		"experience":        req.Experience,
 		"price":             req.Price,
+		"price_kind":        price.KindLabel(req.Price),
 		"about":             req.About,
 		"details":           req.Description,
 		"competencies":      req.Competencies,

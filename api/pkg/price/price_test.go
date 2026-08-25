@@ -123,3 +123,23 @@ func TestBounds(t *testing.T) {
 	assert.Equal(t, 1, price.MinAmount, "$0 must not be storable; a free session is Free")
 	assert.Equal(t, 1000, price.MaxAmount)
 }
+
+// KindLabel is what the registration / profile-save / admin-update analytics
+// events send as their bounded price dimension. Four values, closed set —
+// derived from the same table so a grammar change moves it automatically.
+func TestKindLabel(t *testing.T) {
+	assert.Equal(t, "free", price.KindLabel("Free"))
+	assert.Equal(t, "negotiable", price.KindLabel("Negotiable"))
+	assert.Equal(t, "fixed", price.KindLabel("$137"))
+	assert.Equal(t, "invalid", price.KindLabel("$50 / hour"))
+	assert.Equal(t, "invalid", price.KindLabel(""))
+
+	for _, tc := range parseCases {
+		label := price.KindLabel(tc.raw)
+		if tc.valid {
+			assert.Equal(t, string(tc.want.Kind), label, "raw %q", tc.raw)
+		} else {
+			assert.Equal(t, "invalid", label, "raw %q", tc.raw)
+		}
+	}
+}

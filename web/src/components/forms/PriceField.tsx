@@ -1,4 +1,4 @@
-import { useId, useRef, type ChangeEvent, type JSX, type Ref } from 'react'
+import { useId, useRef, useState, type ChangeEvent, type JSX, type Ref } from 'react'
 import classNames from 'classnames'
 import {
   MAX_AMOUNT,
@@ -94,9 +94,32 @@ export default function PriceField({
 
   const amount = value?.amount ?? null
   const isFixed = value?.kind === 'fixed'
-  const amountText = amount === null ? '' : String(amount)
+
+  // What the box shows when the last edit was NOT a clean amount ("50.5",
+  // "-50", "5a0"). PR review, twice over: the first pass rejected such edits
+  // outright, which for TYPED input let later digits concatenate around the
+  // refused character ("50.5" keystrokes ended as a valid $505 — a price the
+  // mentor never typed). So invalid input now LANDS, verbatim and visibly,
+  // with amount null — the save is blocked and the range/whole-amount error
+  // says why. Nothing is reconstructed, nothing disappears, nothing saves.
+  const [draft, setDraft] = useState<string | null>(null)
+  const amountText = draft ?? (amount === null ? '' : String(amount))
+
+  const handleAmountChange = (raw: string): void => {
+    const digits = sanitizeAmountInput(raw)
+    if (digits === null) {
+      // Bounded only to protect the layout: this text is already invalid, so
+      // capping it rewrites nothing a mentor could save.
+      setDraft(raw.slice(0, 20))
+      onChange({ kind: 'fixed', amount: null })
+      return
+    }
+    setDraft(null)
+    onChange({ kind: 'fixed', amount: digits === '' ? null : Number(digits) })
+  }
 
   const selectKind = (kind: PriceKind): void => {
+    setDraft(null)
     // Switching away from `fixed` drops the amount rather than parking it: a
     // form that kept it would submit {kind: 'free', amount: 120}, which the
     // paired database constraint rejects as a 500 from the repository instead
@@ -174,16 +197,8 @@ export default function PriceField({
               value={amountText}
               aria-label="Price in US dollars per one-hour session"
               aria-describedby={hintId}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                // null = the edit is rejected whole (a decimal, a sign, a
-                // letter): the controlled input re-renders with its previous
-                // value rather than assembling a different number out of the
-                // keystrokes — see sanitizeAmountInput's contract.
-                const digits = sanitizeAmountInput(event.target.value)
-                if (digits === null) return
-                onChange({ kind: 'fixed', amount: digits === '' ? null : Number(digits) })
-              }}
-              className={classNames('field pl-7', invalid && 'field-error')}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => handleAmountChange(event.target.value)}
+              className={classNames('field pl-7', (invalid || draft !== null) && 'field-error')}
             />
           </div>
           <p id={hintId} className="mt-1.5 text-sm text-ink-soft">

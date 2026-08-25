@@ -27,6 +27,14 @@ function mapPrice(price, notes, rubToUsdRate) {
   }
   if (/договор/i.test(raw) || /negotiable/i.test(raw)) return 'Negotiable';
 
+  // NOTES NEVER QUOTE THE RAW VALUE. The old column was free text, a note
+  // line goes to the operator log, and the logging rules keep free text out
+  // of logs — a legacy price could carry anything ("$30, call +7..."). A note
+  // names only what mapPrice itself computed (the matched amount, the rate)
+  // plus the raw value's LENGTH, which locates the row without copying it;
+  // the operator reads the actual value where it lives, with psql.
+  const describeRaw = `a ${raw.length}-char legacy value`;
+
   // An out-of-range amount becomes Negotiable + a note, NOT a clamp: rewriting
   // 150000 руб into the $1000 cap would silently change what the mentor
   // charges by a large factor. Negotiable is this function's established
@@ -35,7 +43,7 @@ function mapPrice(price, notes, rubToUsdRate) {
   // is what surfaces the case to a human instead of the import crashing.
   const canonical = (usd, note) => {
     if (usd < PRICE_MIN || usd > PRICE_MAX) {
-      notes.push(`price: "${raw}" -> $${usd} is outside $${PRICE_MIN}..$${PRICE_MAX} -> Negotiable (mentor to set on review)`);
+      notes.push(`price: $${usd} (from ${describeRaw}) is outside $${PRICE_MIN}..$${PRICE_MAX} -> Negotiable (mentor to set on review)`);
       return 'Negotiable';
     }
     if (note) notes.push(note);
@@ -46,7 +54,7 @@ function mapPrice(price, notes, rubToUsdRate) {
   if (match) {
     const rub = Number(match[1]);
     const usd = Math.max(5, Math.round(rub / rubToUsdRate / 5) * 5);
-    return canonical(usd, `price: "${raw}" -> "$${usd}" (rate ${rubToUsdRate} RUB/USD)`);
+    return canonical(usd, `price: ${rub} RUB -> "$${usd}" (rate ${rubToUsdRate} RUB/USD, from ${describeRaw})`);
   }
 
   // Looks like a USD amount ('$30 / hour', '50', '$50.00'): take the leading
@@ -54,10 +62,10 @@ function mapPrice(price, notes, rubToUsdRate) {
   const usdMatch = raw.match(/^\$?\s*(\d+)/);
   if (usdMatch) {
     const usd = Number(usdMatch[1]);
-    return canonical(usd, `$${usd}` === raw ? null : `price: "${raw}" -> "$${usd}" (canonical grammar, D87)`);
+    return canonical(usd, `$${usd}` === raw ? null : `price: leading $${usd} taken from ${describeRaw} -> "$${usd}" (canonical grammar, D87)`);
   }
 
-  notes.push(`price: could not parse "${raw}" -> Negotiable`);
+  notes.push(`price: could not parse ${describeRaw} -> Negotiable`);
   return 'Negotiable';
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/internal/repository"
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
+	"github.com/openmentor-io/openmentor/api/pkg/price"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
 )
 
@@ -622,6 +623,7 @@ func buildProfileUpdates(
 		"workplace":         req.Workplace,
 		"experience":        req.Experience,
 		"price":             req.Price,
+		"price_kind":        price.KindLabel(req.Price),
 		"details":           req.Description,
 		"about":             req.About,
 		"competencies":      req.Competencies,

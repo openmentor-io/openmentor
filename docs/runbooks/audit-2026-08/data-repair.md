@@ -593,8 +593,10 @@ Two things that make this less certain than it looks:
 - **The conversion rate is not recorded in the database.**
   `RUB_TO_USD_RATE` defaults to `100` (`migrate-mentors.js:143`) and is read
   from `infra/migration/.env`. The only place the rate actually used is written
-  down is the migration run output, in a note line of the form
-  `price: "<raw>" -> "$<usd>" (rate <rate> RUB/USD)`. If you do not have that
+  down is the migration run output, in a note line naming the rate — the pre-D87
+  importer wrote `price: "<raw>" -> "$<usd>" (rate <rate> RUB/USD)`; the current
+  one writes the same rate but never quotes the raw value (free text in a log).
+  If you do not have that
   log and cannot confirm the rate, **say the recomputed value is uncertain
   rather than writing a guess into production.**
 - **A recompute reproduces what was *imported*, not necessarily what was
