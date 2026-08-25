@@ -39,6 +39,15 @@ const cases = [
   ['$30 / hour', '$30'],
   ['$50.00', '$50'],
   ['$ 75', '$75'],
+  // The whole leading number token is read before deciding: a digits-only
+  // prefix match stopped at the comma and imported $1,000 as $1 — a 1000x
+  // rewrite that satisfies the constraint (PR review).
+  ['$1,000', '$1000'],
+  ['1,000', '$1000'],
+  ['$1,500', 'Negotiable'], // well-formed, over the cap
+  ['1,500 руб', 'Negotiable'], // comma defeats the RUB regex; token path catches it
+  ['$1,00', 'Negotiable'], // malformed separator: no safe number to read
+  ['$49.99', 'Negotiable'], // nonzero cents: truncating rewrites the price
 
   // Out of range -> Negotiable + note, never a clamp: rewriting what a mentor
   // charges is a decision for the mentor on review, not the importer.

@@ -57,12 +57,32 @@ function mapPrice(price, notes, rubToUsdRate) {
     return canonical(usd, `price: ${rub} RUB -> "$${usd}" (rate ${rubToUsdRate} RUB/USD, from ${describeRaw})`);
   }
 
-  // Looks like a USD amount ('$30 / hour', '50', '$50.00'): take the leading
-  // whole number and respell it canonically rather than passing raw through.
-  const usdMatch = raw.match(/^\$?\s*(\d+)/);
-  if (usdMatch) {
-    const usd = Number(usdMatch[1]);
-    return canonical(usd, `$${usd}` === raw ? null : `price: leading $${usd} taken from ${describeRaw} -> "$${usd}" (canonical grammar, D87)`);
+  // Looks like a USD amount ('$30 / hour', '50', '$1,000', '$50.00'): read
+  // the ENTIRE leading number token before deciding, digits with separators
+  // and decimals included. A digits-only prefix match stops at the first
+  // comma, which read '$1,000' as $1 — a 1000x price rewrite that satisfies
+  // mentors_price_chk and so is invisible to every grammar test (PR review).
+  const tokenMatch = raw.match(/^\$?\s*([\d.,]+)/);
+  if (tokenMatch) {
+    const token = tokenMatch[1];
+    let usd = null;
+    if (/^\d+$/.test(token)) {
+      usd = Number(token);
+    } else if (/^\d{1,3}(,\d{3})+$/.test(token)) {
+      // Well-formed thousands separators denote the same number.
+      usd = Number(token.replace(/,/g, ''));
+    } else if (/^\d+\.0+$/.test(token)) {
+      // ".00" is decoration; "$49.99" is NOT — truncating nonzero cents
+      // rewrites the price, so it falls through to Negotiable below.
+      usd = Number(token.split('.')[0]);
+    }
+    if (usd !== null) {
+      return canonical(usd, `$${usd}` === raw ? null : `price: leading $${usd} taken from ${describeRaw} -> "$${usd}" (canonical grammar, D87)`);
+    }
+    // A malformed number token ("1,0,00", "49.99"): parsing a piece of it
+    // would assemble a price the mentor did not write.
+    notes.push(`price: could not safely read a number out of ${describeRaw} -> Negotiable`);
+    return 'Negotiable';
   }
 
   notes.push(`price: could not parse ${describeRaw} -> Negotiable`);

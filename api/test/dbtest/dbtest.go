@@ -207,14 +207,29 @@ func applyIfPending(ctx context.Context, conn *pgxpool.Conn, file string) error 
 	if err != nil {
 		return err
 	}
-	// pgx sends argument-less queries over the simple protocol, so a whole
-	// multi-statement migration file goes in one Exec.
-	if _, err := conn.Exec(ctx, string(sql)); err != nil {
+	// One transaction for the file AND its ledger row: applied-but-unrecorded
+	// is a wedged database — the next run re-attempts a non-idempotent
+	// migration and fails on a duplicate column until someone recreates the
+	// container. Safe to wrap because no migration here uses a statement that
+	// refuses transactions (CREATE INDEX CONCURRENTLY and friends) — the same
+	// property cmd/migrate's per-migration transaction already relies on, so a
+	// future migration that needed one would fight production first.
+	tx, err := conn.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	_, err = conn.Exec(ctx,
-		`INSERT INTO dbtest_applied_migrations (filename) VALUES ($1)`, filepath.Base(file))
-	return err
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op after commit
+
+	// pgx sends argument-less queries over the simple protocol, so a whole
+	// multi-statement migration file goes in one Exec.
+	if _, err := tx.Exec(ctx, string(sql)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO dbtest_applied_migrations (filename) VALUES ($1)`, filepath.Base(file)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // migrationsDir resolves api/migrations from this file's own location, so the
