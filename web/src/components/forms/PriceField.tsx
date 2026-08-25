@@ -103,7 +103,15 @@ export default function PriceField({
   // with amount null — the save is blocked and the range/whole-amount error
   // says why. Nothing is reconstructed, nothing disappears, nothing saves.
   const [draft, setDraft] = useState<string | null>(null)
-  const amountText = draft ?? (amount === null ? '' : String(amount))
+  // The draft only ever displays while the committed amount is null — which is
+  // the only state a draft is ever emitted with. If the PARENT replaces the
+  // value with a real amount while a stale draft lingers (an admin restore
+  // loading the server's price, a form reset), the amount wins the display
+  // immediately, so the box can never show one price while Save would submit
+  // another (PR review). A stale draft can then only resurface alongside
+  // amount null — a state that cannot save.
+  const showDraft = isFixed && amount === null && draft !== null
+  const amountText = showDraft ? draft : amount === null ? '' : String(amount)
 
   const handleAmountChange = (raw: string): void => {
     const digits = sanitizeAmountInput(raw)
@@ -198,7 +206,7 @@ export default function PriceField({
               aria-label="Price in US dollars per one-hour session"
               aria-describedby={hintId}
               onChange={(event: ChangeEvent<HTMLInputElement>) => handleAmountChange(event.target.value)}
-              className={classNames('field pl-7', (invalid || draft !== null) && 'field-error')}
+              className={classNames('field pl-7', (invalid || showDraft) && 'field-error')}
             />
           </div>
           <p id={hintId} className="mt-1.5 text-sm text-ink-soft">

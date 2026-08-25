@@ -8,6 +8,7 @@ import (
 
 	"github.com/openmentor-io/openmentor/api/config"
 	"github.com/openmentor-io/openmentor/api/internal/models"
+	"github.com/openmentor-io/openmentor/api/internal/repository"
 	"github.com/openmentor-io/openmentor/api/internal/services"
 	apperrors "github.com/openmentor-io/openmentor/api/pkg/errors"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
@@ -88,6 +89,14 @@ func (m *statusMockRepo) UpdateProfileWithTags(
 	updates map[string]interface{},
 	tagIDs []string,
 ) error {
+
+	// The real repository rejects any key outside its column allowlist, and a
+	// fake that accepted arbitrary maps is exactly how an analytics-only key
+	// slipped into the update map and broke every save while this suite stayed
+	// green. Same contract here, from the same definition.
+	if err := repository.ValidateUpdateColumns(updates); err != nil {
+		return err
+	}
 
 	m.profileWriteCalls++
 	m.profileUpdates = updates

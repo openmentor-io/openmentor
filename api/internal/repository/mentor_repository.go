@@ -234,16 +234,29 @@ var allowedUpdateColumns = map[string]bool{
 	"photo_style":       true,
 }
 
+// ValidateUpdateColumns is the allowlist check every mentor UPDATE goes
+// through, exported so the service-test fakes can enforce the same contract as
+// this repository. A fake that accepts any map is how an analytics-only key
+// ("price_kind") reached the update map and broke every portal save while the
+// suite stayed green (PR review): the defect was only visible at this
+// boundary, and the mocks had no copy of it.
+func ValidateUpdateColumns(updates map[string]interface{}) error {
+	for key := range updates {
+		if !allowedUpdateColumns[key] {
+			return fmt.Errorf("invalid column name: %s", key)
+		}
+	}
+	return nil
+}
+
 // buildMentorUpdate turns a caller-supplied column map into the one UPDATE every
 // mentor write shares. The values are parameterized but the column NAMES are
 // concatenated, so allowedUpdateColumns is the only thing between a caller and
 // arbitrary SQL — which is why this validation and the query construction live
 // together in one place rather than once per write path.
 func buildMentorUpdate(mentorId string, updates map[string]interface{}) (string, []interface{}, error) {
-	for key := range updates {
-		if !allowedUpdateColumns[key] {
-			return "", nil, fmt.Errorf("invalid column name: %s", key)
-		}
+	if err := ValidateUpdateColumns(updates); err != nil {
+		return "", nil, err
 	}
 
 	query := `UPDATE mentors SET `

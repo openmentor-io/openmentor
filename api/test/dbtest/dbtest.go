@@ -174,6 +174,15 @@ func verifyMigrateOwnedCurrent(ctx context.Context, conn *pgxpool.Conn, files []
 			"apply migrations behind golang-migrate's back, because its next run would re-attempt "+
 			"them and fail", version, newest, URLEnv)
 	}
+	// Ahead is as wrong as behind: a database migrated by a NEWER branch has
+	// constraints and columns this checkout knows nothing about, so tests
+	// would validate against the wrong schema and fail in misleading ways
+	// (the nullable-column tests literally enumerate the live schema).
+	if version > newest {
+		return fmt.Errorf("dbtest: this database is managed by cmd/migrate and is at version %d, "+
+			"AHEAD of this checkout's newest migration %d — it was migrated by a newer branch. "+
+			"Switch to that branch or point %s at a throwaway container", version, newest, URLEnv)
+	}
 	return nil
 }
 

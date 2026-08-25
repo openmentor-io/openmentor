@@ -145,6 +145,36 @@ describe('PriceField', () => {
   // Without this, the form submits {kind: 'free', amount: 120}, which
   // mentors_price_chk rejects as a 500 from the repository rather than as a
   // field error the mentor can act on.
+  // An external value replacement (an admin restore loading the server's
+  // price, a form reset) must win the display over a lingering invalid draft:
+  // otherwise the box shows one thing while Save submits another.
+  it('shows an externally set amount over a stale invalid draft', async () => {
+    const user = userEvent.setup()
+
+    function ReplacingHarness(): JSX.Element {
+      const [value, setValue] = useState<PriceValue | null>({ kind: 'fixed', amount: null })
+      return (
+        <>
+          <PriceField value={value} onChange={setValue} label="Price per one-hour session" />
+          <button type="button" onClick={() => setValue({ kind: 'fixed', amount: 137 })}>
+            restore
+          </button>
+          <output data-testid="value">{JSON.stringify(value)}</output>
+        </>
+      )
+    }
+    render(<ReplacingHarness />)
+
+    fireEvent.change(amountBox(), { target: { value: '50.5' } })
+    expect(amountBox().value).toBe('50.5')
+
+    await user.click(screen.getByRole('button', { name: 'restore' }))
+
+    expect(amountBox().value).toBe('137')
+    expect(value()).toEqual({ kind: 'fixed', amount: 137 })
+    expect(amountBox().className).not.toContain('field-error')
+  })
+
   it('clears an invalid draft when the mentor switches pills', async () => {
     const user = userEvent.setup()
     render(<Harness />)

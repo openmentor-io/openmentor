@@ -50,9 +50,14 @@ function mapPrice(price, notes, rubToUsdRate) {
     return `$${usd}`;
   };
 
-  const match = raw.replace(/\s+/g, '').match(/^(\d+)(?:руб|р|₽)/i);
+  // The RUB amount may carry well-formed thousands separators too ('1,000
+  // руб'). A digits-only match failed on the comma and let the generic USD
+  // branch read the SAME number as dollars — '1,000 руб' (≈$10) imported as
+  // $1000, a 100x rewrite (PR review). Currency is decided here, before any
+  // USD fallback sees the token.
+  const match = raw.replace(/\s+/g, '').match(/^(\d{1,3}(?:,\d{3})+|\d+)(?:руб|р|₽)/i);
   if (match) {
-    const rub = Number(match[1]);
+    const rub = Number(match[1].replace(/,/g, ''));
     const usd = Math.max(5, Math.round(rub / rubToUsdRate / 5) * 5);
     return canonical(usd, `price: ${rub} RUB -> "$${usd}" (rate ${rubToUsdRate} RUB/USD, from ${describeRaw})`);
   }

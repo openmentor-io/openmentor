@@ -32,6 +32,12 @@ const cases = [
   ['3000 руб', '$30'],   // 3000 / default rate 100 -> $30
   ['500 руб', '$5'],     // floor: Math.max(5, ...)
   ['5000р', '$50'],
+  // Separated RUB is still RUB: a digits-only match stopped at the comma and
+  // the USD branch read '1,000 руб' as $1000 — a 100x rewrite (PR review).
+  ['1,000 руб', '$10'],
+  ['1,500 руб', '$15'],
+  ['10,000 руб', '$100'],
+  ['150,000 руб', 'Negotiable'], // over the cap after conversion, same as unseparated
 
   // The passthrough branch, now canonicalised instead of returned verbatim.
   ['$50', '$50'],
@@ -45,7 +51,6 @@ const cases = [
   ['$1,000', '$1000'],
   ['1,000', '$1000'],
   ['$1,500', 'Negotiable'], // well-formed, over the cap
-  ['1,500 руб', 'Negotiable'], // comma defeats the RUB regex; token path catches it
   ['$1,00', 'Negotiable'], // malformed separator: no safe number to read
   ['$49.99', 'Negotiable'], // nonzero cents: truncating rewrites the price
 

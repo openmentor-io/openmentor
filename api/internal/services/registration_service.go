@@ -137,6 +137,10 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		"tags_count":          len(req.Tags),
 		"has_calendar_url":    strings.TrimSpace(req.CalendarURL) != "",
 		"has_profile_picture": req.ProfilePicture.Image != "",
+		// Bounded (free/negotiable/fixed/invalid), never the raw price. Event
+		// property only — NOT the CreateMentor fields map below, which names
+		// database columns.
+		"price_kind": price.KindLabel(req.Price),
 	}
 
 	// 1. Verify captcha (Cloudflare Turnstile)
@@ -211,7 +215,6 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 		"workplace":         req.Workplace,
 		"experience":        req.Experience,
 		"price":             req.Price,
-		"price_kind":        price.KindLabel(req.Price),
 		"about":             req.About,
 		"details":           req.Description,
 		"competencies":      req.Competencies,
