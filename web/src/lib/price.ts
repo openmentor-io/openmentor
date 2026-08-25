@@ -27,8 +27,16 @@ export type PriceKind = 'free' | 'negotiable' | 'fixed'
 export const MIN_AMOUNT = 1
 export const MAX_AMOUNT = 1000
 
-/** The digits of MAX_AMOUNT — how many an amount input needs to accept. */
-const MAX_AMOUNT_DIGITS = String(MAX_AMOUNT).length
+/**
+ * The most digits an amount input will hold. Deliberately far past
+ * MAX_AMOUNT's four: an over-the-cap amount must LAND in the box and read as
+ * invalid ("$10000" + the range error), not be truncated into the different,
+ * valid "$1000" — silently converting what a mentor typed into a price they
+ * did not choose is the exact failure class this grammar exists to close.
+ * Nine keeps Number() exact and the layout sane; rejecting the tenth digit is
+ * a refused edit, not a rewrite.
+ */
+const MAX_INPUT_DIGITS = 9
 
 export interface PriceValue {
   kind: PriceKind
@@ -110,23 +118,36 @@ export function formatPrice(value: PriceValue): string | null {
 }
 
 /**
- * Keystroke-level cleanup for the amount input: digits only, no leading zero,
- * no more digits than MAX_AMOUNT has.
+ * Edit-level cleanup for the amount input. Returns the digits to show, or
+ * null meaning REJECT THE EDIT (the box keeps its previous value).
+ *
+ * The contract, per PR review: cleanup may only ever strip decoration — a `$`
+ * prefix, whitespace, well-formed thousands separators, leading zeros. It must
+ * never assemble a DIFFERENT number out of the input: the old digits-only
+ * strip turned a pasted "50.5" into 505 and "-50" into 50, both of which pass
+ * validation and save as a price the mentor did not type. Anything with a
+ * non-decorative character is rejected whole instead.
  *
  * The input is a `type="text"` with `inputMode="numeric"` rather than a
- * `type="number"`, which accepts `e`, `+`, `-` and `.`, mutates on scroll-wheel,
- * and reports `''` for a value it considers invalid — so "empty" and "garbage"
- * become indistinguishable and the required-field message ends up wrong.
+ * `type="number"`, which accepts `e`, `+`, `-` and `.`, mutates on
+ * scroll-wheel, and reports `''` for a value it considers invalid — so
+ * "empty" and "garbage" become indistinguishable and the required-field
+ * message ends up wrong.
  */
-export function sanitizeAmountInput(raw: string): string {
-  return raw.replace(/[^0-9]/g, '').replace(/^0+/, '').slice(0, MAX_AMOUNT_DIGITS)
-}
+export function sanitizeAmountInput(raw: string): string | null {
+  // Decoration: surrounding whitespace and a `$` prefix (the sigil is a
+  // visual prefix element in the UI, but a paste of "$50" should still work).
+  let value = raw.trim().replace(/^\$\s*/, '')
 
-/**
- * The amount as a number, or null when the box is empty. Used to drive
- * validation off the input's own text without a second source of truth.
- */
-export function amountFromInput(raw: string): number | null {
-  const digits = sanitizeAmountInput(raw)
-  return digits === '' ? null : Number(digits)
+  // Well-formed thousands separators ("1,000") denote the same number, so
+  // stripping them is cleanup, not reinterpretation. Malformed ones
+  // ("1,0,00") fall through to the rejection below.
+  if (/^\d{1,3}(,\d{3})+$/.test(value)) {
+    value = value.replace(/,/g, '')
+  }
+
+  if (!/^\d*$/.test(value)) return null
+  if (value.length > MAX_INPUT_DIGITS) return null
+
+  return value.replace(/^0+/, '')
 }

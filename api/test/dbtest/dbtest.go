@@ -16,10 +16,13 @@ package dbtest
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,11 +100,6 @@ func ensureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 
-	// Grandfather a database bootstrapped before the bookkeeping table existed:
-	// if mentors is already there but nothing is recorded, the pre-existing
-	// migrations were applied by the old code path. Record every CURRENT file
-	// as applied only when the schema predates the table — a genuinely fresh
-	// database has no mentors and skips this.
 	var hasMentors, hasRecords bool
 	if scanErr := conn.QueryRow(ctx, `SELECT to_regclass('mentors') IS NOT NULL,
 		EXISTS (SELECT 1 FROM dbtest_applied_migrations)`).Scan(&hasMentors, &hasRecords); scanErr != nil {
@@ -115,23 +113,76 @@ func ensureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 	sort.Strings(files)
 
 	if hasMentors && !hasRecords {
-		// Cannot know which files the old path applied; assume "all that existed
-		// then". Files added SINCE then are indistinguishable from files applied
-		// then, so this grandfathering is one-shot honest at best — but it only
-		// ever runs once per pre-existing database, and every later addition is
-		// tracked exactly.
-		for _, file := range files {
-			if _, execErr := conn.Exec(ctx,
-				`INSERT INTO dbtest_applied_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`,
-				filepath.Base(file)); execErr != nil {
-				return execErr
-			}
+		if err := adoptExistingSchema(ctx, conn, files); err != nil {
+			return err
 		}
-		return nil
 	}
 
 	for _, file := range files {
 		if err := applyIfPending(ctx, conn, file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// adoptExistingSchema seeds the ledger for a database that has the schema but
+// no bookkeeping — WITHOUT guessing. An earlier version recorded every current
+// file as applied, which preserved the exact staleness bug the ledger exists to
+// fix: a file added after the database was bootstrapped got marked applied
+// unexecuted, and the missing column surfaced later with nothing pointing at
+// the stale schema.
+//
+// Two provable cases, and a refusal for everything else:
+//
+//   - A database managed by cmd/migrate (the compose dev stack) has golang-
+//     migrate's schema_migrations table, whose version says exactly which
+//     files are in — seed the ledger up to it and let the normal loop apply
+//     the rest. (Safe: golang-migrate's Up() only walks FORWARD from its
+//     recorded version, so files we apply above it are invisible to it rather
+//     than conflicting — the same property AGENTS.md documents for merged-
+//     below-version migrations.)
+//   - Anything else (typically a long-lived container bootstrapped by this
+//     package before the ledger existed) is unprovable: fail with the fix in
+//     the message rather than guess. The containers are throwaway by design.
+func adoptExistingSchema(ctx context.Context, conn *pgxpool.Conn, files []string) error {
+	var hasMigrateTable bool
+	if err := conn.QueryRow(ctx,
+		`SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&hasMigrateTable); err != nil {
+		return err
+	}
+	if !hasMigrateTable {
+		return fmt.Errorf("dbtest: this database has the schema but no record of which migrations " +
+			"built it (it predates dbtest's migration ledger); recreate the throwaway container " +
+			"(docker rm -f + docker run, see the package docs) rather than guessing")
+	}
+
+	var version int64
+	var dirty bool
+	if err := conn.QueryRow(ctx,
+		`SELECT version, dirty FROM schema_migrations`).Scan(&version, &dirty); err != nil {
+		return fmt.Errorf("dbtest: reading schema_migrations: %w", err)
+	}
+	if dirty {
+		return fmt.Errorf("dbtest: schema_migrations reports version %d DIRTY — a migration "+
+			"failed half-way on this database; repair it with cmd/migrate before running tests", version)
+	}
+
+	for _, file := range files {
+		name := filepath.Base(file)
+		// Filenames are NNNNNN_title.up.sql; golang-migrate's version is the
+		// numeric prefix of the last applied one.
+		prefix, _, ok := strings.Cut(name, "_")
+		fileVersion, convErr := strconv.ParseInt(prefix, 10, 64)
+		if !ok || convErr != nil {
+			return fmt.Errorf("dbtest: cannot read a version out of migration filename %q", name)
+		}
+		if fileVersion > version {
+			continue
+		}
+		if _, err := conn.Exec(ctx,
+			`INSERT INTO dbtest_applied_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`,
+			name); err != nil {
 			return err
 		}
 	}

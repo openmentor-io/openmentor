@@ -52,20 +52,24 @@ UPDATE mentors
 -- 2. Assert before constraining, so the operator reads what is wrong rather
 -- than a bare constraint violation. A failing migration takes the whole deploy
 -- down (backend and worker gate on service_completed_successfully), so the
--- message has to carry enough to act on.
+-- message has to carry enough to act on — but NOT the offending values
+-- themselves: this error lands in the migrate container's log and from there
+-- in Loki, and the old column was free text, which is exactly the class the
+-- logging rules keep out of log lines. The COUNT locates the problem; the
+-- values are read where they live, with psql.
 DO $$
-DECLARE offending text;
+DECLARE offending_count bigint;
 BEGIN
-    SELECT string_agg(DISTINCT quote_literal(price), ', ')
-      INTO offending
+    SELECT count(*)
+      INTO offending_count
       FROM mentors
      WHERE price IS NOT NULL
        AND price !~ '^(Free|Negotiable|\$([1-9][0-9]{0,2}|1000))$';
 
-    IF offending IS NOT NULL THEN
+    IF offending_count > 0 THEN
         RAISE EXCEPTION
-            'mentors.price holds values outside the canonical grammar: %. Set each one by hand to Free, Negotiable, or $N for a whole 1..1000, then re-run the deploy. This migration will not guess what a mentor meant to charge.',
-            offending;
+            '% mentor row(s) hold prices outside the canonical grammar (values not printed here: the old column was free text and this message is a log line). List them with docs/runbooks/audit-2026-08/diagnostics.sql section D2c, set each by hand to Free, Negotiable, or $N for a whole 1..1000, then re-run the deploy. This migration will not guess what a mentor meant to charge.',
+            offending_count;
     END IF;
 END $$;
 

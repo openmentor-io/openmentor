@@ -3,7 +3,7 @@ import classNames from 'classnames'
 import {
   MAX_AMOUNT,
   MIN_AMOUNT,
-  amountFromInput,
+  sanitizeAmountInput,
   isValidAmount,
   type PriceKind,
   type PriceValue,
@@ -174,9 +174,15 @@ export default function PriceField({
               value={amountText}
               aria-label="Price in US dollars per one-hour session"
               aria-describedby={hintId}
-              onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                onChange({ kind: 'fixed', amount: amountFromInput(event.target.value) })
-              }
+              onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                // null = the edit is rejected whole (a decimal, a sign, a
+                // letter): the controlled input re-renders with its previous
+                // value rather than assembling a different number out of the
+                // keystrokes — see sanitizeAmountInput's contract.
+                const digits = sanitizeAmountInput(event.target.value)
+                if (digits === null) return
+                onChange({ kind: 'fixed', amount: digits === '' ? null : Number(digits) })
+              }}
               className={classNames('field pl-7', invalid && 'field-error')}
             />
           </div>

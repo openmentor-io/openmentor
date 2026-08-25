@@ -1,7 +1,6 @@
 import {
   MAX_AMOUNT,
   MIN_AMOUNT,
-  amountFromInput,
   formatPrice,
   isCanonicalPrice,
   isValidPrice,
@@ -122,34 +121,40 @@ describe('isValidPrice', () => {
 })
 
 describe('sanitizeAmountInput', () => {
+  // Cleanup may only strip DECORATION ($ prefix, whitespace, well-formed
+  // thousands separators, leading zeros). It must never assemble a different
+  // number: the old digits-only strip turned a pasted "50.5" into 505 and
+  // "-50" into 50 — both valid prices the mentor did not type (PR review).
   it.each([
     ['', '', 'an empty box stays empty'],
     ['50', '50', 'digits pass through'],
-    ['abc', '', 'letters are not an amount'],
-    ['5a0', '50', 'letters are dropped from between digits'],
     ['0', '', 'a lone zero clears rather than sitting there as an invalid amount'],
-    ['007', '7', 'leading zeros are dropped'],
+    ['007', '7', 'leading zeros are decoration'],
     ['$50', '50', 'the sigil is a prefix element, never part of the value'],
-    ['50.5', '505', 'decimals are not a thing this grammar has'],
-    ['-50', '50', 'a sign is not part of an amount'],
-    ['1000', '1000', 'MAX_AMOUNT must stay typable'],
-    ['12345', '1234', 'capped at the digits MAX_AMOUNT has'],
-    ['  50  ', '50', 'whitespace is dropped'],
-  ])('sanitizes %p to %p (%s)', (raw, want) => {
+    ['$ 75', '75', 'sigil plus space'],
+    ['  50  ', '50', 'surrounding whitespace is decoration'],
+    ['1,000', '1000', 'a well-formed thousands separator denotes the same number'],
+    ['12,345', '12345', 'separator stripping is independent of range validation'],
+    ['1000', '1000', 'MAX_AMOUNT stays typable'],
+    // Over-the-cap amounts LAND and read as invalid — truncating "10000" into
+    // the different, valid "$1000" is a silent price rewrite.
+    ['10000', '10000', 'lands as invalid instead of truncating to $1000'],
+    ['123456789', '123456789', 'nine digits is the landing bound'],
+  ])('cleans %p to %p (%s)', (raw, want) => {
     expect(sanitizeAmountInput(raw)).toBe(want)
   })
-})
 
-describe('amountFromInput', () => {
-  it('reports null for an empty box rather than 0', () => {
-    expect(amountFromInput('')).toBeNull()
-    expect(amountFromInput('abc')).toBeNull()
-    expect(amountFromInput('0')).toBeNull()
-  })
-
-  it('reads the sanitized digits', () => {
-    expect(amountFromInput('50')).toBe(50)
-    expect(amountFromInput('$120')).toBe(120)
+  it.each([
+    ['50.5', 'a decimal is not decoration — stripping the dot makes 505'],
+    ['-50', 'a sign is not decoration — stripping it makes 50'],
+    ['+50', 'a sign is not decoration'],
+    ['abc', 'letters are not an amount'],
+    ['5a0', 'a letter between digits would merge into 50'],
+    ['1,0,00', 'a malformed separator is not a separator'],
+    ['1234567890', 'a tenth digit is refused, not truncated'],
+    ['50$', 'the sigil is only a PREFIX'],
+  ])('rejects the edit for %p (%s)', (raw) => {
+    expect(sanitizeAmountInput(raw)).toBeNull()
   })
 })
 

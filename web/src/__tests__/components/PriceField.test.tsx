@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import PriceField from '@/components/forms/PriceField'
 import type { PriceValue } from '@/lib/price'
@@ -71,12 +71,16 @@ describe('PriceField', () => {
   })
 
   it.each([
-    ['abc', ''],
-    ['0', ''],
-    ['007', '7'],
-    ['5a0', '50'],
-    ['12345', '1234'],
-  ])('sanitizes typed %p to %p', async (typed, expected) => {
+    ['abc', '', 'letters are rejected keystroke by keystroke'],
+    ['0', '', 'a lone zero clears'],
+    ['007', '7', 'leading zeros dropped'],
+    ['5a0', '50', 'the letter keystroke is refused, the digits land'],
+    // Lands whole and reads as invalid: truncating to the different, valid
+    // "$1234" (or "10000" to "$1000") would silently save a price the mentor
+    // did not type — the PR-review finding this pins.
+    ['12345', '12345', 'over-the-cap amounts land instead of truncating'],
+    ['50.5', '505', 'the dot keystroke is refused; the visible result is on screen, not silent'],
+  ])('sanitizes typed %p to %p (%s)', async (typed, expected) => {
     const user = userEvent.setup()
     render(<Harness />)
 
@@ -84,6 +88,35 @@ describe('PriceField', () => {
     await user.type(amountBox(), typed)
 
     expect(amountBox().value).toBe(expected)
+  })
+
+  // A PASTE (one change event, unlike typing) of a value that is not a plain
+  // amount is rejected whole rather than having its digits merged into a
+  // different number — "50.5" must not become $505, "-50" must not become $50.
+  it.each([
+    ['50.5', ''],
+    ['-50', ''],
+    ['1,0,00', ''],
+  ])('rejects a pasted %p outright', async (pasted, expected) => {
+    const user = userEvent.setup()
+    render(<Harness />)
+
+    await user.click(pill(/Set a fixed amount/i))
+    fireEvent.change(amountBox(), { target: { value: pasted } })
+
+    expect(amountBox().value).toBe(expected)
+    expect(value()).toEqual({ kind: 'fixed', amount: null })
+  })
+
+  it('accepts a pasted well-formed "1,000" as the same number', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+
+    await user.click(pill(/Set a fixed amount/i))
+    fireEvent.change(amountBox(), { target: { value: '1,000' } })
+
+    expect(amountBox().value).toBe('1000')
+    expect(value()).toEqual({ kind: 'fixed', amount: 1000 })
   })
 
   // Without this, the form submits {kind: 'free', amount: 120}, which

@@ -375,13 +375,17 @@ assert_eq 'exactly one read-only REPEATABLE READ transaction' \
 assert_eq 'exactly one COMMIT' "$(count_of 'COMMIT;')" 1
 
 # `price` is nullable TEXT with no default (migration 000001), so a NULL is a
-# value the schema permits and is not one of the six select options either — and
-# it is the worse case, since ScanMentor fails the whole row on it
-# (models/mentor.go:23,138: Mentor.Price is a plain string). A `price IS NOT NULL`
-# filter therefore hid an exposed row from D2b, D2c and the summary count.
-# `experience` has the same shape, which is why D2d always counted NULL.
-assert_absent 'D2 no longer filters NULL prices out of the exposure set' \
-    "$sql_statements" 'price IS NOT NULL'
+# value the schema permits — and the worse case, since ScanMentor fails the
+# whole row on it (models/mentor.go:23,138: Mentor.Price is a plain string). A
+# bare `price IS NOT NULL` filter once HID such rows from D2b, D2c and the
+# summary entirely. Post-D87, D2b deliberately PARTITIONS instead: `IS NOT
+# NULL AND !~ grammar` counts constraint-missing evidence, `IS NULL` counts
+# permitted-but-suspect data — so the phrase `price IS NOT NULL` is allowed
+# exactly where its complement is counted alongside (D2b's FILTER pair and the
+# summary's paired subqueries), and NULLs can no longer vanish. Pin the
+# partition on both sides rather than banning the phrase.
+assert_eq 'price IS NOT NULL appears only as the violation side of the D2b partition' \
+    "$(count_of 'price IS NOT NULL')" 2
 assert_eq 'NULL prices counted in D2b, D2c and the summary' \
     "$(count_of 'WHERE price IS NULL')" 3
 assert_eq 'D2d still counts NULL experience the same way' \
@@ -934,12 +938,19 @@ FIXTURES
     # dropped from both the count and the value list.
     d2b="$(awk '/^## D2b /{f=1;next} /^## D2c /{f=0} f' "$report")"
     d2c="$(awk '/^## D2c /{f=1;next} /^## D2d /{f=0} f' "$report")"
-    assert_eq 'D2b counts the NULL price as off-grammar' \
-        "$(printf '%s\n' "$d2b" | grep -oE '^ *[0-9]+' | head -1 | tr -d ' ')" 1
+    # Two columns now: non-NULL grammar violations (impossible while the
+    # constraint stands, so expect 0 even with the NULL fixture present) and
+    # NULL prices (the fixture seeds exactly one, and it must NOT be reported
+    # as a missing constraint — a CHECK is satisfied by NULL).
+    d2b_row="$(printf '%s\n' "$d2b" | grep -E '^ *[0-9]+ *\| *[0-9]+' | head -1)"
+    assert_eq 'D2b reports zero non-NULL grammar violations' \
+        "$(printf '%s' "$d2b_row" | awk -F'|' '{gsub(/ /,"",$1); print $1}')" 0
+    assert_eq 'D2b counts the NULL price separately, not as a violation' \
+        "$(printf '%s' "$d2b_row" | awk -F'|' '{gsub(/ /,"",$2); print $2}')" 1
     assert_contains 'D2c shows the NULL price as its own bucket' "$d2c" '<NULL>'
     assert_absent 'D2c no longer reports a representable amount as off-grammar' "$d2c" '$30'
-    assert_contains 'the D2b summary count agrees with the detail query' \
-        "$body" '1 mentor row(s) hold an off-grammar price'
+    assert_contains 'the D2b summary distinguishes violations from NULLs' \
+        "$body" '0 non-NULL off-grammar price row(s) (any means mentors_price_chk is MISSING) + 1 NULL price row(s)'
 
     # One snapshot: commit a matching row from a second connection after the
     # detail queries have run but before the summary. Without the transaction the

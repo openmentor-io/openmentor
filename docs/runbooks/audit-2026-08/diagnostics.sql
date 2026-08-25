@@ -214,12 +214,23 @@ ORDER BY updated_at DESC;
 -- NULL stays counted for the reason above: the constraint is a CHECK, and a
 -- CHECK is satisfied by NULL, so 000014 did not close this case.
 \echo ''
-\echo '## D2b — mentors holding a price outside the stored grammar (expect 0)'
+\echo '## D2b — mentors holding a price outside the stored grammar (expect 0 / 0)'
 
-SELECT count(*) AS off_grammar_prices
-FROM mentors
-WHERE price IS NULL
-   OR price !~ '^(Free|Negotiable|\$([1-9][0-9]{0,2}|1000))$';
+-- Two counts, because they diagnose DIFFERENT problems and only one of them is
+-- a schema problem. A non-NULL value failing the regex is impossible while
+-- mentors_price_chk stands, so a non-zero first column means the constraint is
+-- missing (rollback below 000014, or dropped). A NULL, however, SATISFIES a
+-- CHECK — the migration deliberately left the column nullable (see 000014) —
+-- so a non-zero second column is a data-quality note about rows no write path
+-- should produce, not evidence the constraint is gone. Conflating them once
+-- made this report tell the operator the schema was broken because one row
+-- held a permitted NULL.
+SELECT count(*) FILTER (WHERE price IS NOT NULL
+                          AND price !~ '^(Free|Negotiable|\$([1-9][0-9]{0,2}|1000))$')
+           AS off_grammar_prices,
+       count(*) FILTER (WHERE price IS NULL)
+           AS null_prices
+FROM mentors;
 
 \echo ''
 \echo '## D2c — the actual off-grammar values (input for the recompute in data-repair.md)'
@@ -507,10 +518,12 @@ FROM (
            -- NULL included, matching the D2b/D2c detail queries and D2d: see the
            -- D2b comment for why a NULL price is the worse case, not the safe one.
            (SELECT count(*) FROM mentors
-             WHERE price IS NULL
-                OR price !~ '^(Free|Negotiable|\$([1-9][0-9]{0,2}|1000))$')::text
-               || ' mentor row(s) hold an off-grammar price',
-           'expect 0; non-zero means mentors_price_chk is missing (see D2b)'
+             WHERE price IS NOT NULL
+               AND price !~ '^(Free|Negotiable|\$([1-9][0-9]{0,2}|1000))$')::text
+               || ' non-NULL off-grammar price row(s) (any means mentors_price_chk is MISSING) + '
+               || (SELECT count(*) FROM mentors WHERE price IS NULL)::text
+               || ' NULL price row(s) (permitted by the CHECK; data-quality only)',
+           'expect 0 + 0; see D2b for why the two mean different things'
     UNION ALL
     SELECT 5,
            'D2d',
