@@ -13,7 +13,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { mapPrice } = require('./migrate-mentors.js');
+const { mapPrice: mapPriceRaw } = require('./price-mapping.js');
+
+// The default rate from migrate-mentors.js config (RUB_TO_USD_RATE || 100),
+// passed explicitly: the pure module deliberately has no default of its own.
+const mapPrice = (raw, notes) => mapPriceRaw(raw, notes, 100);
 
 const CANONICAL = /^(Free|Negotiable|\$([1-9][0-9]{0,2}|1000))$/;
 
