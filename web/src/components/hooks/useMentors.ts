@@ -97,7 +97,7 @@ export default function useMentors(
     )
   }
 
-  // filter by price bucket (mentor.price is free text — see DECISIONS D3)
+  // filter by price bucket (mentor.price is a closed grammar — see DECISIONS D87)
   if (selectedPrice) {
     const priceFilter = filters.byPrice[selectedPrice as keyof typeof filters.byPrice]
 

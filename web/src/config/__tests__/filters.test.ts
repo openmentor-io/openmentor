@@ -1,4 +1,4 @@
-import filters from '@/config/filters'
+import filters, { priceTierLabel } from '@/config/filters'
 
 /**
  * The price buckets had no test at all while they were free-text predicates.
@@ -85,4 +85,25 @@ describe('price buckets', () => {
       expect(bucketsFor(price)).toEqual(['Negotiable'])
     }
   )
+})
+
+describe('priceTierLabel', () => {
+  // These are the values `mentor_price_tier` sends to PostHog. The raw price
+  // became an ~1002-value dimension under D87; the tier keeps the six-value
+  // vocabulary the catalog filter events already speak.
+  it.each([
+    ['Free', 'Free'],
+    ['Negotiable', 'Negotiable'],
+    ['$1', '≤$50'],
+    ['$50', '≤$50'],
+    ['$137', '$100–200'],
+    ['$1000', '$200+'],
+    ['$50 / hour', 'Negotiable'],
+  ])('labels %s as %s', (price, tier) => {
+    expect(priceTierLabel(price)).toBe(tier)
+  })
+
+  it('reports Free as Free, not as the ≤$50 bucket it also matches', () => {
+    expect(priceTierLabel('Free')).toBe('Free')
+  })
 })

@@ -13,6 +13,7 @@ import {
 import MentorPortrait from '@/components/ui/MentorPortrait'
 import PriceBadge from '@/components/ui/PriceBadge'
 import { parsePrice } from '@/lib/price'
+import { priceTierLabel } from '@/config/filters'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import analytics from '@/lib/analytics'
 import { safeHttpUrl } from '@/lib/safe-url'
@@ -189,7 +190,8 @@ export default function OrderMentor({
       mentor_id: mentor.mentorId,
       mentor_slug: mentor.slug,
       mentor_experience_years: mentor.experience,
-      mentor_price_tier: mentor.price,
+      mentor_price_tier: priceTierLabel(mentor.price),
+      mentor_price: mentor.price,
       is_visible: mentor.isVisible,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps

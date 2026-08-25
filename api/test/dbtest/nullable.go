@@ -51,10 +51,20 @@ var columnFills = map[string]columnFill{
 func NullableColumns(t *testing.T, pool *pgxpool.Pool, table string) []Column {
 	t.Helper()
 
+	// Generated columns are excluded even though they are nullable: they cannot
+	// be written at all, so FillNullable's UPDATE and SetNull's `SET col = NULL`
+	// would both fail on one ("column can only be updated to DEFAULT"), taking
+	// every subtest down with the seed. The exclusion has a cost the caller must
+	// know about: a generated column pulled into a mentor SELECT is still under
+	// the D50 rule (nullable ⇒ COALESCE or pointer scan), and THIS enumeration
+	// will not catch a miss on it — mentors.price_amount (000015) is the first
+	// such column, and its derivation is pinned separately by
+	// repository.TestPriceAmountDerivation.
 	rows, err := pool.Query(context.Background(), `
 		SELECT column_name, udt_name
 		FROM information_schema.columns
 		WHERE table_schema = 'public' AND table_name = $1 AND is_nullable = 'YES'
+			AND is_generated = 'NEVER'
 		ORDER BY column_name
 	`, table)
 	if err != nil {

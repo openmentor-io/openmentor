@@ -561,10 +561,18 @@ explicitly.
 
 Applies only to rows carrying the import marker
 (`airtable_id LIKE 'getmentor:%'`). `mapPrice`
-(`infra/migration/migrate-mentors.js:393-410`) is deterministic, so given the
+(`infra/migration/migrate-mentors.js`) is deterministic, so given the
 getmentor.dev source row you can recompute exactly what was imported.
 
-**`mapPrice`, exactly, in order (read the file; this is a transcription):**
+> **The function below is the one that ran BEFORE D87 — keep using it here.**
+> A pre-D87 import wrote its output verbatim, so these are the rules that
+> reproduce what the corrupted row *used to hold*. The live `mapPrice` has
+> since been rewritten to emit only the canonical grammar (leading amount
+> respelled `$N`, out-of-range → `Negotiable`; pinned by
+> `infra/migration/mapprice.test.js`), so re-running today's importer does NOT
+> reproduce a pre-D87 value.
+
+**Pre-D87 `mapPrice`, exactly, in order (historical transcription):**
 
 1. `raw = price.trim()`.
 2. `raw === ''`, or it matches `/бесплатно/i`, or `/^free$/i` → `'Free'`.
@@ -611,6 +619,14 @@ SELECT legacy_id, slug, price, experience FROM mentors WHERE legacy_id = <source
 Then apply the rules above by hand. There will be very few rows (the dev
 database had three distinct off-list values), and hand-application is auditable
 in a way a throwaway script is not.
+
+**Before feeding the result into the §D2.3 write-back, make it canonical** —
+`mentors_price_chk` refuses anything else, so this is enforced, not advisory:
+a recomputed `$30 / hour` is written back as `$30`, `75 USD` as `$75`, and an
+amount over `$1000` (or a value you cannot confidently convert) goes to the
+mentor as a question, not into the column. The recomputed *historical* value
+still belongs in your notes and in the mentor email ("our records show you
+charged `$30 / hour`"); only the write-back is constrained.
 
 Two traps worth knowing before you try to shortcut this:
 

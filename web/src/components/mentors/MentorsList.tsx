@@ -45,7 +45,11 @@ function PriceMeta({ price }: { price: string }): JSX.Element {
 
   const amount = fixedAmount(price)
   if (amount !== null) {
-    return <span className="text-brand-navy">${amount.toLocaleString('en-US')}</span>
+    // The canonical spelling, NOT toLocaleString: the profile page, the
+    // contact recap and the confirmation email all render the stored "$1000",
+    // and a card that says "$1,000" while the page it links to says "$1000"
+    // reads as two different prices. One spelling everywhere.
+    return <span className="text-brand-navy">${amount}</span>
   }
 
   if (parsePrice(price)?.kind === 'negotiable') {

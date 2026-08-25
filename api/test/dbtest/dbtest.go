@@ -82,12 +82,30 @@ func ensureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		_, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, int64(schemaLockKey)) //nolint:errcheck // released with the connection anyway
 	}()
 
-	var exists bool
-	if scanErr := conn.QueryRow(ctx, `SELECT to_regclass('mentors') IS NOT NULL`).Scan(&exists); scanErr != nil {
-		return scanErr
+	// Applied files are tracked by name in a bookkeeping table rather than by
+	// a bare "does mentors exist" probe. The probe had a silent failure mode on
+	// exactly the container this package's docs tell people to keep around: a
+	// long-lived database bootstrapped before a new migration landed would
+	// short-circuit here and never receive it, and the first symptom was a test
+	// failing on a missing column with nothing pointing at the stale schema
+	// (000015's price_amount was found this way). Names, not a high-water
+	// version: the point is only to re-apply the tail after a rebase, and names
+	// need no parsing.
+	if _, err = conn.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS dbtest_applied_migrations (filename text PRIMARY KEY)
+	`); err != nil {
+		return err
 	}
-	if exists {
-		return nil
+
+	// Grandfather a database bootstrapped before the bookkeeping table existed:
+	// if mentors is already there but nothing is recorded, the pre-existing
+	// migrations were applied by the old code path. Record every CURRENT file
+	// as applied only when the schema predates the table — a genuinely fresh
+	// database has no mentors and skips this.
+	var hasMentors, hasRecords bool
+	if scanErr := conn.QueryRow(ctx, `SELECT to_regclass('mentors') IS NOT NULL,
+		EXISTS (SELECT 1 FROM dbtest_applied_migrations)`).Scan(&hasMentors, &hasRecords); scanErr != nil {
+		return scanErr
 	}
 
 	files, err := filepath.Glob(filepath.Join(migrationsDir(), "*.up.sql"))
@@ -95,18 +113,55 @@ func ensureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 	sort.Strings(files)
-	for _, file := range files {
-		sql, readErr := os.ReadFile(file) //nolint:gosec // fixed in-repo migrations directory
-		if readErr != nil {
-			return readErr
+
+	if hasMentors && !hasRecords {
+		// Cannot know which files the old path applied; assume "all that existed
+		// then". Files added SINCE then are indistinguishable from files applied
+		// then, so this grandfathering is one-shot honest at best — but it only
+		// ever runs once per pre-existing database, and every later addition is
+		// tracked exactly.
+		for _, file := range files {
+			if _, execErr := conn.Exec(ctx,
+				`INSERT INTO dbtest_applied_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`,
+				filepath.Base(file)); execErr != nil {
+				return execErr
+			}
 		}
-		// pgx sends argument-less queries over the simple protocol, so a whole
-		// multi-statement migration file goes in one Exec.
-		if _, execErr := conn.Exec(ctx, string(sql)); execErr != nil {
-			return execErr
+		return nil
+	}
+
+	for _, file := range files {
+		if err := applyIfPending(ctx, conn, file); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// applyIfPending runs one migration file unless dbtest_applied_migrations
+// already records it, and records it after a successful apply.
+func applyIfPending(ctx context.Context, conn *pgxpool.Conn, file string) error {
+	var applied bool
+	if err := conn.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM dbtest_applied_migrations WHERE filename = $1)`,
+		filepath.Base(file)).Scan(&applied); err != nil {
+		return err
+	}
+	if applied {
+		return nil
+	}
+	sql, err := os.ReadFile(file) //nolint:gosec // fixed in-repo migrations directory
+	if err != nil {
+		return err
+	}
+	// pgx sends argument-less queries over the simple protocol, so a whole
+	// multi-statement migration file goes in one Exec.
+	if _, err := conn.Exec(ctx, string(sql)); err != nil {
+		return err
+	}
+	_, err = conn.Exec(ctx,
+		`INSERT INTO dbtest_applied_migrations (filename) VALUES ($1)`, filepath.Base(file))
+	return err
 }
 
 // migrationsDir resolves api/migrations from this file's own location, so the

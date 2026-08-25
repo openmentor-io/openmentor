@@ -9,7 +9,8 @@
  *   - profile text (about/details/competencies/job title/workplace) is
  *     translated RU -> EN with the Claude API; the mentor's name is
  *     romanized; HTML markup is preserved
- *   - enum-like fields are mapped to the new data model (price RUB -> USD
+ *   - enum-like fields are mapped to the new data model (price RUB -> USD in
+ *     $5 steps within the D87 grammar — Free | Negotiable | $1..$1000, DB-enforced;
  *     buckets per DECISIONS D3, tags RU -> EN onto the seeded tag set,
  *     experience passes through)
  *   - identity fields (email, calendar_url, privacy, sort_order,
@@ -391,6 +392,15 @@ async function fetchSourceMentor(source, slug) {
 // Field mapping (enum-like fields -> new data model)
 // ---------------------------------------------------------------------------
 
+// The bounds of the canonical grammar the target column enforces
+// (mentors_price_chk, api/migrations/000014): 'Free', 'Negotiable', or '$N'
+// for a whole PRICE_MIN..PRICE_MAX. Every return from mapPrice must be one of
+// those three shapes — anything else fails the INSERT and aborts the import
+// mid-run. This function used to pass '$30 / hour' and bare '50' through
+// verbatim, which the column accepted when it was free text and refuses now.
+const PRICE_MIN = 1;
+const PRICE_MAX = 1000;
+
 function mapPrice(price, notes) {
   const raw = price.trim();
   if (raw === '' || /бесплатно/i.test(raw) || /^free$/i.test(raw)) {
@@ -398,14 +408,37 @@ function mapPrice(price, notes) {
     return 'Free';
   }
   if (/договор/i.test(raw) || /negotiable/i.test(raw)) return 'Negotiable';
+
+  // An out-of-range amount becomes Negotiable + a note, NOT a clamp: rewriting
+  // 150000 руб into the $1000 cap would silently change what the mentor
+  // charges by a large factor. Negotiable is this function's established
+  // "could not map" placeholder — the profile arrives hidden (status
+  // 'inactive', D22) and the mentor reviews it before going live, so the note
+  // is what surfaces the case to a human instead of the import crashing.
+  const canonical = (usd, note) => {
+    if (usd < PRICE_MIN || usd > PRICE_MAX) {
+      notes.push(`price: "${raw}" -> $${usd} is outside $${PRICE_MIN}..$${PRICE_MAX} -> Negotiable (mentor to set on review)`);
+      return 'Negotiable';
+    }
+    if (note) notes.push(note);
+    return `$${usd}`;
+  };
+
   const match = raw.replace(/\s+/g, '').match(/^(\d+)(?:руб|р|₽)/i);
   if (match) {
     const rub = Number(match[1]);
     const usd = Math.max(5, Math.round(rub / config.rubToUsdRate / 5) * 5);
-    notes.push(`price: "${raw}" -> "$${usd}" (rate ${config.rubToUsdRate} RUB/USD)`);
-    return `$${usd}`;
+    return canonical(usd, `price: "${raw}" -> "$${usd}" (rate ${config.rubToUsdRate} RUB/USD)`);
   }
-  if (/^\$?\d+/.test(raw)) return raw; // already looks like a USD amount
+
+  // Looks like a USD amount ('$30 / hour', '50', '$50.00'): take the leading
+  // whole number and respell it canonically rather than passing raw through.
+  const usdMatch = raw.match(/^\$?\s*(\d+)/);
+  if (usdMatch) {
+    const usd = Number(usdMatch[1]);
+    return canonical(usd, `$${usd}` === raw ? null : `price: "${raw}" -> "$${usd}" (canonical grammar, D87)`);
+  }
+
   notes.push(`price: could not parse "${raw}" -> Negotiable`);
   return 'Negotiable';
 }
@@ -1311,7 +1344,14 @@ function printSummary(mode) {
   );
 }
 
-main().catch((error) => {
-  console.error('Unhandled error:', error);
-  process.exit(1);
-});
+// Exported for mapprice.test.js (node --test), which pins every return shape
+// to the grammar mentors_price_chk enforces. The require.main guard is what
+// keeps `require()` from kicking off an actual import run.
+module.exports = { mapPrice };
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error('Unhandled error:', error);
+    process.exit(1);
+  });
+}

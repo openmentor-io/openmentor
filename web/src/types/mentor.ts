@@ -13,7 +13,8 @@ export type CalendarType = 'calendly' | 'koalendar' | 'calendlab' | 'url' | 'non
 export type ExperienceLevel = '2-5' | '5-10' | '10+'
 
 /**
- * Price is free text (DECISIONS D3), e.g. "$100 / hour", "Free", "Negotiable"
+ * Price is a closed grammar (DECISIONS D87): "Free", "Negotiable" or "$N" for
+ * a whole 1..1000 — parse/format via lib/price.ts, never a local regexp
  */
 export type Price = string
 

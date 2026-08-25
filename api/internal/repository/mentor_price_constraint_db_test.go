@@ -145,6 +145,72 @@ func TestPriceConstraintStillPermitsNull(t *testing.T) {
 	})
 }
 
+// price_amount (000015) is GENERATED from price and nothing in api/ selects it
+// yet — it exists for the first SQL consumer of a price number. Two properties
+// are worth pinning while it has no caller: the derivation itself, and that it
+// really is closed to writes (the property dbtest.NullableColumns relies on to
+// justify excluding generated columns from the nullable-column enumeration).
+func TestPriceAmountDerivation(t *testing.T) {
+	pool := dbtest.Pool(t)
+	ctx := context.Background()
+
+	cases := []struct {
+		price  *string
+		amount *int
+	}{
+		{ptr("$1"), ptrInt(1)},
+		{ptr("$137"), ptrInt(137)},
+		{ptr("$1000"), ptrInt(1000)},
+		{ptr("Free"), nil},
+		{ptr("Negotiable"), nil},
+		{nil, nil},
+	}
+
+	for i, tc := range cases {
+		label := "<NULL>"
+		if tc.price != nil {
+			label = *tc.price
+		}
+		t.Run(label, func(t *testing.T) {
+			var id string
+			var got *int
+			err := pool.QueryRow(ctx, `
+				INSERT INTO mentors (slug, name, status, price)
+				VALUES ($1, 'Price Amount Test', 'active', $2)
+				RETURNING id, price_amount
+			`, fmt.Sprintf("price-amount-%02d", i), tc.price).Scan(&id, &got)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				_, _ = pool.Exec(context.Background(), `DELETE FROM mentors WHERE id = $1`, id)
+			})
+
+			require.Equal(t, tc.amount, got)
+
+			// And it follows an UPDATE with no help from the application.
+			if tc.price != nil && *tc.price == "$137" {
+				var updated *int
+				err = pool.QueryRow(ctx, `
+					UPDATE mentors SET price = 'Free' WHERE id = $1 RETURNING price_amount
+				`, id).Scan(&updated)
+				require.NoError(t, err)
+				require.Nil(t, updated, "price_amount must track price, not lag it")
+			}
+		})
+	}
+
+	// Closed to writes: the guarantee that lets dbtest.NullableColumns skip
+	// generated columns without weakening FillNullable for everything else.
+	_, err := pool.Exec(ctx, `
+		INSERT INTO mentors (slug, name, status, price, price_amount)
+		VALUES ('price-amount-write', 'X', 'active', '$50', 50)
+	`)
+	require.Error(t, err, "a generated column must reject explicit writes")
+	require.Contains(t, err.Error(), "price_amount")
+}
+
+func ptr(s string) *string { return &s }
+func ptrInt(n int) *int    { return &n }
+
 // Every price live in production when the grammar shipped (2026-08-13) still
 // stores. The migration's normalisation was a no-op on this data, so if any of
 // these stops being accepted the constraint has been narrowed past what real

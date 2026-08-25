@@ -147,7 +147,10 @@ describe('MentorsList', () => {
     )
 
     expect(screen.getByText('$100')).toHaveClass('text-brand-navy')
-    expect(screen.getByText('$1,000')).toHaveClass('text-brand-navy')
+    // The canonical stored spelling, deliberately NOT '$1,000': every other
+    // surface (profile page, contact recap, email) renders the stored form,
+    // and the card must agree with the page it links to.
+    expect(screen.getByText('$1000')).toHaveClass('text-brand-navy')
     expect(screen.getByText('FREE')).toHaveClass('text-mint-ink')
     expect(screen.getByText('NEGOTIABLE')).toBeInTheDocument()
   })

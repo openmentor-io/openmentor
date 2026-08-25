@@ -5,7 +5,8 @@
   "main": "migrate-mentors.js",
   "scripts": {
     "migrate-images-s3": "node --env-file=.env yandex-to-s3-migration.js",
-    "migrate-mentors": "./migrate-mentors.sh"
+    "migrate-mentors": "./migrate-mentors.sh",
+    "test": "node --test"
   },
   "keywords": [
     "aws-s3",

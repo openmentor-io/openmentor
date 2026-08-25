@@ -6,6 +6,7 @@ import { Footer, HtmlContent, MetaHeader, NavHeader } from '@/components'
 import MentorPortrait from '@/components/ui/MentorPortrait'
 import PriceBadge from '@/components/ui/PriceBadge'
 import { parsePrice } from '@/lib/price'
+import { priceTierLabel } from '@/config/filters'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import constants from '@/config/constants'
 import { pageTitle } from '@/config/seo'
@@ -171,7 +172,11 @@ export default function Mentor({
       mentor_id: mentor.mentorId,
       mentor_slug: mentor.slug,
       mentor_experience_years: mentor.experience,
-      mentor_price_tier: mentor.price,
+      // The tier is the six-value bucket vocabulary PostHog already knows from
+      // the catalog filter events; the raw price became an ~1002-value
+      // dimension under D87 and would turn every breakdown into a long tail.
+      mentor_price_tier: priceTierLabel(mentor.price),
+      mentor_price: mentor.price,
       mentee_count: mentor.menteeCount,
       is_visible: mentor.isVisible,
     })
@@ -208,8 +213,14 @@ export default function Mentor({
       image: personImage,
       description: mentorMetaDescription(mentor),
     },
-    // No offers/priceRange: mentor.price is free text ("Free", "Negotiable",
-    // "$100 / hour" — DECISIONS D3), not a valid structured price. No
+    // No offers/priceRange YET: since D87 a fixed price is a well-formed
+    // schema.org value ("$137" -> price 137, priceCurrency USD), so the old
+    // free-text blocker (D35 cited D3) is gone. What remains unresolved is the
+    // policy question: Negotiable has no numeric form, so emitting offers for
+    // some mentors and not others makes the catalog markup inconsistent, and
+    // Google treats Offer as a product signal that may not fit a person's
+    // profile. Revisit deliberately (D88 lists it as unlocked) — do not bolt it
+    // on here in passing. No
     // aggregateRating/review either: the platform stores no numeric ratings.
   }
 

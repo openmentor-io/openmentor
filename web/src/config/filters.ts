@@ -46,6 +46,23 @@ const businessTags: MentorTag[] = [
   'People & HR',
 ]
 
+/**
+ * The bucket label a stored price falls into — the SAME six strings byPrice
+ * uses, in the same order, first match wins. This is the price dimension
+ * analytics events send (`mentor_price_tier`, and `trackFilterChange('price',
+ * label)` already spoke this vocabulary): six stable values, where the raw
+ * price would be an unbounded-feeling ~1002-value dimension that turns every
+ * PostHog breakdown into a long tail. Free deliberately reports 'Free', not
+ * '≤$50', even though it matches both buckets.
+ */
+export function priceTierLabel(price: string): string {
+  for (const [label, matches] of Object.entries(filters.byPrice)) {
+    if (matches(price)) return label
+  }
+  // Unreachable: byPrice's Negotiable bucket collects everything unparseable.
+  return 'Negotiable'
+}
+
 const filters: FiltersConfig = {
   tags: [
     ...engineeringTags,

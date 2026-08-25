@@ -35,9 +35,10 @@ workflows call these same targets, so local and CI run the identical check.
 ```bash
 cd api   && make ci      # lint (golangci-lint, version pinned in api/Makefile) + test-race
 cd web   && make ci      # eslint + tsc --noEmit + jest + production build
-cd infra && make check   # 10 suites: compose-config, env-allowlist, backup-tests,
+cd infra && make check   # 11 suites: compose-config, env-allowlist, backup-tests,
                          # deploy-tests, rollback-tests, alert-tests, alert-fireability-tests,
-                         # alloy-redaction-tests, advisory-lock-tests, metrics-keeplist-tests
+                         # alloy-redaction-tests, advisory-lock-tests, metrics-keeplist-tests,
+                         # migration-mapper-tests (needs node)
                          # (shellcheck and db-identity-tests are separate targets, NOT in check)
 ```
 
@@ -183,7 +184,11 @@ non-pointer destination, so one un-COALESCEd column takes out every caller at on
 column broke login, the public profile page and the catalog together. `airtable_id` is the only
 legitimate pointer (nil means "registered natively").
 `api/internal/repository/mentor_nullable_columns_db_test.go` enumerates the nullable columns from
-`information_schema` and checks each one against a real database. The same rule applies to
+`information_schema` and checks each one against a real database — **except GENERATED columns**
+(`mentors.price_amount`), which it must skip because they cannot be written: the enumeration
+works by filling and blanking each column, and Postgres refuses an UPDATE on a generated one. So
+a generated column pulled into a mentor SELECT is under the same COALESCE-or-pointer rule with
+NO test catching a miss — the reviewer is the enforcement. The same rule applies to
 `client_requests`, which is nullable nearly everywhere.
 
 ### Reuse, don't reinvent
@@ -336,7 +341,7 @@ wholesale.
 Docker Compose behind Traefik on a single production VM, a Postgres backup sidecar, and Grafana
 Alloy. Scripts here run as root on that VM. A quoting slip is an incident, not a stack trace.
 
-### `make check` — ten suites
+### `make check` — eleven suites
 
 | Target | What it proves |
 |---|---|
@@ -350,6 +355,7 @@ Alloy. Scripts here run as root on that VM. A quoting slip is an incident, not a
 | `alloy-redaction-tests` | `alloy-redaction-test.sh` — the PII redaction stage rewrites what it must and nothing else, and `alloy validate` passes |
 | `advisory-lock-tests` | `advisory-lock-namespace-test.sh` — the Postgres advisory-lock namespaces across Go and the migration script do not collide |
 | `metrics-keeplist-tests` | `metrics-keeplist-test.sh` — every series `../grafana` reads survives the Alloy relabel keep-lists, and the filters still bite |
+| `migration-mapper-tests` | `migration/mapprice.test.js` (`node --test`) — every value `mapPrice` can emit satisfies `mentors_price_chk`, so a mentor import cannot abort mid-run on the constraint |
 
 Not in `check`, run them when relevant: `make shellcheck`, `make db-identity-tests`.
 
