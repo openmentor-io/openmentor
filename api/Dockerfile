@@ -7,7 +7,7 @@
 # a floating tag keeps resolving to whatever digest is already local, so the
 # binary can silently keep shipping stdlib advisories that a newer 1.26.x fixed.
 # Bump together with the `go` directive in go.mod.
-FROM golang:1.26.5-alpine AS builder
+FROM golang:1.27.0-alpine AS builder
 WORKDIR /app
 
 # Install build dependencies
