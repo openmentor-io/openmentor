@@ -24,7 +24,7 @@ func saveProfileFixture() *models.SaveProfileRequest {
 		Job:          "Staff Engineer",
 		Workplace:    "OpenMentor",
 		Experience:   "5-10",
-		Price:        "free",
+		Price:        "Free",
 		Tags:         []string{"Backend", "System Design"},
 		Description:  "short description",
 		About:        "about text",

@@ -1,19 +1,5 @@
+import { fixedAmount, isFree, parsePrice } from '@/lib/price'
 import type { FiltersConfig, MentorTag } from '@/types'
-
-/**
- * Extract a numeric amount from a free-text price (e.g. "$100 / hour" -> 100).
- * Returns null when no number is present.
- * Exported for the mentor card meta row ("$50" / "FREE" / "NEGOTIABLE").
- */
-export function parsePriceAmount(price: string): number | null {
-  const match = price.replace(/[,\s]/g, '').match(/(\d+(?:\.\d+)?)/)
-  return match ? parseFloat(match[1]) : null
-}
-
-/** Whether a free-text price means "free" (see DECISIONS D3). */
-export function isPriceFree(price: string): boolean {
-  return /free/i.test(price) || parsePriceAmount(price) === 0
-}
 
 // Tag groups, shared between the flat `tags` list (form options) and the
 // catalog topic tabs (`categories`) below. Every tag belongs to exactly one
@@ -60,6 +46,23 @@ const businessTags: MentorTag[] = [
   'People & HR',
 ]
 
+/**
+ * The bucket label a stored price falls into — the SAME six strings byPrice
+ * uses, in the same order, first match wins. This is the price dimension
+ * analytics events send (`mentor_price_tier`, and `trackFilterChange('price',
+ * label)` already spoke this vocabulary): six stable values, where the raw
+ * price would be an unbounded-feeling ~1002-value dimension that turns every
+ * PostHog breakdown into a long tail. Free deliberately reports 'Free', not
+ * '≤$50', even though it matches both buckets.
+ */
+export function priceTierLabel(price: string): string {
+  for (const [label, matches] of Object.entries(filters.byPrice)) {
+    if (matches(price)) return label
+  }
+  // Unreachable: byPrice's Negotiable bucket collects everything unparseable.
+  return 'Negotiable'
+}
+
 const filters: FiltersConfig = {
   tags: [
     ...engineeringTags,
@@ -79,38 +82,46 @@ const filters: FiltersConfig = {
     { label: 'Leadership & Career', tags: leadershipTags },
     { label: 'Business & Communication', tags: businessTags },
   ],
-  // Suggested options for legacy price selects. The price field itself is
-  // free text (see DECISIONS D3) — these are interim values until the forms
-  // switch to a plain text input.
-  price: ['Free', '$50', '$100', '$150', '$200', 'Negotiable'],
   experience: {
     '2-5 years': '2-5',
     '5-10 years': '5-10',
     '10+ years': '10+',
   },
-  // Price filter buckets (DECISIONS D3). `mentors.price` is free text, so
-  // each bucket is a predicate that classifies a price string.
+  // Price filter buckets. The bucket LABELS are deliberately unchanged from the
+  // free-text era (D3): they are the values `trackFilterChange('price', label)`
+  // sends to PostHog, so renaming one silently splits a funnel.
+  //
+  // The predicates no longer classify free text — `mentors.price` is a closed
+  // grammar since D87, so each is an integer comparison via lib/price.
   byPrice: {
-    Free: (price) => isPriceFree(price),
+    Free: (price) => isFree(price),
+    // Free is in the cheapest bucket, as it was before: a mentee filtering for
+    // "up to $50" wants the free sessions too.
     '≤$50': (price) => {
-      if (isPriceFree(price)) return true
-      const amount = parsePriceAmount(price)
+      if (isFree(price)) return true
+      const amount = fixedAmount(price)
       return amount !== null && amount <= 50
     },
     '$50–100': (price) => {
-      const amount = parsePriceAmount(price)
+      const amount = fixedAmount(price)
       return amount !== null && amount > 50 && amount <= 100
     },
     '$100–200': (price) => {
-      const amount = parsePriceAmount(price)
+      const amount = fixedAmount(price)
       return amount !== null && amount > 100 && amount <= 200
     },
     '$200+': (price) => {
-      const amount = parsePriceAmount(price)
+      const amount = fixedAmount(price)
       return amount !== null && amount > 200
     },
-    Negotiable: (price) =>
-      /negotiable/i.test(price) || (parsePriceAmount(price) === null && !isPriceFree(price)),
+    // A value that does not parse lands here rather than nowhere, which is
+    // where the free-text classifier put it too. Nothing in the database should
+    // reach this branch since mentors_price_chk, but a bucket that silently
+    // drops a mentor from every filter is worse than one that over-collects.
+    Negotiable: (price) => {
+      const value = parsePrice(price)
+      return value === null || value.kind === 'negotiable'
+    },
   },
 }
 

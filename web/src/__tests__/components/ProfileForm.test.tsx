@@ -69,8 +69,12 @@ function renderForm(overrides: Partial<MentorWithSecureFields> = {}): void {
   )
 }
 
-function priceSelect(): HTMLSelectElement {
-  return screen.getByLabelText(/Price per one-hour session/i) as HTMLSelectElement
+function pricePill(name: RegExp): HTMLInputElement {
+  return screen.getByRole('radio', { name }) as HTMLInputElement
+}
+
+function amountBox(): HTMLInputElement {
+  return screen.getByLabelText(/Price in US dollars/i) as HTMLInputElement
 }
 
 /** Edit an unrelated field and save — the path that used to destroy the price. */
@@ -88,16 +92,14 @@ describe('ProfileForm', () => {
     jest.clearAllMocks()
   })
 
-  // `price` is a free-text column (DECISIONS D3) and these are only
-  // suggestions, so a stored value outside the list must survive an edit to
-  // any other field. It used to be reported as the first option, 'Free'.
-  it.each(['$75', '$30 / hour', '$5', '$125'])(
-    'keeps a stored price outside the suggestion list: %s',
+  // D44 in its new form. The old <select> reported its FIRST option when the
+  // stored value matched none, silently rewriting a mentor's price to 'Free' on
+  // an unrelated save. There is no first option to fall into any more, but the
+  // invariant is the same: a stored price survives an edit to another field.
+  it.each(['$75', '$5', '$125', '$1', '$1000', 'Free', 'Negotiable'])(
+    'keeps the stored price %s across an unrelated edit',
     async (price) => {
       renderForm({ price })
-
-      expect(priceSelect().value).toBe(price)
-      expect(screen.getByRole('option', { name: price, selected: true })).toBeInTheDocument()
 
       await editNameAndSave()
 
@@ -107,27 +109,84 @@ describe('ProfileForm', () => {
     }
   )
 
-  it('round-trips a price that is one of the suggestions', async () => {
-    renderForm({ price: '$100' })
+  it('prefills the amount pill and box from a stored fixed price', async () => {
+    renderForm({ price: '$75' })
 
-    expect(priceSelect().value).toBe('$100')
-    // No duplicate option was injected for a value already on the list.
-    expect(screen.getAllByRole('option', { name: '$100' })).toHaveLength(1)
-
-    await editNameAndSave()
-
-    expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({ price: '$100' }))
+    expect(pricePill(/Fixed amount, \$75/i)).toBeChecked()
+    expect(amountBox().value).toBe('75')
+    expect(pricePill(/^Free$/i)).not.toBeChecked()
   })
 
-  it('still lets the mentor pick a suggested price', async () => {
+  it('lets the mentor switch to Negotiable', async () => {
     const user = userEvent.setup()
     renderForm({ price: '$75' })
 
-    await user.selectOptions(priceSelect(), 'Negotiable')
+    await user.click(pricePill(/^Negotiable$/i))
     await user.click(screen.getByRole('button', { name: /Save/i }))
 
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled())
     expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({ price: 'Negotiable' }))
+  })
+
+  it('lets the mentor type an amount the old dropdown never offered', async () => {
+    const user = userEvent.setup()
+    renderForm({ price: 'Free' })
+
+    await user.click(pricePill(/Set a fixed amount/i))
+    await user.type(amountBox(), '137')
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled())
+    expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({ price: '$137' }))
+  })
+
+  // Switching away from the amount must drop it, or the form submits
+  // {kind: 'free', amount: 137} — which mentors_price_chk rejects as a 500 from
+  // the repository instead of as a field error the mentor can act on.
+  it('drops a typed amount when the mentor switches to Free', async () => {
+    const user = userEvent.setup()
+    renderForm({ price: 'Negotiable' })
+
+    await user.click(pricePill(/Set a fixed amount/i))
+    await user.type(amountBox(), '137')
+    await user.click(pricePill(/^Free$/i))
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled())
+    expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({ price: 'Free' }))
+  })
+
+  it.each(['$0', '$1001', '12345'])('refuses to save the out-of-range amount %s', async (typed) => {
+    const user = userEvent.setup()
+    renderForm({ price: 'Free' })
+
+    await user.click(pricePill(/Set a fixed amount/i))
+    await user.type(amountBox(), typed)
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/whole amount from \$1 to \$1000/i)
+    )
+    expect(mockOnSubmit).not.toHaveBeenCalled()
+  })
+
+  // A value stored before the grammar existed leaves the control unselected
+  // rather than being coerced into a real price — the same refusal to invent a
+  // price that D44's 'Please choose one' placeholder made.
+  it('leaves a stored price outside the grammar unselected and blocks the save', async () => {
+    const user = userEvent.setup()
+    renderForm({ price: '$30 / hour' })
+
+    expect(pricePill(/^Free$/i)).not.toBeChecked()
+    expect(pricePill(/^Negotiable$/i)).not.toBeChecked()
+    expect(pricePill(/Set a fixed amount/i)).not.toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/whole amount from \$1 to \$1000/i)
+    )
+    expect(mockOnSubmit).not.toHaveBeenCalled()
   })
 
   // Same mechanism, same TEXT column: the option set is closed in the UI only.
@@ -158,13 +217,12 @@ describe('ProfileForm', () => {
     const user = userEvent.setup()
     renderForm({ price: '' })
 
-    expect(priceSelect().value).toBe('')
-    expect(screen.getByRole('option', { name: /Please choose one/i })).toBeInTheDocument()
+    expect(pricePill(/^Free$/i)).not.toBeChecked()
 
     await user.click(screen.getByRole('button', { name: /Save/i }))
 
     await waitFor(() =>
-      expect(screen.getAllByText(/This field is required/i).length).toBeGreaterThan(0)
+      expect(screen.getByRole('alert')).toHaveTextContent(/whole amount from \$1 to \$1000/i)
     )
     expect(mockOnSubmit).not.toHaveBeenCalled()
   })
@@ -173,34 +231,51 @@ describe('ProfileForm', () => {
   // SaveProfileRequest, so forwarding the empty string would come back a 400.
   // What matters is that the mentor can clear it in one step — the field is
   // focused and flagged, and choosing a value saves.
-  it.each(['experience', 'price'])(
-    'lets a mentor whose %s was never set save after choosing one',
-    async (field) => {
-      const user = userEvent.setup()
-      const label = field === 'price' ? /Price per one-hour session/i : /Experience/i
-      const chosen = field === 'price' ? 'Negotiable' : '5-10'
-      renderForm({ [field]: '' })
+  it('lets a mentor whose experience was never set save after choosing one', async () => {
+    const user = userEvent.setup()
+    renderForm({ experience: '' })
 
-      const select = screen.getByLabelText(label) as HTMLSelectElement
-      expect(select.value).toBe('')
+    const select = screen.getByLabelText(/Experience/i) as HTMLSelectElement
+    expect(select.value).toBe('')
 
-      await user.click(screen.getByRole('button', { name: /Save/i }))
+    await user.click(screen.getByRole('button', { name: /Save/i }))
 
-      await waitFor(() => expect(screen.getByText(/This field is required/i)).toBeInTheDocument())
-      expect(mockOnSubmit).not.toHaveBeenCalled()
-      // react-hook-form focuses the first invalid field, which scrolls the
-      // message into view rather than leaving Save looking inert.
-      expect(select).toHaveFocus()
+    await waitFor(() => expect(screen.getByText(/This field is required/i)).toBeInTheDocument())
+    expect(mockOnSubmit).not.toHaveBeenCalled()
+    // react-hook-form focuses the first invalid field, which scrolls the
+    // message into view rather than leaving Save looking inert.
+    expect(select).toHaveFocus()
 
-      await user.selectOptions(select, chosen)
-      await user.click(screen.getByRole('button', { name: /Save/i }))
+    await user.selectOptions(select, '5-10')
+    await user.click(screen.getByRole('button', { name: /Save/i }))
 
-      await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled())
-      expect(mockOnSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ [field]: chosen, name: 'Jane Doe' })
-      )
-    }
-  )
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled())
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ experience: '5-10', name: 'Jane Doe' })
+    )
+  })
+
+  // Same guarantee for price. The focus assertion is why PriceField forwards a
+  // ref to its first pill: a <Controller> with no ref cannot be focused, and the
+  // error would sit off-screen with Save looking inert.
+  it('lets a mentor whose price was never set save after choosing one', async () => {
+    const user = userEvent.setup()
+    renderForm({ price: '' })
+
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(mockOnSubmit).not.toHaveBeenCalled()
+    expect(pricePill(/^Free$/i)).toHaveFocus()
+
+    await user.click(pricePill(/^Negotiable$/i))
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled())
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ price: 'Negotiable', name: 'Jane Doe' })
+    )
+  })
 })
 
 describe('ProfileForm calendar URL', () => {

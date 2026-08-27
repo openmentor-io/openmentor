@@ -24,7 +24,7 @@ help:
 	@echo "  advisory-lock-tests     - Postgres advisory-lock namespaces do not collide"
 	@echo "  metrics-keeplist-tests  - Alloy metric keep-lists vs what grafana/ reads"
 
-check: compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests advisory-lock-tests metrics-keeplist-tests
+check: compose-config env-allowlist backup-tests deploy-tests rollback-tests alert-tests alert-fireability-tests alloy-redaction-tests advisory-lock-tests metrics-keeplist-tests migration-mapper-tests
 	@echo "✅ Infra checks passed!"
 
 compose-config:
@@ -94,3 +94,11 @@ advisory-lock-tests:
 # filter covers grafana/**, so a dashboard-only PR still runs this.
 metrics-keeplist-tests:
 	@./metrics-keeplist-test.sh
+
+# mapPrice writes straight into a column mentors_price_chk now constrains, so a
+# regression here aborts a mentor import mid-run on a live database. node is a
+# hard requirement, not a skip: a silently skipped suite reads as green (the
+# dbtest lesson), and every machine that develops this repo has Node anyway.
+migration-mapper-tests:
+	@command -v node >/dev/null || { echo "node is required for migration/mapprice.test.js"; exit 1; }
+	@cd migration && node --test

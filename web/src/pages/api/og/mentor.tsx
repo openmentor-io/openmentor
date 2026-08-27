@@ -40,7 +40,7 @@ import {
   mentorInitialsIndex,
   mentorPastelIndex,
 } from '@/lib/mentor-pastel'
-import { isPriceFree, parsePriceAmount } from '@/config/filters'
+import { fixedAmount, isFree } from '@/lib/price'
 
 const WIDTH = 1200
 const HEIGHT = 630
@@ -124,13 +124,21 @@ function experienceLabel(experience: string): string {
 
 /** "FREE" / "$150" / "NEGOTIABLE" chip text + color (mirrors PriceBadge). */
 function priceChip(price: string): { label: string; color: string } {
-  if (isPriceFree(price)) {
+  if (isFree(price)) {
     return { label: 'FREE', color: MINT_INK }
   }
-  const amount = parsePriceAmount(price)
+  const amount = fixedAmount(price)
   if (amount !== null) {
-    return { label: `$${amount.toLocaleString('en-US')}`, color: NAVY }
+    // Canonical spelling, matching the card and the profile page ("$1000",
+    // no separator) — the social unfurl and the page it links to must not
+    // disagree on the price.
+    return { label: `$${amount}`, color: NAVY }
   }
+  // Unlike the catalog card, a value predating the grammar is NOT rendered
+  // verbatim here but relabelled NEGOTIABLE: the raster is rendered once and
+  // cached, so an odd legacy string would be baked into the share card with
+  // no quick fix, and mentors_price_chk makes the case unreachable for stored
+  // data anyway.
   return { label: 'NEGOTIABLE', color: INK_MUTE }
 }
 

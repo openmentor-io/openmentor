@@ -4,7 +4,7 @@ import classNames from 'classnames'
 import { useEffect, useRef, useState } from 'react'
 import { imageLoader, updatedAtToVersion } from '@/lib/image-loader'
 import { mentorInitialsClass, mentorPastelGradClass } from '@/lib/mentor-pastel'
-import { isPriceFree, parsePriceAmount } from '@/config/filters'
+import { fixedAmount, isFree, parsePrice } from '@/lib/price'
 import analytics from '@/lib/analytics'
 import pluralize from '@/lib/pluralize'
 import type { MentorCardItem } from '@/types'
@@ -34,20 +34,33 @@ function initials(name: string): string {
 }
 
 /**
- * Free-text price -> card meta: FREE (mint ink) / $N (navy) / NEGOTIABLE
- * (stays ink-mute). Classification mirrors config/filters byPrice.
+ * Stored price -> card meta: FREE (mint ink) / $N (navy) / NEGOTIABLE
+ * (stays ink-mute). Classification comes from lib/price, the same place the
+ * byPrice buckets read.
  */
 function PriceMeta({ price }: { price: string }): JSX.Element {
-  if (isPriceFree(price)) {
+  if (isFree(price)) {
     return <span className="text-mint-ink">FREE</span>
   }
 
-  const amount = parsePriceAmount(price)
+  const amount = fixedAmount(price)
   if (amount !== null) {
-    return <span className="text-brand-navy">${amount.toLocaleString('en-US')}</span>
+    // The canonical spelling, NOT toLocaleString: the profile page, the
+    // contact recap and the confirmation email all render the stored "$1000",
+    // and a card that says "$1,000" while the page it links to says "$1000"
+    // reads as two different prices. One spelling everywhere.
+    return <span className="text-brand-navy">${amount}</span>
   }
 
-  return <span>NEGOTIABLE</span>
+  if (parsePrice(price)?.kind === 'negotiable') {
+    return <span>NEGOTIABLE</span>
+  }
+
+  // Predates the grammar, so mentors_price_chk makes this unreachable for
+  // stored data. Render it verbatim rather than as NEGOTIABLE: claiming a
+  // mentor is open to negotiating when they wrote something else is worse than
+  // showing an odd string.
+  return <span>{price}</span>
 }
 
 function MentorCard({

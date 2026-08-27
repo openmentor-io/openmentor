@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/openmentor-io/openmentor/api/internal/cache"
+	"github.com/openmentor-io/openmentor/api/pkg/price"
 	"github.com/openmentor-io/openmentor/api/test/dbtest"
 	"github.com/stretchr/testify/require"
 )
@@ -84,6 +85,10 @@ func seedFullMentor(t *testing.T, pool *pgxpool.Pool, columns []dbtest.Column, s
 
 	written := dbtest.FillNullable(t, pool, "mentors", fillable, id, suffix, map[string]string{
 		"login_token_expires_at": futureExpiry,
+		// mentors_price_chk (000014) accepts only the canonical grammar, which
+		// the generic per-column text filler cannot produce — without this the
+		// seed INSERT fails and every subtest blames its own column.
+		"price": price.Value{Kind: price.Fixed, Amount: 50}.String(),
 	})
 
 	// login_token has to hold a hash rather than the filler text, or

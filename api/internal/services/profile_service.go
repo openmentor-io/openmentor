@@ -14,6 +14,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
 	"github.com/openmentor-io/openmentor/api/pkg/logger"
 	"github.com/openmentor-io/openmentor/api/pkg/metrics"
+	"github.com/openmentor-io/openmentor/api/pkg/price"
 	"github.com/openmentor-io/openmentor/api/pkg/redact"
 	"github.com/openmentor-io/openmentor/api/pkg/s3storage"
 	"github.com/openmentor-io/openmentor/api/pkg/safego"
@@ -163,7 +164,12 @@ func (s *ProfileService) SaveProfileByMentorId(ctx context.Context, mentorID str
 		"mentor_id":        mentorID,
 		"tags_count":       len(tagIDs),
 		"has_calendar_url": strings.TrimSpace(req.CalendarURL) != "",
-		"outcome":          "success",
+		// Bounded (free/negotiable/fixed/invalid), never the raw price — and an
+		// EVENT property only: the column map above is fed to
+		// buildMentorUpdate, whose allowlist rejects any non-column key, so an
+		// analytics dimension placed there fails every save (PR review).
+		"price_kind": price.KindLabel(req.Price),
+		"outcome":    "success",
 	})
 	logger.Info("Mentor profile updated via session",
 		zap.String("mentor_id", mentorID))

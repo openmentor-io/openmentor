@@ -375,13 +375,17 @@ assert_eq 'exactly one read-only REPEATABLE READ transaction' \
 assert_eq 'exactly one COMMIT' "$(count_of 'COMMIT;')" 1
 
 # `price` is nullable TEXT with no default (migration 000001), so a NULL is a
-# value the schema permits and is not one of the six select options either — and
-# it is the worse case, since ScanMentor fails the whole row on it
-# (models/mentor.go:23,138: Mentor.Price is a plain string). A `price IS NOT NULL`
-# filter therefore hid an exposed row from D2b, D2c and the summary count.
-# `experience` has the same shape, which is why D2d always counted NULL.
-assert_absent 'D2 no longer filters NULL prices out of the exposure set' \
-    "$sql_statements" 'price IS NOT NULL'
+# value the schema permits — and the worse case, since ScanMentor fails the
+# whole row on it (models/mentor.go:23,138: Mentor.Price is a plain string). A
+# bare `price IS NOT NULL` filter once HID such rows from D2b, D2c and the
+# summary entirely. Post-D87, D2b deliberately PARTITIONS instead: `IS NOT
+# NULL AND !~ grammar` counts constraint-missing evidence, `IS NULL` counts
+# permitted-but-suspect data — so the phrase `price IS NOT NULL` is allowed
+# exactly where its complement is counted alongside (D2b's FILTER pair and the
+# summary's paired subqueries), and NULLs can no longer vanish. Pin the
+# partition on both sides rather than banning the phrase.
+assert_eq 'price IS NOT NULL appears only as the violation side of the D2b partition' \
+    "$(count_of 'price IS NOT NULL')" 2
 assert_eq 'NULL prices counted in D2b, D2c and the summary' \
     "$(count_of 'WHERE price IS NULL')" 3
 assert_eq 'D2d still counts NULL experience the same way' \
@@ -818,12 +822,23 @@ INSERT INTO mentors (id, slug, name, status, email, sort_order, activated_at, ai
 VALUES
   ('11111111-1111-1111-1111-111111111111','stuck-one','Stuck One','draft','stuck@example.invalid',
    NULL, NULL, NULL, '$50', '2-5', NULL),
+  -- '$30' rather than the '$30 / hour' this row used to carry: mentors_price_chk
+  -- (000014) refuses the free-text shape, and one rejected value in this
+  -- multi-row INSERT takes every other fixture row with it. `experience` stays
+  -- off-list ('lots') — THAT column still has the uncontrolled-select bug, which
+  -- is what D2d is for.
   ('22222222-2222-2222-2222-222222222222','imported-one','Imported One','inactive','imported@example.invalid',
-   NULL, NULL, 'getmentor:4242', '$30 / hour', 'lots', NULL),
+   NULL, NULL, 'getmentor:4242', '$30', 'lots', NULL),
+  -- This row used to carry '<a href="https://evil.example/pay">$50</a>': the
   -- mentor-supplied price reaches {{request_price}} in new-request /
-  -- new-request-calendly, unescaped
+  -- new-request-calendly UNESCAPED, so the column was a live injection sink.
+  -- mentors_price_chk closes it by construction — markup is no longer a storable
+  -- price — so the fixture cannot seed it and D3 has nothing to find here. The
+  -- assertion that replaced it proves the stronger property: the INSERT is
+  -- refused. D3 keeps its price branch anyway, for a database whose constraint
+  -- has been rolled back below 000014.
   ('44444444-4444-4444-4444-444444444444','price-injected','Price Injected','active','priceinj@example.invalid',
-   11, now(), NULL, '<a href="https://evil.example/pay">$50</a>', '10+', NULL),
+   11, now(), NULL, '$50', '10+', NULL),
   ('55555555-5555-5555-5555-555555555555','clean','Clean Mentor','active','clean@example.invalid',
    12, now(), NULL, '$100', '10+', 'https://cal.example/clean'),
   -- calendar_url reaches href="{{calendly_url}}" in new-request-calendly. This
@@ -886,7 +901,6 @@ FIXTURES
     body="$(cat "$report")"
     d3="$(awk '/^## D3 /{f=1;next} /^## D4 /{f=0} f' "$report")"
     assert_contains 'D3 finds the preferred_contact injection'  "$d3" 'client_requests.preferred_contact'
-    assert_contains 'D3 finds the price injection'              "$d3" 'mentors.price'
     assert_contains 'D3 still finds the description injection'  "$d3" 'client_requests.description'
     # The https:// payload row. Its id, not just the field label, so this cannot
     # pass on a non-https row instead.
@@ -900,20 +914,43 @@ FIXTURES
     assert_contains 'D3 finds an unlisted tag (<iframe>) in a description' \
         "$d3" 'aaaaaaaa-0000-0000-0000-000000000004'
     assert_contains 'D3 finds markup in a moderation note'  "$d3" 'mentors.moderation_note'
+    # Five, not six: mentors.price can no longer hold markup at all (D87), so
+    # the row that used to supply the sixth hit is refused by the database
+    # instead of reported by D3. The assertion below proves that refusal.
     assert_eq       'D3 detail row count' \
-        "$(printf '%s\n' "$d3" | grep -cE '\| (client_requests|mentors|reviews)\.')" 6
-    assert_contains 'the D3 summary count agrees with the detail rows' "$body" '6 markup / non-https hits'
+        "$(printf '%s\n' "$d3" | grep -cE '\| (client_requests|mentors|reviews)\.')" 5
+    assert_contains 'the D3 summary count agrees with the detail rows' "$body" '5 markup / non-https hits'
 
-    # D2b/D2c/D2d exposure. Off-list prices in the fixtures: '$30 / hour'
-    # (imported), the <a href> price, and the NULL — three rows, and the NULL is
-    # the one a `price IS NOT NULL` filter dropped from both the count and the
-    # value list.
+    # The price injection sink, closed by construction rather than detected.
+    if test_psql -c "INSERT INTO mentors (slug, name, status, price) VALUES ('d3-price-markup','X','active','<a href=\"https://evil.example/pay\">\$50</a>')" >/dev/null 2>"$WORK/price-markup.err"; then
+        fail 'mentors_price_chk refuses markup in a price' 'the INSERT was accepted'
+    elif grep -q 'mentors_price_chk' "$WORK/price-markup.err"; then
+        pass 'mentors_price_chk refuses markup in a price'
+    else
+        fail 'mentors_price_chk refuses markup in a price' "$(cat "$WORK/price-markup.err")"
+    fi
+
+    # D2b/D2c/D2d exposure. D2b flags what the GRAMMAR rejects now, not what the
+    # old six-option select could not represent (D87) — so '$30' and the former
+    # markup price are no longer hits, and the NULL row is the only one left. It
+    # is still a hit because mentors_price_chk is a CHECK, and a CHECK is
+    # satisfied by NULL; it is also the case a `price IS NOT NULL` filter once
+    # dropped from both the count and the value list.
     d2b="$(awk '/^## D2b /{f=1;next} /^## D2c /{f=0} f' "$report")"
     d2c="$(awk '/^## D2c /{f=1;next} /^## D2d /{f=0} f' "$report")"
-    assert_contains 'D2b counts the NULL price as exposed' "$d2b" '3'
+    # Two columns now: non-NULL grammar violations (impossible while the
+    # constraint stands, so expect 0 even with the NULL fixture present) and
+    # NULL prices (the fixture seeds exactly one, and it must NOT be reported
+    # as a missing constraint — a CHECK is satisfied by NULL).
+    d2b_row="$(printf '%s\n' "$d2b" | grep -E '^ *[0-9]+ *\| *[0-9]+' | head -1)"
+    assert_eq 'D2b reports zero non-NULL grammar violations' \
+        "$(printf '%s' "$d2b_row" | awk -F'|' '{gsub(/ /,"",$1); print $1}')" 0
+    assert_eq 'D2b counts the NULL price separately, not as a violation' \
+        "$(printf '%s' "$d2b_row" | awk -F'|' '{gsub(/ /,"",$2); print $2}')" 1
     assert_contains 'D2c shows the NULL price as its own bucket' "$d2c" '<NULL>'
-    assert_contains 'the D2b summary count agrees with the detail query' \
-        "$body" '3 mentor row(s) hold an off-list price'
+    assert_absent 'D2c no longer reports a representable amount as off-grammar' "$d2c" '$30'
+    assert_contains 'the D2b summary distinguishes violations from NULLs' \
+        "$body" '0 non-NULL off-grammar price row(s) (any means mentors_price_chk is MISSING) + 1 NULL price row(s)'
 
     # One snapshot: commit a matching row from a second connection after the
     # detail queries have run but before the summary. Without the transaction the

@@ -4,6 +4,8 @@ import classNames from 'classnames'
 import { useForm, Controller } from 'react-hook-form'
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import Wysiwyg from './Wysiwyg'
+import PriceField from './PriceField'
+import { formatPrice, isValidPrice, type PriceValue } from '@/lib/price'
 import filters from '@/config/filters'
 import { MAX_IMAGE_FILE_BYTES, MAX_IMAGE_FILE_LABEL } from '@/config/uploads'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -33,7 +35,12 @@ interface RegisterFormData {
   job: string
   workplace: string
   experience: string
-  price: string
+  /**
+   * Edited as a {kind, amount} pair and serialized to its canonical string on
+   * submit — "fixed with no amount yet" is a state the stored string has no
+   * spelling for. Null until the mentor picks one; nothing is preselected.
+   */
+  price: PriceValue | null
   tags: string[]
   about: string
   description: string
@@ -280,7 +287,19 @@ export default function RegisterMentorForm({
       contentType: selectedImage.type,
     }
 
-    onSubmit({ ...data, username: data.username?.trim() || undefined, profilePicture, captchaToken })
+    // The Controller's rule already blocks an incomplete price, so a null here
+    // means that rule and formatPrice disagree — drop the submit rather than
+    // register a mentor at a price they did not choose.
+    const price = data.price === null ? null : formatPrice(data.price)
+    if (price === null) return
+
+    onSubmit({
+      ...data,
+      price,
+      username: data.username?.trim() || undefined,
+      profilePicture,
+      captchaToken,
+    })
   }
 
   // ── Progress rail: best-effort section completion from form state ─────
@@ -308,7 +327,11 @@ export default function RegisterMentorForm({
           values.job?.trim() &&
           values.workplace?.trim() &&
           values.experience &&
-          values.price
+          // Not just "a kind is chosen": "Set an amount" with an empty box
+          // would otherwise mark the section complete and send the mentor on to
+          // a submit the Controller's rule then blocks.
+          values.price !== null &&
+          isValidPrice(values.price)
       ),
     },
     {
@@ -706,25 +729,28 @@ export default function RegisterMentorForm({
               </div>
 
               <div>
-                <label htmlFor="price" className={labelClass}>
-                  Price per one-hour session
-                  {requiredMark}
-                </label>
-
-                <select
-                  {...register('price', { required: true })}
-                  id="price"
-                  className={classNames('field', errors.price && 'field-error')}
-                >
-                  <option value="">Select price</option>
-                  {filters.price.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-
-                {errors.price && fieldError(requiredText)}
+                <Controller
+                  control={control}
+                  name="price"
+                  defaultValue={null}
+                  rules={{ validate: (value) => value !== null && isValidPrice(value) }}
+                  render={({ field }) => (
+                    <PriceField
+                      value={field.value}
+                      onChange={field.onChange}
+                      inputRef={field.ref}
+                      label="Price per one-hour session"
+                      labelClassName={labelClass}
+                      requiredMark={requiredMark}
+                      invalid={Boolean(errors.price)}
+                      error={
+                        errors.price
+                          ? 'Choose Free, Negotiable, or a whole amount from $1 to $1000.'
+                          : undefined
+                      }
+                    />
+                  )}
+                />
               </div>
             </div>
           </section>

@@ -16,10 +16,13 @@ package dbtest
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,12 +85,17 @@ func ensureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		_, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, int64(schemaLockKey)) //nolint:errcheck // released with the connection anyway
 	}()
 
-	var exists bool
-	if scanErr := conn.QueryRow(ctx, `SELECT to_regclass('mentors') IS NOT NULL`).Scan(&exists); scanErr != nil {
+	// A database owned by cmd/migrate (the compose dev stack) is NEVER mutated
+	// here — only verified. The first version of this adoption seeded the
+	// ledger from schema_migrations and then applied the newer files itself,
+	// which left schema_migrations behind: the NEXT cmd/migrate run walks
+	// forward from its recorded version, re-attempts those same files, and
+	// fails the dev stack on a duplicate constraint. Ownership is binary — if
+	// golang-migrate's table exists, golang-migrate is the only writer.
+	var migrateOwned bool
+	if scanErr := conn.QueryRow(ctx,
+		`SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&migrateOwned); scanErr != nil {
 		return scanErr
-	}
-	if exists {
-		return nil
 	}
 
 	files, err := filepath.Glob(filepath.Join(migrationsDir(), "*.up.sql"))
@@ -95,18 +103,142 @@ func ensureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 	sort.Strings(files)
+
+	if migrateOwned {
+		return verifyMigrateOwnedCurrent(ctx, conn, files)
+	}
+
+	// Applied files are tracked by name in a bookkeeping table rather than by
+	// a bare "does mentors exist" probe. The probe had a silent failure mode on
+	// exactly the container this package's docs tell people to keep around: a
+	// long-lived database bootstrapped before a new migration landed would
+	// short-circuit here and never receive it, and the first symptom was a test
+	// failing on a missing column with nothing pointing at the stale schema
+	// (000015's price_amount was found this way). Names, not a high-water
+	// version: the point is only to re-apply the tail after a rebase, and names
+	// need no parsing.
+	if _, err = conn.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS dbtest_applied_migrations (filename text PRIMARY KEY)
+	`); err != nil {
+		return err
+	}
+
+	var hasMentors, hasRecords bool
+	if scanErr := conn.QueryRow(ctx, `SELECT to_regclass('mentors') IS NOT NULL,
+		EXISTS (SELECT 1 FROM dbtest_applied_migrations)`).Scan(&hasMentors, &hasRecords); scanErr != nil {
+		return scanErr
+	}
+	if hasMentors && !hasRecords {
+		// Schema without provenance: a long-lived container bootstrapped by
+		// this package before the ledger existed. Which files built it is
+		// unprovable, so refuse with the fix in the message rather than guess —
+		// an earlier version recorded every current file as applied, which
+		// preserved the exact staleness bug the ledger exists to fix.
+		return fmt.Errorf("dbtest: this database has the schema but no record of which migrations " +
+			"built it (it predates dbtest's migration ledger); recreate the throwaway container " +
+			"(docker rm -f + docker run, see the package docs) rather than guessing")
+	}
+
 	for _, file := range files {
-		sql, readErr := os.ReadFile(file) //nolint:gosec // fixed in-repo migrations directory
-		if readErr != nil {
-			return readErr
-		}
-		// pgx sends argument-less queries over the simple protocol, so a whole
-		// multi-statement migration file goes in one Exec.
-		if _, execErr := conn.Exec(ctx, string(sql)); execErr != nil {
-			return execErr
+		if err := applyIfPending(ctx, conn, file); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// verifyMigrateOwnedCurrent checks — without writing anything — that a
+// golang-migrate-managed database is at the checkout's newest migration. Tests
+// may READ such a database (the compose dev stack keeps it current), but the
+// moment it is behind, the fix belongs to cmd/migrate, not to this package.
+func verifyMigrateOwnedCurrent(ctx context.Context, conn *pgxpool.Conn, files []string) error {
+	var version int64
+	var dirty bool
+	if err := conn.QueryRow(ctx,
+		`SELECT version, dirty FROM schema_migrations`).Scan(&version, &dirty); err != nil {
+		return fmt.Errorf("dbtest: reading schema_migrations: %w", err)
+	}
+	if dirty {
+		return fmt.Errorf("dbtest: schema_migrations reports version %d DIRTY — a migration "+
+			"failed half-way on this database; repair it with cmd/migrate before running tests", version)
+	}
+
+	newest, err := newestFileVersion(files)
+	if err != nil {
+		return err
+	}
+	if version < newest {
+		return fmt.Errorf("dbtest: this database is managed by cmd/migrate and is at version %d, "+
+			"but the checkout has migrations up to %d. Update it with cmd/migrate (compose dev: "+
+			"re-run the migrate service) or point %s at a throwaway container — dbtest will not "+
+			"apply migrations behind golang-migrate's back, because its next run would re-attempt "+
+			"them and fail", version, newest, URLEnv)
+	}
+	// Ahead is as wrong as behind: a database migrated by a NEWER branch has
+	// constraints and columns this checkout knows nothing about, so tests
+	// would validate against the wrong schema and fail in misleading ways
+	// (the nullable-column tests literally enumerate the live schema).
+	if version > newest {
+		return fmt.Errorf("dbtest: this database is managed by cmd/migrate and is at version %d, "+
+			"AHEAD of this checkout's newest migration %d — it was migrated by a newer branch. "+
+			"Switch to that branch or point %s at a throwaway container", version, newest, URLEnv)
+	}
+	return nil
+}
+
+// newestFileVersion reads the numeric prefix of the last NNNNNN_title.up.sql.
+func newestFileVersion(files []string) (int64, error) {
+	if len(files) == 0 {
+		return 0, fmt.Errorf("dbtest: no migration files found")
+	}
+	name := filepath.Base(files[len(files)-1])
+	prefix, _, ok := strings.Cut(name, "_")
+	version, err := strconv.ParseInt(prefix, 10, 64)
+	if !ok || err != nil {
+		return 0, fmt.Errorf("dbtest: cannot read a version out of migration filename %q", name)
+	}
+	return version, nil
+}
+
+// applyIfPending runs one migration file unless dbtest_applied_migrations
+// already records it, and records it after a successful apply.
+func applyIfPending(ctx context.Context, conn *pgxpool.Conn, file string) error {
+	var applied bool
+	if err := conn.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM dbtest_applied_migrations WHERE filename = $1)`,
+		filepath.Base(file)).Scan(&applied); err != nil {
+		return err
+	}
+	if applied {
+		return nil
+	}
+	sql, err := os.ReadFile(file) //nolint:gosec // fixed in-repo migrations directory
+	if err != nil {
+		return err
+	}
+	// One transaction for the file AND its ledger row: applied-but-unrecorded
+	// is a wedged database — the next run re-attempts a non-idempotent
+	// migration and fails on a duplicate column until someone recreates the
+	// container. Safe to wrap because no migration here uses a statement that
+	// refuses transactions (CREATE INDEX CONCURRENTLY and friends) — the same
+	// property cmd/migrate's per-migration transaction already relies on, so a
+	// future migration that needed one would fight production first.
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // no-op after commit
+
+	// pgx sends argument-less queries over the simple protocol, so a whole
+	// multi-statement migration file goes in one Exec.
+	if _, err := tx.Exec(ctx, string(sql)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO dbtest_applied_migrations (filename) VALUES ($1)`, filepath.Base(file)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // migrationsDir resolves api/migrations from this file's own location, so the

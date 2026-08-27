@@ -303,10 +303,25 @@ unknown email", which sends whoever debugs it looking for a typo).
 2. **Then** restore values.
 
 Backwards, and the mentor's next profile save re-clobbers everything you just
-restored. Note also that restoring a price to an off-list value like `$30` puts
-that mentor straight back into the D2b exposure set — the off-list value *is*
-the exposure. Either the form fix landed, or restoring makes the problem
-recur.
+restored.
+
+> **The price half of step 1 has shipped (D87).** `ProfileForm.tsx` no longer
+> renders price as a `<select>` at all — it is a pill group over a closed
+> grammar (`Free` / `Negotiable` / any whole `$1`–`$1000`), a radio group has no
+> first option to fall into, and `mentors_price_chk` refuses anything outside
+> the grammar. Two consequences for this runbook:
+>
+> - **Restoring a price no longer re-arms the bug.** `$30` is a value the form
+>   renders and round-trips, so it is not "exposure" any more; the old warning
+>   that restoring an off-list value put the mentor straight back at risk no
+>   longer applies. D2b was repointed to match — it now flags rows the *grammar*
+>   rejects, and expects zero.
+> - **A restore must be canonical.** `$30 / hour`, `75 USD` and `''` are not
+>   storable; the write-back will be refused by the constraint rather than
+>   silently accepted. Convert to `$30`, `$75`, or ask the mentor.
+>
+> **`experience` is unchanged and still exposed** — see the paragraph below.
+> Everything in §D2 continues to apply to it verbatim.
 
 **Fix `experience` in the same change.** `diagnostics.sql` D2d covers it: the
 `experience` select (`ProfileForm.tsx:404-409`) has the identical defect and
@@ -426,13 +441,15 @@ evidence the bug did it. A mentor who deliberately switched to `Free` after the
 dump was taken matches all three conditions exactly. §D2.2 above says D2a is a
 candidate list, not a list of victims; that applies here too.
 
-There is one hard filter, and it comes straight from the mechanism. The select
-offers `Free, $50, $100, $150, $200, Negotiable`
-(`web/src/config/filters.ts` → `filters.price`) and is rendered
-`<select {...register('price')} defaultValue={mentor.price}>`
-(`ProfileForm.tsx:426`). If the stored price **is** one of those six, the browser
-selects that option and the value round-trips correctly. The clobber can only
-happen when the stored price was **off-list**.
+There is one hard filter, and it comes straight from the mechanism. **This
+describes the form as it was when the clobbering happened** — the six-option
+select is gone (D87), but the historical signature below is still how you read a
+dump taken while it was live. The select offered `Free, $50, $100, $150, $200,
+Negotiable` and was rendered
+`<select {...register('price')} defaultValue={mentor.price}>`. If the stored
+price **was** one of those six, the browser selected that option and the value
+round-tripped correctly. The clobber can only have happened when the stored
+price was **off-list**.
 
 | Dump's price | Can the select bug explain production's `Free`? | Action |
 |---|---|---|
@@ -544,10 +561,18 @@ explicitly.
 
 Applies only to rows carrying the import marker
 (`airtable_id LIKE 'getmentor:%'`). `mapPrice`
-(`infra/migration/migrate-mentors.js:393-410`) is deterministic, so given the
+(`infra/migration/migrate-mentors.js`) is deterministic, so given the
 getmentor.dev source row you can recompute exactly what was imported.
 
-**`mapPrice`, exactly, in order (read the file; this is a transcription):**
+> **The function below is the one that ran BEFORE D87 — keep using it here.**
+> A pre-D87 import wrote its output verbatim, so these are the rules that
+> reproduce what the corrupted row *used to hold*. The live `mapPrice` has
+> since been rewritten to emit only the canonical grammar (leading amount
+> respelled `$N`, out-of-range → `Negotiable`; pinned by
+> `infra/migration/mapprice.test.js`), so re-running today's importer does NOT
+> reproduce a pre-D87 value.
+
+**Pre-D87 `mapPrice`, exactly, in order (historical transcription):**
 
 1. `raw = price.trim()`.
 2. `raw === ''`, or it matches `/бесплатно/i`, or `/^free$/i` → `'Free'`.
@@ -568,8 +593,10 @@ Two things that make this less certain than it looks:
 - **The conversion rate is not recorded in the database.**
   `RUB_TO_USD_RATE` defaults to `100` (`migrate-mentors.js:143`) and is read
   from `infra/migration/.env`. The only place the rate actually used is written
-  down is the migration run output, in a note line of the form
-  `price: "<raw>" -> "$<usd>" (rate <rate> RUB/USD)`. If you do not have that
+  down is the migration run output, in a note line naming the rate — the pre-D87
+  importer wrote `price: "<raw>" -> "$<usd>" (rate <rate> RUB/USD)`; the current
+  one writes the same rate but never quotes the raw value (free text in a log).
+  If you do not have that
   log and cannot confirm the rate, **say the recomputed value is uncertain
   rather than writing a guess into production.**
 - **A recompute reproduces what was *imported*, not necessarily what was
@@ -594,6 +621,14 @@ SELECT legacy_id, slug, price, experience FROM mentors WHERE legacy_id = <source
 Then apply the rules above by hand. There will be very few rows (the dev
 database had three distinct off-list values), and hand-application is auditable
 in a way a throwaway script is not.
+
+**Before feeding the result into the §D2.3 write-back, make it canonical** —
+`mentors_price_chk` refuses anything else, so this is enforced, not advisory:
+a recomputed `$30 / hour` is written back as `$30`, `75 USD` as `$75`, and an
+amount over `$1000` (or a value you cannot confidently convert) goes to the
+mentor as a question, not into the column. The recomputed *historical* value
+still belongs in your notes and in the mentor email ("our records show you
+charged `$30 / hour`"); only the write-back is constrained.
 
 Two traps worth knowing before you try to shortcut this:
 

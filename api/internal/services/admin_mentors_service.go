@@ -11,6 +11,7 @@ import (
 	"github.com/openmentor-io/openmentor/api/internal/repository"
 	"github.com/openmentor-io/openmentor/api/pkg/analytics"
 	"github.com/openmentor-io/openmentor/api/pkg/httpclient"
+	"github.com/openmentor-io/openmentor/api/pkg/price"
 	"github.com/openmentor-io/openmentor/api/pkg/trigger"
 )
 
@@ -202,6 +203,10 @@ func (s *AdminMentorsService) UpdateMentorProfile(
 
 	s.trackAdminProfileUpdate(ctx, session, mentorID, "success", map[string]interface{}{
 		"tags_count": len(tagIDs),
+		// Bounded (free/negotiable/fixed/invalid), never the raw price. Event
+		// property only — buildProfileUpdates' map names database columns and
+		// the repository allowlist rejects anything else (PR review).
+		"price_kind": price.KindLabel(req.Price),
 	})
 	return s.mentorRepo.GetForModerationByID(ctx, mentorID)
 }

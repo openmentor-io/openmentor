@@ -25,7 +25,7 @@ function mentor(index: number): MentorListItem {
     about: null,
     competencies: 'Go, PostgreSQL, Kubernetes, distributed systems, code review, career growth',
     experience: '10+',
-    price: '$120 / hour',
+    price: '$120',
     tags: ['Backend', 'System Design'],
     menteeCount: 7,
     sessionsCount: 12,

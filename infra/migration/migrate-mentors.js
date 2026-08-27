@@ -9,7 +9,8 @@
  *   - profile text (about/details/competencies/job title/workplace) is
  *     translated RU -> EN with the Claude API; the mentor's name is
  *     romanized; HTML markup is preserved
- *   - enum-like fields are mapped to the new data model (price RUB -> USD
+ *   - enum-like fields are mapped to the new data model (price RUB -> USD in
+ *     $5 steps within the D87 grammar — Free | Negotiable | $1..$1000, DB-enforced;
  *     buckets per DECISIONS D3, tags RU -> EN onto the seeded tag set,
  *     experience passes through)
  *   - identity fields (email, calendar_url, privacy, sort_order,
@@ -391,23 +392,12 @@ async function fetchSourceMentor(source, slug) {
 // Field mapping (enum-like fields -> new data model)
 // ---------------------------------------------------------------------------
 
+// Extracted to price-mapping.js so the test can require it without the
+// import stack; the wrapper binds the operator-configured RUB rate.
+const { mapPrice: mapPriceRaw } = require('./price-mapping');
+
 function mapPrice(price, notes) {
-  const raw = price.trim();
-  if (raw === '' || /бесплатно/i.test(raw) || /^free$/i.test(raw)) {
-    if (raw === '') notes.push('price: empty -> Free');
-    return 'Free';
-  }
-  if (/договор/i.test(raw) || /negotiable/i.test(raw)) return 'Negotiable';
-  const match = raw.replace(/\s+/g, '').match(/^(\d+)(?:руб|р|₽)/i);
-  if (match) {
-    const rub = Number(match[1]);
-    const usd = Math.max(5, Math.round(rub / config.rubToUsdRate / 5) * 5);
-    notes.push(`price: "${raw}" -> "$${usd}" (rate ${config.rubToUsdRate} RUB/USD)`);
-    return `$${usd}`;
-  }
-  if (/^\$?\d+/.test(raw)) return raw; // already looks like a USD amount
-  notes.push(`price: could not parse "${raw}" -> Negotiable`);
-  return 'Negotiable';
+  return mapPriceRaw(price, notes, config.rubToUsdRate);
 }
 
 function mapExperience(experience, notes) {
@@ -1311,7 +1301,12 @@ function printSummary(mode) {
   );
 }
 
-main().catch((error) => {
-  console.error('Unhandled error:', error);
-  process.exit(1);
-});
+// mapPrice lives in price-mapping.js (exported there for mapprice.test.js);
+// the require.main guard keeps a stray `require()` of this script from
+// kicking off an actual import run.
+if (require.main === module) {
+  main().catch((error) => {
+    console.error('Unhandled error:', error);
+    process.exit(1);
+  });
+}

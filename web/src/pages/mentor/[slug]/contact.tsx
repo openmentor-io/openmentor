@@ -11,7 +11,9 @@ import {
   NoIndexHead,
 } from '@/components'
 import MentorPortrait from '@/components/ui/MentorPortrait'
-import PriceBadge, { classifyPrice } from '@/components/ui/PriceBadge'
+import PriceBadge from '@/components/ui/PriceBadge'
+import { parsePrice } from '@/lib/price'
+import { priceTierLabel } from '@/config/filters'
 import { getOneMentorBySlug } from '@/server/mentors-data'
 import analytics from '@/lib/analytics'
 import { safeHttpUrl } from '@/lib/safe-url'
@@ -88,7 +90,7 @@ export const getServerSideProps = withSSRObservability(_getServerSideProps, 'men
 
 /** Small inline price for the recap card / mobile strip. */
 function RecapPrice({ price }: { price: string }): JSX.Element {
-  const { kind } = classifyPrice(price)
+  const kind = parsePrice(price)?.kind
   if (kind === 'free' || kind === 'negotiable') {
     return <PriceBadge price={price} />
   }
@@ -188,7 +190,8 @@ export default function OrderMentor({
       mentor_id: mentor.mentorId,
       mentor_slug: mentor.slug,
       mentor_experience_years: mentor.experience,
-      mentor_price_tier: mentor.price,
+      mentor_price_tier: priceTierLabel(mentor.price),
+      mentor_price: mentor.price,
       is_visible: mentor.isVisible,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps

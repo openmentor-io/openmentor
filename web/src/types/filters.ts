@@ -19,9 +19,8 @@ export interface FiltersConfig {
   tags: string[]
   /** Ordered topic tabs for the catalog tab bar (redesign Phase A) */
   categories: FilterCategory[]
-  price: string[]
   experience: Record<string, string>
-  /** Price filter buckets: label -> predicate over the free-text price (DECISIONS D3) */
+  /** Price filter buckets: label -> predicate over the stored price (D87) */
   byPrice: Record<string, (price: string) => boolean>
 }
 

@@ -89,8 +89,8 @@ Four states (component sheet), chosen by data:
 
 Badges on the photo block: `NEW` (cobalt) wins over `N SESSIONS`
 (white/90). Meta row is `.meta-mono`: `8Y EXP · $50` — price colored FREE
-`mint-ink` / `$N` navy / NEGOTIABLE `ink-mute` (parsing in
-`config/filters.ts` + `PriceBadge`).
+`mint-ink` / `$N` navy / NEGOTIABLE `ink-mute` (parsing in `lib/price.ts`,
+rendered by `MentorsList`'s `PriceMeta` + `PriceBadge`).
 
 ## Motion (all CSS-only)
 

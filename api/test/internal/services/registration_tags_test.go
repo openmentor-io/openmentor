@@ -22,7 +22,7 @@ func registrationFixture(tags []string) *models.RegisterMentorRequest {
 		Job:          "Staff Engineer",
 		Workplace:    "OpenMentor",
 		Experience:   "5-10",
-		Price:        "free",
+		Price:        "Free",
 		Tags:         tags,
 		About:        "about text",
 		Description:  "short description",

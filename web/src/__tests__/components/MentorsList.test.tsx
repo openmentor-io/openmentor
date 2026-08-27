@@ -132,14 +132,14 @@ describe('MentorsList', () => {
     expect(screen.getByText(/2–5Y EXP/)).toBeInTheDocument()
   })
 
-  it('renders the parsed price in navy, FREE in mint ink, and NEGOTIABLE muted', () => {
+  it('renders the amount in navy, FREE in mint ink, and NEGOTIABLE muted', () => {
     render(
       <MentorsList
         mentors={[
           baseMentor,
           { ...baseMentor, id: 2, slug: 'free-mentor', price: 'Free' },
           { ...baseMentor, id: 3, slug: 'nego-mentor', price: 'Negotiable' },
-          { ...baseMentor, id: 4, slug: 'hourly-mentor', price: '$150 / hour' },
+          { ...baseMentor, id: 4, slug: 'top-mentor', price: '$1000' },
         ]}
         hasMore={false}
         onClickMore={() => {}}
@@ -147,9 +147,29 @@ describe('MentorsList', () => {
     )
 
     expect(screen.getByText('$100')).toHaveClass('text-brand-navy')
-    expect(screen.getByText('$150')).toHaveClass('text-brand-navy')
+    // The canonical stored spelling, deliberately NOT '$1,000': every other
+    // surface (profile page, contact recap, email) renders the stored form,
+    // and the card must agree with the page it links to.
+    expect(screen.getByText('$1000')).toHaveClass('text-brand-navy')
     expect(screen.getByText('FREE')).toHaveClass('text-mint-ink')
     expect(screen.getByText('NEGOTIABLE')).toBeInTheDocument()
+  })
+
+  // A value predating the grammar (D87) can no longer be stored, but if one
+  // reaches the card it is shown verbatim rather than relabelled: telling a
+  // mentee the price is negotiable when the mentor wrote something else is a
+  // worse failure than an odd-looking string.
+  it('renders a price outside the grammar verbatim rather than as NEGOTIABLE', () => {
+    render(
+      <MentorsList
+        mentors={[{ ...baseMentor, id: 5, slug: 'legacy-mentor', price: '$150 / hour' }]}
+        hasMore={false}
+        onClickMore={() => {}}
+      />
+    )
+
+    expect(screen.getByText('$150 / hour')).toBeInTheDocument()
+    expect(screen.queryByText('NEGOTIABLE')).not.toBeInTheDocument()
   })
 
   describe('photo states', () => {

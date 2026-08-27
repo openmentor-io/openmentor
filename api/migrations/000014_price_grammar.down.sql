@@ -1,0 +1,13 @@
+-- Reverses 000014 by reopening mentors.price to free text.
+--
+-- CANNOT RESTORE: step 1 of the up-migration rewrote non-canonical values IN
+-- PLACE ('  Free' -> 'Free', '$100 / hour' -> '$100', '50' -> '$50'). Those
+-- originals are not recorded anywhere, so dropping the constraint does not
+-- bring them back — it only stops new ones being rejected. On the production
+-- database as of 2026-08-13 every row already conformed and the up-migration
+-- rewrote nothing, so there is nothing lost to restore there.
+--
+-- Note this does not put the column back the way an older image would want it
+-- either: that image is happy with free text, which is exactly what dropping
+-- the constraint restores. The data loss above is the only irreversible part.
+ALTER TABLE mentors DROP CONSTRAINT IF EXISTS mentors_price_chk;

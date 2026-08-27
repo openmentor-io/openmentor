@@ -314,7 +314,7 @@ func TestMentorProfileHandler_UpdateProfile_ErrorMapping(t *testing.T) {
 	}
 
 	const body = `{"name":"Mentor","job":"Staff Engineer","workplace":"OpenMentor",` +
-		`"experience":"5-10","price":"free","tags":["Backend"],"description":"desc",` +
+		`"experience":"5-10","price":"Free","tags":["Backend"],"description":"desc",` +
 		`"about":"about","competencies":"comps"}`
 
 	for _, tt := range tests {
