@@ -55,3 +55,51 @@ func TestValidateUsername_Invalid(t *testing.T) {
 		}
 	}
 }
+
+// "mentor" and everything built from it is rejected — the stem may appear
+// anywhere in the username, and hyphen/digit spellings fold onto it first.
+func TestValidateUsername_MentorDerivatives(t *testing.T) {
+	for _, u := range []string{
+		// The bare stem and its inflections.
+		"mentor", "mentors", "mentoring", "mentorship", "mentored", "mentorka",
+		// Stem as prefix, suffix and infix.
+		"mentor-anna", "anna-mentor", "topmentor", "the-best-mentor", "mentor1",
+		// Brand-ish compounds (also on the reserved list; still derivatives).
+		"openmentor", "getmentor",
+		// Digit-substitution spellings.
+		"m3nt0r", "men7or", "m3nt0rship", "ment0r-anna",
+	} {
+		err := ValidateUsername(u)
+		if !errors.Is(err, ErrUsernameReserved) {
+			t.Errorf("ValidateUsername(%q) = %v, want it to classify as reserved", u, err)
+		}
+	}
+}
+
+// The stem rule must not swallow names that merely share letters with it.
+func TestValidateUsername_NotMentorDerivatives(t *testing.T) {
+	for _, u := range []string{
+		"anna-smith", "ment", "mento", "menter", "torment", "mentha", "normen",
+		"nemtor", "mentr", "m3nt", "elena-mentz",
+		// The stem must be CONTIGUOUS. Folding hyphens away would catch
+		// "m-e-n-t-o-r", but it would also refuse ordinary names that happen to
+		// span the stem across segments — which is the worse trade.
+		"tim-entorf", "adam-entorf", "me-ntor", "m-e-n-t-o-r",
+	} {
+		if err := ValidateUsername(u); err != nil {
+			t.Errorf("ValidateUsername(%q) = %v, want nil", u, err)
+		}
+	}
+}
+
+// The wrapped sentinel is what carries the specific message; handlers and the
+// availability endpoint still see ErrUsernameReserved (asserted above).
+func TestValidateUsername_MentorDerivativeSentinel(t *testing.T) {
+	err := ValidateUsername("anna-mentor")
+	if !errors.Is(err, ErrUsernameMentorDerivative) {
+		t.Errorf("ValidateUsername(%q) = %v, want ErrUsernameMentorDerivative", "anna-mentor", err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "mentor") {
+		t.Errorf("error message %q should name the offending word", err.Error())
+	}
+}

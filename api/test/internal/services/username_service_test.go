@@ -107,6 +107,11 @@ func TestCheckAvailability_InvalidAndReserved(t *testing.T) {
 		{"admin", "reserved"},      // reserved word
 		{"login", "reserved"},      // mentor-area route
 		{"openmentor", "reserved"}, // brand
+		// "mentor" and anything built from it, wherever the stem sits.
+		{"mentor", "reserved"},
+		{"anna-mentor", "reserved"},
+		{"mentoring", "reserved"},
+		{"m3nt0r", "reserved"},
 	}
 	for _, tc := range cases {
 		res, err := svc.CheckAvailability(context.Background(), tc.input, "")
@@ -299,6 +304,9 @@ func TestChange_ValidationBeforeRepo(t *testing.T) {
 	}
 	if _, err := svc.Change(context.Background(), "mentor-1", "admin", "admin"); !errors.Is(err, slug.ErrUsernameReserved) {
 		t.Fatalf("expected reserved error (also for admins), got %v", err)
+	}
+	if _, err := svc.Change(context.Background(), "mentor-1", "anna-mentor", "mentor"); !errors.Is(err, slug.ErrUsernameMentorDerivative) {
+		t.Fatalf("expected mentor-derivative error, got %v", err)
 	}
 	if repo.changeCalls != 0 {
 		t.Fatal("ChangeSlug must not be called for invalid usernames")
