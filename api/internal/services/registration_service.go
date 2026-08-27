@@ -166,6 +166,7 @@ func (s *RegistrationService) RegisterMentor(ctx context.Context, req *models.Re
 	if username != "" {
 		if err := slug.ValidateUsername(username); err != nil {
 			metrics.MentorRegistrations.WithLabelValues("invalid_username").Inc()
+			recordUsernameRejection(usernameSurfaceRegistration, err)
 			return &models.RegisterMentorResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Invalid username: %s", err.Error()),

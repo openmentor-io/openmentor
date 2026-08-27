@@ -407,29 +407,38 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 		return "", 0, "", fmt.Errorf("name is required")
 	}
 	// claimSlug takes the shared per-slug advisory lock and reports whether the
-	// slug is already an active redirect. Serializing here (and in ChangeSlug)
-	// stops a registration from claiming a slug as its current name while a
-	// concurrent rename is retiring that same slug into history — which would
-	// leave it both a live profile and another mentor's redirect.
+	// slug is spoken for — as a live profile or as an active redirect.
+	// Serializing here (and in ChangeSlug) stops a registration from claiming a
+	// slug as its current name while a concurrent rename is retiring that same
+	// slug into history — which would leave it both a live profile and another
+	// mentor's redirect.
+	//
+	// Live slugs are checked here and not left to the unique constraint because
+	// the generated branch below can only retry what this reports: a generated
+	// name-<id> that lands on a username somebody chose would otherwise abort
+	// the whole registration with ErrSlugTaken, blaming a caller who never
+	// chose a username. The constraint remains the backstop for the race.
 	claimSlug := func(candidate string) (bool, error) {
 		if lockErr := lockSlugs(ctx, tx, candidate); lockErr != nil {
 			return false, lockErr
 		}
-		var redirectTaken bool
+		var taken bool
 		if qErr := tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM mentor_slug_history WHERE slug = $1)`,
+			`SELECT EXISTS (SELECT 1 FROM mentors WHERE slug = $1)
+			     OR EXISTS (SELECT 1 FROM mentor_slug_history WHERE slug = $1)`,
 			candidate,
-		).Scan(&redirectTaken); qErr != nil {
-			return false, fmt.Errorf("failed to check slug history: %w", qErr)
+		).Scan(&taken); qErr != nil {
+			return false, fmt.Errorf("failed to check slug availability: %w", qErr)
 		}
-		return redirectTaken, nil
+		return taken, nil
 	}
 
 	mentorSlug, hasChosenSlug := fields["slug"].(string)
 	hasChosenSlug = hasChosenSlug && mentorSlug != ""
 	if hasChosenSlug {
 		// Caller-chosen username (already normalized+validated). A clash with a
-		// redirect is the user's problem — surface it so they pick another.
+		// live profile or a redirect is the user's problem — surface it so they
+		// pick another.
 		taken, claimErr := claimSlug(mentorSlug)
 		if claimErr != nil {
 			return "", 0, "", claimErr
@@ -438,10 +447,11 @@ func (r *MentorRepository) CreateMentor(ctx context.Context, fields map[string]i
 			return "", 0, "", ErrSlugTaken
 		}
 	} else {
-		// Generated name-<id> slug. The fresh legacy_id makes a redirect clash
-		// nearly impossible, but a mentor could have squatted a future-looking
-		// slug as a redirect — so verify (under the same lock) and disambiguate
-		// with a numeric suffix rather than corrupting history.
+		// Generated name-<id> slug. The fresh legacy_id makes a clash nearly
+		// impossible, but a mentor could have squatted a future-looking slug as
+		// their username or as a redirect — so verify (under the same lock) and
+		// disambiguate with a numeric suffix rather than failing a registration
+		// whose caller never picked a name.
 		base := slug.GenerateMentorSlug(name, nextLegacyID)
 		mentorSlug = base
 		for attempt := 2; ; attempt++ {
