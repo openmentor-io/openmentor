@@ -2,7 +2,7 @@
 # Simplified without Grafana Alloy (hosted elsewhere)
 
 # Stage 1: Install dependencies
-FROM node:26.5.1-alpine3.23 AS deps
+FROM node:26.8.1-alpine3.23 AS deps
 WORKDIR /app
 
 # Copy package files and install dependencies.
@@ -13,7 +13,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 # Stage 2: Build the application
-FROM node:26.5.1-alpine3.23 AS builder
+FROM node:26.8.1-alpine3.23 AS builder
 WORKDIR /app
 
 # Copy dependencies from deps stage
@@ -113,7 +113,7 @@ RUN find .next/static -name '*.map' -delete && \
 
 
 # Stage 3: Production image (using Alpine for smaller size)
-FROM node:26.5.1-alpine3.23 AS runner
+FROM node:26.8.1-alpine3.23 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
