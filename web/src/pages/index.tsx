@@ -128,6 +128,15 @@ function HowItWorksCard({ glyph, title, step, copy, copyShort }: HowItWorksCardP
 export default function Home({
   pageMentors,
 }: InferGetServerSidePropsType<typeof getServerSideProps>): JSX.Element {
+  const [sort, setSort] = useState<MentorsSortOption>('relevance')
+
+  // Sort the whole catalog before useMentors paginates it — sorting the
+  // already-sliced page instead only reorders whichever mentors happened to
+  // load first (pageMentors arrives in a randomized `sort_order`), so a
+  // mentor outside that first batch could never surface under "Most
+  // sessions" regardless of their actual count.
+  const sortedPageMentors = useMemo(() => sortMentors(pageMentors, sort), [pageMentors, sort])
+
   const [
     mentors,
     searchInput,
@@ -136,10 +145,7 @@ export default function Home({
     showMoreMentors,
     appliedFilters,
     filteredCount,
-  ] = useMentors(pageMentors)
-
-  const [sort, setSort] = useState<MentorsSortOption>('relevance')
-  const sortedMentors = useMemo(() => sortMentors(mentors, sort), [mentors, sort])
+  ] = useMentors(sortedPageMentors)
 
   useEffect(() => {
     analytics.event(analytics.events.HOME_PAGE_VIEWED)
@@ -244,7 +250,7 @@ export default function Home({
 
           <div className="pb-6 sm:pb-11">
             <MentorsList
-              mentors={sortedMentors}
+              mentors={mentors}
               hasMore={hasMoreMentors}
               onClickMore={handleShowMoreMentors}
             />
