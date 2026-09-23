@@ -92,6 +92,20 @@ const nextConfig = {
           },
         ],
       },
+      // BFF responses are per-user and must never enter the browser HTTP cache.
+      // Without this, Next's automatic ETag lets Safari revalidate them and it
+      // can hand fetch() an empty 200 after the 304, so response.json() fails.
+      // A route that wants caching (e.g. /api/og/mentor) overrides it with
+      // res.setHeader, which runs after these headers are applied.
+      {
+        source: '/api/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store',
+          },
+        ],
+      },
     ]
 
     // Add security headers everywhere except local development (the Next dev

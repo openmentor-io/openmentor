@@ -60,7 +60,15 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
     return {} as T
   }
 
-  return response.json()
+  // Parse from text so a bodiless response surfaces as a readable ApiError rather
+  // than the engine's own JSON.parse message (Safari: "The string did not match
+  // the expected pattern.").
+  const text = await response.text()
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new ApiError('Could not read the server response. Please reload the page.', response.status)
+  }
 }
 
 // ============================================
