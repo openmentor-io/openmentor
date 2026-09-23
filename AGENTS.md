@@ -271,6 +271,15 @@ review tokens need a *shape* rule as well as a key rule, because session replay 
 attribute values verbatim. The Go side mirrors these rules in `api/pkg/redact`; the two cannot
 import each other, so `src/lib/__tests__/telemetry-redaction.test.ts` pins this copy's shape.
 
+### API response caching
+
+`next.config.js` sends `Cache-Control: no-store` on every `/api/*` response. **Don't remove it.**
+Next adds an ETag to every API-route body and, without a Cache-Control, the browser keeps
+per-user JSON in its HTTP cache and revalidates it; Safari then handed `fetch()` an empty 200
+after the 304 and the mentor inbox failed with "The string did not match the expected pattern."
+A route that should be cacheable (`/api/og/mentor`) sets its own header with `res.setHeader`,
+which overrides the config default.
+
 ### Images and page payload
 
 - **Image optimization is off for good** (`images.unoptimized: true`, decision D40). Photos are
