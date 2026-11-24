@@ -147,7 +147,7 @@ function LoginForm(): JSX.Element {
                 <p className="my-0 mt-2.5 text-sm leading-relaxed text-ink-soft">
                   We sent a sign-in link to
                   <br />
-                  <b className="text-ink">{sentEmail || 'your email'}</b>
+                  <b className="ph-mask text-ink">{sentEmail || 'your email'}</b>
                   <br />
                   Follow it to see your requests.
                 </p>
