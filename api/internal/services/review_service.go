@@ -54,7 +54,14 @@ const legacyDisabledMessage = "This review link is no longer supported. Please w
 const (
 	reviewLinkTypeToken  = "token"
 	reviewLinkTypeLegacy = "legacy_request_id"
+	// reviewLinkTypeMenteeDashboard is a review left from the mentee dashboard,
+	// authorized by the mentee session rather than an emailed link (D95).
+	reviewLinkTypeMenteeDashboard = "mentee_dashboard"
 )
+
+// ErrReviewRequestNotOwned is the dashboard's answer for a request id that does
+// not belong to the session — the same for one that does not exist.
+var ErrReviewRequestNotOwned = errors.New("request not found")
 
 // ReviewRepository is the review repository surface the review service needs.
 // *repository.ReviewRepository satisfies it; tests substitute a fake.
@@ -66,6 +73,9 @@ type ReviewRepository interface {
 	// Legacy request-id path, live only during the dual-read window.
 	CheckCanSubmitReview(ctx context.Context, requestID string) (*repository.ReviewCheckResult, error)
 	SubmitReviewForRequest(ctx context.Context, requestID string, content repository.ReviewContent) (*repository.ReviewSubmission, error)
+
+	// Mentee dashboard path (D95).
+	SubmitReviewAsMentee(ctx context.Context, menteeID, requestID string, content repository.ReviewContent) (*repository.ReviewSubmission, error)
 }
 
 var _ ReviewRepository = (*repository.ReviewRepository)(nil)
@@ -279,6 +289,40 @@ func (s *ReviewService) SubmitReview(ctx context.Context, requestID string, req 
 		return s.submissionFailure(reviewLinkTypeLegacy, track, err)
 	}
 
+	return s.submissionSuccess(ctx, track, submission, start), nil
+}
+
+// SubmitReviewAsMentee stores a review left from the mentee dashboard. The
+// session is the authorization; ownership and eligibility are re-checked in the
+// repository's transaction, and the one-review-per-request guarantee is the
+// same UNIQUE index every path relies on.
+func (s *ReviewService) SubmitReviewAsMentee(ctx context.Context, menteeID string, req *models.MenteeSubmitReviewRequest) (*models.SubmitReviewResponse, error) {
+	start := time.Now()
+	shared := &models.SubmitReviewRequest{
+		MentorReview:   req.MentorReview,
+		PlatformReview: req.PlatformReview,
+		Improvements:   req.Improvements,
+		CaptchaToken:   req.CaptchaToken,
+	}
+	track := s.submissionTracker(ctx, reviewLinkTypeMenteeDashboard, shared)
+
+	if err := s.captchaVerifier.Verify(ctx, req.CaptchaToken); err != nil {
+		track("", "captcha_failed", nil)
+		logger.Warn("Turnstile verification failed for review",
+			zap.String("link_type", reviewLinkTypeMenteeDashboard), logger.RedactedError(err))
+		return &models.SubmitReviewResponse{Success: false, Error: "Captcha verification failed"}, ErrReviewCaptchaFailed
+	}
+
+	submission, err := s.reviewRepo.SubmitReviewAsMentee(ctx, menteeID, req.RequestID, reviewContent(shared))
+	if errors.Is(err, repository.ErrReviewRequestNotOwned) {
+		track("", "not_found", nil)
+		logger.Warn("Mentee review for a request not sent from this mentee's email",
+			zap.String("mentee_id", menteeID), zap.String("request_ref", redact.ID(req.RequestID)))
+		return &models.SubmitReviewResponse{Success: false, Error: "Request not found"}, ErrReviewRequestNotOwned
+	}
+	if err != nil {
+		return s.submissionFailure(reviewLinkTypeMenteeDashboard, track, err)
+	}
 	return s.submissionSuccess(ctx, track, submission, start), nil
 }
 

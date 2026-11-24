@@ -202,6 +202,15 @@ NO test catching a miss — the reviewer is the enforcement. The same rule appli
 | `internal/middleware/admission.go` | Bounds requests **in flight** (not arrival rate) on the big-body endpoints; the slot is taken before the body is read. It is the other half of the same memory budget. |
 | `test/dbtest` | DB-backed tests. It takes a session-level Postgres advisory lock because the migrations are not all idempotent, and it **skips** (`t.Skipf`) when `OPENMENTOR_TEST_DATABASE_URL` is unset — so read the `--- SKIP` lines before believing a `*_db_test.go` passed. |
 
+### Session realms
+
+Mentor, admin and mentee (D95) sessions are signed with **one** JWT key; only `token_type` + `aud`
+keep them apart, and `pkg/jwt` validates each realm through its own entry point. The empty-`aud` /
+empty-`token_type` allowances exist solely for mentor and admin tokens minted before D57/M13 —
+**a new realm must refuse a token missing either claim** (`ValidateMenteeToken` does), or a
+forged claim-less token is accepted there. `cmd/api/mentee_routes_test.go` pins that a mentor or
+admin token in the mentee cookie is a 401.
+
 ### Configuration
 
 Config validation is **per binary**: `ValidateForAPI`, `ValidateForWorker`, `ValidateForMigrate`
@@ -215,6 +224,11 @@ ever prove the union validates.
 Any env-var change lands as one PR across `api/config/config.go`, `web/.env.example`,
 `web/src/types/env.d.ts`, `infra/.env.example`, `infra/.env.production.example`,
 `infra/docker-compose.yml` and `infra/env-allowlist.txt`.
+
+**Email template assets are `json.dumps(..., indent=2)` with ASCII escapes** (`\u2014`, not `—`).
+Rewriting one with a UTF-8-preserving serializer changes every non-ASCII character in the diff.
+A new template also needs a worker job test that renders it — the worker suite fails with "no job
+test rendered [name]" otherwise.
 
 ## Frontend (`web/`)
 

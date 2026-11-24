@@ -65,6 +65,8 @@ func TestNewRequestWatcherHappyPath(t *testing.T) {
 	assert.Equal(t, "I want to grow", menteeMsg.Props["request_details"])
 	assert.Equal(t, "$50", menteeMsg.Props["request_price"])
 	assert.NotContains(t, menteeMsg.Props, "calendly_url")
+	assert.Equal(t, "https://openmentor.io/mentee", menteeMsg.Props["dashboard_url"],
+		"the confirmation links the mentee to their dashboard (D95)")
 
 	mentorMsg := env.sender.attempts[1]
 	assert.Equal(t, "john@example.com", mentorMsg.Recipient)

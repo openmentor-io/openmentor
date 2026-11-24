@@ -227,6 +227,41 @@ func registerAdminModerationRoutes(
 	admin.POST("/mentors/:id/requests/:requestId/status", middleware.BodySizeLimitMiddleware(4*1024), adminMentorRequestsHandler.UpdateMentorRequestStatus)
 }
 
+// registerMenteeRoutes registers the mentee dashboard (D95): magic-link auth, a
+// read-only request list, and leaving a review on a completed request. Every
+// protected route re-reads the mentee row, so a logout revokes a copied cookie
+// on its next request.
+func registerMenteeRoutes(
+	router *gin.Engine,
+	cfg *config.Config,
+	authRateLimiter *middleware.RateLimiter,
+	reviewRateLimiter *middleware.RateLimiter,
+	menteeHandler *handlers.MenteeHandler,
+	tokenManager *jwt.TokenManager,
+	sessionChecker middleware.MenteeSessionChecker,
+) {
+
+	if tokenManager == nil {
+		logger.Warn("Mentee dashboard routes disabled: JWT_SECRET not configured")
+		return
+	}
+	session := middleware.MenteeSessionMiddleware(tokenManager, sessionChecker,
+		cfg.MentorSession.CookieDomain, cfg.MentorSession.CookieSecure)
+
+	auth := router.Group("/api/v1/auth/mentee")
+	// Keyed on the target EMAIL for the reason the mentor route gives.
+	auth.POST("/request-login", middleware.BodySizeLimitMiddleware(4*1024),
+		middleware.EmailRateLimitMiddleware(authRateLimiter), menteeHandler.RequestLogin)
+	auth.POST("/verify", middleware.BodySizeLimitMiddleware(4*1024), menteeHandler.VerifyLogin)
+	auth.POST("/logout", menteeHandler.Logout)
+	auth.GET("/session", session, menteeHandler.GetSession)
+
+	mentee := router.Group("/api/v1/mentee")
+	mentee.Use(session)
+	mentee.GET("/requests", menteeHandler.ListRequests)
+	mentee.POST("/reviews", reviewRateLimiter.Middleware(), middleware.BodySizeLimitMiddleware(100*1024), menteeHandler.SubmitReview)
+}
+
 func main() { //nolint:gocyclo
 	// Load configuration
 	cfg, err := config.LoadFor(config.BinaryAPI)
@@ -347,6 +382,7 @@ func main() { //nolint:gocyclo
 	mentorRepo := repository.NewMentorRepository(pool, tagsCache)
 	moderatorRepo := repository.NewModeratorRepository(pool)
 	clientRequestRepo := repository.NewClientRequestRepository(pool)
+	menteeRepo := repository.NewMenteeRepository(pool)
 
 	// Rebind the tags cache to the real fetcher and the repository to it.
 	tagsCache = cache.NewTagsCache(mentorRepo.FetchAllTagsFromDB)
@@ -396,6 +432,7 @@ func main() { //nolint:gocyclo
 	migrationIntentService := services.NewMigrationIntentService(migrationIntentRepo, cfg, httpClient, analyticsTracker)
 	mentorConfirmationService := services.NewMentorConfirmationService(mentorRepo, cfg, httpClient, analyticsTracker, confirmResendRateLimiter)
 	usernameService := services.NewUsernameService(mentorRepo, analyticsTracker)
+	menteeService := services.NewMenteeService(menteeRepo, cfg, httpClient, analyticsTracker)
 
 	// Initialize handlers
 	mentorHandler := handlers.NewMentorHandler(mentorService, cfg.Server.BaseURL)
@@ -413,6 +450,7 @@ func main() { //nolint:gocyclo
 	adminMentorsHandler := handlers.NewAdminMentorsHandler(adminMentorsService)
 	adminMentorRequestsHandler := handlers.NewAdminMentorRequestsHandler(adminRequestsService)
 	usernameHandler := handlers.NewUsernameHandler(usernameService)
+	menteeHandler := handlers.NewMenteeHandler(menteeService, reviewService)
 
 	// Set up Gin router
 	gin.SetMode(cfg.Server.GinMode)
@@ -475,6 +513,7 @@ func main() { //nolint:gocyclo
 	// couple of times without locking every other mentor out.
 	mentorAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3) // 3 emails/addr, then 1 per 3 min
 	adminAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3)  // 3 emails/addr, then 1 per 3 min
+	menteeAuthRateLimiter := middleware.NewRateLimiter(1.0/180.0, 3) // 3 emails/addr, then 1 per 3 min
 	// The per-mentor resend limit lives in MentorConfirmationService (see
 	// confirmResendRateLimiter above); this one is only the coarse global ceiling
 	// on token-guessing lookups.
@@ -510,6 +549,10 @@ func main() { //nolint:gocyclo
 
 	// Moderator/Admin web moderation routes
 	registerAdminModerationRoutes(router, cfg, adminAuthRateLimiter, profileRateLimiter, uploadAdmission, adminAuthHandler, adminMentorsHandler, adminMentorRequestsHandler, usernameHandler, adminAuthService.GetTokenManager(), moderatorRepo)
+
+	// Mentee dashboard routes (D95). Reviews share the contact limiter with the
+	// emailed-link review route: both are captcha-gated per request.
+	registerMenteeRoutes(router, cfg, menteeAuthRateLimiter, contactRateLimiter, menteeHandler, menteeService.GetTokenManager(), menteeRepo)
 
 	// Create HTTP server
 	// SECURITY: Bind to all interfaces for Docker Compose networking

@@ -343,3 +343,82 @@ func TestTimingSafeCompare(t *testing.T) {
 		t.Error("unequal strings compared equal")
 	}
 }
+
+func TestGeneratedMenteeTokenRoundTrips(t *testing.T) {
+	tm := testManager()
+
+	token, err := tm.GenerateMenteeToken(testUUID, 4)
+	if err != nil {
+		t.Fatalf("GenerateMenteeToken: %v", err)
+	}
+	claims, err := tm.ValidateMenteeToken(token)
+	if err != nil {
+		t.Fatalf("ValidateMenteeToken on a freshly minted token: %v", err)
+	}
+	if claims.Subject != testUUID || claims.SessionVersion != 4 || claims.TokenType != TokenTypeMentee {
+		t.Errorf("subject/session_version/token_type = %q/%d/%q", claims.Subject, claims.SessionVersion, claims.TokenType)
+	}
+}
+
+// TestMenteeRealmIsIsolated: all three realms share one signing key, so the
+// realm binding is the only thing stopping a mentee cookie from opening the
+// mentor portal (which shows other people's contact details) or the reverse.
+func TestMenteeRealmIsIsolated(t *testing.T) {
+	tm := testManager()
+
+	menteeToken, err := tm.GenerateMenteeToken(testUUID, 1)
+	if err != nil {
+		t.Fatalf("GenerateMenteeToken: %v", err)
+	}
+	mentorToken, err := tm.GenerateToken(testUUID, 1, "", "M", 1)
+	if err != nil {
+		t.Fatalf("GenerateToken: %v", err)
+	}
+	adminToken, err := tm.GenerateTokenWithRole(testUUID, 0, "", "A", "admin", 1)
+	if err != nil {
+		t.Fatalf("GenerateTokenWithRole: %v", err)
+	}
+
+	if _, err := tm.ValidateMentorToken(menteeToken); err == nil {
+		t.Error("a mentee token was accepted as a mentor session")
+	}
+	if _, err := tm.ValidateAdminToken(menteeToken); err == nil {
+		t.Error("a mentee token was accepted as an admin session")
+	}
+	if _, err := tm.ValidateMenteeToken(mentorToken); err == nil {
+		t.Error("a mentor token was accepted as a mentee session")
+	}
+	if _, err := tm.ValidateMenteeToken(adminToken); err == nil {
+		t.Error("an admin token was accepted as a mentee session")
+	}
+}
+
+// TestMenteeRealmHasNoLegacyAllowance: the pre-D57/M13 allowances exist for
+// mentor and admin tokens that were live at those deploys. No mentee token
+// predates the realm, so one missing either binding claim is forged.
+func TestMenteeRealmHasNoLegacyAllowance(t *testing.T) {
+	tm := testManager()
+
+	cases := map[string]func(*MentorClaims){
+		"no audience": func(c *MentorClaims) { c.Audience = nil },
+		"no token_type": func(c *MentorClaims) {
+			c.TokenType = ""
+		},
+		"neither": func(c *MentorClaims) {
+			c.Audience = nil
+			c.TokenType = ""
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			claims := validMentorClaims()
+			claims.TokenType = TokenTypeMentee
+			claims.Audience = gojwt.ClaimStrings{AudienceMentee}
+			mutate(&claims)
+
+			if _, err := tm.ValidateMenteeToken(signClaims(t, gojwt.SigningMethodHS256, claims)); err == nil {
+				t.Fatal("a mentee token without its realm binding was accepted")
+			}
+		})
+	}
+}

@@ -122,6 +122,9 @@ func (h *Handlers) NewRequestWatcher(c *gin.Context) {
 			"mentor_name":     mentor.Name,
 			"request_details": request.Description,
 			"request_price":   mentor.Price,
+			// The mentee dashboard (D95). Its login page takes any email that
+			// has sent a request, so this needs no per-recipient token.
+			"dashboard_url": h.baseURL + "/mentee",
 		},
 	}
 	if mentor.CalendarURL != "" {

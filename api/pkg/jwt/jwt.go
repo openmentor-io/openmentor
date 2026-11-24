@@ -23,6 +23,7 @@ var (
 const (
 	TokenTypeMentor = "mentor"
 	TokenTypeAdmin  = "admin"
+	TokenTypeMentee = "mentee"
 )
 
 // Audience values, carried in the standard `aud` claim. token_type already
@@ -33,6 +34,7 @@ const (
 const (
 	AudienceMentor = "openmentor-mentor"
 	AudienceAdmin  = "openmentor-admin"
+	AudienceMentee = "openmentor-mentee"
 )
 
 // signingMethod is the ONE algorithm this service issues and accepts.
@@ -92,6 +94,13 @@ func (tm *TokenManager) GenerateTokenWithRole(subjectID string, legacyID int, em
 	return tm.generateToken(subjectID, legacyID, email, name, role, TokenTypeAdmin, AudienceAdmin, sessionVersion)
 }
 
+// GenerateMenteeToken creates a JWT token for a mentee dashboard session. The
+// mentee realm has no legacy tokens, so it is bound by token_type AND audience
+// from day one (see validateTokenType).
+func (tm *TokenManager) GenerateMenteeToken(menteeID string, sessionVersion int) (string, error) {
+	return tm.generateToken(menteeID, 0, "", "", "", TokenTypeMentee, AudienceMentee, sessionVersion)
+}
+
 func (tm *TokenManager) generateToken(subjectID string, legacyID int, email, name, role, tokenType, audience string, sessionVersion int) (string, error) {
 	now := time.Now()
 	expiresAt := now.Add(tm.ttl)
@@ -133,6 +142,21 @@ func (tm *TokenManager) ValidateMentorToken(tokenString string) (*MentorClaims, 
 // token was minted for the admin realm.
 func (tm *TokenManager) ValidateAdminToken(tokenString string) (*MentorClaims, error) {
 	return tm.validate(tokenString, TokenTypeAdmin, AudienceAdmin)
+}
+
+// ValidateMenteeToken validates a mentee dashboard session token.
+func (tm *TokenManager) ValidateMenteeToken(tokenString string) (*MentorClaims, error) {
+	claims, err := tm.validate(tokenString, TokenTypeMentee, AudienceMentee)
+	if err != nil {
+		return nil, err
+	}
+	// validateAudience tolerates a missing aud for the pre-D57 mentor and admin
+	// tokens; no mentee token was ever minted without one.
+	aud, _ := claims.GetAudience() //nolint:errcheck // already parsed by validateAudience
+	if len(aud) == 0 {
+		return nil, fmt.Errorf("%w: mentee token has no audience", ErrInvalidClaim)
+	}
+	return claims, nil
 }
 
 // validate parses a token and enforces the whole contract: exact algorithm,

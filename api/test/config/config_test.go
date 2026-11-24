@@ -709,3 +709,19 @@ func inEmptyEnv(t *testing.T, fn func()) {
 	os.Clearenv()
 	fn()
 }
+
+// TestMenteeLoginEmailTriggerURLIsDerived: the mentee sign-in email (D95) rides
+// the mentor one's env var. If that var ever stops naming the mentor job, the
+// mentee link must be skipped rather than sent to the mentor job, which would
+// reject the payload.
+func TestMenteeLoginEmailTriggerURLIsDerived(t *testing.T) {
+	triggers := config.EventTriggerFunctionsConfig{
+		MentorLoginEmailTriggerURL: "http://worker:8090/jobs/mentor-login-email",
+	}
+	assert.Equal(t, "http://worker:8090/jobs/mentee-login-email", triggers.MenteeLoginEmailTriggerURL())
+
+	triggers.MentorLoginEmailTriggerURL = "http://worker:8090/jobs/something-else"
+	assert.Empty(t, triggers.MenteeLoginEmailTriggerURL())
+	triggers.MentorLoginEmailTriggerURL = ""
+	assert.Empty(t, triggers.MenteeLoginEmailTriggerURL())
+}

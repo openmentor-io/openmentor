@@ -411,6 +411,10 @@ func ModeratorDistinctID(moderatorID string) string {
 	return prefixedDistinctID("moderator", moderatorID)
 }
 
+func MenteeDistinctID(menteeID string) string {
+	return prefixedDistinctID("mentee", menteeID)
+}
+
 func ReviewDistinctID(reviewID string) string {
 	return prefixedDistinctID("review", reviewID)
 }

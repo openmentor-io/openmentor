@@ -111,6 +111,17 @@ export {
   DECLINE_REASONS,
 } from './mentor-requests'
 
+// Mentee dashboard types (D95)
+export type {
+  MenteeSession,
+  MenteeRequestGroup,
+  MenteeRequestMentor,
+  MenteeReview,
+  MenteeRequest,
+  MenteeRequestsResponse,
+  MenteeSubmitReviewPayload,
+} from './mentee'
+
 // Admin moderation types
 export type {
   ModeratorRole,
