@@ -28,7 +28,7 @@ export class ApiError extends Error {
  * Make an API request to Next.js API routes
  * Includes credentials for cookie-based auth
  */
-async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(endpoint, {
     ...options,
     credentials: 'include', // Required for HttpOnly cookies

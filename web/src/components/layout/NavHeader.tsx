@@ -2,6 +2,8 @@ import { useState } from 'react'
 import classNames from 'classnames'
 import Link from 'next/link'
 import Image from 'next/image'
+import { Menu } from '@headlessui/react'
+import analytics from '@/lib/analytics'
 import GitHubIcon from '../ui/GitHubIcon'
 
 /**
@@ -21,6 +23,45 @@ export function Wordmark({ compact = false }: { compact?: boolean }): JSX.Elemen
     >
       openmentor<span className="text-brand-cobalt">.io</span>
     </span>
+  )
+}
+
+/** The two sign-in realms. Mentees have no account: any email that sent a request can log in. */
+export const LOGIN_OPTIONS = [
+  { href: '/mentor/login', label: 'Log in as mentor', role: 'mentor' },
+  { href: '/mentee/login', label: 'Log in as mentee', role: 'mentee' },
+] as const
+
+function trackLoginOption(role: string, surface: 'desktop' | 'mobile'): void {
+  analytics.event(analytics.events.LOGIN_MENU_OPTION_CLICKED, { role, surface })
+}
+
+/** "Log in ▾" with the two realms, in the shared dropdown panel style. */
+function LoginMenu(): JSX.Element {
+  return (
+    <Menu as="div" className="relative">
+      <Menu.Button className="text-sm font-semibold text-ink hover:text-brand-cobalt">
+        Log in ▾
+      </Menu.Button>
+      <Menu.Items className="absolute right-0 z-20 mt-2 flex w-48 animate-dropdown-in flex-col gap-0.5 rounded-card border border-line bg-white p-2 shadow-dropdown focus:outline-none">
+        {LOGIN_OPTIONS.map((option) => (
+          <Menu.Item key={option.href}>
+            {({ active }) => (
+              <Link
+                href={option.href}
+                onClick={() => trackLoginOption(option.role, 'desktop')}
+                className={classNames(
+                  'rounded-[9px] px-3 py-[9px] text-left text-[13px] font-medium text-ink',
+                  active && 'bg-surface'
+                )}
+              >
+                {option.label}
+              </Link>
+            )}
+          </Menu.Item>
+        ))}
+      </Menu.Items>
+    </Menu>
   )
 }
 
@@ -74,12 +115,7 @@ export default function NavHeader({ className, backLink }: NavHeaderProps): JSX.
               <Link href="/donate" className="text-sm font-semibold text-ink hover:text-brand-cobalt">
                 Support us
               </Link>
-              <Link
-                href="/mentor/login"
-                className="text-sm font-semibold text-ink hover:text-brand-cobalt"
-              >
-                Log in
-              </Link>
+              <LoginMenu />
             </>
           )}
           <Link
@@ -155,13 +191,19 @@ export default function NavHeader({ className, backLink }: NavHeaderProps): JSX.
           >
             Support us
           </Link>
-          <Link
-            href="/mentor/login"
-            className="rounded-field px-3 py-3 text-sm font-semibold text-ink hover:bg-surface"
-            onClick={() => setOpen(false)}
-          >
-            Log in
-          </Link>
+          {LOGIN_OPTIONS.map((option) => (
+            <Link
+              key={option.href}
+              href={option.href}
+              className="rounded-field px-3 py-3 text-sm font-semibold text-ink hover:bg-surface"
+              onClick={() => {
+                trackLoginOption(option.role, 'mobile')
+                setOpen(false)
+              }}
+            >
+              {option.label}
+            </Link>
+          ))}
           <Link
             href="/bementor"
             className="mt-2 rounded-btn bg-brand-navy px-5 py-3.5 text-center text-sm font-bold !text-white"

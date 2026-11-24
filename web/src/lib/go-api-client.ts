@@ -38,6 +38,9 @@ import type {
   RegisterMentorResponse,
   MentorClientRequest,
   MentorSession,
+  MenteeSession,
+  MenteeRequestsResponse,
+  MenteeSubmitReviewPayload,
   RequestStatus,
   DeclineRequestPayload,
   RequestsListResponse,
@@ -323,6 +326,71 @@ class GoApiClient {
       }
       throw error
     }
+  }
+
+  /**
+   * Mentee dashboard (D95): request a sign-in link. Public endpoint.
+   */
+  async menteeRequestLogin(email: string): Promise<{ success: boolean; message?: string }> {
+    const { data } = await this.requestWithCookies<{ success: boolean; message?: string }>(
+      'POST',
+      '/api/v1/auth/mentee/request-login',
+      { body: { email } }
+    )
+    return data
+  }
+
+  /** Verify a mentee sign-in token; the response carries the session Set-Cookie. */
+  async menteeVerifyLogin(token: string): Promise<{
+    data: { success: boolean; session?: MenteeSession; error?: string }
+    headers: Headers
+  }> {
+    return this.requestWithCookies<{ success: boolean; session?: MenteeSession; error?: string }>(
+      'POST',
+      '/api/v1/auth/mentee/verify',
+      { body: { token } }
+    )
+  }
+
+  async menteeLogout(cookies?: string): Promise<{ data: { success: boolean }; headers: Headers }> {
+    return this.requestWithCookies<{ success: boolean }>('POST', '/api/v1/auth/mentee/logout', {
+      cookies,
+    })
+  }
+
+  async menteeGetSession(
+    cookies: string
+  ): Promise<{ data: { success: boolean; session?: MenteeSession }; headers: Headers }> {
+    return this.requestWithCookies<{ success: boolean; session?: MenteeSession }>(
+      'GET',
+      '/api/v1/auth/mentee/session',
+      { cookies }
+    )
+  }
+
+  async menteeGetRequests(cookies: string): Promise<MenteeRequestsResponse> {
+    const { data } = await this.requestWithCookies<MenteeRequestsResponse>(
+      'GET',
+      '/api/v1/mentee/requests',
+      { cookies }
+    )
+    return data
+  }
+
+  /** The request id travels in the body, never the URL (it is a legacy review capability). */
+  async menteeSubmitReview(
+    cookies: string,
+    payload: MenteeSubmitReviewPayload
+  ): Promise<{ success: boolean; reviewId?: string; error?: string }> {
+    const { data } = await this.requestWithCookies<{
+      success: boolean
+      reviewId?: string
+      error?: string
+    }>('POST', '/api/v1/mentee/reviews', {
+      cookies,
+      body: payload as unknown as Record<string, unknown>,
+    })
+    return data
   }
 
   /**

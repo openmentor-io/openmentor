@@ -32,6 +32,11 @@ var (
 	// ErrReviewIneligible means the capability was valid but the request cannot
 	// receive a review: it is not in status 'done', or it already has one.
 	ErrReviewIneligible = errors.New("request is not eligible for a review")
+
+	// ErrReviewRequestNotOwned means the request was not sent from the
+	// session's email, or does not exist. One error for both, so the dashboard
+	// endpoint cannot be used to probe request ids.
+	ErrReviewRequestNotOwned = errors.New("request not found for this mentee")
 )
 
 // ReviewRepository handles review data access
@@ -261,6 +266,58 @@ func (r *ReviewRepository) SubmitReviewForRequest(ctx context.Context, requestID
 	if err != nil {
 		return nil, err
 	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit review: %w", err)
+	}
+	return submission, nil
+}
+
+// SubmitReviewAsMentee writes a review left from the mentee dashboard (D95).
+// The mentee session is the authorization: ownership is the request's email
+// matching the mentee row, checked inside the transaction that writes.
+//
+// Every outstanding emailed invitation for the request is consumed in the same
+// transaction, so the "leave a review" link in the mentee's inbox stops offering
+// a form for a request that already has its one review.
+func (r *ReviewRepository) SubmitReviewAsMentee(ctx context.Context, menteeID, requestID string, content ReviewContent) (*ReviewSubmission, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin review transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // a no-op once Commit succeeded
+
+	var owned bool
+	err = tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM client_requests cr
+			JOIN mentees me ON me.email = cr.email
+			WHERE cr.id = $1 AND me.id = $2
+		)
+	`, requestID, menteeID).Scan(&owned)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check request ownership: %w", err)
+	}
+	if !owned {
+		return nil, ErrReviewRequestNotOwned
+	}
+
+	submission, err := insertReview(ctx, tx, requestID, content, false)
+	if errors.Is(err, ErrReviewTokenInvalid) {
+		// insertReview reports a deleted mentor's request as a dead capability;
+		// from the dashboard it is simply not reviewable.
+		return nil, fmt.Errorf("%w: mentor profile deleted", ErrReviewIneligible)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err = tx.Exec(ctx, `
+		UPDATE review_invitations SET consumed_at = now()
+		WHERE client_request_id = $1 AND consumed_at IS NULL
+	`, requestID); err != nil {
+		return nil, fmt.Errorf("failed to consume review invitations: %w", err)
+	}
+
 	if err = tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit review: %w", err)
 	}

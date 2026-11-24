@@ -167,6 +167,18 @@ func (c EventTriggerFunctionsConfig) ProfileRestoredTriggerURL() string {
 	return c.derivedMentorTriggerURL("profile-restored")
 }
 
+// MenteeLoginEmailTriggerURL is the worker job that mails a mentee their
+// dashboard sign-in link (D95). Derived from MENTOR_LOGIN_EMAIL_TRIGGER_URL
+// (…/jobs/mentor-login-email) for the same reason derivedMentorTriggerURL
+// exists: a sibling job on the same worker needs no new env var. Returns ""
+// (trigger skipped) when that variable is unset or has another shape.
+func (c EventTriggerFunctionsConfig) MenteeLoginEmailTriggerURL() string {
+	if !strings.Contains(c.MentorLoginEmailTriggerURL, "mentor-login-email") {
+		return ""
+	}
+	return strings.Replace(c.MentorLoginEmailTriggerURL, "mentor-login-email", "mentee-login-email", 1)
+}
+
 type LoggingConfig struct {
 	Level string
 	Dir   string

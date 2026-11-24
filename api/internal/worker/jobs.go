@@ -171,6 +171,7 @@ func (s *Server) RegisterJobRoutes(h *Handlers) {
 	s.RegisterHandler("/new-request-watcher", h.NewRequestWatcher, "POST", "GET")
 	s.RegisterHandler("/mentor-login-email", h.MentorLoginEmail)
 	s.RegisterHandler("/moderator-login-email", h.ModeratorLoginEmail)
+	s.RegisterHandler("/mentee-login-email", h.MenteeLoginEmail)
 	s.RegisterHandler("/mentor-moderation-action", h.MentorModerationAction)
 	s.RegisterHandler("/process-mentee-review", h.ProcessMenteeReview, "POST", "GET")
 	s.RegisterHandler("/request-process-finished", h.RequestProcessFinished, "GET")

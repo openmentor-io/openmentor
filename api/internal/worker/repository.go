@@ -83,6 +83,15 @@ type JobModerator struct {
 	Email string
 }
 
+// JobMentee is the mentee a dashboard sign-in link is mailed to (D95). Name is
+// the one given on the mentee's most recent request; a mentee has no name of
+// their own.
+type JobMentee struct {
+	ID    string
+	Name  string
+	Email string
+}
+
 // FinalizeNewMentorParams is the single UPDATE new-mentor-watcher performs
 // after processing a fresh registration (mirrors the UPDATE in
 // openmentor-func/new-mentor-watcher/index.ts, extended with the email
@@ -135,6 +144,7 @@ type JobsRepository interface {
 	GetJobRequestWithMentorName(ctx context.Context, requestID string) (*JobRequest, error)
 	SetRequestContactPending(ctx context.Context, requestID, contact string) (applied bool, err error)
 	GetJobModeratorByID(ctx context.Context, moderatorID string) (*JobModerator, error)
+	GetJobMenteeByID(ctx context.Context, menteeID string) (*JobMentee, error)
 	GetJobReviewByID(ctx context.Context, reviewID string) (*JobReview, error)
 
 	// CreateReviewInvitation persists a minted review capability (H4). Called
@@ -577,6 +587,26 @@ func (r *Repository) GetJobModeratorByID(ctx context.Context, moderatorID string
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch moderator %s: %w", moderatorID, err)
+	}
+	return &m, nil
+}
+
+// GetJobMenteeByID returns (nil, nil) when there is no such mentee.
+func (r *Repository) GetJobMenteeByID(ctx context.Context, menteeID string) (*JobMentee, error) {
+	const query = `
+		SELECT me.id, me.email::text,
+			COALESCE((SELECT cr.name FROM client_requests cr
+				WHERE cr.email = me.email AND cr.name IS NOT NULL
+				ORDER BY cr.created_at DESC LIMIT 1), '')
+		FROM mentees me WHERE me.id = $1`
+
+	var m JobMentee
+	err := r.pool.QueryRow(ctx, query, menteeID).Scan(&m.ID, &m.Email, &m.Name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch mentee %s: %w", menteeID, err)
 	}
 	return &m, nil
 }

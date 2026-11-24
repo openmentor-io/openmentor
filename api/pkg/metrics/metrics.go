@@ -35,7 +35,12 @@ var (
 	UsernameRejections     *prometheus.CounterVec
 
 	// Mentor Auth Metrics
-	MentorAuthLoginRequests     *prometheus.CounterVec
+	MentorAuthLoginRequests *prometheus.CounterVec
+	// Mentee dashboard login (D95). A separate series rather than a realm label
+	// on the mentor one: adding a label key would change every existing mentor
+	// login panel's grouping.
+	MenteeAuthLoginRequests     *prometheus.CounterVec
+	MenteeAuthVerifyRequests    *prometheus.CounterVec
 	MentorAuthLoginDuration     prometheus.Histogram
 	MentorAuthVerifyRequests    *prometheus.CounterVec
 	MentorAuthVerifyDuration    prometheus.Histogram
@@ -223,6 +228,22 @@ func Init(serviceName string) {
 		prometheus.CounterOpts{
 			Name: "openmentor_mentor_auth_login_requests_total",
 			Help: "Total mentor login requests",
+		},
+		[]string{"status"},
+	)
+
+	MenteeAuthLoginRequests = factory.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "openmentor_mentee_auth_login_requests_total",
+			Help: "Total mentee dashboard login-link requests",
+		},
+		[]string{"status"},
+	)
+
+	MenteeAuthVerifyRequests = factory.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "openmentor_mentee_auth_verify_requests_total",
+			Help: "Total mentee dashboard login-link verifications",
 		},
 		[]string{"status"},
 	)

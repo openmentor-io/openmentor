@@ -67,6 +67,7 @@ func NewServer(cfg *config.Config, pool *pgxpool.Pool) *Server {
 //	POST|GET /jobs/new-request-watcher?requestId=          <- new-request-watcher
 //	POST     /jobs/mentor-login-email      (JSON body)     <- mentor-login-email
 //	POST     /jobs/moderator-login-email   (JSON body)     <- moderator-login-email
+//	POST     /jobs/mentee-login-email      (JSON body)     <- (new, D95; no func-app origin)
 //	POST     /jobs/mentor-moderation-action (JSON body)    <- mentor-moderation-action
 //	POST|GET /jobs/process-mentee-review?reviewId=         <- process-mentee-review
 //	GET      /jobs/request-process-finished?requestId=     <- request-process-finished

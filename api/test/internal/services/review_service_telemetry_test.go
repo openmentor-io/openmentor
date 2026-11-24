@@ -51,6 +51,9 @@ type fakeReviewRepo struct {
 	submittedIDs  []string
 	checkedHashes []string
 	spentHashes   []string
+
+	menteeErr     error
+	menteeReviews [][2]string // {menteeID, requestID}
 }
 
 func (f *fakeReviewRepo) CheckCanSubmitReview(_ context.Context, requestID string) (*repository.ReviewCheckResult, error) {
@@ -81,6 +84,14 @@ func (f *fakeReviewRepo) CheckCanSubmitReviewByToken(_ context.Context, tokenHas
 
 func (f *fakeReviewRepo) SubmitReviewWithToken(_ context.Context, tokenHash string, _ repository.ReviewContent) (*repository.ReviewSubmission, error) {
 	f.spentHashes = append(f.spentHashes, tokenHash)
+	return f.submission()
+}
+
+func (f *fakeReviewRepo) SubmitReviewAsMentee(_ context.Context, menteeID, requestID string, _ repository.ReviewContent) (*repository.ReviewSubmission, error) {
+	f.menteeReviews = append(f.menteeReviews, [2]string{menteeID, requestID})
+	if f.menteeErr != nil {
+		return nil, f.menteeErr
+	}
 	return f.submission()
 }
 
@@ -370,5 +381,80 @@ func assertNoReviewSecrets(t *testing.T, where, value string) {
 		if strings.Contains(value, secret) {
 			t.Errorf("%s leaked the %s: %s", where, name, value)
 		}
+	}
+}
+
+// TestMenteeDashboardReviewTelemetry: a dashboard review carries the request id
+// in its body, and while the H4 dual-read window is open that id is still a
+// review capability — so it must reach the repository and nothing else. Each
+// outcome is attributed to the mentee_dashboard link type, so dashboard and
+// emailed-link reviews stay countable apart.
+func TestMenteeDashboardReviewTelemetry(t *testing.T) {
+	const menteeID = "0d3f6a1e-8b2c-4d5e-9f10-112233445566"
+	cases := []struct {
+		name        string
+		repo        *fakeReviewRepo
+		wantOutcome string
+		wantErr     error
+	}{
+		{
+			name: "success",
+			repo: &fakeReviewRepo{
+				result:   &repository.ReviewCheckResult{CanSubmit: true, MentorID: "mentor-1"},
+				reviewID: "review-1",
+			},
+			wantOutcome: "success",
+		},
+		{
+			name:        "not_owned",
+			repo:        &fakeReviewRepo{menteeErr: repository.ErrReviewRequestNotOwned},
+			wantOutcome: "not_found",
+			wantErr:     services.ErrReviewRequestNotOwned,
+		},
+		{
+			name:        "already_reviewed",
+			repo:        &fakeReviewRepo{menteeErr: repository.ErrReviewIneligible},
+			wantOutcome: "already_exists",
+			wantErr:     services.ErrReviewAlreadyExists,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := observeServiceLogs(t)
+			tracker := &reviewTracker{}
+			service := services.NewReviewService(tc.repo, legacyEnabledConfig(), captchaOK, tracker)
+
+			_, err := service.SubmitReviewAsMentee(context.Background(), menteeID, &models.MenteeSubmitReviewRequest{
+				RequestID:    reviewCapability,
+				MentorReview: "great session",
+				CaptchaToken: captchaSentinel,
+			})
+			if tc.wantErr == nil && err != nil {
+				t.Fatalf("SubmitReviewAsMentee: %v", err)
+			}
+			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+
+			if len(tc.repo.menteeReviews) != 1 || tc.repo.menteeReviews[0] != [2]string{menteeID, reviewCapability} {
+				t.Fatalf("repository received %v, want the session's mentee and the real request id", tc.repo.menteeReviews)
+			}
+
+			var sawOutcome bool
+			for _, call := range tracker.calls {
+				assertNoReviewSecrets(t, "distinct_id of "+call.event, call.distinctID)
+				assertNoReviewSecrets(t, "properties of "+call.event, fmt.Sprint(call.properties))
+				if call.properties["link_type"] == "mentee_dashboard" && call.properties["outcome"] == tc.wantOutcome {
+					sawOutcome = true
+				}
+			}
+			if !sawOutcome {
+				t.Errorf("no review_submitted event with link_type=mentee_dashboard outcome=%s in %+v", tc.wantOutcome, tracker.calls)
+			}
+			for _, entry := range logs.All() {
+				assertNoReviewSecrets(t, "log entry", entry.Message+" "+fmt.Sprint(entry.ContextMap()))
+			}
+		})
 	}
 }

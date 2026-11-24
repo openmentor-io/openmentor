@@ -26,6 +26,7 @@ type fakeRepo struct {
 	requests           map[string]*JobRequest
 	requestsWithMentor map[string]*JobRequest
 	moderators         map[string]*JobModerator
+	mentees            map[string]*JobMentee
 	reviews            map[string]*JobReview
 
 	duplicates int
@@ -41,6 +42,7 @@ type fakeRepo struct {
 	requestErr         error
 	setRequestErr      error
 	moderatorErr       error
+	menteeErr          error
 	reviewErr          error
 	// requestAlreadyClaimed makes the FIRST SetRequestContactPending report that
 	// no row matched, which is what the real UPDATE's status_changed_at IS NULL
@@ -98,6 +100,7 @@ func newFakeRepo() *fakeRepo {
 		requests:              map[string]*JobRequest{},
 		requestsWithMentor:    map[string]*JobRequest{},
 		moderators:            map[string]*JobModerator{},
+		mentees:               map[string]*JobMentee{},
 		reviews:               map[string]*JobReview{},
 		requestUpdates:        map[string]string{},
 		requestClaims:         map[string]int{},
@@ -205,6 +208,17 @@ func (f *fakeRepo) GetJobModeratorByID(_ context.Context, moderatorID string) (*
 		return nil, f.moderatorErr
 	}
 	if m, ok := f.moderators[moderatorID]; ok {
+		copied := *m
+		return &copied, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeRepo) GetJobMenteeByID(_ context.Context, menteeID string) (*JobMentee, error) {
+	if f.menteeErr != nil {
+		return nil, f.menteeErr
+	}
+	if m, ok := f.mentees[menteeID]; ok {
 		copied := *m
 		return &copied, nil
 	}

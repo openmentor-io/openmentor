@@ -50,6 +50,7 @@ func TestUserPropsCannotEmitMarkup(t *testing.T) {
 			"request_url":    "https://openmentor.io/mentor",
 		}},
 		{"new-request", "request_details", map[string]interface{}{
+			"dashboard_url":   "https://openmentor.io/mentee",
 			"first_name":      "Alice",
 			"mentor_name":     "Bob",
 			"request_details": evilPayload,
@@ -99,6 +100,7 @@ func TestSubjectAndTextCarryNoEntities(t *testing.T) {
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			subject, _, textBody := renderParts(t, "new-request", map[string]interface{}{
+				"dashboard_url":   "https://openmentor.io/mentee",
 				"first_name":      name,
 				"mentor_name":     name,
 				"request_details": "I want to learn C++ & Go (rates < $50)",
@@ -130,6 +132,7 @@ func TestCalendarURLSchemeIsNeutralized(t *testing.T) {
 	render := func(t *testing.T, calendarURL string) string {
 		t.Helper()
 		_, htmlBody, _ := renderParts(t, "new-request-calendly", map[string]interface{}{
+			"dashboard_url":   "https://openmentor.io/mentee",
 			"calendly_url":    calendarURL,
 			"first_name":      "Alice",
 			"mentor_name":     "Bob",

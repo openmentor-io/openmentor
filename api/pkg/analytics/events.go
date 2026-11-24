@@ -10,6 +10,9 @@ const (
 	EventMentorAuthLoginVerified  = "mentor_auth_login_verified"
 	EventAdminAuthLoginRequested  = "admin_auth_login_requested"
 	EventAdminAuthLoginVerified   = "admin_auth_login_verified"
+	EventMenteeAuthLoginRequested = "mentee_auth_login_requested"
+	EventMenteeAuthLoginVerified  = "mentee_auth_login_verified"
+	EventMenteeRequestsViewed     = "mentee_requests_viewed"
 
 	EventMentorProfileUpdated         = "mentor_profile_updated"
 	EventMentorProfilePictureUploaded = "mentor_profile_picture_uploaded"
@@ -55,6 +58,7 @@ const (
 	EventMentorConfirmEmailSent         = "mentor_confirm_email_sent"
 	EventMentorAuthLoginEmailSent       = "mentor_auth_login_email_sent"
 	EventAdminAuthLoginEmailSent        = "admin_auth_login_email_sent"
+	EventMenteeAuthLoginEmailSent       = "mentee_auth_login_email_sent"
 	EventRequestProcessFinishedNotified = "request_process_finished_notified"
 	EventMentorPendingRequestsReminded  = "mentor_pending_requests_reminded"
 	EventMentorStatusUpdateReminded     = "mentor_status_update_reminded"

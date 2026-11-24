@@ -198,3 +198,86 @@ func (h *Handlers) ModeratorLoginEmail(c *gin.Context) {
 	h.track(ctx, analytics.EventAdminAuthLoginEmailSent, analytics.ModeratorDistinctID(payload.ModeratorID), moderatorProps("success"))
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
+
+// menteeLoginPayload mirrors the JSON the API's mentee service POSTs to the URL
+// derived from MENTOR_LOGIN_EMAIL_TRIGGER_URL (see
+// config.EventTriggerFunctionsConfig.MenteeLoginEmailTriggerURL).
+type menteeLoginPayload struct {
+	Type     string `json:"type"`
+	MenteeID string `json:"mentee_id"`
+	LoginURL string `json:"login_url"`
+}
+
+// MenteeLoginEmail sends a mentee their dashboard sign-in link (D95). The
+// recipient is read from the mentees row, never taken from the payload, so the
+// trigger cannot be turned into "mail this link to any address".
+func (h *Handlers) MenteeLoginEmail(c *gin.Context) {
+	ctx := c.Request.Context()
+	const job = "mentee-login-email"
+
+	track := func(menteeID, outcome string, extra map[string]interface{}) {
+		props := map[string]interface{}{"outcome": outcome}
+		for k, v := range extra {
+			props[k] = v
+		}
+		distinctID := analytics.SystemDistinctID("worker")
+		if menteeID != "" {
+			props["mentee_id"] = menteeID
+			distinctID = analytics.MenteeDistinctID(menteeID)
+		}
+		h.track(ctx, analytics.EventMenteeAuthLoginEmailSent, distinctID, props)
+	}
+
+	var payload menteeLoginPayload
+	if err := c.ShouldBindJSON(&payload); err != nil || payload.Type != "mentee_login" {
+		track("", "invalid_payload_type", nil)
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payload: type must be 'mentee_login'"})
+		return
+	}
+	if payload.MenteeID == "" {
+		track("", "missing_mentee_id", nil)
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payload: missing mentee_id"})
+		return
+	}
+	if payload.LoginURL == "" {
+		track(payload.MenteeID, "missing_login_url", nil)
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "Invalid payload: missing login_url"})
+		return
+	}
+
+	mentee, err := h.repo.GetJobMenteeByID(ctx, payload.MenteeID)
+	if err != nil {
+		logger.Error("[Mentee Login Email] Failed to fetch mentee", zap.String("mentee_id", payload.MenteeID), logger.RedactedError(err))
+		track("", "error", map[string]interface{}{"error_type": errTypeDBError})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to fetch mentee"})
+		return
+	}
+	if mentee == nil {
+		logger.Warn("[Mentee Login Email] Mentee not found", zap.String("mentee_id", payload.MenteeID))
+		track(payload.MenteeID, "mentee_not_found", nil)
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Mentee not found"})
+		return
+	}
+
+	name := mentee.Name
+	if name == "" {
+		name = "there"
+	}
+	sendErr := h.sendEmail(ctx, job, email.Message{
+		TemplateName: "mentee-login",
+		Recipient:    mentee.Email,
+		Props: map[string]interface{}{
+			"mentee_name": name,
+			"login_url":   payload.LoginURL,
+		},
+	})
+	if sendErr != nil {
+		track("", "error", map[string]interface{}{"error_type": errTypeEmailSendFailed})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to send email"})
+		return
+	}
+
+	logger.Info("[Mentee Login Email] Sent", zap.String("mentee_id", mentee.ID))
+	track(mentee.ID, "success", map[string]interface{}{"delivery_channels": 1})
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}

@@ -168,3 +168,83 @@ func TestModeratorLoginEmailSendFailure(t *testing.T) {
 	assert.Equal(t, "error", event.props["outcome"])
 	assert.Equal(t, "email_send_failed", event.props["error_type"])
 }
+
+func TestMenteeLoginEmailHappyPath(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentees["e1"] = &JobMentee{ID: "e1", Name: "Jane Mentee", Email: "jane@example.com"}
+
+	body := []byte(`{"type":"mentee_login","mentee_id":"e1","login_url":"https://openmentor.io/mentee/auth/callback?token=t"}`)
+	w := env.do(http.MethodPost, "/jobs/mentee-login-email", body)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, []string{"mentee-login"}, env.sender.templates())
+	msg := env.sender.attempts[0]
+	assert.Equal(t, "jane@example.com", msg.Recipient)
+	assert.Equal(t, "Jane Mentee", msg.Props["mentee_name"])
+	assert.Equal(t, "https://openmentor.io/mentee/auth/callback?token=t", msg.Props["login_url"])
+
+	event := env.tracker.last()
+	require.NotNil(t, event)
+	assert.Equal(t, analytics.EventMenteeAuthLoginEmailSent, event.event)
+	assert.Equal(t, "mentee:e1", event.distinctID)
+	assert.Equal(t, "success", event.props["outcome"])
+}
+
+// TestMenteeLoginEmailIgnoresAPayloadRecipient: the recipient comes from the
+// mentees row only. A payload that names an address must not redirect the link.
+func TestMenteeLoginEmailIgnoresAPayloadRecipient(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentees["e1"] = &JobMentee{ID: "e1", Email: "jane@example.com"}
+
+	body := []byte(`{"type":"mentee_login","mentee_id":"e1","mentee_email":"attacker@example.com","login_url":"u"}`)
+	w := env.do(http.MethodPost, "/jobs/mentee-login-email", body)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, env.sender.attempts, 1)
+	assert.Equal(t, "jane@example.com", env.sender.attempts[0].Recipient)
+	assert.Equal(t, "there", env.sender.attempts[0].Props["mentee_name"], "a mentee with no request name is greeted generically")
+}
+
+func TestMenteeLoginEmailInvalidAndMissing(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		wantCode    int
+		wantOutcome string
+	}{
+		{"empty body", ``, http.StatusBadRequest, "invalid_payload_type"},
+		{"wrong type", `{"type":"mentor_login","mentee_id":"e1","login_url":"u"}`, http.StatusBadRequest, "invalid_payload_type"},
+		{"missing mentee_id", `{"type":"mentee_login","login_url":"u"}`, http.StatusBadRequest, "missing_mentee_id"},
+		{"missing login_url", `{"type":"mentee_login","mentee_id":"e1"}`, http.StatusBadRequest, "missing_login_url"},
+		{"mentee not found", `{"type":"mentee_login","mentee_id":"ghost","login_url":"u"}`, http.StatusNotFound, "mentee_not_found"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newJobsTestEnv()
+			env.repo.mentees["e1"] = &JobMentee{ID: "e1", Email: "jane@example.com"}
+
+			w := env.do(http.MethodPost, "/jobs/mentee-login-email", []byte(tt.body))
+
+			assert.Equal(t, tt.wantCode, w.Code)
+			assert.Empty(t, env.sender.attempts)
+			event := env.tracker.last()
+			require.NotNil(t, event)
+			assert.Equal(t, tt.wantOutcome, event.props["outcome"])
+		})
+	}
+}
+
+func TestMenteeLoginEmailSendFailure(t *testing.T) {
+	env := newJobsTestEnv()
+	env.repo.mentees["e1"] = &JobMentee{ID: "e1", Email: "jane@example.com"}
+	env.sender.failAll = true
+
+	w := env.do(http.MethodPost, "/jobs/mentee-login-email", []byte(`{"type":"mentee_login","mentee_id":"e1","login_url":"u"}`))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	event := env.tracker.last()
+	require.NotNil(t, event)
+	assert.Equal(t, "error", event.props["outcome"])
+	assert.Equal(t, "email_send_failed", event.props["error_type"])
+}

@@ -146,7 +146,8 @@ func respondReviewSubmitError(c *gin.Context, resp *models.SubmitReviewResponse,
 		errors.Is(err, services.ErrReviewAlreadyExists),
 		errors.Is(err, services.ErrReviewRequestNotDone):
 		c.JSON(http.StatusConflict, resp)
-	case errors.Is(err, services.ErrReviewRequestNotFound):
+	case errors.Is(err, services.ErrReviewRequestNotFound),
+		errors.Is(err, services.ErrReviewRequestNotOwned):
 		c.JSON(http.StatusNotFound, resp)
 	default:
 		c.JSON(http.StatusBadRequest, resp)

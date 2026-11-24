@@ -700,7 +700,7 @@
     {
       "type": "timeseries",
       "title": "Auth Requests (1h)",
-      "description": "Mentor auth login and verify requests over trailing 1h windows.",
+      "description": "Mentor and mentee (D95) auth login and verify requests over trailing 1h windows.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -716,7 +716,7 @@
           "range": true,
           "instant": false,
           "editorMode": "code",
-          "legendFormat": "login {{status}}"
+          "legendFormat": "mentor login {{status}}"
         },
         {
           "datasource": {
@@ -728,7 +728,31 @@
           "range": true,
           "instant": false,
           "editorMode": "code",
-          "legendFormat": "verify {{status}}"
+          "legendFormat": "mentor verify {{status}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum by (status) (increase(openmentor_mentee_auth_login_requests_total[1h]))",
+          "refId": "C",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "mentee login {{status}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum by (status) (increase(openmentor_mentee_auth_verify_requests_total[1h]))",
+          "refId": "D",
+          "range": true,
+          "instant": false,
+          "editorMode": "code",
+          "legendFormat": "mentee verify {{status}}"
         }
       ],
       "fieldConfig": {
