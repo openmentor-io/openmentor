@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import MenteeRequestCard from '@/components/mentee/MenteeRequestCard'
+import MenteeRequestCard, { REPLAY_MASK_CLASS } from '@/components/mentee/MenteeRequestCard'
 import type { MenteeRequest } from '@/types'
 
 jest.mock('@marsidev/react-turnstile', () => ({ Turnstile: () => null }))
@@ -129,5 +129,45 @@ describe('MenteeRequestCard', () => {
     )
     expect(screen.getByText('Mentor no longer on OpenMentor')).toBeInTheDocument()
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  // Session replay records DOM text verbatim; the free text people wrote must
+  // sit inside a masked element so it leaves the browser as asterisks.
+  it('masks the request text, decline comment and review from session replay', () => {
+    const masked = (text: string): boolean =>
+      screen.getByText(text).closest(`.${REPLAY_MASK_CLASS}`) !== null
+
+    const { unmount } = render(
+      <MenteeRequestCard
+        request={makeRequest({
+          status: 'declined',
+          group: 'closed',
+          declineReason: 'other',
+          declineComment: 'Reach me at bob@example.com instead',
+        })}
+        onReviewed={jest.fn()}
+      />,
+    )
+    expect(masked('Help me prepare for interviews')).toBe(true)
+    expect(masked('Reach me at bob@example.com instead')).toBe(true)
+    unmount()
+
+    render(
+      <MenteeRequestCard
+        request={makeRequest({
+          status: 'done',
+          group: 'done',
+          review: {
+            mentorReview: 'Thanks Alice, call me on +1 555 0100',
+            platformReview: '',
+            improvements: '',
+            createdAt: '2026-11-10T10:00:00Z',
+          },
+        })}
+        onReviewed={jest.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /view your review/i }))
+    expect(masked('Thanks Alice, call me on +1 555 0100')).toBe(true)
   })
 })

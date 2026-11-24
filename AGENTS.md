@@ -285,6 +285,12 @@ review tokens need a *shape* rule as well as a key rule, because session replay 
 attribute values verbatim. The Go side mirrors these rules in `api/pkg/redact`; the two cannot
 import each other, so `src/lib/__tests__/telemetry-redaction.test.ts` pins this copy's shape.
 
+**`redact.ts` strips capability *shapes*; it does not protect free text.** PostHog session replay
+(switched on in the project settings, not in code) records DOM text verbatim, and only form inputs
+are masked by default. Wrap text a person wrote — request messages, decline comments, reviews —
+in an element with the `ph-mask` class (posthog-js's `maskTextClass`), as
+`components/mentee/MenteeRequestCard.tsx` does; `ph-no-capture` blocks an element entirely.
+
 ### API response caching
 
 `next.config.js` sends `Cache-Control: no-store` on every `/api/*` response. **Don't remove it.**

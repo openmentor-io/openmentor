@@ -17,6 +17,13 @@ import StatusBadge from '@/components/mentor-admin/StatusBadge'
 import { formatDate } from '@/components/mentor-admin/utils'
 import MenteeReviewForm from './MenteeReviewForm'
 
+/**
+ * posthog-js's session-replay text mask class. The request text, decline
+ * comment and review are free text written by people; `redact.ts` strips
+ * capability shapes only, so it cannot protect them.
+ */
+export const REPLAY_MASK_CLASS = 'ph-mask'
+
 interface MenteeRequestCardProps {
   request: MenteeRequest
   onReviewed: (requestId: string, review: MenteeReview) => void
@@ -29,7 +36,7 @@ function declineReasonLabel(reason?: string): string | null {
 
 function ReviewBlock({ review }: { review: MenteeReview }): JSX.Element {
   return (
-    <div className="mt-4 rounded-field bg-surface p-4">
+    <div className={classNames('mt-4 rounded-field bg-surface p-4', REPLAY_MASK_CLASS)}>
       <p className="meta-mono my-0 text-ink-mute">Your review · {formatDate(review.createdAt)}</p>
       <p className="my-0 mt-2 whitespace-pre-line text-sm leading-relaxed text-ink">
         {review.mentorReview}
@@ -99,7 +106,12 @@ export default function MenteeRequestCard({
       </div>
 
       {request.details && (
-        <p className="my-0 mt-3 line-clamp-4 whitespace-pre-line text-[13.5px] leading-normal text-ink-soft">
+        <p
+          className={classNames(
+            'my-0 mt-3 line-clamp-4 whitespace-pre-line text-[13.5px] leading-normal text-ink-soft',
+            REPLAY_MASK_CLASS,
+          )}
+        >
           {request.details}
         </p>
       )}
@@ -118,7 +130,12 @@ export default function MenteeRequestCard({
       )}
 
       {request.status === 'declined' && (declineLabel || request.declineComment) && (
-        <div className="mt-4 rounded-field bg-surface p-4 text-sm text-ink-soft">
+        <div
+          className={classNames(
+            'mt-4 rounded-field bg-surface p-4 text-sm text-ink-soft',
+            REPLAY_MASK_CLASS,
+          )}
+        >
           {declineLabel && <p className="my-0 font-semibold text-ink">{declineLabel}</p>}
           {request.declineComment && (
             <p className="my-0 mt-1 whitespace-pre-line">{request.declineComment}</p>
