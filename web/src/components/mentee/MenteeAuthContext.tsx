@@ -70,7 +70,10 @@ export function MenteeAuthProvider({ children }: { children: ReactNode }): JSX.E
     if (isLoading) return
     if (session?.mentee_id) {
       analytics.identify(`mentee:${session.mentee_id}`, { role: 'mentee' })
+      return
     }
+    // Without this, activity after logout is attributed to the previous mentee.
+    analytics.reset()
   }, [isLoading, session?.mentee_id])
 
   const value = useMemo(

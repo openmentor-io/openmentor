@@ -88,6 +88,15 @@ describe('MenteeRequestCard', () => {
     expect(screen.getByRole('button', { name: /submit review/i })).toBeInTheDocument()
   })
 
+  // client_requests.id is a legacy review capability, and session replay
+  // serializes DOM attributes verbatim — so it must not appear anywhere in them.
+  it('keeps the request id out of the rendered DOM', () => {
+    const request = makeRequest({ status: 'done', group: 'done', canReview: true })
+    const { container } = render(<MenteeRequestCard request={request} onReviewed={jest.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /leave a review/i }))
+    expect(container.innerHTML).not.toContain(request.id)
+  })
+
   it('shows an existing review read-only, with no way to edit it', () => {
     render(
       <MenteeRequestCard

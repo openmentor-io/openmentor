@@ -3,7 +3,7 @@
  * and limits as /reviews/new; the session authorizes it instead of a token.
  */
 
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import classNames from 'classnames'
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
@@ -36,6 +36,9 @@ export default function MenteeReviewForm({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const turnstileRef = useRef<TurnstileInstance>(null)
+  // Not the request id: it is a legacy review capability, and session replay
+  // records element ids verbatim.
+  const fieldId = useId()
   const {
     register,
     handleSubmit,
@@ -86,11 +89,11 @@ export default function MenteeReviewForm({
       </p>
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={`mentorReview-${requestId}`} className="text-[13px] font-semibold text-ink">
+        <label htmlFor={`mentorReview-${fieldId}`} className="text-[13px] font-semibold text-ink">
           Review of the mentor <span className="text-danger">*</span>
         </label>
         <textarea
-          id={`mentorReview-${requestId}`}
+          id={`mentorReview-${fieldId}`}
           rows={5}
           disabled={isSubmitting}
           placeholder="What you liked, what was useful, whether the mentor helped..."
@@ -109,14 +112,11 @@ export default function MenteeReviewForm({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor={`platformReview-${requestId}`}
-          className="text-[13px] font-semibold text-ink"
-        >
+        <label htmlFor={`platformReview-${fieldId}`} className="text-[13px] font-semibold text-ink">
           Review of the platform
         </label>
         <textarea
-          id={`platformReview-${requestId}`}
+          id={`platformReview-${fieldId}`}
           rows={2}
           disabled={isSubmitting}
           placeholder="What do you think of OpenMentor? (optional)"
@@ -126,11 +126,11 @@ export default function MenteeReviewForm({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={`improvements-${requestId}`} className="text-[13px] font-semibold text-ink">
+        <label htmlFor={`improvements-${fieldId}`} className="text-[13px] font-semibold text-ink">
           What could we improve?
         </label>
         <textarea
-          id={`improvements-${requestId}`}
+          id={`improvements-${fieldId}`}
           rows={2}
           disabled={isSubmitting}
           placeholder="Your suggestions (optional)"
